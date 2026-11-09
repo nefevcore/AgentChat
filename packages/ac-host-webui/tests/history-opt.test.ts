@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { bootHostWeb, type HostWebResult } from '../src/host-web.ts';
-import { UserLedger, sessionDir } from 'ac-ledger';
+import { LedgerWriter, sessionDir } from 'ac-ledger';
 
 const ROOT = path.join('sandbox', 'test-hist-opt-' + process.pid);
 let host: HostWebResult | null = null;
@@ -42,8 +42,9 @@ describe('session/history 读面优化（cr-768）', () => {
     const ws = new WebSocket('ws://127.0.0.1:' + host.port + '/ws');
     await new Promise<void>((res) => ws.once('open', () => res()));
     const conv = 'fp-e2e';
-    const ul = new UserLedger(ROOT, conv, ['user']);
-    await ul.writeThrough({ agentId: 'alpha', content: '第一稿', uuid: conv, run: 'r1', requestId: 'rq1' });
+    // cr-973：viewer 物化退役——终稿行直落 agent 域（读时投影源）
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.deliver({ role: 'agent', content: '第一稿', agent_id: 'alpha', uuid: conv, run: 'r1', requestId: 'rq1' });
 
     const first = await rpc<{ records: unknown[]; total: number; fingerprint?: string }>(ws, 'session/history', { conversationId: conv });
     expect(first.total).toBe(1);
@@ -62,7 +63,7 @@ describe('session/history 读面优化（cr-768）', () => {
     expect(paged.total).toBe(1);
 
     // 追加终稿行 → 指纹失效 → 回全量且带新指纹
-    await ul.writeThrough({ agentId: 'alpha', content: '第二稿', uuid: conv, run: 'r2', requestId: 'rq2' });
+    await w.deliver({ role: 'agent', content: '第二稿', agent_id: 'alpha', uuid: conv, run: 'r2', requestId: 'rq2' });
     const after = await rpc<{ unchanged?: boolean; total: number; fingerprint?: string }>(ws, 'session/history', { conversationId: conv, fingerprint: fp });
     expect(after.unchanged).toBeUndefined();
     expect(after.total).toBe(2);
@@ -77,8 +78,9 @@ describe('session/history 读面优化（cr-768）', () => {
     const ws = new WebSocket('ws://127.0.0.1:' + host.port + '/ws');
     await new Promise<void>((res) => ws.once('open', () => res()));
     const conv = 'lite-e2e';
-    const ul = new UserLedger(ROOT, conv, ['user']);
-    await ul.writeThrough({ agentId: 'alpha', content: '终稿', uuid: conv, run: 'run-l', requestId: 'rq-l' });
+    // cr-973：viewer 物化退役——终稿行直落 agent 域（读时投影源）
+    const ul = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await ul.deliver({ role: 'agent', content: '终稿', agent_id: 'alpha', uuid: conv, run: 'run-l', requestId: 'rq-l' });
     const jf = path.join(sessionDir(ROOT, 'alpha', conv), 'journal', 'partials.jsonl');
     fs.mkdirSync(path.dirname(jf), { recursive: true });
     const LONG = 'z'.repeat(5 * 1024);

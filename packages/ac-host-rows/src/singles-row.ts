@@ -4,11 +4,12 @@
 // owns：meta/sessions/<sid>.json（元数据：agentId / title / workspaceId /
 // status / 时间戳——数据分层第二层，自 viewer 投影目录迁出；读侧兼容窗
 // 回落旧位置 viewer/sessions/<sid>/session.json，写侧恒新路径）
-// + viewer/sessions/.singles-registry.json
+// + meta/sessions/.singles-registry.json
 //（清单注册表，cr-869：整表视图驻留内存，写点同步维护，list 零读——
-// cr-845 摘要索引的延伸——注册表是派生缓存，留投影树不动）。消息流归
-// user 终稿账本（UserStub 写，messages.jsonl——viewer 端点目录）；模型
-// 覆盖归 conv-settings（D12 单源，不落 session.json）。
+// cr-845 摘要索引的延伸；cr-973 自 viewer 树迁出——viewer 整树可删）。
+// 消息流 = agent 域账本（cr-973 viewer 停写——终稿层经 ac-ledger
+// projectUserReplay 读时投影，本行不再触碰 viewer 消息文件；模型覆盖
+// 归 conv-settings（D12 单源，不落 session.json）。
 //
 // RPC 面与主线 ac-web-api 同形（前端零改动）：
 //   singles/list | create | update | fork | archive | delete
@@ -28,7 +29,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { isTitleRequest, issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
-import { conversationDirs, forkConversation, userSessionDir, userMetaFile, legacyUserMetaFile } from 'ac-ledger';
+import { conversationDirs, forkConversation, projectUserReplay, sessionDir, userSessionDir, userMetaFile, legacyUserMetaFile } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
 import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, fallbackTitle } from 'ac-core-utils';
 import type { HostInbox } from './host-inbox.ts';
@@ -75,10 +76,11 @@ interface WebFace {
 }
 
 
-function sessionsDir(dataRoot: string): string {
-  return path.join(dataRoot, 'viewer', 'sessions');
+function metaSessionsDir(dataRoot: string): string {
+  return path.join(dataRoot, 'meta', 'sessions');
 }
 
+/** viewer 存量目录（cr-973 停写后仅兼容窗用途——清单回退与硬删残留清理） */
 function dirOf(dataRoot: string, id: string): string {
   return userSessionDir(dataRoot, id); // viewer 投影轴目录词汇单源（ac-ledger 拥有）
 }
@@ -118,9 +120,8 @@ function readMeta(dataRoot: string, id: string): SingleMeta | null {
 }
 
 function writeMeta(dataRoot: string, meta: SingleMeta): void {
-  // 会话身份目录（viewer 侧）照常物化——目录即身份（listIds 以它为全集），
-  // 消息流也落这里；元数据本体落第二层 meta/sessions/。
-  fs.mkdirSync(dirOf(dataRoot, meta.id), { recursive: true });
+  // cr-973 viewer 停写：会话身份不再物化 viewer 目录（清单身份源 =
+  // meta/sessions，消息流在 agent 域）——元数据本体落第二层 meta/sessions/。
   const file = metaFileOf(dataRoot, meta.id);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
@@ -146,7 +147,9 @@ interface LedgerSummary {
 
 
 function registryFileOf(dataRoot: string): string {
-  return path.join(sessionsDir(dataRoot), '.singles-registry.json');
+  // cr-973 自 viewer/sessions 迁 meta/sessions（注册表是派生缓存——迁址
+  // 即一次性冷对账重建，旧文件留投影树不动）
+  return path.join(metaSessionsDir(dataRoot), '.singles-registry.json');
 }
 
 interface RegistryEntry {
@@ -164,7 +167,7 @@ interface RegistryEntry {
 }
 interface RegistryFile { version: 2; entries: Record<string, RegistryEntry> }
 
-/** 条目窄化（shape 损坏条目整表丢弃重建——正确性不依赖缓存内容） */
+// 条目窄化（shape 损坏条目整表丢弃重建——正确性不依赖缓存内容）
 function validEntry(e: unknown): e is RegistryEntry {
   if (typeof e !== 'object' || e === null) return false;
   const { size, mtimeMs, metaMtimeMs, summary } = e as Record<string, unknown>;
@@ -174,7 +177,7 @@ function validEntry(e: unknown): e is RegistryEntry {
 }
 
 function writeRegistry(dataRoot: string, entries: Map<string, RegistryEntry>): void {
-  fs.mkdirSync(sessionsDir(dataRoot), { recursive: true });
+  fs.mkdirSync(metaSessionsDir(dataRoot), { recursive: true });
   const file = registryFileOf(dataRoot);
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify({ version: 2, entries: Object.fromEntries(entries) } satisfies RegistryFile), 'utf-8');
@@ -193,7 +196,7 @@ function metaMtimeOf(dataRoot: string, id: string): number {
 
 /** 单会话条目回源重建（盘真值 → 视图 + 摘要指纹；null = 盘上已无此会话） */
 function buildEntry(dataRoot: string, id: string, conv: ConvSettingsFace | undefined): RegistryEntry | null {
-  const ledgerSt = ledgerStat(dataRoot, id);
+  const ledgerSt = ledgerFingerprint(dataRoot, id);
   const summary = ledgerSt === null ? { count: 0 } : computeLedgerSummary(dataRoot, id);
   const view = viewOf(dataRoot, id, conv, summary);
   if (view === null) return null; // meta 与账本双空 = 不是会话
@@ -243,41 +246,40 @@ function loadRegistry(dataRoot: string, conv: () => ConvSettingsFace | undefined
   return entries;
 }
 
-function ledgerStat(dataRoot: string, id: string): fs.Stats | null {
+/** 账本指纹（cr-973：agent 域 messages.jsonl 聚合——size 求和、mtime 取
+ *  最大；viewer 存量文件在兼容窗内仍是读面输入，一并计入）。null = 无账本。 */
+function ledgerFingerprint(dataRoot: string, id: string): { size: number; mtimeMs: number } | null {
+  let size = 0;
+  let mtimeMs = 0;
+  let any = false;
   try {
-    return fs.statSync(path.join(dirOf(dataRoot, id), 'messages.jsonl'));
+    for (const dir of conversationDirs(dataRoot, id, { includeJournalOnly: true })) {
+      try {
+        const st = fs.statSync(path.join(dir, 'messages.jsonl'));
+        size += st.size;
+        mtimeMs = Math.max(mtimeMs, st.mtimeMs);
+        any = true;
+      } catch { /* 该域无 messages 文件 */ }
+    }
   } catch {
-    return null;
+    return null; // 非法 id 等
   }
+  return any ? { size, mtimeMs } : null;
 }
 
 function computeLedgerSummary(dataRoot: string, id: string): LedgerSummary {
-  let text: string;
-  try {
-    text = fs.readFileSync(path.join(dirOf(dataRoot, id), 'messages.jsonl'), 'utf-8');
-  } catch {
-    return { count: 0 };
-  }
+  // cr-973：终稿层读时投影（agent 域账本——viewer 不再物化；导入前会话
+  // 走 projectUserReplay 兼容窗直读 viewer 存量文件，行形状同构）
+  const rows = projectUserReplay(dataRoot, id);
   let agentId: string | undefined;
   // 标题候选两档：用户自己的首条发言（正解）> 任意首条有内容行（旧会话
   // 兜底）。旧实现取「首条非空内容行」，对端台词/定时触发词/DSML 残片都会
   // 变成标题；且按换行符切分不剥 CR 尾（CRLF 会话标题带脏尾，cr-672）。
   let userTitle: string | undefined;
   let anyTitle: string | undefined;
-  let lastActivity: string | undefined;
-  let count = 0;
-  for (const raw of text.split('\n')) {
-    if (raw.trim() === '') continue;
-    let row: Record<string, unknown>;
-    try { row = JSON.parse(raw) as Record<string, unknown>; } catch { continue; }
-    if (row.type === 'session-header') continue;
-    count += 1;
-    if (typeof row.timestamp === 'string') lastActivity = row.timestamp;
-    // agentId = 对端（user 投影账本里自己的行 agent_id 恒 'user'——跳过）
-    if (typeof row.agent_id === 'string' && row.agent_id !== '' && row.agent_id !== 'user' && agentId === undefined) {
-      agentId = row.agent_id;
-    }
-    const content = typeof row.content === 'string' ? row.content : '';
+  for (const r of rows) {
+    if (r.role === 'peer' && r.agentId !== '' && agentId === undefined) agentId = r.agentId;
+    const content = typeof r.content === 'string' ? r.content : '';
     // 日期快照行（ac-datetime 前缀）不是用户发言；材料行筛选（跳过附件路径 /
     // @ 引用 / URL 行）、归一与上限走 ac-core-utils 单源（与生成面同口径——
     // 旧派生面 40 字与其 24 字走散，且路径开头的消息让整列标题同形）
@@ -285,24 +287,25 @@ function computeLedgerSummary(dataRoot: string, id: string): LedgerSummary {
     const candidate = fallbackTitle(content);
     if (candidate === '') continue;
     anyTitle ??= candidate;
-    if (userTitle === undefined && row.agent_id === 'user') userTitle = candidate;
+    if (userTitle === undefined && r.role === 'user') userTitle = candidate;
   }
   const title = userTitle ?? anyTitle;
+  const lastActivity = rows.at(-1)?.timestamp;
   return {
     ...(agentId !== undefined ? { agentId } : {}),
     ...(title !== undefined ? { title } : {}),
     ...(lastActivity !== undefined ? { lastActivity } : {}),
-    count,
+    count: rows.length,
   };
 }
 
 /** 视图组装（回执/单点路径：直读盘真值——注册表条目由 buildEntry/写点维护） */
 function viewOf(dataRoot: string, id: string, conv: ConvSettingsFace | undefined, summary?: LedgerSummary): SingleView | null {
   const meta = readMeta(dataRoot, id);
-  const sum = summary ?? (ledgerStat(dataRoot, id) === null ? { count: 0 } : computeLedgerSummary(dataRoot, id));
+  const sum = summary ?? (ledgerFingerprint(dataRoot, id) === null ? { count: 0 } : computeLedgerSummary(dataRoot, id));
   if (meta === null && sum.count === 0) return null;
   let iso = meta?.updatedAt ?? new Date(0).toISOString();
-  try { iso = fs.statSync(dirOf(dataRoot, id)).mtime.toISOString(); } catch { /* 目录缺席：用元数据时刻 */ }
+  try { iso = fs.statSync(path.dirname(metaFileOf(dataRoot, id))).mtime.toISOString(); } catch { /* 元数据目录缺席：用元数据时刻 */ }
   const model = conv?.get(id).model;
   const title = meta?.title ?? sum.title;
   const agentId = meta?.agentId ?? sum.agentId;
@@ -322,11 +325,21 @@ function viewOf(dataRoot: string, id: string, conv: ConvSettingsFace | undefined
   };
 }
 
-/** 全部会话 id（端点目录 + 元数据并存——目录即身份） */
+/** 全部会话 id（cr-973：身份源 = meta/sessions；viewer 存量目录并集
+ *  兼容窗——导入前会话/寄居期元数据回退） */
 function listIds(dataRoot: string): string[] {
-  let entries: fs.Dirent[] = [];
-  try { entries = fs.readdirSync(sessionsDir(dataRoot), { withFileTypes: true }); } catch { return []; }
-  return entries.filter((e) => e.isDirectory()).map((e) => e.name).sort();
+  const ids = new Set<string>();
+  try {
+    for (const e of fs.readdirSync(metaSessionsDir(dataRoot), { withFileTypes: true })) {
+      if (e.isFile() && e.name.endsWith('.json') && !e.name.startsWith('.')) ids.add(e.name.slice(0, -5));
+    }
+  } catch { /* 无元数据域 */ }
+  try {
+    for (const e of fs.readdirSync(path.join(dataRoot, 'viewer', 'sessions'), { withFileTypes: true })) {
+      if (e.isDirectory()) ids.add(e.name);
+    }
+  } catch { /* 兼容窗目录缺席 */ }
+  return [...ids].sort();
 }
 
 function obj(params: unknown): Record<string, unknown> {
@@ -363,7 +376,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       /** 写点收口：emit 后同步注册表条目（真值已落盘，条目 = 回执视图 + 现指纹；
        *  账本指纹未变复用旧摘要——写点改的是 session.json/conv，不碰消息流）+ 落盘 */
       const upsertEntry = (id: string, view: SingleView | null): void => {
-        const st = ledgerStat(dataRoot, id);
+        const st = ledgerFingerprint(dataRoot, id);
         const prev = registry.get(id);
         const summary = st === null ? { count: 0 }
           : (prev !== undefined && prev.size === st.size && prev.mtimeMs === st.mtimeMs ? prev.summary : computeLedgerSummary(dataRoot, id));
@@ -423,7 +436,8 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         });
       }
 
-      // list（cr-869/870）：驻留快照直吐。每条目 1 次 ledgerStat 指纹复验
+      // list（cr-869/870）：驻留快照直吐。每条目 1 次账本指纹复验（cr-973
+      // 起指纹 = agent 域 messages.jsonl 聚合 stat）
       //（兜底事件丢失——绕过通知的外部写/删除仍被看见），失配或 stale（追加
       // 事件标记）才读账本重算（cr-870 前是全条目三重 stat + meta 读）。
       // 分批让出事件循环（重算读账本时不饿死其他 RPC，cr-843 同款教训）。
@@ -434,7 +448,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         for (let i = 0; i < ids.length; i++) {
           const id = ids[i]!;
           const e = registry.get(id)!;
-          const st = ledgerStat(dataRoot, id);
+          const st = ledgerFingerprint(dataRoot, id);
           const gone = st === null && e.size !== 0; // 账本曾存在、现已消失
           if (e.stale === true || gone || (st !== null && (st.size !== e.size || st.mtimeMs !== e.mtimeMs))) {
             const rebuilt = buildEntry(dataRoot, id, conv());
@@ -515,7 +529,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
           const next = String(p.agentId);
           if (next === '') {
             const known = registry.get(id)?.summary.count;
-            const count = known !== undefined ? known : (ledgerStat(dataRoot, id) === null ? 0 : computeLedgerSummary(dataRoot, id).count);
+            const count = known !== undefined ? known : (ledgerFingerprint(dataRoot, id) === null ? 0 : computeLedgerSummary(dataRoot, id).count);
             if (count > 0) throw new Error('会话已有消息，不能清空 Agent');
             delete meta.agentId;
           } else {
@@ -555,8 +569,19 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         if (from === null) throw new Error('会话不存在：' + id);
         const nextId = issueConversationId();
         const anchor = optStr(p.anchorMessageId);
-        const nextDir = dirOf(dataRoot, nextId);
-        forkConversation(dirOf(dataRoot, id), nextDir, anchor);
+        // cr-973：消息流在 agent 域——逐域分支拷贝（viewer 存量目录兼容窗
+        // 内一并拷贝；新会话从此只有 agent 域 + meta）
+        let forked = false;
+        for (const dir of conversationDirs(dataRoot, id)) {
+          const domain = path.basename(path.dirname(path.dirname(dir)));
+          const to = domain === 'viewer' ? dirOf(dataRoot, nextId) : sessionDir(dataRoot, domain, nextId);
+          try {
+            const n = forkConversation(dir, to, anchor);
+            forked = forked || n > 0;
+          } catch {
+            // 该域无 messages 文件（journal-only）——跳过
+          }
+        }
         const now = new Date().toISOString();
         const meta: SingleMeta = {
           id: nextId,

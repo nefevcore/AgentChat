@@ -14,8 +14,9 @@
 //（requestId 幂等键收敛冗余，冗余但如实）；反序则漏通知。
 //
 // 本文件 = 纯 IO/纯函数（编排住 service.ts driveRun）；落点
-// viewer/sessions/<sid>/prefix-snapshot.json（会话本体目录，与 session.json
-// 同目录——文件级 owning：本文件归 ac-shell-conversation）。
+// meta/sessions/<sid>.prefix-snapshot.json（singles 元数据旁，cr-973 自
+// viewer 域迁出——viewer 树整体可删；文件级 owning：本文件归
+// ac-shell-conversation，旧路径读兼容一个版本）。
 // ============================================================
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
@@ -45,16 +46,28 @@ export function snapshotFileOf(dataRoot: string, sid: string): string {
   if (sid === '' || sid.includes('/') || sid.includes('\\') || sid.includes('..')) {
     throw new Error('会话 id "' + sid + '" 非法（非空，禁路径分隔 / ..）');
   }
+  // cr-973（cr-972 第一刀）：viewer 域停写——快照改住 singles 元数据旁
+  //（meta/sessions/<sid>.prefix-snapshot.json）
+  return path.join(dataRoot, 'meta', 'sessions', sid + '.prefix-snapshot.json');
+}
+
+/** 旧路径（viewer 寄居期形态——读侧兼容窗，写侧恒新路径） */
+function legacySnapshotFileOf(dataRoot: string, sid: string): string {
   return path.join(userSessionDir(dataRoot, sid), 'prefix-snapshot.json');
 }
 
-/** 读快照（缺席/损坏/形状非法 → null = 按 ① 重新物化，fail-safe） */
+/** 读快照（缺席/损坏/形状非法 → null = 按 ① 重新物化，fail-safe；
+ *  新路径优先，回落 viewer 旧路径——兼容窗内旧文件不迁移，重算即迁） */
 export function readPrefixSnapshot(dataRoot: string, sid: string): PrefixSnapshot | null {
   let raw: unknown;
   try {
     raw = JSON.parse(fs.readFileSync(snapshotFileOf(dataRoot, sid), 'utf-8'));
   } catch {
-    return null;
+    try {
+      raw = JSON.parse(fs.readFileSync(legacySnapshotFileOf(dataRoot, sid), 'utf-8'));
+    } catch {
+      return null;
+    }
   }
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as { version?: unknown; createdAt?: unknown; sections?: unknown; settingsFingerprint?: unknown };

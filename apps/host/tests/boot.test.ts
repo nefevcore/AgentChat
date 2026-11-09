@@ -10,7 +10,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { FiberStates } from '@agentchat/cordis';
-import { LedgerWriter } from 'ac-ledger';
+import { LedgerWriter, projectUserReplay } from 'ac-ledger';
 import { bootHost } from '../boot.ts';
 import type { HostBootResult } from '../boot.ts';
 
@@ -40,8 +40,9 @@ interface WebRpcFace {
 }
 
 describe('宿主 boot（单树装配面）', () => {
-  it('偏好缺省全装：全部宿主行就位对账（23 全集，cr-701 B4 后无 ui 分流行）', async () => {
-    // 23 = cr-701 撤 25 ui 域行后的 cordis 全集：web 表面 4 行（web-server/
+  it('偏好缺省全装：全部宿主行就位对账（24 全集，cr-701 B4 后无 ui 分流行）', async () => {
+    // 24 = cr-701 撤 25 ui 域行后的 cordis 全集 + cr-973 session-index 行
+    //（指针索引行——宿主单写者）：web 表面 4 行（web-server/
     // webui/web-api + post-office 编排件）+ guardian / preset-builtin 为编排
     // 与数据面；cordis 直装面 = 导入行 + options 工厂行（usage/timers/agents/
     // plugin-registry/auth-registry/group）+ agent-admin（写侧 RPC 编排）。
@@ -54,7 +55,7 @@ describe('宿主 boot（单树装配面）', () => {
     });
     const expected = ['agent-admin', 'agents', 'auth-registry', 'backup', 'config', 'conv-settings', 'event-policy', 'group', 'guardian',
       'host-face', 'logger-console', 'post-office', 'plugin-market', 'plugin-registry', 'preset-builtin',
-      'remote-link', 'singles', 'timer', 'timers', 'usage',
+      'remote-link', 'session-index', 'singles', 'timer', 'timers', 'usage',
       'ws-bridge', 'web-server', 'webui', 'web-api',
     ];
     // 派生集即全集（cr-701：ui 域行已撤——通道装载面恒在 webui 行 boot graph）
@@ -252,7 +253,7 @@ describe('宿主 boot（单树装配面）', () => {
     fs.rmSync(dataRoot, { recursive: true, force: true });
     const h = await bootHost({ dataRoot, catalogFile: CATALOG, preferences: [{ id: 'backup', disabled: true }] });
     expect(h.rowIds).not.toContain('backup');
-    expect(h.rowIds.length).toBe(23); // 24 - disabled backup（cr-886 增 host-face 行）
+    expect(h.rowIds.length).toBe(24); // 25 - disabled backup（cr-886 host-face + cr-973 session-index）
     await h.close();
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });
@@ -267,12 +268,17 @@ describe('宿主 boot（单树装配面）', () => {
       catalogFile: CATALOG,
       preferences: [{ id: 'agents', disabled: true }],
     })).rejects.toThrow(/未激活/);
-    fs.rmSync(dataRoot, { recursive: true, force: true });
+    // fail-loud 路径的行卸载是异步收尾（cr-973 session-index 的 SQLite 句柄
+    // 随 effect disposer 关闭）——Windows 上句柄未及释放即删目录会 EPERM，
+    // 短暂重试后仍锁则留待进程退出（sandbox 目录不入库）
+    for (let i = 0; i < 10; i++) {
+      try { fs.rmSync(dataRoot, { recursive: true, force: true }); break; } catch { await new Promise((r) => setTimeout(r, 200)); }
+    }
   });
 });
 
-describe('boot viewer 投影对账自愈（数据分层 cr）', () => {
-  it('agent 账本缺席 viewer 投影 → boot 补建；重复 boot 幂等不重写', async () => {
+describe('boot viewer 投影对账自愈（cr-973 退役：读时投影固有属性）', () => {
+  it('agent 账本在场 viewer 缺席 → boot 不再物化；终稿层读时投影恒可读（清 viewer/ 自愈成为读面属性）', async () => {
     const dataRoot = path.join(SANDBOX, 'host-boot-projection-test');
     fs.rmSync(dataRoot, { recursive: true, force: true });
     // 第一层真值在场、第三层投影缺席（清 viewer/ 事故形态）
@@ -281,14 +287,16 @@ describe('boot viewer 投影对账自愈（数据分层 cr）', () => {
       { participants: ['helper', 'user'], kind: 'user' });
     await w.deliver({ role: 'agent', content: '你好，投影对账', agent_id: 'helper', uuid, requestId: 'r1' });
     const h = await bootHost({ dataRoot, catalogFile: CATALOG, orchestrate: false });
+    // cr-973：boot 不再补建 viewer 文件（物化派生退役——boot 对账块删除）
     const proj = path.join(dataRoot, 'viewer', 'sessions', uuid, 'messages.jsonl');
-    expect(fs.existsSync(proj)).toBe(true);
-    expect(fs.readFileSync(proj, 'utf-8')).toContain('你好，投影对账');
+    expect(fs.existsSync(proj)).toBe(false);
+    // 自愈语义迁至读面：终稿层 = agent 域账本读时投影，恒可读、恒幂等
+    expect(projectUserReplay(dataRoot, uuid).map((r) => [r.role, r.content]))
+      .toEqual([['peer', '你好，投影对账']]);
     await h.close();
-    // 二次 boot：幂等跳过（不重复投影）
     const h2 = await bootHost({ dataRoot, catalogFile: CATALOG, orchestrate: false });
-    const hits = fs.readFileSync(proj, 'utf-8').split('\n').filter((l) => l.includes('你好，投影对账'));
-    expect(hits).toHaveLength(1);
+    expect(fs.existsSync(proj)).toBe(false); // 重复 boot 同样零物化
+    expect(projectUserReplay(dataRoot, uuid)).toHaveLength(1);
     await h2.close();
     fs.rmSync(dataRoot, { recursive: true, force: true });
   }, 60000);

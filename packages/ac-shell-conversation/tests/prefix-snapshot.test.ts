@@ -318,7 +318,8 @@ describe('cr-888 singles system prompt 物化', () => {
       const broken = { ...snap, settingsFingerprint: { ...snap.settingsFingerprint } as Record<string, string> };
       delete broken.settingsFingerprint.model;
       const fsmod = await import('node:fs');
-      fsmod.writeFileSync(path.join(ROOT, 'viewer', 'sessions', SID, 'prefix-snapshot.json'), JSON.stringify(broken));
+      // cr-973：快照落点迁 meta/sessions/<sid>.prefix-snapshot.json（viewer 停写）
+      fsmod.writeFileSync(path.join(ROOT, 'meta', 'sessions', SID + '.prefix-snapshot.json'), JSON.stringify(broken));
       await conv.receiveEnvelope(msg(SID, 'r2', '问二'), { fresh: true });
       expect(readPrefixSnapshot(ROOT, SID)!.settingsFingerprint.model).toBe('mock-1');
     } finally {

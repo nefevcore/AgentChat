@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { importRoot } from 'ac-import';
-import { readLedger } from 'ac-ledger';
+import { readLedger, projectUserReplay, LedgerWriter, sessionDir } from 'ac-ledger';
 import { bootHost, type HostBootResult } from '../boot.ts';
 import { adoptShell } from '../orchestrate.ts';
 
@@ -113,9 +113,9 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
       try { await s.shutdown(); } catch { try { s.kill(); } catch { /* 已退出 */ } }
     }
   });
-  it('恒等门：全量导入零问题 + agents 树迁移 + user 投影', async () => {
+  it('恒等门：全量导入零问题 + agents 树迁移 + agent 域投影', async () => {
     seedLegacy();
-    const report = await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true, userProjection: true });
+    const report = await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true });
     // 会话恒等门：importSession 内联校验失败即 throw——到达这里 = 全过
     expect(report.results.map((r) => r.uuid).sort()).toEqual(['s-one', 's-two']);
     expect(report.skipped).toEqual([]);
@@ -126,13 +126,26 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     expect(cfg.access).toBe('full-access');
     expect(cfg.levels?.browser).toBe('observe');
     expect(fs.existsSync(path.join(targetRoot, 'agents/alpha/entries/todo.json'))).toBe(true);
-    // user 投影：两 singles 会话各落 user 账本
-    expect(report.userProjectionStats?.sessions).toBe(2);
+    // cr-973：viewer 物化退役（userProjection 选项删除）——终稿层 =
+    // agent 域账本读时投影；两 singles 会话各自可投影出全量行
+    expect(projectUserReplay(targetRoot, 's-one').map((r) => [r.role, r.content])).toEqual([
+      ['user', '问一'], ['peer', '答一'], ['peer', '补充'], ['user', '追问'], ['peer', '终答'],
+    ]);
+    expect(projectUserReplay(targetRoot, 's-two')).toHaveLength(3);
   });
 
   it('宿主 boot 读新账本回放对齐（agents/list + singles/list + session/history）', async () => {
     seedLegacy();
-    await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true, userProjection: true });
+    await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true });
+    // cr-973：viewer 物化退役——singles 身份元数据（引用/覆盖配置，非消息
+    // 派生物）由 importRoot 自 legacy singles/<sid>/session.json 迁
+    // meta/sessions/<sid>.json（清单身份源；消息流与回放走 agent 域读时投影）
+    for (const sid of ['s-one', 's-two']) {
+      const migrated = JSON.parse(fs.readFileSync(path.join(targetRoot, 'meta', 'sessions', sid + '.json'), 'utf-8')) as { id: string; agentId: string };
+      const legacy = JSON.parse(fs.readFileSync(path.join(legacyRoot, 'singles', sid, 'session.json'), 'utf-8')) as { id: string; agentId: string };
+      expect(migrated.id).toBe(legacy.id);
+      expect(migrated.agentId).toBe(legacy.agentId);
+    }
     host = await bootHost({ dataRoot: targetRoot, catalogFile: CATALOG });
     const ws = await connect(host.web.port);
 
@@ -141,7 +154,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     expect(list.agents.map((a) => a.id)).toContain('alpha');
     expect(list.agents.find((a) => a.id === 'alpha')?.name).toBe('甲');
 
-    // ② singles/list：user 投影账本可见
+    // ② singles/list：身份元数据（meta/sessions）+ agent 域账本可见
     const singles = await rpc<{ singles: Array<{ id: string; agentId: string; title?: string }> }>(ws, 'singles/list', {});
     expect(singles.singles.map((s) => s.id).sort()).toEqual(['s-one', 's-two']);
 
@@ -153,11 +166,15 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     expect(history.records.map((r) => r.content)).toEqual(agentRows.map((r) => r.content));
     expect(history.records.map((r) => r.role)).toEqual(agentRows.map((r) => (r.agent_id === 'user' ? 'user' : 'assistant')));
 
-    // ④ 导入后新会话可续（user 桩 deliver 到既有投影会话——续聊同 uuid）
+    // ④ 导入后新会话可续（user 桩 deliver 到既有投影会话——续聊同 uuid）。
+    // cr-973：deliver 只投递——入站行按壳侧形态落 agent 域（fixture；同键
+    // 壳侧重落被投影去重）
     const outcome = await rpc<{ kind: string; uuid: string }>(ws, 'conversation/deliver', {
       agentId: 'alpha', message: '导入后新问', conversationId: 's-one', requestId: 'rq-c1',
     });
     expect(outcome.uuid).toBe('s-one');
+    const lw = new LedgerWriter(sessionDir(targetRoot, 'alpha', 's-one'), { participants: ['alpha', 'user'], kind: 'user' });
+    await lw.deliver({ role: 'agent', content: '导入后新问', agent_id: 'user', requestId: 'rq-c1', uuid: 's-one' });
     const after = await rpc<{ total: number }>(ws, 'session/history', { conversationId: 's-one' });
     expect(after.total).toBe(agentRows.length + 1);
 
@@ -166,7 +183,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
 
   it('壳半边全链：adoptShell 真子进程 mock 壳 → user deliver → run 终稿 → 双账本回链（8.8 级联收口）', async () => {
     seedLegacy();
-    await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true, userProjection: true });
+    await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true });
     host = await bootHost({ dataRoot: targetRoot, catalogFile: CATALOG });
     // 拉起导入身份的真子进程壳（mock provider + 邮局接线——argv 经 adoptShell 透传）
     const adopted = await adoptShell({
@@ -187,21 +204,20 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
         agentId: 'alpha', message: '壳半边全链问',
       });
       expect(outcome.uuid).toMatch(/-7/); // 新会话 R-1 签发
-      // 等 mock run 终稿落账 + 回链 user 账本（writeThrough 终稿写穿）
-      const udir = path.join(targetRoot, 'viewer', 'sessions', outcome.uuid);
+      // 等 mock run 终稿落账（cr-973：终稿行落 agent 域——终稿层读时投影）
       const deadline = Date.now() + 15_000;
       for (;;) {
-        const rows = readLedger(udir).rows;
+        const rows = projectUserReplay(targetRoot, outcome.uuid);
         if (rows.length >= 2) {
-          // 双账本对拍（D4 视角主义）：user 终稿层 == agent 侧账本
+          // 双账本对拍（D4 视角主义）：终稿层读时投影 == agent 侧账本
           expect(rows.map((r) => r.content)).toEqual(['壳半边全链问', '[mock 回复 壳半边全链问]']);
-          // agent 侧账本 = user 终稿层 + cr-697 物化段行（steps 载体）——对拍过滤
+          // agent 侧账本 = 终稿层投影 + cr-697 物化段行（steps 载体）——对拍过滤
           const arows = readLedger(path.join(targetRoot, 'agents', 'alpha', 'sessions', outcome.uuid)).rows
             .filter((r) => r.source !== 'segment' && r.source !== 'inject');
           expect(arows.map((r) => r.content)).toEqual(rows.map((r) => r.content));
           break;
         }
-        if (Date.now() > deadline) throw new Error('终稿未回链：' + JSON.stringify(readLedger(udir).rows));
+        if (Date.now() > deadline) throw new Error('终稿未回链：' + JSON.stringify(projectUserReplay(targetRoot, outcome.uuid)));
         await new Promise((r) => setTimeout(r, 100));
       }
       // web 读面回放（webui 消费面同链）：session/history 与账本对齐

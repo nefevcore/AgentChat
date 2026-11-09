@@ -76,7 +76,7 @@ pnpm dev                # 启动，http://localhost:3830
 | 桌面版 | 系统用户数据目录：Windows `%APPDATA%\AgentChat`，macOS `~/Library/Application Support/AgentChat`，Linux `~/.config/AgentChat` |
 | 仓库开发（`pnpm dev` 缺省） | `workspace/home`；测试树一律落 `sandbox/`（数据根隔离红线） |
 
-数据根下自动初始化：`agents/`（Agent 档案）、`sessions/`（会话历史）、`groups/`、`singles/`、`files/`（工作文件）、`plugins/`（插件库）、`config.json`（全局配置）、`credentials.json`（加密凭据）等。
+数据根下自动初始化：`agents/`（Agent 档案与会话账本——`agents/<id>/sessions/<uuid>/`）、`meta/sessions/`（独立会话元数据）、`groups/`、`viewer/sessions/`（user 侧投影存量——cr-973 起停写，读面改 agent 域读时投影）、`index/`（会话源文件指针索引，SQLite 纯缓存）、`files/`（工作文件）、`plugins/`（插件库）、`config.json`（全局配置）、`credentials.json`（加密凭据）等。
 
 ---
 
@@ -170,7 +170,7 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
        agent-loop             ReAct 编排：推理 ↔ 工具循环 + steer 注入
        llm / llm-pool         模型会话（协议纯库 + 连接池）
 跨进程 信封投递（post-office）——Agent 是数据不是插件；壳崩不丢账本，
-       宿主换代活壳自持（detached + host-revive）
+       宿主换代活壳自持（detached）+ 新宿主 boot 完整接管（socket-only 句柄，cr-967）
 横切   fs/shell/web/collab 工具族 · memory · timer · archive · plugin-registry …
 ```
 
@@ -236,6 +236,7 @@ pnpm check:deps         # 依赖卫生（未声明/越界/环/跨域边）
 pnpm webui              # 前端 dev server（vite 3841 → proxy 3830）
 pnpm webui:build        # 构建前端产物（apps/ui → apps/ui/dist）
 pnpm build:channel      # 构建 UI 通道 v3 产物（packages/ac-client-ui-* → 各包 client/dist：factory bundle + revision 清单）
+pnpm build:shell        # 构建壳 dev bundle dist/shell.mjs（冷启 IO 治本 cr-961；指纹新鲜宿主自动优选，源码漂移自动回源码直载）
 pnpm build:bundle       # 组装发布产物 dist/（宿主+壳双 bundle + 资产面）
 pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，零常驻）
 ```

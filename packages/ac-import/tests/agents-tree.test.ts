@@ -3,7 +3,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { convertConfig, importAgentsTree } from '../src/agents-tree.ts';
-import { projectUserLedger, projectUserLedgers } from '../src/user-projection.ts';
 import { importSession } from '../src/writer.ts';
 
 let tmp: string;
@@ -65,63 +64,10 @@ describe('importAgentsTree（树域迁移）', () => {
   });
 });
 
-describe('projectUserLedger（user 账本投影）', () => {
-  it('转义目录名（remote:x 形态）不双重转义（cr-547 回归锁）', async () => {
-    const target = path.join(tmp, 'target');
-    const legacySession = path.join(tmp, 'l-esc');
-    fs.mkdirSync(legacySession, { recursive: true });
-    fs.writeFileSync(path.join(legacySession, 'messages.jsonl'), [
-      JSON.stringify({ type: 'session-header', version: 1, createdAt: '2026-01-01T00:00:00Z', participants: ['remote:dev-1', 'user'] }),
-      JSON.stringify({ role: 'user', content: 'x', message_id: 'm', timestamp: '2026-01-01T00:00:01Z', agent_id: 'user' }),
-    ].join('\n') + '\n');
-    // 导入：agentId 'remote:dev-1' → 目录名 remote%3Adev-1
-    importSession(legacySession, { agentId: 'remote:dev-1', uuid: 'e1', participants: ['remote:dev-1', 'user'], kind: 'user' }, target, path.join(tmp, 'staging'));
-    // 投影：扫描面传盘上目录名（已转义）——不得再转义（remote%253A 形态读不到）
-    const stats = await projectUserLedgers(target);
-    expect(stats.sessions).toBe(1);
-    expect(stats.rows).toBe(1);
-  });
-  it('终稿层 own/peer 投影 + context 行不入 + 幂等跳过', async () => {
-    const legacySession = path.join(tmp, 'legacy-sess');
-    fs.mkdirSync(legacySession, { recursive: true });
-    const lines = [
-      JSON.stringify({ type: 'session-header', version: 1, createdAt: '2026-01-01T00:00:00Z', participants: ['a', 'user'] }),
-      JSON.stringify({ role: 'user', content: 'hi', message_id: 'm1', timestamp: '2026-01-01T00:00:01Z', agent_id: 'user' }),
-      JSON.stringify({ role: 'assistant', content: 'hello', message_id: 'm2', timestamp: '2026-01-01T00:00:02Z', agent_id: 'a', run: 'r1' }),
-      JSON.stringify({ role: 'event', content: 'x', message_id: 'm3', timestamp: '2026-01-01T00:00:03Z', agent_id: 'a' }),
-    ];
-    fs.writeFileSync(path.join(legacySession, 'messages.jsonl'), lines.join('\n') + '\n');
-    const target = path.join(tmp, 'target');
-    importSession(legacySession, { agentId: 'a', uuid: 'u1', participants: ['a', 'user'], kind: 'user' }, target, path.join(tmp, 'staging'));
-    const r = await projectUserLedger(target, 'a', 'u1');
-    expect(r.skipped).toBe(false);
-    expect(r.rows).toBe(2); // user 行 + assistant 行；event context 行不入
-    const r2 = await projectUserLedger(target, 'a', 'u1');
-    expect(r2.skipped).toBe(true); // 幂等
-  });
-
-  it('全域扫描：kind=user 与含 user 的直答 pair 投影；agent⇄agent pair 不投（cr-611）', async () => {
-    const target = path.join(tmp, 'target');
-    const mk = (uuid: string, kind: string, participants: string[]) => {
-      const legacySession = path.join(tmp, 'l-' + uuid);
-      fs.mkdirSync(legacySession, { recursive: true });
-      fs.writeFileSync(path.join(legacySession, 'messages.jsonl'), [
-        JSON.stringify({ type: 'session-header', version: 1, createdAt: '2026-01-01T00:00:00Z', participants }),
-        JSON.stringify({ role: 'user', content: 'x', message_id: 'm', timestamp: '2026-01-01T00:00:01Z', agent_id: 'user' }),
-      ].join('\n') + '\n');
-      importSession(legacySession, { agentId: participants[0] ?? 'a', uuid, participants, kind }, target, path.join(tmp, 'staging'));
-    };
-    mk('s-user', 'user', ['a', 'user']);
-    mk('s-direct', 'agent-pair', ['a', 'user']); // 直答对桶（前端 1v1 视图按此键取历史）
-    mk('s-delegate', 'agent-pair', ['a', 'b']); // 委托 pair——非 viewer 会话
-    const stats = await projectUserLedgers(target);
-    expect(stats.sessions).toBe(2);
-    expect(stats.rows).toBe(2);
-    expect(fs.existsSync(path.join(target, 'viewer', 'sessions', 's-direct'))).toBe(true);
-    expect(fs.existsSync(path.join(target, 'viewer', 'sessions', 's-delegate'))).toBe(false);
-  });
-});
-
+// cr-973（cr-972 第一刀）：viewer 物化账本退役——projectUserLedger(s)
+// 随 user-projection.ts 删除（终稿层 = ac-ledger projectUserReplay 读时
+// 投影，导入不再物化 viewer/sessions；投影语义回归锁见
+// packages/ac-ledger/tests/project.test.ts）。
 describe('importSession 幂等护栏（cr-547 全内容比对）', () => {
   it('同 uuid 不同内容 fail-loud（双位分叉形态）', () => {
     const target = path.join(tmp, 'target');

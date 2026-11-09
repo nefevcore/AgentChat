@@ -12,7 +12,7 @@ import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { deriveKey, machineMaterial, readCredential } from 'ac-credentials-core';
 import { bootHostWeb, type HostWebResult } from '../src/host-web.ts';
-import { UserLedger, LedgerWriter, sessionDir } from 'ac-ledger';
+import { LedgerWriter, sessionDir } from 'ac-ledger';
 
 const ROOT = path.join('sandbox', 'test-host-web-' + process.pid);
 let host: HostWebResult | null = null;
@@ -96,15 +96,21 @@ describe('8.5a 宿主 web 面接线', () => {
     // 头像静态面（cr-588 三路由）住 agent-admin 行——本 e2e 装配面（webui +
     // web-api 两行）不含，路由级由 agent-admin-row.test 单测 + 产品宿主活体覆盖
 
-    // ② deliver：UserStub 签发 + own 落账 + 邮局投递（agent 不可达 → outbox 滞留——
-    // at-least-once；本测只验 user 半边链路，不依赖壳在线）
+    // ② deliver：UserStub 签发 + 邮局投递（agent 不可达 → outbox 滞留——
+    // at-least-once；本测只验 user 半边链路，不依赖壳在线）。cr-973 起
+    // UserStub 只投递不落账——发言行由壳侧落 agent 域入站行；agent 离线
+    // 形态下入站行按壳侧形态手落（fixture）。
     const outcome = await rpc<{ kind: string; uuid: string }>(ws, 'conversation/deliver', {
       agentId: 'alpha', message: '第一问', requestId: 'rq-w1',
     });
     expect(outcome.kind).toBe('run');
     expect(typeof outcome.uuid).toBe('string');
+    const landWriter = new LedgerWriter(sessionDir(ROOT, 'alpha', outcome.uuid), { participants: ['alpha', 'user'], kind: 'user' });
+    const landUserRow = async (text: string, requestId: string): Promise<boolean> =>
+      landWriter.deliver({ role: 'agent', content: text, agent_id: 'user', requestId, uuid: outcome.uuid });
+    await landUserRow('第一问', 'rq-w1');
 
-    // ③ history：user 账本直读——own 行落账即达（写穿在 deliver 内同步完成）
+    // ③ history：终稿层读时投影（projectUserReplay）——agent 域入站行落账即达
     const history = await rpc<{ records: Array<{ role: string; content: string; timestamp?: string }>; total: number }>(ws, 'session/history', {
       conversationId: outcome.uuid,
     });
@@ -114,8 +120,9 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(typeof history.records[0].timestamp).toBe('string');
     expect(Date.parse(history.records[0].timestamp as string)).not.toBeNaN();
 
-    // 幂等：同 requestId 重发 → user 账本不重复（requestId 准入）
+    // 幂等：同 requestId 重发 + 壳侧同键落账 → agent 域不重复行（requestId 准入）
     await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '第一问', requestId: 'rq-w1', conversationId: outcome.uuid });
+    expect(await landUserRow('第一问', 'rq-w1')).toBe(false); // 同键入站重发短路
     const again = await rpc<{ total: number }>(ws, 'session/history', { conversationId: outcome.uuid });
     expect(again.total).toBe(1);
 
@@ -217,6 +224,10 @@ describe('8.5a 宿主 web 面接线', () => {
 
     // ② deliver 合并点：1v1 直答不传 conversationId/model → 按 pairKey 读存盘覆盖
     const delivered = await rpc<{ uuid: string }>(ws, 'conversation/deliver', { agentId: 'alpha', message: '带覆盖一问' });
+    // cr-973：deliver 只投递——入站行按壳侧形态落 agent 域（会话据此在
+    // singles 面可见；viewer 物化退役后账本在场 = 会话在场）
+    const dw = new LedgerWriter(sessionDir(ROOT, 'alpha', delivered.uuid), { participants: ['alpha', 'user'], kind: 'user' });
+    await dw.deliver({ role: 'agent', content: '带覆盖一问', agent_id: 'user', uuid: delivered.uuid });
     const envelopeOf = (text: string): { payload?: { text?: string }; model?: string; access?: string } | null => {
       const dir = path.join(ROOT, 'outbox');
       if (!fs.existsSync(dir)) return null;
@@ -287,10 +298,11 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(reused.reused).toBe(true);
     expect(reused.single.id).toBe(created.single.id);
 
-    // 两条消息（deliver 落 user 终稿账本）
-    await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '第一问', conversationId: created.single.id });
-    await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '第二问', conversationId: created.single.id });
-    const ledgerFile = path.join(ROOT, 'viewer', 'sessions', created.single.id, 'messages.jsonl');
+    // 两条消息（cr-973：deliver 只投递——发言行按壳侧形态落 agent 域入站行）
+    const convWriter = new LedgerWriter(sessionDir(ROOT, 'alpha', created.single.id), { participants: ['alpha', 'user'], kind: 'user' });
+    await convWriter.deliver({ role: 'agent', content: '第一问', agent_id: 'user', requestId: 'sq-1', uuid: created.single.id });
+    await convWriter.deliver({ role: 'agent', content: '第二问', agent_id: 'user', requestId: 'sq-2', uuid: created.single.id });
+    const ledgerFile = path.join(sessionDir(ROOT, 'alpha', created.single.id), 'messages.jsonl');
     const messages = (): Array<Record<string, unknown>> => fs.readFileSync(ledgerFile, 'utf-8')
       .split('\n').filter((l) => l.trim() !== '')
       .map((l) => JSON.parse(l) as Record<string, unknown>)
@@ -308,12 +320,13 @@ describe('8.5a 宿主 web 面接线', () => {
     // 已有消息时不许换/清 Agent（上下文语义）
     await expect(rpc(ws, 'singles/update', { id: created.single.id, agentId: '' })).rejects.toThrow(/已有消息/);
 
-    // fork：以第一条消息为锚点 → 新会话复制 1 条、元数据继承
+    // fork：以第一条消息为锚点 → 新会话按域复制 1 条（cr-973：消息流在
+    // agent 域——分支拷贝逐域进行）、元数据继承
     const anchor = String(messages()[0].message_id);
     const forked = await rpc<{ single: { id: string; title?: string } }>(ws, 'singles/fork', { id: created.single.id, anchorMessageId: anchor });
     expect(forked.single.id).not.toBe(created.single.id);
     expect(forked.single.title).toBe('改过的标题');
-    const forkRows = fs.readFileSync(path.join(ROOT, 'viewer', 'sessions', forked.single.id, 'messages.jsonl'), 'utf-8')
+    const forkRows = fs.readFileSync(path.join(sessionDir(ROOT, 'alpha', forked.single.id), 'messages.jsonl'), 'utf-8')
       .split('\n').filter((l) => l.trim() !== '');
     expect(forkRows.filter((l) => !l.includes('session-header'))).toHaveLength(1);
 
@@ -323,9 +336,10 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(listed.singles.map((s) => s.id)).toContain(created.single.id);
     expect(listed.singles.map((s) => s.id)).not.toContain(forked.single.id);
 
-    // delete：硬删（目录 + 覆盖文件一并清）
+    // delete：硬删（cr-973：agent 域账本目录 + 元数据 + 覆盖文件一并清）
     await rpc(ws, 'singles/delete', { id: created.single.id });
-    expect(fs.existsSync(path.join(ROOT, 'viewer', 'sessions', created.single.id))).toBe(false);
+    expect(fs.existsSync(sessionDir(ROOT, 'alpha', created.single.id))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'sessions', created.single.id + '.json'))).toBe(false);
     expect(fs.existsSync(path.join(ROOT, 'meta', 'conv-settings', created.single.id + '.json'))).toBe(false);
 
     // 事件帧：四种 kind 各至少一次（前端列表增量合并的输入）
@@ -339,10 +353,12 @@ describe('8.5a 宿主 web 面接线', () => {
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);
     const conv = 'trunc-conv-1';
-    for (const text of ['一', '二', '三']) {
-      await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: text, conversationId: conv });
+    // cr-973：发言行按壳侧形态直落 agent 域（deliver 只投递不落账）
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    for (const [i, text] of ['一', '二', '三'].entries()) {
+      await w.deliver({ role: 'agent', content: text, agent_id: 'user', requestId: 'tq-' + (i + 1), uuid: conv });
     }
-    const file = path.join(ROOT, 'viewer', 'sessions', conv, 'messages.jsonl');
+    const file = path.join(sessionDir(ROOT, 'alpha', conv), 'messages.jsonl');
     const read = (): Array<Record<string, unknown>> => fs.readFileSync(file, 'utf-8')
       .split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as Record<string, unknown>);
     const messages = (): Array<Record<string, unknown>> => read().filter((r) => r.type !== 'session-header');
@@ -372,10 +388,10 @@ describe('8.5a 宿主 web 面接线', () => {
     const { ws } = await connect(host.port);
     const conv = 'hist-steps-1';
 
-    // user 终稿行：peer 带 run 键（writeThrough——source: run:<run>）
-    const userLedger = new UserLedger(ROOT, conv, ['user']);
-    await userLedger.writeThrough({ agentId: 'alpha', content: '终稿回复', uuid: conv, run: 'run-ok', requestId: 'rq-h1' });
-    await userLedger.writeThrough({ agentId: 'alpha', content: '中断回复', uuid: conv, run: 'run-cut', requestId: 'rq-h2' });
+    // user 终稿层（cr-973 读时投影）：agent 域自著终稿行带 run 键
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.deliver({ role: 'agent', content: '终稿回复', agent_id: 'alpha', uuid: conv, run: 'run-ok', requestId: 'rq-h1' });
+    await w.deliver({ role: 'agent', content: '中断回复', agent_id: 'alpha', uuid: conv, run: 'run-cut', requestId: 'rq-h2' });
 
     // agent 域 journal：run-ok 收束（工具卡全字段）；run-cut 无 settled 行
     const journalFile = path.join(sessionDir(ROOT, 'alpha', conv), 'journal', 'partials.jsonl');
@@ -442,15 +458,16 @@ describe('8.5a 宿主 web 面接线', () => {
   }, 30_000);
 
   // cr-739 插队消息双卡根修：busy-steer 注入行带 requestId（cr-713）且
-  // viewer 域有同键 user 行（writeOwn 落账）→ 注入卡不投（用户卡片承载，
-  // 与直播形态一致）；机制注入（viewer 无同键行）照投。
-  it('session/history：插队注入行与 viewer user 行同 requestId → 注入卡不投；机制注入照投', async () => {
+  // agent 域有同键入站 user 行（cr-973 起投影的 user 行来源——原 viewer
+  // writeOwn 落账退役）→ 注入卡不投（用户卡片承载，与直播形态一致）；
+  // 机制注入（无同键行）照投。
+  it('session/history：插队注入行与 agent 域入站 user 行同 requestId → 注入卡不投；机制注入照投', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
     fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
     const conv = 'inj-dup-1';
-    const userLedger = new UserLedger(ROOT, conv, ['user']);
-    await userLedger.writeOwn('插队消息', 'send-1');
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    // 插队消息的入站落账（壳侧 agent 域 user 行——requestId 同注入行）
+    await w.deliver({ role: 'agent', content: '插队消息', agent_id: 'user', requestId: 'send-1', uuid: conv });
     await w.journal({ type: 'journal-step', run: 'run-x', step: 0, content: '步', reasoning: '想' });
     // busy-steer 注入（带 requestId——shell driveRun steer 分支形态）
     await w.journal({ type: 'journal-inject', run: 'run-x', content: '插队消息', requestId: 'send-1', ts: 1_700_000_001_000 });
@@ -469,13 +486,13 @@ describe('8.5a 宿主 web 面接线', () => {
     ws.close();
   }, 30_000);
 
-  // cr-611 迁移直答 pair：viewer 投影在对桶键上，journal 住尾段域
-  //（agents/user/sessions/<a~user>）——history 双端带出。
+  // cr-611 迁移直答 pair：终稿行在 alpha 域（cr-973 读时投影源），journal
+  // 住尾段域（agents/user/sessions/<a~user>）——history 对桶键双端并读带出。
   it('session/history 对桶键：peer 行 journal 从尾段域带出 steps', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'user'), { recursive: true });
     const conv = 'alpha~user';
-    const userLedger = new UserLedger(ROOT, conv, ['user']);
-    await userLedger.writeThrough({ agentId: 'alpha', content: '直答回复', uuid: conv, run: 'run-p1', requestId: 'rq-p1' });
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.deliver({ role: 'agent', content: '直答回复', agent_id: 'alpha', uuid: conv, run: 'run-p1', requestId: 'rq-p1' });
     const journalFile = path.join(sessionDir(ROOT, 'user', conv), 'journal', 'partials.jsonl');
     fs.mkdirSync(path.dirname(journalFile), { recursive: true });
     fs.writeFileSync(journalFile, [

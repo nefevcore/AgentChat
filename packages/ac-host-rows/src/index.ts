@@ -106,6 +106,11 @@ export type { AuthRegistryRowOptions } from './auth-registry-row.ts';
 // singles/* RPC 六方法 + singles/updated 帧广播；模型覆盖仍走 conv-settings）——
 import { makeSinglesHostRow } from './singles-row.ts';
 export { makeSinglesHostRow };
+// —— 会话指针索引行（cr-973 / cr-972 第一刀）：SQLite WAL 纯缓存索引
+//（读面指纹 + subcall 定位 seek；行摘除 = 读面回落全扫投影，方案 §1.3）——
+import { makeSessionIndexRow } from 'ac-session-index';
+export { makeSessionIndexRow };
+export type { SessionIndexRowOptions } from 'ac-session-index';
 export { auditDataRootLayers } from './data-root-audit.ts';
 export type { SinglesHostRowOptions, SingleMeta, SingleView } from './singles-row.ts';
 
@@ -162,6 +167,7 @@ export const HOST_ROW_FACTORIES: Record<string, ((options: never) => Plugin) | u
   'auth-registry': makeAuthRegistryRow as unknown as (options: never) => Plugin,
   'agent-admin': makeAgentAdminRow as unknown as (options: never) => Plugin,
   'singles': makeSinglesHostRow as unknown as (options: never) => Plugin,
+  'session-index': makeSessionIndexRow as unknown as (options: never) => Plugin,
   'group': makeGroupsHostRow as unknown as (options: never) => Plugin,
 } satisfies Record<string, ((options: never) => Plugin) | undefined>;
 
@@ -182,6 +188,8 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     // 独立会话元数据（viewer/sessions/<sid>/session.json——宿主单写）
     // + 标题请求收信面（cr-672：壳侧 auto-title 行生成 → 信封 → 本行落盘）
     singles: { dataRoot: opts.dataRoot, ...(opts.inbox !== undefined ? { inbox: opts.inbox } : {}) },
+    // 会话指针索引（cr-973）：DB 落 <dataRoot>/index/session-index.db
+    'session-index': { dataRoot: opts.dataRoot },
     backup: backupOptions,
     'ws-bridge': wsBridgeOptions,
     'remote-link': { root: opts.dataRoot },

@@ -13,7 +13,6 @@ import { readLegacySession, agentIdOfPairKey, scanLegacyRoot, type LegacyRow, ty
 import { projectSession, projectSubcalls, type ProjectContext, type Projected } from './project.ts';
 import { verifySession } from './verify.ts';
 import { importAgentsTree, type AgentTreeResult } from './agents-tree.ts';
-import { projectUserLedgers, type UserProjectionStats } from './user-projection.ts';
 import { readLedger, readJournal } from 'ac-ledger';
 
 
@@ -150,16 +149,12 @@ export async function importRoot(
     onResult?: (r: SessionImportResult) => void;
     /** agents 树域迁移（cr-547：config 换轨 + entries 归拢 + 身份文件拷贝） */
     agentsTree?: boolean;
-    /** user 账本投影（cr-547：kind=user 会话 → viewer/sessions/ 终稿层） */
-    userProjection?: boolean;
   } = {},
 ): Promise<{
   results: SessionImportResult[];
   skipped: Array<{ key: string; reason: string }>;
   /** agents 树域迁移结果（agentsTree 开启时在场） */
   agentsTreeResults?: AgentTreeResult[];
-  /** user 账本投影统计（userProjection 开启时在场） */
-  userProjectionStats?: UserProjectionStats;
 }> {
   const inv = scanLegacyRoot(legacyRoot);
   const results: SessionImportResult[] = [];
@@ -202,6 +197,20 @@ export async function importRoot(
       const agentId = majorityAgentId(s.dir, opts.singleAgentFallback ?? 'default', ['user']);
       const r = importSession(s.dir, { agentId, uuid: s.sid, participants: [agentId, 'user'], kind: 'user' }, targetRoot, stagingRoot);
       results.push(r); opts.onResult?.(r);
+      // singles 元数据迁移（cr-973）：清单身份源 = meta/sessions/<sid>.json
+      //（viewer 树停写）——旧根 session.json 缺席迁移会让导入会话从
+      // singles/list 消失。已有目标元数据（重跑导入）不覆盖。
+      if (s.metaPath !== null) {
+        const target = path.join(targetRoot, 'meta', 'sessions', s.sid + '.json');
+        try {
+          if (!fs.existsSync(target)) {
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.copyFileSync(s.metaPath, target);
+          }
+        } catch (err) {
+          skipped.push({ key: s.sid, reason: 'singles 元数据迁移失败：' + String(err) });
+        }
+      }
     }
   }
   for (const s of inv.subagents) {
@@ -218,9 +227,9 @@ export async function importRoot(
   }
   // agents 树域迁移（cr-547 B 段扩域——cr-540 遗留④收口）
   const agentsTreeResults = opts.agentsTree === true ? importAgentsTree(legacyRoot, targetRoot) : undefined;
-  // user 账本投影（cr-547：singles 会话的 webui 读面补齐；await 落盘契约）
-  const userProjectionStats = opts.userProjection === true ? await projectUserLedgers(targetRoot) : undefined;
-  return { results, skipped, ...(agentsTreeResults !== undefined ? { agentsTreeResults } : {}), ...(userProjectionStats !== undefined ? { userProjectionStats } : {}) };
+  // cr-973（cr-972 第一刀）：viewer 物化退役——user 终稿层 = agent 域账本
+  // 读时投影（projectUserReplay），导入不再物化 viewer/sessions。
+  return { results, skipped, ...(agentsTreeResults !== undefined ? { agentsTreeResults } : {}) };
 }
 
 /** 行内 majority 归属提取（singles/subagents 用——旧根只读） */

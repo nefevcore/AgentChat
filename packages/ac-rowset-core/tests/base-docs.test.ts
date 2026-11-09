@@ -122,7 +122,7 @@ describe('版本戳部署链', () => {
   it('副本版本 > 源（旧应用压新数据根）→ throw', () => {
     materializeBaseDocs(PROFILE_DIR, DATA);
     const dst = baseDocFile(path.join(DATA, 'profile'), 'host');
-    fs.writeFileSync(dst, fs.readFileSync(dst, 'utf-8').replace('# ac-base-version: 1', '# ac-base-version: 99'));
+    fs.writeFileSync(dst, fs.readFileSync(dst, 'utf-8').replace(/# ac-base-version: \d+/, '# ac-base-version: 99'));
     expect(() => materializeBaseDocs(PROFILE_DIR, DATA)).toThrow('旧应用压新数据根');
   });
 

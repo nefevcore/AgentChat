@@ -16,10 +16,10 @@
 // ============================================================
 import type { Plugin, Context } from '@agentchat/cordis';
 import { readdir, readFile } from 'node:fs/promises';
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
 import type { MultipartBody, RouteCall } from 'ac-web-server';
 import * as path from 'node:path';
-import { assembleSessionView, conversationDirs, deleteConversationRow, deriveViewerLedger, historyView, truncateConversation } from 'ac-ledger';
+import { assembleSessionView, conversationDirs, deleteConversationRow, historyView, truncateConversation, type JournalToolResult } from 'ac-ledger';
 import { listAgentIds, readAgentConfig, isAgentIdentity, isPresetId, materializedChildIds } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
 import { registerOpsFace, runningOf, type FaceOpsDeps } from './face-ops.ts';
@@ -55,6 +55,15 @@ interface ConvSettingsFace {
   get(conversationId: string): Record<string, string>;
   set(conversationId: string, patch: Record<string, string | null | undefined>): Record<string, string>;
   listKeys(): Array<{ key: string; enum?: string[]; description?: string; group?: string }>;
+}
+
+/** 索引行窄接口（ctx.sessionIndex 结构子集——ac-session-index 行提供；
+ *  可选依赖（use-time 软取）：行摘除时读面回落全扫，慢但同构） */
+interface SessionIndexFace {
+  /** 会话源文件指纹（refresh + 跨域 stat 复合——historyView 同构格式） */
+  fingerprintOf(conversationId: string): { fingerprint: string; domains: string[] };
+  /** subcall 档案按 run 定位 seek（undefined = 该域档案未索引 → 调用方回落全读） */
+  subcallLines(conversationId: string, domain: string, run: string): Array<Record<string, unknown>> | undefined;
 }
 
 /** web-api 行依赖注入（宿主 boot 组装——非 cordis inject：UserStub/数据根为宿主编排件非行服务） */
@@ -103,16 +112,35 @@ function rosterConfigs(dataRoot: string) {
     .filter((c): c is NonNullable<typeof c> => c !== null && !isPresetId(c.id));
 }
 
+/** 会话计数（cr-973 viewer 停写）：meta/sessions（singles 身份源）∪
+ *  viewer/sessions 存量目录（兼容窗）∪ agent 域 pair 会话（'~' 段含
+ *  user）——身份词汇单源改指 agent 域后的去并集。 */
+function countConversations(dataRoot: string): number {
+  const ids = new Set<string>();
+  try { (readdirSync(path.join(dataRoot, 'viewer', 'sessions'), { withFileTypes: true }))
+    .filter((e) => e.isDirectory()).forEach((e) => ids.add(e.name)); } catch { /* 兼容窗目录缺席 */ }
+  try { readdirSync(path.join(dataRoot, 'meta', 'sessions'), { withFileTypes: true })
+    .filter((e) => e.isFile() && e.name.endsWith('.json')).forEach((e) => ids.add(e.name.slice(0, -5))); } catch { /* 无元数据域 */ }
+  try {
+    for (const a of readdirSync(path.join(dataRoot, 'agents'), { withFileTypes: true })) {
+      if (!a.isDirectory()) continue;
+      try {
+        readdirSync(path.join(dataRoot, 'agents', a.name, 'sessions'), { withFileTypes: true })
+          .filter((e) => e.isDirectory() && e.name.split('~').includes('user'))
+          .forEach((e) => ids.add(e.name));
+      } catch { /* 该 agent 无 sessions */ }
+    }
+  } catch { /* 无 agents 域 */ }
+  return ids.size;
+}
+
 /** 数据根画像（healthz 的真实性来源：数得出来的东西，不是常量 200） */
 async function dataRootFacts(dataRoot: string): Promise<{ agents: number; conversations: number; configReadable: boolean }> {
-  const countDirs = async (dir: string): Promise<number> => {
-    try { return (await readdir(dir, { withFileTypes: true })).filter((e) => e.isDirectory()).length; } catch { return 0; }
-  };
   let configReadable = false;
   try { JSON.parse(await readFile(path.join(dataRoot, 'config.json'), 'utf-8')); configReadable = true; } catch { /* 缺席/坏文件 */ }
   return {
     agents: rosterConfigs(dataRoot).length,
-    conversations: await countDirs(path.join(dataRoot, 'viewer', 'sessions')),
+    conversations: countConversations(dataRoot),
     configReadable,
   };
 }
@@ -176,37 +204,40 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const conversationId = reqStr(p, 'conversationId');
         const limit = typeof p.limit === 'number' && Number.isFinite(p.limit) && p.limit > 0 ? Math.floor(p.limit) : undefined;
         const offset = typeof p.offset === 'number' && Number.isFinite(p.offset) && p.offset >= 0 ? Math.floor(p.offset) : 0;
-        // 会话视图指纹（cr-768 读面优化回填）：跨域 stat 复合指纹（viewer +
-        // 全部 agent 域账本/journal 文件的 size:mtime 串——append-only 下文件
-        // 未变 = 读面输入未变）。stat 恒先做——短路要它，响应携带也要它。
-        const view = historyView(deps.dataRoot, conversationId);
+        // 视图参数化（cr-973）：chat（缺省）/ plain（无气泡——记录面与 chat
+        // 同构，无气泡是前端渲染参数）/ lite（移动端 steps 截断）
+        const viewKind = p.view === 'lite' || p.view === 'plain' || p.view === 'chat' ? p.view : undefined;
+        // 会话视图指纹（cr-768 起；cr-973 索引行在场 → 索引维护的文件指纹
+        //（增量尾读 + 打开对账）；索引行摘除 → 全 stat 扫描回落，慢但同构）。
+        // stat 恒先做——短路要它，响应携带也要它。
+        const index = ctx.get('sessionIndex') as SessionIndexFace | undefined;
+        const meta = index !== undefined
+          ? index.fingerprintOf(conversationId)
+          : historyView(deps.dataRoot, conversationId);
         // fingerprint 短路（cr-768 回填，原 2026-09-19 优化）：首屏请求（offset=0）
         // 带上次响应的 fingerprint，指纹相同 → unchanged 轻载荷返回，跳过
-        // 全读 + 派生 + 投影 + 序列化。切走再切回是纯重入（文件通常没变）。
+        // 全读 + 投影 + 序列化。切走再切回是纯重入（文件通常没变）。
         // 误判率为零：任何域任何文件变化（新行/收束/compact 重写/journal 剔除）
         // 必变 mtime 或 size，短路自动失效。上翻（offset>0）不参与——分页
         // 语义需要精确 total。
         const reqFingerprint = typeof p.fingerprint === 'string' ? p.fingerprint : undefined;
-        if (reqFingerprint !== undefined && offset === 0 && reqFingerprint === view.fingerprint) {
+        if (reqFingerprint !== undefined && offset === 0 && reqFingerprint === meta.fingerprint) {
           return { conversationId, unchanged: true, fingerprint: reqFingerprint };
         }
-        // 读前派生（cr-698 viewer 派生化）：agent 域账本自著行（终稿/通知）
-        // → viewer 行（requestId 幂等 / run 键单行 / 原 ts）。读时派生兼做
-        // 崩溃窗口兜底（终稿通知丢失 → 下次读面补齐）；附带存量双锚行迁移。
-        if (await deriveViewerLedger(deps.dataRoot, conversationId, view.domains) > 0) {
-          ctx.emit('ledger/viewer-appended', conversationId); // 补齐落行同通知（cr-870）
-        }
-        // 会话视图组装：单次读（viewer 终稿层 + 全域 journal/账本——含 steps
-        // 联查、注入行归口、活投影、盲区投影）。此前三层循环各自重读账本
-        //（conversationDirs 枚举 3 次 + ledger.replay() 2 次 + 盲区循环绕过
-        // faceFor 缓存直接重读 journal/账本）——读面单次化（cr-768）后每一
-        // 文件只解析一次，投影逻辑归位数据拥有者 ac-ledger。
+        // 会话视图组装（cr-973 viewer 停写）：终稿层 = agent 域账本读时投影
+        //（projectUserReplay——cr-698 物化派生退役），全域 journal/账本单次
+        // 读；subcall 档案经索引按 run 定位 seek（索引行摘除 → 全文件读回落）。
+        // 投影逻辑归位数据拥有者 ac-ledger（cr-768 单次化不变）。
         const all = assembleSessionView(deps.dataRoot, conversationId, {
-          ...(p.view === 'lite' ? { view: 'lite' } : {}),
+          ...(viewKind !== undefined ? { view: viewKind } : {}),
           // 观测失败（null，cr-802——仅现探退路可达）= 视同无运行中
           // （undefined）——活投影门控全关（保守：宁可少显示进行中步，
           // 不虚假点亮已收束的 run）。
           running: (await runningOf(deps)) ?? undefined,
+          ...(index !== undefined ? {
+            subcallsOf: (domain: string, run: string) =>
+              index.subcallLines(conversationId, domain, run) as JournalToolResult[] | undefined,
+          } : {}),
         });
         const page = limit === undefined
           ? all
@@ -226,7 +257,7 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
           total: all.length,
           ...seqSpan,
           ...(limit !== undefined ? { hasMore: offset + limit < all.length } : {}),
-          ...(offset === 0 ? { fingerprint: view.fingerprint } : {}),
+          ...(offset === 0 ? { fingerprint: meta.fingerprint } : {}),
         };
       });
 

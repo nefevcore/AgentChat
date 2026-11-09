@@ -2,14 +2,15 @@
 // user-stub.ts —— user 壳桩（M8.4；R-2 webui 形态）
 //
 // user 端点无进程 → 必须有壳：webui 形态 = 宿主进程内极薄 user 壳
-//（R-2）。send = 签发（R-1：发送方签发 UUIDv7）+ own 落账 + 邮局
-// 投递；收信面 = 邮局 local 通道（进程内直调），agent 终稿经
-// writeThrough 写穿 user 账本（requestId 幂等）。写权循 webui 单
-// 进程串行（R-2a）——桩即唯一写者。
+//（R-2）。send = 签发（R-1：发送方签发 UUIDv7）+ 邮局投递——发言行由
+// 壳侧落 agent 域入站行（deliverRow）；收信面 = 邮局 local 通道（进程内
+// 直调），agent 终稿信到达即通知宿主缓存面失效。cr-973（cr-972 第一刀）
+// 起 viewer 物化账本退役：本桩不再写任何消息文件（写权归壳侧 agent
+// 域账本），回放走读时投影 projectUserReplay。
 // ============================================================
 import type { Envelope } from 'ac-envelope-core';
 import { issueConversationId, issueRequestId, makeEnvelope } from 'ac-envelope-core';
-import { UserLedger, deriveViewerLedger, type UserReplayRow } from 'ac-ledger';
+import { projectUserReplay, type UserReplayRow } from 'ac-ledger';
 import type { PostOffice, DispatchResult } from 'ac-post-office';
 
 export interface UserSendOptions {
@@ -30,10 +31,10 @@ export interface UserSendOptions {
  * 只是投递原语的 user 侧执行体）。
  */
 export class UserStub {
-  private readonly ledgers = new Map<string, UserLedger>();
   private readonly po: PostOffice;
   private readonly dataRoot: string;
-  /** viewer 账本追加通知（cr-870：writeOwn/派生落行后触发——宿主装配点连 ctx.emit） */
+  /** 会话新行通知（cr-870/973：宿主装配点连 ctx.emit——语义 = 该会话
+   *  agent 域有新事实，singles 注册表条目宜标 stale） */
   private readonly onAppend?: (uuid: string) => void;
 
   constructor(po: PostOffice, dataRoot: string, onAppend?: (uuid: string) => void) {
@@ -51,12 +52,12 @@ export class UserStub {
     this.po.unregisterLocal('user');
   }
 
-  /** user 发言（R-1/R-2）：签发 + own 落账 + 投递 */
+  /** user 发言（R-1/R-2）：签发 + 投递（发言行由壳落 agent 域入站行）。
+   *  通知时机 = 投递完成（行落账在壳侧异步——通知语义是「宜失效」，
+   *  装载对账兜底；终稿信到达时还有一次精确通知）。 */
   async send(agentId: string, text: string, options: UserSendOptions = {}): Promise<{ uuid: string; dispatched: DispatchResult[] }> {
     const uuid = options.uuid ?? issueConversationId();
     const requestId = options.requestId ?? 'u-' + issueRequestId();
-    await this.ledgerFor(uuid, agentId).writeOwn(text, requestId);
-    this.onAppend?.(uuid);
     const dispatched = await this.po.dispatch(makeEnvelope({
       uuid, requestId, sender: 'user', to: agentId,
       payload: {
@@ -67,31 +68,19 @@ export class UserStub {
       ...(options.model !== undefined ? { model: options.model } : {}),
       ...(options.access !== undefined ? { access: options.access } : {}),
     }));
+    this.onAppend?.(uuid);
     return { uuid, dispatched };
   }
 
-  /** user 视角回放（终稿层投影——webui 读面消费） */
+  /** user 视角回放（终稿层读时投影——webui 读面消费） */
   replay(uuid: string): UserReplayRow[] {
-    return new UserLedger(this.dataRoot, uuid, ['user']).replay();
+    return projectUserReplay(this.dataRoot, uuid);
   }
 
-  /** 收信面（agent 终稿/通知到达 user 端点）：cr-698 起信封 = 通知触发器
-   *  ——不直写行，按 sender 域账本派生 viewer 行（requestId 幂等 / run 键
-   *  单行 / 原 ts；空终稿不落行——读面 steps 盲区投影渲染）。 */
+  /** 收信面（agent 终稿/通知到达 user 端点）：cr-973 起纯通知——agent 域
+   *  行已 durable（壳落账先于回信），viewer 派生器退役，通知缓存面失效。 */
   private async receive(env: Envelope): Promise<{ ack: string; fresh: boolean }> {
-    const domains = env.uuid.includes('~') ? [...new Set(env.uuid.split('~'))] : [env.sender];
-    const derived = await deriveViewerLedger(this.dataRoot, env.uuid, domains);
-    if (derived > 0) this.onAppend?.(env.uuid); // 空终稿不落行——无行不通知
+    this.onAppend?.(env.uuid);
     return { ack: env.requestId, fresh: true };
-  }
-
-  /** per-uuid 账本缓存（同进程同 writer——AdmissionGate 幂等跨信封有效） */
-  private ledgerFor(uuid: string, peerId: string): UserLedger {
-    let ledger = this.ledgers.get(uuid);
-    if (ledger === undefined) {
-      ledger = new UserLedger(this.dataRoot, uuid, ['user', peerId]);
-      this.ledgers.set(uuid, ledger);
-    }
-    return ledger;
   }
 }

@@ -518,13 +518,14 @@ declare module '@agentchat/cordis' {
   }
   interface Events {
     /**
-     * user 投影账本（viewer/sessions/<uuid>/messages.jsonl）追加行（纯通知：
-     * user 发言 writeOwn / 终稿派生落行——宿主单进程写者面全量覆盖，cr-870）。
-     * 消费方：singles 行清单注册表条目失效（消灭 list 的全表 stat 探测）。
+     * user 会话有新行落账（纯通知，cr-870/973：宿主观测点 = user 桩投递后 /
+     * agent 终稿通知信到达——cr-973 起 viewer 物化退役，通知不再伴随宿主
+     * 写入，语义改为「该会话 agent 域有新事实，缓存摘要宜失效」；装载对账
+     * 仍是兜底）。消费方：singles 行清单注册表条目标 stale。
      *
      * @mode emit
-     * @scope host（viewer 投影写入只发生在宿主进程）
-     * @param conversationId 会话 id（viewer 投影轴键）
+     * @scope host（user 会话观测点只在宿主进程）
+     * @param conversationId 会话 id
      */
     'ledger/viewer-appended'(conversationId: string): void;
     /**

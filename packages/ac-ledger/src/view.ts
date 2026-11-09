@@ -16,7 +16,7 @@ import * as path from 'node:path';
 import { conversationDirs } from './manage.ts';
 import { readLedger, readJournal, readSubcalls, stepsOfLedger, stepsOfRun } from './reader.ts';
 import { sessionDir } from './writer.ts';
-import { UserLedger } from './user.ts';
+import { projectUserReplay } from './project.ts';
 import type { JournalLine, JournalToolResult, LedgerRow, ProjectedStep } from './records.ts';
 
 /** 活跃 run 聚集行（face-ops collectRunning 形状子集） */
@@ -27,14 +27,20 @@ export interface RunningEntry {
 }
 
 export interface SessionViewOptions {
-  /** lite 视图：steps 超长字段截断为摘要（移动端瘦身） */
-  view?: 'lite';
+  /** 视图参数化（cr-973，纯函数零存储差异）：lite = steps 超长字段截断
+   *  摘要（移动端瘦身）；plain = DSH 式无气泡视图——无气泡是前端渲染
+   *  参数，记录面与 chat 同构（服务端等值透传，不另立投影）。 */
+  view?: 'chat' | 'plain' | 'lite';
   /** 活壳 run 聚集（journal 活投影门控——runId 精确命中才投在途步） */
   running?: RunningEntry[];
+  /** subcall 档案定向读钩子（cr-973 索引辅助）：给该域该 run 的
+   *  subcalls.jsonl 行（seek 定位）；undefined = 该域档案未索引 → 调用方
+   *  回落全文件读。返回数组（可空）= 已索引，直接采用。 */
+  subcallsOf?: (domain: string, run: string) => JournalToolResult[] | undefined;
 }
 
 /** 域面（journal + 账本行 + 子调用档案——每域只解析一次） */
-interface Face { lines: JournalLine[]; rows: LedgerRow[]; subcalls: JournalToolResult[]; }
+interface Face { lines: JournalLine[]; rows: LedgerRow[]; subcalls?: JournalToolResult[]; }
 
 const LITE_FIELD_MAX = 2 * 1024;
 
@@ -82,7 +88,7 @@ export function assembleSessionView(
     let f = faceMap.get(domain);
     if (f === undefined) {
       const base = dir ?? sessionDir(dataRoot, domain, conversationId);
-      f = { lines: readJournal(base), rows: readLedger(base).rows, subcalls: readSubcalls(base) };
+      f = { lines: readJournal(base), rows: readLedger(base).rows };
       faceMap.set(domain, f);
     }
     return f;
@@ -104,25 +110,32 @@ export function assembleSessionView(
     } else {
       const lines = [...own.lines];
       const rows = [...own.rows];
-      const subcalls = [...own.subcalls];
       for (const part of conversationId.split('~')) {
         if (part === agentId) continue;
         const pf = ensureFace(part);
         lines.push(...pf.lines);
         rows.push(...pf.rows);
-        subcalls.push(...pf.subcalls);
       }
-      m = { lines, rows, subcalls };
+      m = { lines, rows };
     }
     mergedOf.set(agentId, m);
     return m;
   };
-  const stepsFor = (agentId: string, run: string): { steps: ProjectedStep[]; partial: boolean } | null => {
-    const { lines, rows, subcalls } = faceFor(agentId);
-    return stepsOfLedger(rows, run, subcalls) ?? stepsOfRun(lines, run);
+  // subcall 档案取值：索引钩子优先（cr-973——按 run 定位 seek，重度会话
+  // 不再全文件解析）；未索引回落惰性全读（首用触发，此后面内缓存）
+  const subcallsFor = (domain: string, run: string): JournalToolResult[] => {
+    const viaIndex = opts.subcallsOf?.(domain, run);
+    if (viaIndex !== undefined) return viaIndex;
+    const f = ensureFace(domain);
+    f.subcalls ??= readSubcalls(sessionDir(dataRoot, domain, conversationId));
+    return f.subcalls;
   };
-  // viewer 终稿层（单次读，两个消费面共用）
-  const replay = new UserLedger(dataRoot, conversationId, ['user']).replay();
+  const stepsFor = (agentId: string, run: string): { steps: ProjectedStep[]; partial: boolean } | null => {
+    const { lines, rows } = faceFor(agentId);
+    return stepsOfLedger(rows, run, subcallsFor(agentId, run)) ?? stepsOfRun(lines, run);
+  };
+  // user 终稿层（cr-973 读时投影——agent 域账本纯函数，viewer 不再物化）
+  const replay = projectUserReplay(dataRoot, conversationId);
   // 注入行投影（cr-707）：按 run 键归口，插在该 run 终稿行/盲区步行之前。
   // cr-739：busy-steer 注入行与 viewer 同 requestId user 行并生时注入卡不投
   //（用户卡片承载该消息——与直播形态一致）；机制注入照投。
@@ -149,14 +162,20 @@ export function assembleSessionView(
     for (const r of rows) {
       // cr-888：会话设置变化通知行（context+event，run 锚定）与 inject 行
       // 同投注入卡（label 卡片；source 取 injectSource）
-      const isInjectCard = r.source === 'inject' || (r.source === 'event' && r.role === 'context');
+      // cr-959：context 直落行（memory-snapshot/memory-delta/skill 等——
+      // source 非 event/error 机制词）同样卡片化：这些行真实进入 LLM 回放
+      //（historyMessagesFor 直落分支 / settlement 提升），读面缺席 = 刷新后
+      // 注入在前端不可见。判据与前端 isInjectEvent（source.kind 非机制词）
+      // 单源对齐。
+      const isInjectCard = r.source === 'inject'
+        || (r.role === 'context' && r.source !== 'error');
       if (!isInjectCard || r.run === undefined) continue;
       projectInject(r.run, {
         role: 'context',
         content: r.content,
-        ...(r.label !== undefined ? { label: r.label } : {}),
+        ...(r.label !== undefined ? { label: r.label } : r.source !== 'inject' && r.source !== 'event' ? { label: r.source } : {}),
         ...(r.payload !== undefined ? { payload: r.payload } : {}),
-        source: r.injectSource ?? 'inject',
+        source: r.injectSource ?? (r.role === 'context' && r.source !== 'event' && r.source !== 'inject' ? r.source : 'inject'),
         message_id: r.message_id,
         timestamp: r.timestamp,
         agent_id: r.agent_id,
@@ -222,7 +241,7 @@ export function assembleSessionView(
   // 投出——空终稿 run（中断/崩溃）+ 壳死于终稿回信前的 settled run。
   // 候选与投影都用本域自身事实（非合并面——盲区 run 的归属域明确）。
   const runningIds = new Set(runningHere.map((r) => r.runId));
-  for (const [domain, { lines, rows, subcalls }] of faceMap) {
+  for (const [domain, { lines, rows }] of faceMap) {
     const candidates = new Set<string>();
     for (const l of lines) {
       if (l.run !== '' && (l.type === 'journal-step' || l.type === 'journal-inject')) candidates.add(l.run);
@@ -232,7 +251,7 @@ export function assembleSessionView(
     }
     for (const run of candidates) {
       if (viewerRuns.has(run) || runningIds.has(run)) continue;
-      const p = stepsOfLedger(rows, run, subcalls) ?? stepsOfRun(lines, run);
+      const p = stepsOfLedger(rows, run, subcallsFor(domain, run)) ?? stepsOfRun(lines, run);
       if (p === null) continue;
       all.push(...(injectRowsOf.get(run) ?? []));
       all.push({
@@ -257,6 +276,26 @@ export function assembleSessionView(
         message_id: r.message_id,
         timestamp: r.timestamp,
         run: r.run,
+        ...(r.seq !== undefined ? { seq: r.seq } : {}), // B1 行级 seq 透传
+      });
+    }
+    // cr-959：无 run 锚的 context 直落行（memory-snapshot/memory-delta——
+    // before-start seam 直落，本 run 派生即含）真实进入 LLM 上下文，读面
+    // 直投为 context 行（前端注入卡；source 原样透传）。与机制通知行
+    //（context+event）分流：event 走分隔符，注入源走卡片。
+    for (const r of rows) {
+      if (r.role !== 'context' || r.source === undefined) continue;
+      if (r.source === 'event' || r.source === 'error') continue;
+      if (r.run !== undefined) continue; // run 锚定行已由 projectInject 归口
+      all.push({
+        role: 'context',
+        content: r.content,
+        // label 缺席回落 source 词（旧版直落行无 label——前端收起行不拿整段正文当文案）
+        label: r.label ?? r.source,
+        source: r.source,
+        message_id: r.message_id,
+        timestamp: r.timestamp,
+        agent_id: domain,
         ...(r.seq !== undefined ? { seq: r.seq } : {}), // B1 行级 seq 透传
       });
     }

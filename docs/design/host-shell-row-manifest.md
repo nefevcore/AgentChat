@@ -51,8 +51,9 @@
 | 数据服务 | timers | ac-host-rows + ac-timer-core | 定时唤醒（唤醒 = 投递信） | 沿用 |
 | 数据服务 | usage | ac-usage | 计费聚合（对账 ledger 自报事件信；另收 job 观测快照镜像） | 改造 |
 | 数据服务 | ~~archive~~ | — | **已改树（cr-546，2026-10-19，裁决 D11「全壳内」）**：归档编排（阈值检测/整理 run/归档重建）全链住壳——整理 run = LLM 编排只能住壳（R0a 判据 1，与 session-query 同判据）、归档重建 = 写归属 agent 账本（D4 写权 = 账本所有权）；宿主零 archive 职责，timer 的 archive-all 机制任务改批量唤醒信（宿主只发信——A13/D11）。已移入 R2 域服务（宿主 46→45 / 壳 35→36，总数 81 恒等） | 改树（D11） |
-| 数据服务 | singles | ac-host-rows（singles-row.ts）+ ac-ledger | **独立会话元数据写面**（cr-566）：owns `viewer/sessions/<sid>/session.json`（cr-609 前名 `users/user/sessions/`——viewer 投影轴与 agents 身份树平级且刻意异名；agentId / title / workspaceId / status / 时间戳——模型覆盖仍走 conv-settings，D12）；`singles/list|create|update|fork|archive|delete` 六方法 + `singles/updated` 帧广播（args=[session, created|updated|archived|removed]）；fork = 锚点前账本恒等拷贝（ac-ledger manage.ts）；删除 = 该会话全部账本 + 元数据 + 覆盖一并清 | **新增**（cr-566——会话工作面补全）；**cr-672 标题面**：生成归壳（auto-title 行）、写权归本行——标题请求信经 HostInbox 受理，write-if-absent 落盘（用户手改 / fork 继承不覆盖）；派生标题改「用户自己的首条发言」优先（旧实现取首条非空内容行：对端台词 / 定时触发词 / DSML 残片都会变标题），CRLF 剥尾、日期快照行跳过、材料行筛选（附件路径 / @ 引用 / URL 行不是发言）、上限与
+| 数据服务 | singles | ac-host-rows（singles-row.ts）+ ac-ledger | **独立会话元数据写面**（cr-566；cr-973 迁 `meta/sessions/<sid>.json`——清单身份源同迁，viewer 树停写）：owns `meta/sessions/<sid>.json` + `meta/sessions/.singles-registry.json`；摘要自 agent 域读时投影（projectUserReplay）。前身 owns `viewer/sessions/<sid>/session.json`（cr-609 前名 `users/user/sessions/`——viewer 投影轴与 agents 身份树平级且刻意异名；agentId / title / workspaceId / status / 时间戳——模型覆盖仍走 conv-settings，D12）；`singles/list|create|update|fork|archive|delete` 六方法 + `singles/updated` 帧广播（args=[session, created|updated|archived|removed]）；fork = 锚点前账本恒等拷贝（ac-ledger manage.ts）；删除 = 该会话全部账本 + 元数据 + 覆盖一并清 | **新增**（cr-566——会话工作面补全）；**cr-672 标题面**：生成归壳（auto-title 行）、写权归本行——标题请求信经 HostInbox 受理，write-if-absent 落盘（用户手改 / fork 继承不覆盖）；派生标题改「用户自己的首条发言」优先（旧实现取首条非空内容行：对端台词 / 定时触发词 / DSML 残片都会变标题），CRLF 剥尾、日期快照行跳过、材料行筛选（附件路径 / @ 引用 / URL 行不是发言）、上限与
 生成面同源（24 字） |
+| 数据服务 | session-index | ac-session-index | **会话源文件指针索引**（cr-973 / cr-972 第一刀）：SQLite WAL 纯缓存（`<dataRoot>/index/session-index.db`——files/records/journal_lines/subcalls 四表，只指真源零语义，可全量重建）；读面消费 = session/history 指纹短路（与 historyView stat 公式跨互认）+ subcall 档案按 run 定位 seek（重度会话不再全文件解析）；增量尾读维护 + 打开对账（size/mtime/consumed 三键，重写即重建该文件条目——loud 重建不静默） | **新增**（cr-973——插槽-插头：行摘除 = 读面回落全扫投影，行为等价测试对拍） |
 | 数据服务 | conv-settings | ac-conv-settings | **会话级覆盖写面**（模型 / 工具档 / 实验键）：写者单源 = 宿主 web RPC（输入框模型菜单、设置面板），壳经数据根垫片只读直取（cr-565，2026-10-22）。模型覆盖经 deliver 合并点随信封投递（显式入参 > 存盘覆盖），壳内 run 装配按信封 model 取 provider/model | 改树（cr-565——写权 = 用户动作面住宿主；读面壳垫片） |
 | 数据服务 | group | ac-host-rows（groups-row.ts）+ ac-post-office | **群存储写面**（cr-576，2026-10-22）：owns `groups/<gid>/group.json`（GroupConfig 成员表 + 名称/简介）；`group/list|create|delete|join|leave|rename|set-description|send|history` 九方法 + 六变更帧广播（group/created 等 → 前端列表刷新）+ group/message-posted；send = **信封扇出**（除发送者外每成员一封，uuid = 成员流键 `gid~<member>`——主线 memberStreamKey 同形；不可达走发件箱 + ensureHook 拉壳转投）；history = 全成员流合并读面（跨流同 requestId 去重 + 成员终稿各留各）；多发送方 uuid 登记 = 群行按全名册（members ∪ user）预登记每条成员流 + registry 子集一致校验（cr-576——conflict 只拦名册外端点） | **新增**（cr-576——group 域 RPC 收口） |
 | 数据服务 | backup | ac-backup | 数据轴备份 + 快照链 GFS（分轴共行） | 改造（吸收 snapshot-chain） |
@@ -224,8 +225,11 @@ preview 出现对 A 类成员的新导入（如经 ac-skill 的 devDep 之类测
   = 82 = 宿主 46 + 壳 36；cr-566 起 singles 全新增 = 83 = 宿主 47 + 壳 36；
   cr-576 起 group 全新增 = **84 = 宿主 48 + 壳 36**；cr-629 restart 全新增 =
 85 = 宿主 48 + 壳 37；cr-672 auto-title 全新增 = **86 = 宿主 48 + 壳 38**；
-  **cr-701（2026-10-26）B4 撤 25 ui 域行 = 61 = 宿主 23 + 壳 38（现行）**；
-  cr-703（2026-10-26）单轨布局收编（src/preview 消灭、包收编 packages/）不改行数。
+  **cr-701（2026-10-26）B4 撤 25 ui 域行 = 61 = 宿主 23 + 壳 38**；
+  cr-703（2026-10-26）单轨布局收编（src/preview 消灭、包收编 packages/）不改行数；
+  **cr-973（2026-11-09）session-index 全新增 = 62 = 宿主 24 + 壳 38（现行）**——
+  会话源文件指针索引（ac-session-index；cr-972 第一刀：读面指纹短路 +
+  subcall 定位；行摘除 = 读面回落全扫）。
 - M8.2（cr-523，2026-10-18）：8.1 收敛完毕——34 壳行全部可装配（collab-tools
   随 conversation 服务面落地导入；subagent 归 8.3 spawn 工具面）。M5 替身
   ac-shell-loop 退役删除（全量 loop = 主线 ac-agent-loop 真身，boot 直装）。

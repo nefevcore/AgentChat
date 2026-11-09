@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-958**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-973**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -975,4 +975,19 @@
 - 【cr-956 2026-11-09 死代码审计补扫批：32 个未覆盖包（client-ui-* 单文件包 + ac-webui/ac-mcp-core/ac-config 等，含 ac-client-ui-conversation 1.9 万行拆三分）经 6 组扫描 + 3 组对抗式复核，confirmed 24 条按包清理（tags 孤儿链约 620 行、feed-core 活动索引整族、chat-core 死透传、assertDeclarableSlot 滞留防线等）；disputed 154 条留档】
 - 【cr-957 2026-11-09 disputed 第三批处置（用户裁决：仅测试面锁住的删除 其余保留）：16 条纯测试锁定项清理——plugin-core 四导出面收窄/删除（projectLegacyManifest/highRiskSlotsOf/readAudit/installedDocFile）、host-rows 三方法（listAgents/removeEntry/entryKeys/transientConfigOf）、post-office 两面（reachable/inboxDecision）、webui-core 历史读增量面（readLedgerFrom/splitLines/listSessions/readHeaderOnly）、usage.auditFiles、jobs.size、LlmError/classifyLlmHttpStatus 门面收窄；锁定测试同步改写（auditFiles→直读目录、size→list()、增量读→整读）或删用例；约 20 条档案/协议/族约理由的 disputed 保留】
 - 【cr-958 2026-11-09 todo 工具移除 in_progress 至多 1 项限制（at-most-one 校验退役，允许多项并行标记）】
+- 【cr-959 2026-11-09 会话读面注入行投影补全：assembleSessionView 投出 context 直落行（memory-snapshot/memory-delta/skill 等非 event/error 源）——带 run 归口 inject 卡通道（source 原样透传）、无 run 直投，前端注入卡判据已天然覆盖零改动】
+- 【cr-960 2026-11-09 fix(conversation): ask_questions 作答草稿失去响应式——draftsByCard 普通对象致 answered 恒 false（自定义回答无法提交）】
+- 【cr-961 2026-11-09 计划(未实施):shell boot 图单文件 bundle 化——1904 文件冷装载并 1 次open,冷启 IO 治本;配套运维项:仓库/node_modules 加 Defender 实时防护排除】
+- 【cr-962 2026-11-09 拉起链冷启韧性三件套:并发上限+排队(冷态互拖消解)、adopt 超时独立定时器+分级预算(首拍 45s 冷启容忍)、adopt 超时有限重试+flushOutbox 不可达滞留目标周期补拉(带冷却窗防风暴)】
+- 【cr-963 2026-11-09 cr-962 补拉回归修复:flushOutbox 转投失败目标 10s 抑制补拉——补拉经 rescue 回 markReachable+flush 与 cr-885 失败摘项在壳 boot 窗口形成 microtask 振荡(现场单秒 600+ 条 W 刷屏,宿主重启后三壳齐发)】
+- 【cr-964 2026-11-09 记录:启动链结构评审存档 docs/design/bootchain-structural-review.md——E1 可达表多写者无 owner(结构性错误,振荡事故族之根)/E2 壳生命周期状态机五层打散(结构性弱点)——未裁决,待新会话讨论立项】
+- 【cr-965 2026-11-09 设计提案:宿主换代完整接管 docs/design/host-generation-takeover.md——socket-only 监护形态 + 判死双源 + 接管流程 + 三决策点(D1 双源判死/D2 让路窗收紧/D3 黑名单退役)+ 三批实施切分;取代同日删除的 cr-964 评审存档(结论已并入 §1)】
+- 【cr-966 2026-11-09 换代接管批1：判死双源喂活——ShellWarden.noteProbe（socket run-state 探测=第二心跳源）+ peek 接线】
+- 【cr-967 2026-11-09 换代接管批2：socket-only 句柄形态 + boot 完整接管 adoptLiveShells（替代 rescue 降级语义）+ 壳侧 system/shutdown 帧】
+- 【cr-968 2026-11-09 换代接管批3：D2 host-revive 让路收紧（system 在场 ∧ 宿主已接管证据 = 免除复活）+ D3 cr-675 老壳黑名单/降级路径退役 + 注释与文档同步】
+- 【cr-969 2026-11-09 换代接管残余评估：E1/E2 批3 后重估结论入设计档 §9（rescue 并源与拉起链时钟并源两收敛项，暂不动代码）】
+- 【cr-970 2026-11-09 换代接管改动面精简：takeover.ts 死注入点（watchPump）与无用防御面（stderrTail 空实现）内联移除 + 测试空转 promise 清理】
+- 【cr-971 2026-11-09 steer 注入落账时机根修：journalInject 从 steer 受理时刻（到达）移到消费点（loop 步边界 splice 时 emit loop/steer-consumed，壳订阅后落账）——修复注入行比模型实际消费点早一步的账本错位（journalInject 注释承诺消费点真序但实现在受理点落账）；崩溃安全 = steer 受理时 inboxStore durable，收束残留 pending 兜底落账】
+- 【cr-972 2026-11-09 登记 session 事件日志统一实施计划（session-event-log-unification-plan.md）：viewer 实时投影+指针索引第一刀；journal 事件化/收束退役/压缩事件化第二刀；run 概念与直播管线影响评估】
+- 【cr-973 2026-11-09 session 事件日志统一 Phase 1（cr-972 第一刀）：ac-session-index 索引服务行 + web-api 读时投影/偏移分页/指纹短路 + viewer 停写与消费方迁移】
 

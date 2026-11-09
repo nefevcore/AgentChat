@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { makeEnvelope } from 'ac-envelope-core';
 import { tapShellStream } from 'ac-post-office';
 import { bootShell } from '../../shell/boot.ts';
-import { UserLedger } from 'ac-ledger';
+import { LedgerWriter, sessionDir, projectUserReplay } from 'ac-ledger';
 
 const ROOT = path.join('sandbox', 'test-webui-e2e-' + process.pid);
 const CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
@@ -53,19 +53,25 @@ describe('M7.5 webui 三拆 + 通道 端到端', () => {
     await send('第一问', 'rq-a1');
     await send('第二问', 'rq-a2');
     client.destroy();
-    // user 壳终稿写穿（模拟 agent 终稿到达——真实链路 = run 收束终稿投回）
-    const uled = new UserLedger(ROOT, 'u-e2e-a', ['alpha', 'user']);
-    await uled.writeOwn('第一问', 'rq-a1');
-    await uled.writeThrough({ agentId: 'alpha', content: '[alpha 回复 第一问]', uuid: 'u-e2e-a', run: 'run-1', requestId: 'rr-1' });
-    await uled.writeOwn('第二问', 'rq-a2');
-    await uled.writeThrough({ agentId: 'alpha', content: '[alpha 回复 第二问]', uuid: 'u-e2e-a', run: 'run-2', requestId: 'rr-2' });
-    // webui 读面——user 账本整读（readLedgerFrom 增量读已随 cr-957 删除，直读文件验证）
-    const udir = path.join(ROOT, 'viewer', 'sessions', 'u-e2e-a');
-    const allRows = fs.readFileSync(path.join(udir, 'messages.jsonl'), 'utf-8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.role !== undefined);
-    expect(allRows.map((r) => r.content)).toEqual(['第一问', '[alpha 回复 第一问]', '第二问', '[alpha 回复 第二问]']);
-    await uled.writeThrough({ agentId: 'alpha', content: '[alpha 回复 第三问]', uuid: 'u-e2e-a', run: 'run-3', requestId: 'rr-3' });
-    const rows3 = fs.readFileSync(path.join(udir, 'messages.jsonl'), 'utf-8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.role !== undefined);
-    expect(rows3.map((r) => r.content)).toEqual(['第一问', '[alpha 回复 第一问]', '第二问', '[alpha 回复 第二问]', '[alpha 回复 第三问]']);
+    // 账本落地（cr-973：viewer 物化退役——入站 user 行 + agent 自著终稿行
+    // 都落 agent 域）。入站行壳侧已落（上方 ipc 直投，同键重落被投影去重）；
+    // 终稿行时间戳取壳侧两问之间/其后（投影按 ts 排序——先问后答的事实序）
+    const ts = (offsetMs: number): string => new Date(Date.now() + offsetMs).toISOString();
+    const midTs = (a: string, b: string): string => new Date((Date.parse(a) + Date.parse(b)) / 2).toISOString();
+    const { readLedger } = await import('ac-ledger');
+    const landed = readLedger(sessionDir(ROOT, 'alpha', 'u-e2e-a')).rows;
+    const t1 = landed.find((r) => r.requestId === 'rq-a1')?.timestamp ?? ts(1_000);
+    const t2 = landed.find((r) => r.requestId === 'rq-a2')?.timestamp ?? ts(3_000);
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', 'u-e2e-a'), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.deliver({ role: 'agent', content: '第一问', agent_id: 'user', requestId: 'rq-a1', uuid: 'u-e2e-a', timestamp: t1 });
+    await w.deliver({ role: 'agent', content: '[alpha 回复 第一问]', agent_id: 'alpha', requestId: 'rr-1', uuid: 'u-e2e-a', run: 'run-1', timestamp: midTs(t1, t2) });
+    await w.deliver({ role: 'agent', content: '第二问', agent_id: 'user', requestId: 'rq-a2', uuid: 'u-e2e-a', timestamp: t2 });
+    await w.deliver({ role: 'agent', content: '[alpha 回复 第二问]', agent_id: 'alpha', requestId: 'rr-2', uuid: 'u-e2e-a', run: 'run-2', timestamp: ts(4_000) });
+    // webui 读面——终稿层读时投影（projectUserReplay，cr-973 唯一读面）
+    const replayOf = (): string[] => projectUserReplay(ROOT, 'u-e2e-a').map((r) => r.content);
+    expect(replayOf()).toEqual(['第一问', '[alpha 回复 第一问]', '第二问', '[alpha 回复 第二问]']);
+    await w.deliver({ role: 'agent', content: '[alpha 回复 第三问]', agent_id: 'alpha', requestId: 'rr-3', uuid: 'u-e2e-a', run: 'run-3', timestamp: ts(5_000) });
+    expect(replayOf()).toEqual(['第一问', '[alpha 回复 第一问]', '第二问', '[alpha 回复 第二问]', '[alpha 回复 第三问]']);
     await boot.close();
   }, 30_000);
 
@@ -82,12 +88,13 @@ describe('M7.5 webui 三拆 + 通道 端到端', () => {
     expect(ok1).toBe(true);
     expect(ok2).toBe(true);
     await new Promise((r) => setTimeout(r, 150));
-    // 收束：end 帧 + 账本终稿对齐（账本兜底）
+    // 收束：end 帧 + 账本终稿对齐（账本兜底；cr-973 终稿行落 agent 域，
+    // 回放走读时投影）
     boot.emitStream({ stream: 'st-1', kind: 'end', finish: 'ok' });
     await new Promise((r) => setTimeout(r, 100));
-    const uled = new UserLedger(ROOT, 'u-e2e-b', ['beta', 'user']);
-    await uled.writeThrough({ agentId: 'beta', content: '流式终稿', uuid: 'u-e2e-b', run: 'st-1', requestId: 'rr-b1' });
-    const replay = uled.replay();
+    const bw = new LedgerWriter(sessionDir(ROOT, 'beta', 'u-e2e-b'), { participants: ['beta', 'user'], kind: 'user' });
+    await bw.deliver({ role: 'agent', content: '流式终稿', agent_id: 'beta', uuid: 'u-e2e-b', run: 'st-1', requestId: 'rr-b1' });
+    const replay = projectUserReplay(ROOT, 'u-e2e-b');
     // toEqual 全等：timestamp（cr-716）/ requestId（cr-739）/ seq（B1 行级
     // seq 持久化）是 replay 行合法字段，期望补齐
     expect(replay[0]).toEqual({

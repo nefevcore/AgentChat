@@ -1,0 +1,21 @@
+{
+  "name": "ac-session-index",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "会话指针索引（cr-973 Phase 1 第一刀）：宿主侧 SQLite（node:sqlite 内建，WAL）纯指针行索引——messages/journal/subcalls 行定位零语义缓存，读面按 byte_offset seek 回源；纯库面 + cordis 服务行面",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-ledger": "workspace:*",
+    "vitest": "^4.1.10"
+  }
+}

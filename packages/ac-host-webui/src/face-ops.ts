@@ -36,7 +36,7 @@ import { runNativeOpen } from 'ac-workspace/src/native-open.ts';
 import { resolveOpenTargets, refreshTarget, runOpenWith, targetIconOf } from 'ac-workspace/src/open-targets.ts';
 import { assocIconOfExt, folderIconOf } from 'ac-workspace/src/file-assoc-icons.ts';
 import { readCatalog } from 'ac-rowset-core';
-import { UserLedger, conversationDirs, readJournal, readLedger, summaryTextOf } from 'ac-ledger';
+import { conversationDirs, projectUserReplay, readJournal, readLedger, summaryTextOf } from 'ac-ledger';
 import { readAgentConfig, settingsOf } from 'ac-agents-core';
 import { estimateTokens } from 'ac-text-budget';
 import { estimateReplayTokens } from 'ac-archive-core';
@@ -817,8 +817,9 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       total += estimateReplayTokens(rows, agentId, { summary: summaryTextOf(dir) });
     }
     if (agentRows > 0) return total;
-    return new UserLedger(deps.dataRoot, conversationId, ['user']).replay()
-      .reduce((n, r) => n + estimateTokens(r.content), 0);
+    // 终稿层直估（cr-973 读时投影——agent 域无行的导入前会话走兼容窗）
+    return projectUserReplay(deps.dataRoot, conversationId)
+      .reduce((n: number, r: { content: string }) => n + estimateTokens(r.content), 0);
   };
 
   /** 归档预算分母（全局 settings ∪ agent 差异层——主线 archive budgetsFor 同口径；缺省 1M） */
@@ -870,7 +871,7 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       }
     }
     const maxContextTokens = archiveBudgetOf(agentId);
-    const messageCount = new UserLedger(deps.dataRoot, conversationId, ['user']).replay().length;
+    const messageCount = projectUserReplay(deps.dataRoot, conversationId).length;
     const avgTokensPerMsg = messageCount > 0 ? promptTokens / messageCount : 0;
     const usagePercent = Math.min(100, (promptTokens / maxContextTokens) * 100);
     return {
@@ -910,16 +911,57 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
   // digest 短路：请求带上一轮 digest 且当前一致 → unchanged 轻载荷。
   let lastRunsDigest: string | null = null;
   web.registerRpc('runs/snapshot', async (params) => {
-    const sessionsRoot = path.join(deps.dataRoot, 'viewer', 'sessions');
-    let sessionDirs: fs.Dirent[] = [];
-    try { sessionDirs = fs.readdirSync(sessionsRoot, { withFileTypes: true }); } catch { /* 无 user 会话域 */ }
-    const convsMeta = sessionDirs
-      .filter((e) => e.isDirectory())
-      .map((e) => {
+    // 会话清单与指纹源（cr-973 viewer 停写）：agent 域账本是事实源——
+    // 单趟扫 agents/*/sessions 建 id→目录映射；清单 = meta/sessions（singles
+    // 身份源）∪ pair 会话（id 的 '~' 段含 user）∪ viewer/sessions 存量目录
+    //（兼容窗）。指纹输入 = 该会话全部源文件 stat（append-only 下未变即
+    // 读面输入未变）。
+    const dirsByConv = new Map<string, string[]>();
+    const agentsRoot = path.join(deps.dataRoot, 'agents');
+    try {
+      for (const a of fs.readdirSync(agentsRoot, { withFileTypes: true })) {
+        if (!a.isDirectory()) continue;
+        const sRoot = path.join(agentsRoot, a.name, 'sessions');
+        let sds: fs.Dirent[] = [];
+        try { sds = fs.readdirSync(sRoot, { withFileTypes: true }); } catch { continue; }
+        for (const s of sds) {
+          if (!s.isDirectory()) continue;
+          const list = dirsByConv.get(s.name) ?? [];
+          list.push(path.join(sRoot, s.name));
+          dirsByConv.set(s.name, list);
+        }
+      }
+    } catch { /* 无 agents 域 */ }
+    const ids = new Set<string>(dirsByConv.keys());
+    try {
+      for (const e of fs.readdirSync(path.join(deps.dataRoot, 'meta', 'sessions'), { withFileTypes: true })) {
+        if (e.isFile() && e.name.endsWith('.json')) ids.add(e.name.slice(0, -5));
+      }
+    } catch { /* 无元数据域 */ }
+    try {
+      for (const e of fs.readdirSync(path.join(deps.dataRoot, 'viewer', 'sessions'), { withFileTypes: true })) {
+        if (e.isDirectory()) {
+          ids.add(e.name);
+          const dir = path.join(deps.dataRoot, 'viewer', 'sessions', e.name);
+          dirsByConv.set(e.name, [...(dirsByConv.get(e.name) ?? []), dir]);
+        }
+      }
+    } catch { /* 兼容窗目录缺席 */ }
+    const convsMeta = [...ids].sort()
+      .filter((cid) => dirsByConv.has(cid))
+      .map((cid) => {
         let size = -1;
         let mtimeMs = 0;
-        try { const st = fs.statSync(path.join(sessionsRoot, e.name, 'messages.jsonl')); size = st.size; mtimeMs = st.mtimeMs; } catch { /* 无账本文件 */ }
-        return { cid: e.name, size, mtimeMs };
+        for (const dir of dirsByConv.get(cid) ?? []) {
+          for (const file of ['messages.jsonl', path.join('journal', 'partials.jsonl'), 'subcalls.jsonl']) {
+            try {
+              const st = fs.statSync(path.join(dir, file));
+              size = size < 0 ? st.size : size + st.size;
+              mtimeMs = Math.max(mtimeMs, st.mtimeMs);
+            } catch { /* 缺席文件不参与 */ }
+          }
+        }
+        return { cid, size, mtimeMs };
       });
     // 群面（cr-579）：groups/<gid>/group.json 扫描（主线 ctx.group.list 同源形状）
     const groups = listGroupConfigs(deps.dataRoot);
@@ -950,7 +992,8 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     const conversations = convsMeta
       .filter((c) => c.size >= 0)
       .map((c) => {
-        const { rows } = readLedger(path.join(sessionsRoot, c.cid));
+        // cr-973：终稿层读时投影（agent 域账本——viewer 不再物化）
+        const rows = projectUserReplay(deps.dataRoot, c.cid);
         const last = rows.at(-1);
         return {
           conversationId: c.cid,
@@ -960,10 +1003,10 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
           ...(last !== undefined
             ? {
               last: {
-                role: last.agent_id === 'user' ? 'user' : 'assistant',
+                role: last.role === 'user' ? 'user' : 'assistant',
                 text: last.content.slice(0, 120),
                 ts: last.timestamp,
-                ...(last.agent_id !== 'user' ? { agent_id: last.agent_id } : {}),
+                ...(last.role !== 'user' ? { agent_id: last.agentId } : {}),
               },
             }
             : {}),

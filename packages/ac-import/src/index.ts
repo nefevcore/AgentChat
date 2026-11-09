@@ -13,4 +13,3 @@ export * from './project.ts';
 export * from './verify.ts';
 export * from './writer.ts';
 export * from './agents-tree.ts';
-export * from './user-projection.ts';

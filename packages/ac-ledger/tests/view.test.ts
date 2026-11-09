@@ -1,13 +1,14 @@
 // ============================================================
 // view.test.ts —— 会话读面视图组装单测（cr-768）：lite 投影语义 +
 // 零变异纪律（cr-55 病理防复发）+ 视图指纹（短路判据）+ 组装投影面。
+// cr-973：viewer 物化账本退役——终稿层经 projectUserReplay 读时投影，
+// 种子行改为 agent 域 LedgerWriter 直落（user.test/derive.test 同期退役）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { assembleSessionView, historyView } from '../src/view.ts';
-import { UserLedger } from '../src/user.ts';
-import { sessionDir } from '../src/writer.ts';
+import { LedgerWriter, sessionDir } from '../src/writer.ts';
 
 const ROOT = path.join('sandbox', 'test-ledger-view-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -16,10 +17,10 @@ afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 const LONG = 'x'.repeat(5 * 1024);
 const BIG = { blob: 'y'.repeat(10 * 1024) };
 
-/** 种一个会话：viewer 终稿行（run 键）+ agent 域 journal（含超长步） */
-function seed(conv: string): void {
-  const userLedger = new UserLedger(ROOT, conv, ['user']);
-  void userLedger.writeThrough({ agentId: 'alpha', content: '终稿', uuid: conv, run: 'run-1', requestId: 'rq-1' });
+/** 种一个会话：agent 域终稿行（run 键）+ journal（含超长步） */
+async function seed(conv: string): Promise<void> {
+  const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+  await w.deliver({ role: 'agent', content: '终稿', agent_id: 'alpha', requestId: 'rq-1', uuid: conv, run: 'run-1', timestamp: '2026-11-09T10:00:00.000Z' });
   const journalFile = path.join(sessionDir(ROOT, 'alpha', conv), 'journal', 'partials.jsonl');
   fs.mkdirSync(path.dirname(journalFile), { recursive: true });
   fs.writeFileSync(journalFile, [
@@ -31,7 +32,6 @@ function seed(conv: string): void {
 describe('cr-807 error 收束错误行读面透传', () => {
   it('error run（空终稿）：盲区投 steps 行 + context+error 行紧随——刷新后红条可见', async () => {
     const conv = 'err-view-1';
-    const { LedgerWriter } = await import('../src/writer.ts');
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
     await w.deliver({ role: 'agent', content: '用户问', agent_id: 'user', requestId: 'q1', uuid: conv });
     await w.journal({ type: 'journal-step', run: 'run-q1', step: 0, content: '半途' });
@@ -47,8 +47,8 @@ describe('cr-807 error 收束错误行读面透传', () => {
 });
 
 describe('lite 视图投影（cr-768 回填 cr-54/55）', () => {
-  it('超长 reasoning/arguments 截断为摘要，result 换 truncated 摘要对象', () => {
-    seed('lite-1');
+  it('超长 reasoning/arguments 截断为摘要，result 换 truncated 摘要对象', async () => {
+    await seed('lite-1');
     const out = assembleSessionView(ROOT, 'lite-1', { view: 'lite' });
     const step = (out.find((r) => Array.isArray(r.steps))!.steps as Array<{ reasoning?: string; toolCalls?: Array<{ arguments: string; result: unknown; resultTruncated?: boolean }> }>)[0]!;
     expect(step.reasoning).toMatch(/^x{2048}…\[\+3072B 截断\]$/);
@@ -57,8 +57,8 @@ describe('lite 视图投影（cr-768 回填 cr-54/55）', () => {
     expect(step.toolCalls![0]!.result).toMatchObject({ truncated: true });
   });
 
-  it('零变异：lite 投影后磁盘原文重读不变（浅拷贝纪律——cr-55 病理防复发）', () => {
-    seed('lite-2');
+  it('零变异：lite 投影后磁盘原文重读不变（浅拷贝纪律——cr-55 病理防复发）', async () => {
+    await seed('lite-2');
     const before = fs.readFileSync(path.join(sessionDir(ROOT, 'alpha', 'lite-2'), 'journal', 'partials.jsonl'), 'utf-8');
     assembleSessionView(ROOT, 'lite-2', { view: 'lite' });
     const after = fs.readFileSync(path.join(sessionDir(ROOT, 'alpha', 'lite-2'), 'journal', 'partials.jsonl'), 'utf-8');
@@ -69,8 +69,8 @@ describe('lite 视图投影（cr-768 回填 cr-54/55）', () => {
     expect(step.reasoning).toBe(LONG);
   });
 
-  it('短字段原样直通（低于阈值不截断——语义等价）', () => {
-    seed('lite-3');
+  it('短字段原样直通（低于阈值不截断——语义等价）', async () => {
+    await seed('lite-3');
     const jf = path.join(sessionDir(ROOT, 'alpha', 'lite-3'), 'journal', 'partials.jsonl');
     fs.writeFileSync(jf, [
       JSON.stringify({ type: 'journal-step', run: 'run-1', step: 1, content: '想', reasoning: '短思考', toolCalls: [{ id: 'c9', name: 'read', arguments: '{}' }], toolResults: [{ ok: true, output: '小结果' }] }),
@@ -87,20 +87,20 @@ describe('lite 视图投影（cr-768 回填 cr-54/55）', () => {
 
 describe('historyView 视图指纹（cr-768 回填 2026-09-19 短路判据）', () => {
   it('文件未变 → 指纹不变；追加行 → 指纹变', async () => {
-    seed('fp-1');
+    await seed('fp-1');
     const v1 = historyView(ROOT, 'fp-1');
     expect(v1.fingerprint).not.toBe('');
     expect(v1.domains).toEqual(['alpha']);
     expect(historyView(ROOT, 'fp-1').fingerprint).toBe(v1.fingerprint);
-    // 追加终稿行（viewer 域变化）→ 指纹必变（viewer 账本是 replay 输入——
-    // 指纹必须盖住；await 等队列落盘后 stat）
-    const ul = new UserLedger(ROOT, 'fp-1', ['user']);
-    await ul.writeThrough({ agentId: 'alpha', content: '第二稿', uuid: 'fp-1', run: 'run-2', requestId: 'rq-2' });
+    // 追加终稿行（agent 域账本变化）→ 指纹必变（agent 域账本是 replay
+    // 输入——指纹必须盖住；cr-973 起 viewer 域不再存在）
+    const w2 = new LedgerWriter(sessionDir(ROOT, 'alpha', 'fp-1'), { participants: ['alpha', 'user'], kind: 'user' });
+    await w2.deliver({ role: 'agent', content: '第二稿', agent_id: 'alpha', requestId: 'rq-2', uuid: 'fp-1', run: 'run-2', timestamp: '2026-11-09T10:00:01.000Z' });
     expect(historyView(ROOT, 'fp-1').fingerprint).not.toBe(v1.fingerprint);
   });
 
-  it('agent 域 journal 追加 → 指纹变（跨域复合——单 viewer 指纹盖不住的窗口）', () => {
-    seed('fp-2');
+  it('agent 域 journal 追加 → 指纹变（跨域复合——单域指纹盖不住的窗口）', async () => {
+    await seed('fp-2');
     const v1 = historyView(ROOT, 'fp-2');
     const jf = path.join(sessionDir(ROOT, 'alpha', 'fp-2'), 'journal', 'partials.jsonl');
     fs.appendFileSync(jf, JSON.stringify({ type: 'journal-step', run: 'run-1', step: 2, content: '补步' }) + '\n', 'utf-8');
@@ -109,9 +109,9 @@ describe('historyView 视图指纹（cr-768 回填 2026-09-19 短路判据）', 
 });
 
 describe('assembleSessionView 组装投影面（行为等价锁定）', () => {
-  it('peer 行带 steps + 注入行归口 + 盲区 run 投出', () => {
-    seed('asm-1');
-    // 盲区 run：journal 有步无 viewer 终稿行
+  it('peer 行带 steps + 注入行归口 + 盲区 run 投出', async () => {
+    await seed('asm-1');
+    // 盲区 run：journal 有步无终稿行
     const jf = path.join(sessionDir(ROOT, 'alpha', 'asm-1'), 'journal', 'partials.jsonl');
     fs.appendFileSync(jf, [
       JSON.stringify({ type: 'journal-step', run: 'orphan-1', step: 1, content: '孤儿步' }),

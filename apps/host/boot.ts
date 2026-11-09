@@ -35,7 +35,6 @@ import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readC
 import { hostLog } from './host-log.ts';
 import { PostOffice } from 'ac-post-office';
 import { readActivationLock } from 'ac-envelope-core';
-import { projectUserLedgers } from 'ac-import/src/user-projection.ts';
 import { assembleWebServer, attachWebSurface, type WebRing } from 'ac-host-webui';
 import { createOrchestrator, type OrchestratorHandle } from './orchestrator.ts';
 import { createShellStatePoller, type ShellStatePoller } from './shell-state-poller.ts';
@@ -303,22 +302,14 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     hostLog('W', 'host', '数据根顶层未知项「' + name + '」——不在分层契约内（docs/design/data-root-layers.md）');
   }
 
-  // ---- viewer 投影对账自愈（数据分层 cr：第三层纯派生、boot 幂等补缺席）----
-  // projectUserLedgers 只补缺席（viewer 侧已有 messages.jsonl 即跳过）——
-  // 清 viewer/ 整树后重启宿主即自愈回放数据，降级为「丢属性不丢消息」。
-  // 尽力面：对账失败不阻塞 boot（投影幂等，下次 boot 再试）。
-  try {
-    const stats = await projectUserLedgers(dataRoot);
-    if (stats.sessions > 0 || stats.rows > 0) {
-      hostLog('I', 'host', 'viewer 投影对账：补建 ' + stats.sessions + ' 会话 / ' + stats.rows + ' 行（幂等跳过 ' + stats.skipped + ' 会话）');
-    }
-  } catch (err) {
-    hostLog('W', 'host', 'viewer 投影对账失败（下次 boot 再试）：' + String(err));
-  }
+  // ---- viewer 投影对账自愈（cr-973 退役）：终稿层 = agent 域账本读时
+  // 投影（projectUserReplay），viewer 不再物化——「清 viewer 树自愈」成为
+  // 读面固有属性，boot 无需补建。 ----
 
   // ---- 编排面（cr-551）：supervise 句柄池 + 按需拉起 + re-tap ----
   // boot 即接线邮局 ensure 钩子：不可达来信 → 落箱 → 拉壳 → adopted 转投。
   const orchestrate = options.orchestrate ?? true;
+  let supervisionReadyAt: string | undefined;
   const supervisors = orchestrate
     ? createOrchestrator({
         dataRoot,
@@ -345,8 +336,8 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
       ensureAgent: (agentId) => supervisors.ensureAgent(agentId).then(() => undefined),
     });
     // cr-734/735：待答提问拉壳——提问通知链住父壳，壳不起则 pending ask
-    // 死信。延迟 15s + 串行：boot 期 rescue 探活与并发拉壳会撞出双 spawn
-    // 竞态（慢 boot 壳被 4s manage 探针误判真老壳→降级再拉互拒判死）。
+    // 死信。延迟 15s + 串行：boot 期接管探活与并发拉壳会撞出双 spawn
+    // 竞态（cr-962 现场；延迟避开 boot 期并发互拖）。
     const askParents = pendingAskParentIds(dataRoot);
     if (askParents.length > 0) {
       const wake = setTimeout(() => {
@@ -362,13 +353,17 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
       }, 15_000);
       if (typeof wake.unref === 'function') wake.unref();
     }
-    // cr-659 换代活壳收复：restart_host 后活壳不在新宿主可达表/旁带流
-    // 订阅——boot 扫 activation.lock 探活，可达登记 + re-tap（webui 断连
-    // 重连后直播帧恢复，不依赖下一封信触发 ensureHook）。
-    const rescued = supervisors.rescueLiveShells();
-    if (rescued > 0) {
-      hostLog('I', 'host', '换代活壳收复 ' + rescued + ' 个（可达登记 + 旁带流 re-tap）');
+    // cr-967 换代壳完整接管（替代 cr-659 降级收复）：boot 扫 activation.lock
+    // 探活——活壳建 socket-only 句柄入池，心跳判死/idle 收割/崩溃感知/按需
+    // 重拉全链就位（可达登记 + re-tap + 滞留信冲刷走 adopted 同链；在途 run
+    // 收束对账沿用 cr-748 poller）。
+    const adoptedCount = await supervisors.adoptLiveShells();
+    if (adoptedCount > 0) {
+      hostLog('I', 'host', '换代壳接管 ' + adoptedCount + ' 个（socket-only 句柄入池——监护全链就位）');
     }
+    // 接管扫描完成时戳（D2/cr-968）：host-facts adoptedAt = 壳侧让路判定
+    // 证据——新宿主监护全链就位后，活壳的 host-revive 复活职责免除。
+    supervisionReadyAt = new Date().toISOString();
     // cr-748 状态对账：poller 挂编排面（订阅驱动起停）。对账 run-settled →
     // loop/after-run 前端帧（ShellStreamBridge 同形映射——丢帧的 run 经对账
     // 面补投收束三件套：清 busy + 权威行重拉；text 缺席，终稿以重拉的权威行
@@ -416,7 +411,11 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     fs.mkdirSync(path.join(dataRoot, '.runtime'), { recursive: true });
     fs.writeFileSync(
       path.join(dataRoot, '.runtime', 'host-facts.json'),
-      JSON.stringify({ pid: process.pid, port: web.port, bootAt: new Date().toISOString() }, null, 2),
+      JSON.stringify({
+        pid: process.pid, port: web.port, bootAt: new Date().toISOString(),
+        // 接管完成时戳（D2）——orchestrate:false 诊断形态缺席（无监护面即无免除语义）
+        ...(supervisionReadyAt !== undefined ? { adoptedAt: supervisionReadyAt } : {}),
+      }, null, 2),
       'utf-8',
     );
   } catch { /* 尽力面：写失败不阻塞 boot */ }
@@ -438,7 +437,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
       // 会打断在途 run（provider dispose 裸 abort → mid-run 被杀、终态误标
       // error「This operation was aborted」）+ 壳退码 0 使 warden 判 done
       // 不重拉，双重破坏 restart_host 的保壳保 run 语义。换代靠活壳
-      // host-revive 探测复活 + 新宿主 rescueLiveShells 收复，壳不随宿主死。
+      // host-revive 探测复活 + 新宿主 adoptLiveShells 完整接管，壳不随宿主死。
       if (opts.reapShells === false) {
         poller?.dispose();
         supervisors?.close(); // 仅停监护循环——detached 壳交活壳复活链

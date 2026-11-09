@@ -19,9 +19,9 @@ const catalog = JSON.parse(
 ) as RowsetCatalog;
 
 describe('行集目录对账（manifest R8 恒等式）', () => {
-  it('总行数 64 = 宿主 24 + 壳 40（cr-886：host-face/host-face-client 双树新增）', () => {
-    expect(catalog.rows).toHaveLength(64);
-    expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(24);
+  it('总行数 65 = 宿主 25 + 壳 40（cr-973：session-index 宿主新增；cr-886：host-face 双树）', () => {
+    expect(catalog.rows).toHaveLength(65);
+    expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(25);
     expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(40);
   });
 
@@ -40,7 +40,7 @@ describe('行集目录对账（manifest R8 恒等式）', () => {
   it('目录可派生：壳基础行集与宿主全集均非空', () => {
     expect(deriveShellRowset({}, catalog).rowIds.length).toBeGreaterThan(0);
     expect(deriveShellRowset({}, catalog).rowIds).not.toContain('dev-tools'); // 勘误剔除行不在目录
-    expect(deriveHostRowset([], catalog).rowIds).toHaveLength(24);
+    expect(deriveHostRowset([], catalog).rowIds).toHaveLength(25); // cr-973：session-index 新增
     expect(deriveShellRowset({}, catalog).rowIds).toContain('plugin-dev'); // 装卸三件套行在壳基础集
     expect(deriveShellRowset({ rows: [] }, catalog).rowIds).toContain('auto-title'); // cr-672 命名行恒并基座（点名形态也在）
     expect(deriveShellRowset({}, catalog).rowIds).not.toContain('restart'); // bundle 化离开基础集（cr-635 创造预设专属）

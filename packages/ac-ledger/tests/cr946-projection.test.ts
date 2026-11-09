@@ -7,16 +7,16 @@
 // ② 机制通知行读面投影：壳自身合成的催办信（重启「已重启」）按机制行
 //    （context+event、无 run 锚）投为事件分隔符；存量「按入站 user 行落账」
 //    形态同样按机制行投影（账本 append-only，不改写历史）。
-// ③ viewer 账本 seq：两个 writer 实例交替写同一文件 → seq 严格单调不重号
-//    （user 桩常驻 writer + 派生器每次新建 writer 的多写者形态）。
+// ③ agent 域账本 seq：两个 writer 实例交替写同一文件 → seq 严格单调不重号
+//    （cr-973 起 viewer 账本退役——多写者形态回归锁平移到 agent 域文件，
+//    种子行改为 agent 域 LedgerWriter 直落并带显式递增时间戳）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { assembleSessionView } from '../src/view.ts';
-import { UserLedger } from '../src/user.ts';
 import { readJournal, readLedger, segmentizeRun, stepsOfRun } from '../src/index.ts';
-import { sessionDir } from '../src/writer.ts';
+import { LedgerWriter, sessionDir } from '../src/writer.ts';
 
 const ROOT = path.join('sandbox', 'test-ledger-cr946-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -68,18 +68,17 @@ describe('cr-946 ① textBeforeTools 落盘链路', () => {
 });
 
 describe('cr-946 ② 机制通知行读面投影（事件分隔符 + 轮边界）', () => {
-  /** 种一段存量对话：用户问 + 两段 run 终稿（viewer 行） */
+  /** 种一段存量对话：用户问 + 两段 run 终稿（agent 域行，显式递增时间戳——投影按 ts 排序） */
   async function seedRuns(conv: string): Promise<void> {
-    const ul = new UserLedger(ROOT, conv, ['user']);
-    await ul.writeOwn('问', 'q-1');
-    await ul.writeThrough({ agentId: 'alpha', content: '前一段终稿', uuid: conv, run: 'run-a', requestId: 'rq-a' });
-    await ul.writeThrough({ agentId: 'alpha', content: '后一段终稿', uuid: conv, run: 'run-b', requestId: 'rq-b' });
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await w.deliver({ role: 'agent', content: '问', agent_id: 'user', requestId: 'q-1', uuid: conv, timestamp: '2026-11-09T10:00:00.000Z' });
+    await w.deliver({ role: 'agent', content: '前一段终稿', agent_id: 'alpha', requestId: 'rq-a', uuid: conv, run: 'run-a', timestamp: '2026-11-09T10:00:01.000Z' });
+    await w.deliver({ role: 'agent', content: '后一段终稿', agent_id: 'alpha', requestId: 'rq-b', uuid: conv, run: 'run-b', timestamp: '2026-11-09T10:00:02.000Z' });
   }
 
   it('新写面（context+event、无 run）：投为 event 行，正文/时间/锚点透传', async () => {
     const conv = 'mech-new';
     await seedRuns(conv);
-    const { LedgerWriter } = await import('../src/writer.ts');
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
     await w.deliver({
       role: 'context', source: 'event',
@@ -100,7 +99,6 @@ describe('cr-946 ② 机制通知行读面投影（事件分隔符 + 轮边界�
   it('存量形态（按入站发言行落账、requestId restarted-*）：读面同投 event 行', async () => {
     const conv = 'mech-legacy';
     await seedRuns(conv);
-    const { LedgerWriter } = await import('../src/writer.ts');
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
     await w.deliver({
       role: 'agent', content: '壳已重启完成（存量形态）',
@@ -119,16 +117,18 @@ describe('cr-946 ② 机制通知行读面投影（事件分隔符 + 轮边界�
   });
 });
 
-describe('cr-946 ③ viewer 账本 seq 多写者单调', () => {
-  it('两个 UserLedger 实例交替写同一文件 → seq 无重号且严格递增', async () => {
+describe('cr-946 ③ agent 域账本 seq 跨实例单调', () => {
+  // cr-973 起 viewer 账本退役、每目录恒单写者（cr-946 的 per-write 尾行
+  // 对账形态随之退役）——多写者保护回归锁平移为：跨 writer 实例（每 run
+  // 新实例的真实形态）交替落行，seq 经首分配前尾行扫描续接，单调不回退。
+  it('逐次新实例交替写同一 agent 域文件 → seq 无重号且严格递增', async () => {
     const conv = 'seq-1';
-    const a = new UserLedger(ROOT, conv, ['user']);
-    const b = new UserLedger(ROOT, conv, ['user']);
-    await a.writeOwn('a1', 'r1');
-    await b.writeThrough({ agentId: 'alpha', content: 'b1', uuid: conv, run: 'run-1', requestId: 'r2' });
-    await a.writeOwn('a2', 'r3');
-    await b.writeThrough({ agentId: 'alpha', content: 'b2', uuid: conv, run: 'run-2', requestId: 'r4' });
-    const rows = readLedger(path.join(ROOT, 'viewer', 'sessions', conv)).rows;
+    const fresh = () => new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
+    await fresh().deliver({ role: 'agent', content: 'a1', agent_id: 'user', requestId: 'r1', uuid: conv, timestamp: '2026-11-09T10:00:00.000Z' });
+    await fresh().deliver({ role: 'agent', content: 'b1', agent_id: 'alpha', requestId: 'r2', uuid: conv, run: 'run-1', timestamp: '2026-11-09T10:00:01.000Z' });
+    await fresh().deliver({ role: 'agent', content: 'a2', agent_id: 'user', requestId: 'r3', uuid: conv, timestamp: '2026-11-09T10:00:02.000Z' });
+    await fresh().deliver({ role: 'agent', content: 'b2', agent_id: 'alpha', requestId: 'r4', uuid: conv, run: 'run-2', timestamp: '2026-11-09T10:00:03.000Z' });
+    const rows = readLedger(sessionDir(ROOT, 'alpha', conv)).rows;
     const seqs = rows.map((r) => r.seq!);
     expect(seqs).toHaveLength(4);
     expect(new Set(seqs).size).toBe(4); // 无重号

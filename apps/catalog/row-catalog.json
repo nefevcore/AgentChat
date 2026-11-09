@@ -163,6 +163,12 @@
       ]
     },
     {
+      "id": "session-index",
+      "tree": "host",
+      "description": "会话源文件指针索引（SQLite WAL 纯缓存——读面指纹短路 + subcall 定位；摘除即全扫回落）",
+      "path": "packages/ac-session-index"
+    },
+    {
       "id": "group",
       "tree": "host",
       "description": "群存储（groups/<gid>/group.json 成员表单写者 + group/* RPC + 信封扇出 + 成员流合并读面）",

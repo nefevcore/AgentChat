@@ -204,19 +204,28 @@ role='system'                        → system     （直通，不参与变换�
 <root>/
 ├── agents/<agentId>/sessions/<uuid>/messages.jsonl   会话定稿流（append-only 事实源；段行/注入行物化 + 终稿行）
 │                                   journal/partials.jsonl   run 台账（步行/注入行/直调补行——收束即清）
+│                                   subcalls.jsonl  子调用永久档案（cr-803）
 │                                   summary.md       概要（compact 产物）
 │                                   history_N.jsonl  归档分段（N 递增）
 ├── agents/<agentId>/inbox/                           壳侧 durable 投递（next-step / next-turn 队列）
-├── viewer/sessions/<sid>/session.json                独立会话元数据（ac-host-rows singles 行 owning，cr-566）
-├── viewer/sessions/<sid>/messages.jsonl              user 侧投影账本（宿主读前派生，cr-698）
+├── meta/sessions/<sid>.json                          独立会话元数据（singles 行 owning；cr-973 自 viewer 树迁出）
+├── meta/sessions/<sid>.prefix-snapshot.json          singles system 前缀快照（cr-888；cr-973 迁 meta 层）
+├── meta/sessions/.singles-registry.json              singles 清单注册表（cr-869；cr-973 迁出）
+├── viewer/sessions/<sid>/messages.jsonl              user 侧投影账本（cr-698 物化；**cr-973 停写**——存量读面兼容一个版本）
 ├── groups/<gid>/group.json                           群成员表（原子写）；**无群本体消息流**——读面 = 成员流合并（cr-576）
 ├── agents/<member>/sessions/<gid>~<member>/          群成员私有转录流（cr-4，标准 session 桶）
+├── index/session-index.db                            会话源文件指针索引（SQLite WAL 纯缓存，cr-973——只指真源零语义，可全量重建）
 ├── archive/<convId>/…                                全量备份域归档（ac-backup 消费）
 └── usage/usage-<date>.jsonl                          用量审计流水（cache hit/miss 在此；KV 走势数据源）
 ```
 
 > cr-726（2026-10-27）校正：本树已按 `ac-ledger` per-agent 账本语义重绘（cr-697/698；
 > cr-803 起 `subcalls.jsonl` 以独立档案形态回归——见 §3.2）。
+> **cr-973（2026-11-09，cr-972 第一刀）**：viewer 物化账本停写——user 终稿层 =
+> agent 域账本读时投影（`ac-ledger projectUserReplay`）；singles 身份/元数据/注册表/
+> 前缀快照迁 `meta/sessions/`；新增 `index/` 指针索引（`ac-session-index` 行，
+> 读面指纹短路 + subcall 定位 seek；行摘除 = 读面回落全扫，行为等价）。
+> 存储全面事件化（Phase 2）见 `session-event-log-unification-plan.md`（cr-972）。
 > 旧形态（`<root>/sessions/<convId>/` 全局桶、`sessions/singles/` 上架、
 > `conversation/steer-stash-*`、`prefix-snapshot.json`）均已退役或未见实现——
 > 其中前缀快照见疑点清单（Note 归档根 docs-review-2026-10-27）。
@@ -263,7 +272,7 @@ role='system'                        → system     （直通，不参与变换�
 
 ### 3.6 明确不做（对 DSH 落盘设计的取舍）
 
-SQLite/seek 后端与投影检查点缓存（单机个人规模无查询压力）；「未知必需事件拒绝加载」全严格读（选宽容跳过 + 头行 fail-loud 口子）；
+~~SQLite/seek 后端~~（**cr-972 §6 推翻，cr-973 落地**：指针索引 `ac-session-index` 非事实源、只指真源零语义，与当年否决的「SQLite 后端」风险面不同）；投影检查点缓存维持不做（索引只管定位，不做物化检查点——fold 单源纪律）；「未知必需事件拒绝加载」全严格读（选宽容跳过 + 头行 fail-loud 口子）；
 zstd 帧串接/硬链接原子发布（Windows 主场，tmp+rename 已够）；chunk 打包压缩（压缩是编码层词汇，不污染 SessionRecord 词表）。
 
 ---
@@ -429,11 +438,12 @@ L4 前端     ac-client-ui-conversation：feed-core(分区 ingest + 历史分页
 同一存储被三种口径读取（LLM history / web-api records / remote lite），曾靠人工同步、无构造保证。
 旧形态（cr-95）：lite 截断投影归位 ac-session（`records(conv, { view:'lite' })` → `liteProjectRecords`）。
 
-> ⚠️ **疑点（2026-10-27 cr-726 审查）**：现行宿主 `session/history`（`ac-host-webui/src/web-api.ts`）
-> 不读 `view` 参数、无 `liteProjectRecords` 实现，而 `ac-remote-link` 仍发 `view:'lite'`——
-> 移动端实际拿到全量行（含 steps）。疑似 cutover 漏移植（cr-54/cr-55 的实现未随迁）。
-> 详见 Note 归档根 `docs-review-2026-10-27/suspects-总清单.md`。
-viewer 投影同样单源：`history()` 与 web-api 展示投影共用 `projectRecord` / `expandSteps`（轨迹形状单一事实源，防两处漂移）。
+> ✅ **cr-726 疑点 S2 已收口（cr-973，2026-11-09）**：`session/history` 读面恢复 `view` 参数——
+> `chat`（缺省）/ `plain`（DSH 式无气泡——记录面与 chat 同构，无气泡是前端渲染参数）/
+> `lite`（steps 超长字段截断摘要），投影单源住 `ac-ledger assembleSessionView`，
+> web-api 纯透传（方案 cr-972 §1.1「视图参数化」）。
+> viewer 投影单源（cr-973 起）：user 终稿层 = `ac-ledger projectUserReplay` 读时投影
+>（agent 域账本纯函数，viewer 不再物化）；轨迹展开 `expandSteps` 同源共用，防两处漂移。
 
 ### 7.4 前端合流器现状
 

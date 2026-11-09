@@ -195,7 +195,7 @@ describe('清单注册表落盘（cr-845 摘要索引 → cr-869 全视图清单
   it('重挂（重启模拟）后指纹未变即复用注册表；账本变更后重算', async () => {
     seedLedger('x1', [{ agent_id: 'user', content: '索引跨重启' }]);
     await boot(false).handlers.get('singles/list')!({});
-    const indexFile = path.join(ROOT, 'viewer', 'sessions', '.singles-registry.json');
+    const indexFile = path.join(ROOT, 'meta', 'sessions', '.singles-registry.json'); // cr-973 迁 meta 层
     expect(fs.existsSync(indexFile)).toBe(true); // 装载对账即落盘注册表
     // 重挂 = 新插件实例（宿主重启形态）：索引文件在场 → 命中复用
     const h2 = boot(false);
@@ -211,13 +211,13 @@ describe('清单注册表落盘（cr-845 摘要索引 → cr-869 全视图清单
 
   it('索引文件损坏（非法 JSON / 形状不对）→ 回落空索引全量重算，不炸 list', async () => {
     seedLedger('y1', [{ agent_id: 'user', content: '损坏回落' }]);
-    fs.mkdirSync(path.join(ROOT, 'viewer', 'sessions'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-registry.json'), '{oops', 'utf-8');
+    fs.mkdirSync(path.join(ROOT, 'meta', 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'meta', 'sessions', '.singles-registry.json'), '{oops', 'utf-8');
     const h = boot(false);
     const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
     expect(list.singles.find((s) => s.id === 'y1')?.title).toBe('损坏回落');
     // 损坏注册表被重算结果覆写（自愈）
-    const healed = JSON.parse(fs.readFileSync(path.join(ROOT, 'viewer', 'sessions', '.singles-registry.json'), 'utf-8')) as { version: number };
+    const healed = JSON.parse(fs.readFileSync(path.join(ROOT, 'meta', 'sessions', '.singles-registry.json'), 'utf-8')) as { version: number };
     expect(healed.version).toBe(2);
   });
 
@@ -276,7 +276,7 @@ describe('清单注册表（cr-869：写点维护 + list 零读）', () => {
     const h = boot(false);
     const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
     expect(list.singles.find((s) => s.id === 'v1')?.title).toBe('旧版在场');
-    expect(fs.existsSync(path.join(ROOT, 'viewer', 'sessions', '.singles-registry.json'))).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'sessions', '.singles-registry.json'))).toBe(true); // cr-973 迁 meta 层
   });
 });
 

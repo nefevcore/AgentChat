@@ -54,7 +54,8 @@ function tailMaxSeq(file: string): number {
   return max;
 }
 
-/** 单 writer（一 run 一实例——activation 单写者语义 A5） */
+/** 单 writer（一 run 一实例——activation 单写者语义 A5；cr-973 起 viewer
+ * 投影账本退役，每目录恒单写者——cr-946 的 per-write 尾行对账形态随之退役） */
 export class LedgerWriter {
   private queue: Array<() => void> = [];
   private draining = false;
@@ -65,19 +66,15 @@ export class LedgerWriter {
 
   private readonly dir: string;
   private readonly header: Omit<LedgerHeader, 'type' | 'version' | 'createdAt'>;
-  /** 每次分配 seq 前对账盘面尾行（cr-946——viewer 投影账本多写者形态） */
-  private readonly reseedSeqPerWrite: boolean;
 
   constructor(
     dir: string,
     header: Omit<LedgerHeader, 'type' | 'version' | 'createdAt'>,
     admission: AdmissionGate = new AdmissionGate(),
-    opts: { reseedSeqPerWrite?: boolean } = {},
   ) {
     this.dir = dir;
     this.header = header;
     this.admission = admission;
-    this.reseedSeqPerWrite = opts.reseedSeqPerWrite === true;
   }
 
   /** 串行队列（按文件互斥——同 writer 实例内写序恒定） */
@@ -148,13 +145,7 @@ export class LedgerWriter {
     // 「每实例从 1 重来」（此前 admin~admin 38 行 13 处回退边）。messages /
     // journal partials / subcalls 共用计数器，续接面同宽。此后同目录 seq
     // 跨 writer 实例单调不回退（成为稳定身份锚——B3 依赖）。
-    //
-    // cr-946 reseedSeqPerWrite：viewer 投影账本天然多写者（宿主 user 桩的
-    // 常驻 writer 写 writeOwn 发言行，派生器每次调用新建 writer 写终稿行）。
-    // 各实例只在**首分配**续接一次，此后两套计数器并行递增——同一文件出现
-    // seq 重号（实测 1,2,2,3,3,…），B1 水位与直播帧「迟到/重放」判定失去
-    // 单调锚。该形态每次分配前对账尾行，取 max(本地计数器, 尾行 + 1)。
-    if (!this.seqSeeded || this.reseedSeqPerWrite) {
+    if (!this.seqSeeded) {
       this.seqSeeded = true;
       const tail = Math.max(
         tailMaxSeq(path.join(this.dir, MESSAGES)),

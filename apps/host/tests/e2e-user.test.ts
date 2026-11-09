@@ -1,11 +1,12 @@
 // ============================================================
 // M8.4 级联验收：user 壳半边端到端——真子进程壳 + 邮局真投递 +
 // user 壳桩（宿主内极薄）：
-//   ① user send 全链：签发（R-1）→ own 落账 → 邮局 dispatch → 壳
-//      ipc 直投 → conversation 全链（mock run + 账本终稿）→ 终稿
-//      回链（R-2 恒投回 sender）→ user 账本 writeThrough；
+//   ① user send 全链：签发（R-1）→ 邮局 dispatch → 壳 ipc 直投 →
+//      conversation 全链（mock run + 账本终稿）→ 终稿回链通知；
+//      cr-973 起 viewer 停写——发言行 = agent 域入站行，终稿层经
+//      projectUserReplay 读时投影（不再物化 viewer 账本）；
 //   ② 多轮：同 uuid 续聊，历史延续；
-//   ③ 幂等：同 requestId 重发 → 壳 deduped + user 账本不重复入账。
+//   ③ 幂等：同 requestId 重发 → 壳 deduped + agent 域不重复入账。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -53,7 +54,7 @@ async function spawnShell(agentId: string): Promise<{ child: ChildProcess; hint:
 }
 
 describe('M8.4 user 壳半边端到端', () => {
-  it('user send 全链 + 终稿回链 user 账本（R-1 签发 / R-2 写穿）', async () => {
+  it('user send 全链 + 终稿回链（R-1 签发 / cr-973 读时投影）', async () => {
     seedConfig('alpha');
     const po = new PostOffice({ dataRoot: ROOT });
     await po.listen();
@@ -62,30 +63,29 @@ describe('M8.4 user 壳半边端到端', () => {
     const { hint } = await spawnShell('alpha');
     po.reach.markReachable('alpha', hint);
     try {
-      // user 发言（R-1 签发 + own 落账 + 邮局投递）
+      // user 发言（R-1 签发 + 邮局投递；发言行由壳落 agent 域入站行）
       const { uuid, dispatched } = await user.send('alpha', '第一问');
       expect(uuid).toMatch(/-7/); // UUIDv7 签发
       expect(dispatched[0]).toMatchObject({ to: 'alpha', channel: 'direct' });
-      // 等终稿回链：user 账本出现 peer 终稿行（mock 回声）
-      const udir = path.join(ROOT, 'viewer', 'sessions', uuid);
+      // 等终稿回链：agent 域账本出现终稿行（mock 回声）——viewer 不再
+      // 物化（cr-973），终稿层经 projectUserReplay 读时投影
+      const adir = path.join(ROOT, 'agents', 'alpha', 'sessions', uuid);
       const deadline = Date.now() + 10_000;
-      let rows: ReturnType<typeof readLedger>['rows'];
+      let arows: ReturnType<typeof readLedger>['rows'];
       for (;;) {
-        rows = readLedger(udir).rows;
-        if (rows.length >= 2) break;
-        if (Date.now() > deadline) throw new Error('终稿未回链：' + JSON.stringify(rows));
+        arows = readLedger(adir).rows
+          .filter((r) => r.source !== 'segment' && r.source !== 'inject');
+        if (arows.length >= 2) break;
+        if (Date.now() > deadline) throw new Error('终稿未回链：' + JSON.stringify(arows));
         await new Promise((r) => setTimeout(r, 100));
       }
-      expect(rows.map((r) => r.content)).toEqual(['第一问', '[mock 回复 第一问]']);
-      // agent 侧账本对拍：同会话双视角（D4 视角主义——两账本各自为真）
-      const arows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', uuid)).rows
-        .filter((r) => r.source !== 'segment' && r.source !== 'inject');
       expect(arows.map((r) => r.content)).toEqual(['第一问', '[mock 回复 第一问]']);
-      // run 键盖戳（cr-595）：peer 终稿行 source=run:<id> 与 agent 终稿行
-      // run 一致——webui history 按此联查 agent journal 带出思考/工具卡
-      //（D4.2；回信信封缺 run 载体时此断言红——刷新后历史只剩终稿文本）。
-      expect(rows[1].source).toBe('run:' + arows[1].run);
-      expect(user.replay(uuid)[1].run).toBe(arows[1].run);
+      // 读时投影（cr-973）：user 视角终稿层 = agent 域账本纯函数
+      const replay = user.replay(uuid);
+      expect(replay.map((r) => r.content)).toEqual(['第一问', '[mock 回复 第一问]']);
+      // run 键盖戳（cr-595）：投影行 run 与 agent 终稿行 run 一致——webui
+      // history 按此联查 agent journal 带出思考/工具卡（D4.2）。
+      expect(replay[1].run).toBe(arows[1].run);
     } finally {
       user.stop();
       await po.close();
@@ -102,12 +102,15 @@ describe('M8.4 user 壳半边端到端', () => {
     po.reach.markReachable('alpha', hint);
     try {
       const first = await user.send('alpha', '第一问');
-      const udir = path.join(ROOT, 'viewer', 'sessions', first.uuid);
+      // cr-973：等待面 = agent 域账本（viewer 不再物化；段行/注入行不计）
+      const adir = path.join(ROOT, 'agents', 'alpha', 'sessions', first.uuid);
+      const talkRows = (): ReturnType<typeof readLedger>['rows'] =>
+        readLedger(adir).rows.filter((r) => r.source !== 'segment' && r.source !== 'inject');
       const waitRows = async (n: number): Promise<void> => {
         const deadline = Date.now() + 10_000;
         for (;;) {
-          if (readLedger(udir).rows.length >= n) return;
-          if (Date.now() > deadline) throw new Error('等待 ' + n + ' 行超时：' + JSON.stringify(readLedger(udir).rows));
+          if (talkRows().length >= n) return;
+          if (Date.now() > deadline) throw new Error('等待 ' + n + ' 行超时：' + JSON.stringify(talkRows()));
           await new Promise((r) => setTimeout(r, 100));
         }
       };
@@ -120,17 +123,23 @@ describe('M8.4 user 壳半边端到端', () => {
       expect(replay.map((r) => r.content)).toEqual([
         '第一问', '[mock 回复 第一问]', '第二问', '[mock 回复 第二问]',
       ]);
-      // 幂等（R-3）：同 requestId 重投 → 接收方去重不重复入账（user 桩
-      // ledgerFor 缓存同 writer——AdmissionGate 同键短路；agent 侧账本
-      // 同理由 boot 收信面 AdmissionGate + ledger writer 双层承载）
+      // 幂等（R-3）：同 requestId 重投 → 接收方去重不重复入账（壳收信面
+      // AdmissionGate + ledger writer 双层承载——cr-973 起 user 桩无本地
+      // 账本，幂等锚全在 agent 域入站行）
       const dupReq = 'dup-e2e';
       await user.send('alpha', '幂等问', { uuid: first.uuid, requestId: dupReq });
+      // 先等首投的入站行落账（cr-973：落账在壳侧异步——计数基准须等行在场）
+      const landed = Date.now() + 10_000;
+      while (!user.replay(first.uuid).some((r) => r.role === 'user' && r.content === '幂等问')) {
+        if (Date.now() > landed) throw new Error('幂等问入站行未落账：' + JSON.stringify(user.replay(first.uuid)));
+        await new Promise((r) => setTimeout(r, 100));
+      }
       const before = user.replay(first.uuid).filter((r) => r.role === 'user').length;
       // 直接重发同一信封（邮局 dispatch → 壳 AdmissionGate 去重 → ack fresh:false）
       const dup = await user.send('alpha', '幂等问', { uuid: first.uuid, requestId: dupReq });
       expect(dup.dispatched[0]).toMatchObject({ ack: { ack: dupReq, fresh: false } }); // 壳侧去重
       const after = user.replay(first.uuid).filter((r) => r.role === 'user').length;
-      expect(after).toBe(before); // user 账本未增行（同 writer 幂等）
+      expect(after).toBe(before); // agent 域入站行未增（壳侧幂等）
     } finally {
       user.stop();
       await po.close();
@@ -138,8 +147,8 @@ describe('M8.4 user 壳半边端到端', () => {
   }, 45_000);
 });
 
-describe('viewer 账本追加通知（cr-870：onAppend 回调——宿主装配点连 ctx.emit）', () => {
-  it('writeOwn 落行后触发（uuid 载荷）；重复构造无回调 = 无通知', async () => {
+describe('会话新行通知（cr-870/973：onAppend 回调——宿主装配点连 ctx.emit）', () => {
+  it('send 投递后触发（uuid 载荷——发言行由壳落 agent 域，通知 = 宜失效语义）', async () => {
     seedConfig('alpha');
     const po = new PostOffice({ dataRoot: ROOT });
     await po.listen();
@@ -148,15 +157,15 @@ describe('viewer 账本追加通知（cr-870：onAppend 回调——宿主装配
     user.start();
     try {
       const { uuid } = await user.send('alpha', '通知问');
-      expect(seen).toEqual([uuid]); // own 落行 → 通知一次
-      // 无对端壳在场：dispatch 无 ack 也无终稿回链——仅 own 通知
+      expect(seen).toEqual([uuid]); // 投递完成 → 通知一次
+      // 无对端壳在场：dispatch 无 ack 也无终稿回链——仅投递通知
     } finally {
       user.stop();
       await po.close();
     }
   });
 
-  it('终稿派生落行后触发（receive → deriveViewerLedger 新行 > 0）', async () => {
+  it('终稿通知信到达后触发（receive → agent 域行已 durable，通知缓存面失效）', async () => {
     seedConfig('beta');
     const po = new PostOffice({ dataRoot: ROOT });
     await po.listen();
@@ -165,7 +174,7 @@ describe('viewer 账本追加通知（cr-870：onAppend 回调——宿主装配
     user.start();
     try {
       const { uuid } = await user.send('beta', '首问');
-      seen.length = 0; // 排除 own 落行通知
+      seen.length = 0; // 排除 send 投递通知
       // agent 域账本手工落终稿行（模拟壳写者）→ 直投终稿通知信封给 user 端点
       const adir = path.join(ROOT, 'agents', 'beta', 'sessions', uuid);
       fs.mkdirSync(adir, { recursive: true });
@@ -178,7 +187,7 @@ describe('viewer 账本追加通知（cr-870：onAppend 回调——宿主装配
         payload: { text: '终稿回复' },
       }));
       expect(ack[0]).toMatchObject({ to: 'user', channel: 'local' });
-      expect(seen).toEqual([uuid]); // 派生新行 → 通知一次
+      expect(seen).toEqual([uuid]); // 终稿信到达 → 通知一次（cr-973：纯通知）
     } finally {
       user.stop();
       await po.close();
