@@ -130,7 +130,7 @@ export type UISlotId = (typeof UI_SLOT_IDS)[number];
 export const HIGH_RISK_UI_SLOTS: readonly UISlotId[] = ['perspective'];
 
 /** manifest.ui 声明中的高危席位清单（安装评审载荷 uiHighRiskSlots 数据源） */
-export function highRiskSlotsOf(ui: PluginUiManifest | undefined): UISlotId[] {
+function highRiskSlotsOf(ui: PluginUiManifest | undefined): UISlotId[] {
   return (ui?.slots ?? []).filter((s): s is UISlotId =>
     (HIGH_RISK_UI_SLOTS as readonly string[]).includes(s));
 }

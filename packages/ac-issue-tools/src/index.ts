@@ -10,8 +10,7 @@
 //     github/gitee，Agent 级→全局）→ env GITHUB_TOKEN/GITEE_TOKEN；
 //     官方台全空不硬失败——降级生成预填新建 ISSUE 链接（cr-136）
 //   · 门禁：requiredTags [issue-report]（cr-41 独立能力轴——对外
-//     发布与 web 网络访问分轴：网络授权不连带解锁对外发布；标签
-//     catalog 经 tagDeclarations 声明 + tag-registry 预注册双保险）+
+//     发布与 web 网络访问分轴：网络授权不连带解锁对外发布）+
 //     needPermission（非 LLM 出口通道——base 档审批、sandbox 档自由）
 //   · 会话开关：conv-settings issueSubmit（输入框「实验性 → ISSUE
 //     提交」——disabled = 本会话禁用，优先于一切）
@@ -20,22 +19,6 @@
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only，无运行时依赖）
 import type { ExtensionMeta } from 'ac-extension-core';
-/** 单条手工标签声明（tag-registry 退役内联——形状同 TagDeclaration） */
-interface TagDeclaration {
-  tag: string;
-  description: string;
-  tools?: string[];
-  group?: string;
-  order?: number;
-  /** 分层族提示：低 ⊂ 高 单向层级（order 升序呈现） */
-  tier?: boolean;
-  /** 抉择组：同组标签互斥（UI 聚合下拉） */
-  exclusive?: string;
-  /** 抉择组「都不选」词（落词不写 tags，缺席即语义） */
-  exclusiveNone?: boolean;
-  /** 抉择组「全关」后果说明 */
-  exclusiveOffDesc?: string;
-}
 
 export const name = 'ac-issue-tools';
 
@@ -52,12 +35,6 @@ export const extension: ExtensionMeta = {
     { name: 'labels', type: 'list', description: '附加标签（与调用参数并集；Gitee 上限 5 个）' },
   ],
 };
-
-/** 标签目录声明（tag-registry 扫描面；RESERVED 预注册兜底——见 cr-41） */
-export const tagDeclarations: TagDeclaration[] = [
-  { tag: 'issue-report', description: '对外发布（submit_issue 提交公开 ISSUE——内容公开可见，脱敏后使用）', tools: ['submit_issue'] },
-];
-
 export interface IssueToolsRowOptions {
   /** 托管台（缺省 github） */
   server?: 'github' | 'gitee';

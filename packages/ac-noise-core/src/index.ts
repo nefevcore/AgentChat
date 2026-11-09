@@ -42,7 +42,7 @@ const PROTOCOL_XK = 'Noise_XK_25519_ChaChaPoly_SHA256';
 const PROTOCOL_KK = 'Noise_KK_25519_ChaChaPoly_SHA256';
 
 /** 传输 phase 单调计数上限（JS number 安全域——实际永远达不到） */
-export const MAX_NONCE = Number.MAX_SAFE_INTEGER;
+const MAX_NONCE = Number.MAX_SAFE_INTEGER;
 
 export type NoisePattern = 'XK' | 'KK';
 export type NoiseRole = 'initiator' | 'responder';

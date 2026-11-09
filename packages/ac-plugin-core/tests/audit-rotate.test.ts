@@ -11,7 +11,6 @@ import * as path from 'node:path';
 import {
   appendAudit,
   auditFile,
-  readAudit,
   AUDIT_ROTATE_MAX_BYTES,
   rotateAuditIfLarge,
   type PluginAuditEntry,
@@ -43,11 +42,9 @@ describe('audit 轮转（M24 X5）', () => {
     expect(fs.readFileSync(`${file}.1`, 'utf-8')).toBe('X'.repeat(AUDIT_ROTATE_MAX_BYTES + 1));
     expect(fs.readFileSync(`${file}.2`, 'utf-8')).toBe('OLD1'); // 旧 .2 丢弃
 
-    // 新当前份重建；readAudit 只读当前份（历史份不混入）
+    // 新当前份重建（历史份不混入——只读当前份语义由文件分份物理承载）
     fs.writeFileSync(file, `${JSON.stringify(entry(1))}\n`, 'utf-8');
-    const rows = readAudit(root);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].name).toBe('p1');
+    expect(fs.readFileSync(file, 'utf-8').trim()).toContain('"p1"');
     fs.rmSync(root, { recursive: true, force: true });
   });
 

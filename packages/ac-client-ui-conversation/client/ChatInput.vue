@@ -771,14 +771,6 @@ const toolModeTitle = computed(() => {
   return opt?.title ?? '工具调用模式（tc-* 标签轴）';
 });
 
-const elevTitle = computed(() => {
-  if (!access.value) {
-    return `快捷提权：未武装——消息按 Agent 自有档位执行（当前：${agentTierLabel.value}）；高于自有档位可临时提权（持续生效直到改回）`;
-  }
-  const armed = access.value === 'sandbox-access' ? 'sandbox-access（至少沙箱访问档）' : 'full-access（完全访问档）';
-  return `已武装 ${armed}：后续消息均按此执行（持续生效直到改回；不低于 Agent 自有档位——只升不降）`;
-});
-
 /** 提权按钮显示：直取档位名（图标随档分化）；警示色由类承担 */
 const elevBtn = computed(() => {
   if (access.value === 'full-access') return { icon: 'shield-off', label: '完全访问' };
@@ -1955,9 +1947,6 @@ function onThumbError(i: number) {
 .select-btn:hover { background: var(--bg-hover); color: var(--text-1); }
 .select-btn.open { background: var(--bg-hover); color: var(--role-selected-text); }
 html.dark .select-btn.open { background: var(--role-selected-bg); }
-
-/* 会话锁定态图标（规则 1：已有消息禁换预设——fresh 预设面板内 lock 象形） */
-.lock-icon { flex-shrink: 0; color: var(--text-3); }
 
 /* 快捷提权武装态（持续生效直到改回）：警示色常显——防"忘记已武装"；
  * full 档用危险色（不受限的执行档，视觉重量最高） */

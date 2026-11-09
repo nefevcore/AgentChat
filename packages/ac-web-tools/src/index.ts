@@ -141,28 +141,12 @@ function defaultSearchPool(ctx: Context): { name: string; entry: Record<string, 
 }
 
 export const name = 'ac-web-tools';
+import type { ExtensionMeta } from 'ac-extension-core';
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
 //    行卸载 = 条目自动消失；运行时零依赖（type-only import）。契约：ac-extension-core。
 //    2026-09-03 起无可配置项（fields 移除）：web_search 缺省 provider/参数由全局
-//    设置「搜索引擎」页（config.searchProviders 池）控制；browser 参数走
-//    行配置。存量 settings['web-tools'] 键仍被读取（兼容，UI 不再暴露）。
-import type { ExtensionMeta } from 'ac-extension-core';
-/** 单条手工标签声明（tag-registry 退役内联——形状同 TagDeclaration） */
-interface TagDeclaration {
-  tag: string;
-  description: string;
-  tools?: string[];
-  group?: string;
-  order?: number;
-  /** 分层族提示：低 ⊂ 高 单向层级（order 升序呈现） */
-  tier?: boolean;
-  /** 抉择组：同组标签互斥（UI 聚合下拉） */
-  exclusive?: string;
-  /** 抉择组「都不选」词（落词不写 tags，缺席即语义） */
-  exclusiveNone?: boolean;
-  /** 抉择组「全关」后果说明 */
-  exclusiveOffDesc?: string;
-}
+//    设置「搜索引擎」页（config.searchProviders 池）控制；browser 参数走行配置。
+//    存量 settings['web-tools'] 键仍被读取（兼容，UI 不再暴露）。
 export const extension: ExtensionMeta = {
   name: 'web-tools',
   label: '网络工具行',
@@ -170,57 +154,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-// ── 标签手工声明（tag-registry A1 注册制）：本行门禁词表自组独立分组
-//    「Web 与浏览器」——web 是通用入口（web_search + browser 共用），
-//    observe/manipulate/inject 是 browser 动作分层（不从 requiredTags
-//    可推导——工具级地板只有 ['web','observe']，其余由本行
-//    before-execute 监听器按动作判定）。双源合并：web/observe 的工具
-//    清单由注册面采集补全。
-//    抉择组（2026-09-21）：三词挂 exclusive:'browser-tier'——UI 聚合为
-//    下拉单选（含「都不选」）；落词规则保证同组至多一词 + 高层连带
-//    observe 地板（requiredTags AND）。浏览器门禁（tier=max 逐动作
-//    判定）不消费抉择元数据——落词一致即语义一致。组无缺省词
-// （exclusiveNone）：全关的后果 = browser 工具整体不可见——
-//    exclusiveOffDesc 说明（UI 关闭态旁注 + 弹层关闭项描述）。──
-export const tagDeclarations: TagDeclaration[] = [
-  {
-    tag: 'web',
-    description: 'Web 入口（web_search 搜索 + browser 浏览器）',
-    tools: ['web_search', 'browser'],
-    group: 'Web 与浏览器',
-    order: 0,
-  },
-  {
-    tag: 'observe',
-    description: '观察：只读族（open/read/elements/scroll/wait/screenshot/logs 等）',
-    tools: ['browser'],
-    group: 'Web 与浏览器',
-    order: 1,
-    tier: true,
-    exclusive: 'browser-tier',
-    exclusiveOffDesc: '停用后 browser 工具不可见（observe 是工具可见性地板）；web_search 不受影响',
-  },
-  {
-    tag: 'manipulate',
-    description: '交互：click/type/press（含 observe 全部能力）',
-    tools: ['browser'],
-    group: 'Web 与浏览器',
-    order: 2,
-    tier: true,
-    exclusive: 'browser-tier',
-    exclusiveOffDesc: '停用后 browser 工具不可见（observe 是工具可见性地板）；web_search 不受影响',
-  },
-  {
-    tag: 'inject',
-    description: '注入：eval 执行任意 JS（含 observe+manipulate 全部能力）',
-    tools: ['browser'],
-    group: 'Web 与浏览器',
-    order: 3,
-    tier: true,
-    exclusive: 'browser-tier',
-    exclusiveOffDesc: '停用后 browser 工具不可见（observe 是工具可见性地板）；web_search 不受影响',
-  },
-];
 
 
 import { widenToolsForGating } from 'ac-agents';

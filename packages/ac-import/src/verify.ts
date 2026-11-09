@@ -18,7 +18,7 @@ import type { LedgerRow, JournalStep, JournalLine } from 'ac-ledger';
 import type { Projected } from './project.ts';
 
 export interface VerifyMismatch {
-  kind: 'count' | 'field' | 'tool-card' | 'settlement' | 'order';
+  kind: 'count' | 'field' | 'tool-card' | 'settlement';
   index: number;
   detail: string;
 }

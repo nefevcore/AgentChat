@@ -9,17 +9,6 @@
 // 进程 IO（spawn/kill）注入——状态机纯域可测。
 // ============================================================
 
-/** 壳进程句柄（IO 注入面） */
-export interface ShellProcess {
-  pid: number;
-  /** stdout 数据订阅（TSV 行流） */
-  onStdoutLine(line: string): void;
-  /** 优雅终止请求 */
-  kill(): void;
-  /** 退出订阅 */
-  onExit(cb: (code: number | null, signal: string | null) => void): void;
-}
-
 export type GuardianEvent =
   | { type: 'adopted'; agentId: string; bootId: string; transportHint: string; fingerprintRoot?: string }
   | { type: 'rows-ready'; agentId: string; bootId: string; rows: number }

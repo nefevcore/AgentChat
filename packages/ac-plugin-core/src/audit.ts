@@ -92,19 +92,3 @@ export function appendAudit(root: string, entry: PluginAuditEntry): Promise<void
   });
 }
 
-/** 读全部审计流水（当前份；解析失败行跳过；测试断言面） */
-export function readAudit(root: string): PluginAuditEntry[] {
-  const file = auditFile(root);
-  if (!fs.existsSync(file)) return [];
-  const out: PluginAuditEntry[] = [];
-  for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    try {
-      out.push(JSON.parse(trimmed) as PluginAuditEntry);
-    } catch {
-      /* 损坏行跳过（append-only，不阻断读取） */
-    }
-  }
-  return out;
-}

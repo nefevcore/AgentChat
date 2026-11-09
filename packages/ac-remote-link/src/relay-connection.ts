@@ -30,14 +30,6 @@ import {
 /** 应用层保活间隔（relay 心跳超时 60s——留足余量） */
 const KEEPALIVE_MS = 25_000;
 
-/** relay 控制帧（本模块关心的六种） */
-type RelayFrame =
-  | { op: 'joined' }
-  | { op: 'room-unavailable' }
-  | { op: 'pong' }
-  | { op: 'peer-left' }
-  | { op: 'peer-arrived' }
-  | { op: 'frame'; data: { t: string; n: number; ct: string } };
 
 /** 加密业务帧的载荷形态（与本地 WS 帧 WsFrame 同构） */
 export interface LinkPayload {

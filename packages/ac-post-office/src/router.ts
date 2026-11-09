@@ -7,7 +7,6 @@
 // ============================================================
 
 import type { Envelope } from 'ac-envelope-core';
-import { entersInbox, budgetAfterReceive } from 'ac-envelope-core';
 import type { ConversationRegistry, ReachabilityTable } from './registry.ts';
 
 /** 投递目标端点 id（编排面按需拉起的寻址面——agent 端点） */
@@ -59,20 +58,4 @@ export function routeEnvelope(
     }
     return { channel: 'direct', to, transportHint: hint, envelope: { ...envelope, hop }, hop };
   });
-}
-
-/**
- * 接收方入站处理（壳侧消费决策——A4 inbox 边界 + budget 语义）：
- *   · 非 message kind / budget=0 → ledger-only（不进 inbox）
- *   · user 直发 → 重置满额
- */
-export function inboxDecision(envelope: Envelope): {
-  entersInbox: boolean;
-  budgetAfter: number;
-} {
-  const after = budgetAfterReceive(envelope.budget, envelope.sender);
-  return {
-    entersInbox: entersInbox(envelope.kind, after),
-    budgetAfter: after,
-  };
 }

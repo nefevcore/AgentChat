@@ -33,7 +33,6 @@ import { Paragraph } from '@tiptap/extension-paragraph';
 import { Text } from '@tiptap/extension-text';
 import { Decoration, DecorationSet } from '@tiptap/pm/view';
 import { Plugin } from '@tiptap/pm/state';
-import type { EditorState, Transaction } from '@tiptap/pm/state';
 import { splitBlock } from '@tiptap/pm/commands';
 import { Slice, Fragment } from '@tiptap/pm/model';
 import type { Node as PMNode } from '@tiptap/pm/model';

@@ -75,8 +75,6 @@ function interactionWire(record: unknown): unknown {
 /** 目录实例（后台过滤登记表随实例；wire 策略见 buildCatalog） */
 export interface BridgeCatalog {
   events: BridgeEvent[];
-  /** 后台过滤开关（缺省开） */
-  readonly backgroundFilter: boolean;
 }
 
 export function createBridgeCatalog(deps: CatalogDeps): BridgeCatalog {
@@ -206,5 +204,5 @@ export function createBridgeCatalog(deps: CatalogDeps): BridgeCatalog {
     { name: 'system/restarting', wire: (a) => a },
   ];
 
-  return { events, backgroundFilter: filterEnabled };
+  return { events };
 }

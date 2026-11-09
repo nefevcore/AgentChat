@@ -325,7 +325,7 @@ async function saveGroupInfo() {
 .sr-system .stream-role { color: var(--warn); }
 .stream-content { flex: 1; white-space: pre-wrap; word-break: break-word; color: var(--text-1); }
 .drawer-section-bottom { border-bottom: none; display: flex; flex-direction: column; gap: 8px; margin-top: auto; }
-.drawer-leave-btn, .drawer-delete-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: var(--r-sm); font-size: 13px; cursor: pointer; text-align: left; }
+.drawer-delete-btn { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 12px; border: none; border-radius: var(--r-sm); font-size: 13px; cursor: pointer; text-align: left; }
 .drawer-delete-btn { background: none; color: var(--err); }
 .drawer-delete-btn:hover { background: rgba(var(--err-rgb), 0.1); }
 /* 删除弹体框架已迁 kit ConfirmBody（cr-157）；此处仅留富文本正文修饰与流弹窗底钮 */

@@ -110,7 +110,7 @@ describe('ac-usage 双轨记账', () => {
     expect(totals.elapsedMs).toBeGreaterThanOrEqual(0);
 
     // 审计流水：<root>/usage/usage-<date>.jsonl，两行
-    const files = ctx.usage.auditFiles();
+    const files = fs.readdirSync(path.join(root, 'usage')).filter((f) => f.endsWith('.jsonl'));
     expect(files).toHaveLength(1);
     const lines = fs
       .readFileSync(path.join(root, 'usage', files[0]), 'utf-8')
@@ -151,7 +151,7 @@ describe('ac-usage 双轨记账', () => {
     expect(a.runs).toBe(1); // 整理 run 未记账
     expect(ctx.usage.byConversation()['a~user'].runs).toBe(1); // 桶 lastContextPrompt 未被整理上下文顶掉
     expect(ctx.usage.totals().runs).toBe(1);
-    const files = ctx.usage.auditFiles();
+    const files = fs.readdirSync(path.join(root, 'usage')).filter((f) => f.endsWith('.jsonl'));
     const lines = fs.readFileSync(path.join(root, 'usage', files[0]), 'utf-8').trim().split('\n');
     expect(lines).toHaveLength(1); // 审计流水无整理行
     expect(lines[0]).not.toContain('归档整理');

@@ -29,9 +29,6 @@ import { pathToFileURL } from 'node:url';
 import { makeWebuiRowV3 } from 'ac-ui-app/v3';
 import { tapShellStream, ShellStreamBridge, type StreamTapHandle } from 'ac-post-office';
 
-/** 旁带流出口（8.5d：tap 收到旁带帧后的下行——webServer.broadcast 面） */
-export type StreamSink = (frame: { type: string; data: { args: unknown[] } }) => void;
-
 /** 宿主 web 面装配结果（独立形态） */
 export interface HostWebResult {
   ctx: Context;
@@ -57,8 +54,6 @@ export interface HostWebOptions {
   host?: string;
   /** 静态目录（SPA fallback——dist 未建时省略） */
   staticDir?: string;
-  /** 邮局地址（缺省 = <dataRoot>/ipc/post-office） */
-  postOfficeAddress?: string;
   /** UI 插件目录（boot graph manifest 扫描 + /ui-plugin/ 静态面同源根；缺省 <dataRoot>/plugins） */
   pluginsDir?: string;
   /** 外部邮局（宿主 boot 先建单例注入——usage 行等收信面共享；缺省自建） */
@@ -79,7 +74,6 @@ export interface WebRingOptions {
   port?: number;
   host?: string;
   staticDir?: string;
-  pluginsDir?: string;
   /** 行集目录（plugin/catalog builtin 组；缺省 = apps/catalog） */
   catalogFile?: string;
   /** 编排面惰性端口（壳内服务面——boot 创建 orchestrator 后回填） */
@@ -213,7 +207,6 @@ export async function bootHostWeb(options: HostWebOptions): Promise<HostWebResul
   const external = options.postOffice;
   const po = external ?? new PostOffice({
     dataRoot: options.dataRoot,
-    ...(options.postOfficeAddress !== undefined ? { address: options.postOfficeAddress } : {}),
   });
   if (external === undefined) await po.listen();
 

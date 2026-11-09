@@ -200,37 +200,6 @@ export async function deleteAgent(agentId: string, rpc: Rpc): Promise<{ success?
   return { success: true };
 }
 
-// ── 能力标签目录（tag-registry P1：AgentPane 徽章编辑数据源） ──
-
-/** 标签目录条目（tags/catalog 线形；cr-390 类别镜像同步——base/owner/unknown 三词已随产出面退役） */
-export interface TagCatalogItem {
-  tag: string;
-  category: 'access-tier' | 'tool-mode' | 'capability';
-  description?: string;
-  tools: Array<{ name: string; description?: string; owner?: string }>;
-  reserved?: boolean;
-  /** 手工声明方（行名） */
-  declaredBy?: string;
-  /** 独立分组（声明方自组；缺省 = capability 通用组） */
-  group?: string;
-  /** 目录排序提示（缺省 50，组内升序）——分层族按层级呈现 */
-  order?: number;
-  /** 分层族标记（低 ⊂ 高：勾选高层含低层全部能力） */
-  tier?: boolean;
-  /** 抉择组名（同组互斥——本组聚合为下拉单选；详见 tagExclusive.ts） */
-  exclusive?: string;
-  /** 抉择组「都不选」词（落词不写 tags，缺席即语义——如 base-access/tc-base） */
-  exclusiveNone?: boolean;
-  /** 抉择组「全关」后果说明（无缺省词的组——UI 关闭态旁注/弹层关闭项描述） */
-  exclusiveOffDesc?: string;
-}
-
-/** 拉取能力标签目录（行未装配 → rpc error，调用方回退本地徽章表） */
-export async function fetchTagCatalog(rpc: Rpc): Promise<TagCatalogItem[]> {
-  const r = await rpc.call<{ tags?: TagCatalogItem[] }>('tags/catalog');
-  return Array.isArray(r.tags) ? r.tags : [];
-}
-
 /** Provider 池（config/get 白名单域合成；ChatInput 模型菜单数据源） */
 export async function fetchPools(
   rpc: Rpc,

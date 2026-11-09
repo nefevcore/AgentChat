@@ -106,7 +106,7 @@ describe(`ac-shell-tools ${CMD_TOOL} 超时 handoff`, () => {
     expect(r.error).toMatch(/超时（1500ms）/);
     expect(r.error).not.toMatch(/转后台/);
     expect(r.output.job_id).toBeUndefined(); // kill 路径不登记 job
-    expect(ctx.jobs.size).toBe(0);
+    expect(ctx.jobs.list()).toHaveLength(0); // kill 路径不登记 job
   }, 20000);
 
   it('handoff 与显式 background 语义分立：background=true 立即返回 job（无超时概念）', async () => {

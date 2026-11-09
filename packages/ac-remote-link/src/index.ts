@@ -142,11 +142,6 @@ export function apply(ctx: Context, options: Record<string, unknown> = {}) {
     return remote().connect(deviceId ? { deviceId } : undefined);
   });
 
-  web.registerRpc('remote/disconnect', () => {
-    remote().disconnect();
-    return { ok: true };
-  });
-
   // ---- 宿主 HTTP 面转发（M3.4）----
   // 远程 WebView 的 /api/* 请求经此投回核心端自身 web-server（通用转发，非逐端点
   // bridge——后者会持续追着 webui 新增端点跑）。cr-105 起 scopes 闸门退役，

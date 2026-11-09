@@ -9,7 +9,7 @@
 // 兼容：适配器工厂零胶水直接返回库实例。
 // ============================================================
 
-export type LlmRole = 'system' | 'user' | 'assistant' | 'tool';
+type LlmRole = 'system' | 'user' | 'assistant' | 'tool';
 
 /**
  * 多模态附件（视觉输入一期 + M4 词表扩展）——消息旁挂的**引用**，不内联

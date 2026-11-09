@@ -32,7 +32,6 @@ export interface CdpRemoteObject {
   value?: unknown;
   description?: string;
   unserializableValue?: string;
-  objectId?: string;
 }
 
 /** DOMSnapshot.captureSnapshot 的响应——扁平索引数组形态（真实协议：
@@ -59,7 +58,6 @@ export interface CdpFlatNodes {
   /** text 节点的文本（进 strings；-1 = 无）——字段名是 textValue 非 nodeValue（真机实测） */
   textValue?: number[];
   nodeValue?: number[];
-  backendNodeId: number[];
   attributes: number[][]; // [nameIdx, valueIdx, ...] 平铺对
 }
 

@@ -142,11 +142,6 @@ export class JobsService extends Service {
     return { outcome: 'cancellation-requested', job: this.snapshot(job) };
   }
 
-  /** 全部任务数（诊断/测试用） */
-  get size(): number {
-    return this.store.size;
-  }
-
   // ---- internal ----
 
   private expect(id: string, ownerAgentId?: string): JobRecord {

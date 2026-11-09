@@ -95,7 +95,6 @@ export function toast(text: string, opts: ToastOptions = {}): void {
 export const toastOk = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'ok' });
 export const toastError = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'error' });
 export const toastWarn = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'warn' });
-export const toastInfo = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'info' });
 export const toastBusy = (text: string, opts?: ToastOptions) => toast(text, { ...opts, tone: 'busy' });
 
 function schedule(id: number, duration: number): void {
@@ -109,13 +108,6 @@ export function dismissToast(id: number): void {
   timers.delete(id);
   const i = toasts.value.findIndex((t) => t.id === id);
   if (i >= 0) toasts.value.splice(i, 1);
-}
-
-/** 清空全部（测试隔离 / 场景切换兜底） */
-export function clearToasts(): void {
-  for (const t of timers.values()) clearTimeout(t);
-  timers.clear();
-  toasts.value = [];
 }
 
 /** hover 暂停：停表并暂存剩余时长（永驻条忽略） */

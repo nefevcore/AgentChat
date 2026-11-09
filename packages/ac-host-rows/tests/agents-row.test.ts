@@ -32,7 +32,6 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
       h.agents.saveAgent({ id: 'beta', model: 'mock' });
       expect(h.agents.agentIds()).toEqual(['alpha', 'beta']);
       expect(h.agents.getAgent('alpha')?.name).toBe('甲');
-      expect(h.agents.listAgents().map((c) => c.id)).toEqual(['alpha', 'beta']);
       // 落盘布局单源：agent.patch.yml（cr-918 patch 主写；无临时文件残留）
       const dir = path.join(ROOT, 'agents', 'alpha');
       expect(fs.existsSync(path.join(dir, 'agent.patch.yml'))).toBe(true);
@@ -61,10 +60,6 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
       const file = path.join(ROOT, 'agents', 'alpha', 'entries', 'timer.json');
       expect(fs.existsSync(file)).toBe(true);
       expect(h.agents.readEntry<{ entries: Array<{ id: string }> }>('alpha', 'timer')?.entries[0].id).toBe('e1');
-      expect(h.agents.entryKeys('alpha')).toEqual(['goal', 'timer']);
-      expect(h.agents.removeEntry('alpha', 'goal')).toBe(true);
-      expect(h.agents.removeEntry('alpha', 'goal')).toBe(false);
-      expect(h.agents.entryKeys('alpha')).toEqual(['timer']);
       expect(h.agents.readEntry('alpha', 'absent')).toBeUndefined();
       expect(() => h.agents.saveEntry('alpha', '../evil', {})).toThrow(/非法/);
       expect(() => h.agents.saveEntry('alpha', 'UpCase', {})).toThrow(/非法/);
@@ -140,14 +135,9 @@ describe('宿主 agents 编辑面（身份文集唯一写口）', () => {
     }
   });
 
-  it('transient 合成不落盘（宿主从模板合成 argv 传临时壳）；行缺席 = 模板面良定义降级', async () => {
+  it('模板面清单（preset-builtin 行注入）', async () => {
     const h = await boot();
     try {
-      const transient = h.agents.transientConfigOf('creator', 'tmp-shell');
-      expect(transient.id).toBe('tmp-shell');
-      expect(transient.system).toBeUndefined(); // cr-810：人设载体迁 AGENTS.md（config.system 退役）
-      expect(transient.settings?.['persona']).toEqual({ file: 'AGENTS.md' });
-      expect(fs.existsSync(path.join(ROOT, 'agents', 'tmp-shell'))).toBe(false);
       expect(h.agents.templates().map((t) => t.id)).toEqual(['standard', 'dsh-minimal', 'creator', 'abap-dev']);
     } finally {
       await h.dispose();

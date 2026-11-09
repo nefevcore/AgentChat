@@ -37,8 +37,8 @@ export function apply(ctx: Context, options: BenchRowOptions = {}) {
 export { BenchService, DEFAULT_BENCH_SYSTEM } from './service.ts';
 export { createBfclSuite, DEFAULT_BFCL_SAMPLE, normalizeToolSchema, sanitizeToolName } from './suites/bfcl.ts';
 export type { BfclSuite, BfclSuiteOptions } from './suites/bfcl.ts';
-export { parseCallString, compareCalls, callMatches, looseEq } from './eval.ts';
-export { scriptedBenchRow, encodeScript, decodeScript, MOCK_PROVIDER, MOCK_MODEL } from './mock.ts';
+export { parseCallString, compareCalls } from './eval.ts';
+export { scriptedBenchRow, encodeScript, MOCK_PROVIDER, MOCK_MODEL } from './mock.ts';
 
 // 契约出口：域类型（contract.ts）+ 事件目录类型增强（events.ts）
 export type * from './contract.ts';

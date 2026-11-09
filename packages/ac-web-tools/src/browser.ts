@@ -147,7 +147,7 @@ export class BrowserService extends Service {
         connectTimeoutMs: Math.min(this.launchCfg.bootTimeoutMs, 10_000),
         commandTimeoutMs: this.timeoutMs,
       });
-      this.launched = { child: null as never, port: 0, version: { Browser: 'fake', webSocketDebuggerUrl: this.endpointOverride }, webSocketDebuggerUrl: this.endpointOverride } as LaunchedBrowser;
+      this.launched = { child: null as never, webSocketDebuggerUrl: this.endpointOverride } as LaunchedBrowser;
       this.wireEvents();
       this.page = await CdpPage.open(this.client, this.emuOptions());
       return;

@@ -23,10 +23,9 @@ import {
   validatePluginManifest,
   HOST_CONTRACTS_VERSION,
 } from '../src/index.ts';
-import { missingPermissions, highRiskSlotsOf, type PluginManifest, type PluginPermission } from '../src/manifest.ts';
+import { missingPermissions, type PluginManifest, type PluginPermission } from '../src/manifest.ts';
 import {
   appendAudit,
-  readAudit,
   atomicWriteFile,
   resetQueuesForTest,
   withRootLock,
@@ -95,12 +94,6 @@ describe('manifest 校验', () => {
     expect(ok8.ok).toBe(true);
     // 格式错误仍拒绝
     expect(validatePluginManifest({ ...base, ui: { slots: ['Bad Slot'] } }).ok).toBe(false);
-  });
-
-  it('highRiskSlotsOf（M27 D13 ⚠ 门槛：安装确认面明示数据源）', () => {
-    expect(highRiskSlotsOf(undefined)).toEqual([]);
-    expect(highRiskSlotsOf({ slots: ['tool-result', 'sidebar-action'] })).toEqual([]);
-    expect(highRiskSlotsOf({ slots: ['perspective', 'message-view'] })).toEqual(['perspective']);
   });
 
   it('M23 provides 对象形状：tools/llmProviders/events/ui/agents 全收编；存量 {tools} 兼容', () => {
@@ -350,9 +343,8 @@ describe('审计流水 audit.jsonl（G7）', () => {
     await appendAudit(root, { ts: 't1', event: 'install', name: 'a', owner: 'dev-agent', outcome: 'installed+loaded' });
     await appendAudit(root, { ts: 't2', event: 'load', name: 'a', outcome: 'loaded' });
     await appendAudit(root, { ts: 't3', event: 'uninstall', name: 'a', backupDir: '/x' });
-    const entries = readAudit(root);
-    expect(entries.map((e) => `${e.event}:${e.name}`)).toEqual(['install:a', 'load:a', 'uninstall:a']);
-    expect(entries[0].owner).toBe('dev-agent');
+    const lines = (await readFile(join(root, 'plugins', 'audit.jsonl'), 'utf-8')).trim().split('\n');
+    expect(lines.map((l) => { const e = JSON.parse(l); return `${e.event}:${e.name}`; })).toEqual(['install:a', 'load:a', 'uninstall:a']);
   });
 });
 

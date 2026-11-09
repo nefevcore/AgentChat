@@ -114,7 +114,7 @@ export class LlmHttpError extends Error {
 }
 
 /** 状态码 + 文案 → 机器可读分类（文案兜底：部分网关 429 也走 400 文案） */
-export function classifyLlmHttpStatus(status: number, message: string): LlmHttpErrorKind {
+function classifyLlmHttpStatus(status: number, message: string): LlmHttpErrorKind {
   if (status === 401 || status === 403) return 'AUTH';
   if (status === 429) return 'RATE_LIMIT';
   if (status === 402 || /quota|insufficient[_ ]balance|余额不足|arrears/i.test(message)) return 'QUOTA';

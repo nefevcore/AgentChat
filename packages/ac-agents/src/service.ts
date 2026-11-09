@@ -32,11 +32,7 @@ export {
   displayNameOf,
   effectiveAccessOf,
   toolModeOf,
-  isPresetId,
-  presetTemplateKeyOf,
-  normalizeLegacyTags,
   resolveToolNames,
-  settingsOf as settingsOfPure,
 } from 'ac-agents-core';
 
 // ============================================================

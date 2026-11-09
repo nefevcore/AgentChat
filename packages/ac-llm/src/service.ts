@@ -212,43 +212,9 @@ export class LlmService extends Service {
   }
 
   /**
-   * 模型发现（GET /models 经 provider 实例）：懒实例化同 stream/chat；
-   * provider 未实现 listModels（非 OpenAI 兼容适配）→ PROVIDER_ERROR。
-   * params.api_key 传输层键——凭据链上层注入（优先于构造默认）；
-   * params.signal 探测超时/中止（透传底层 fetch）。
-   */
-  async listModels(
-    name: string,
-    params: { api_key?: string; signal?: AbortSignal } = {},
-  ): Promise<string[]> {
-    const instance = this.instance(this.resolveProvider({ provider: name }));
-    if (typeof instance.listModels !== 'function') {
-      throw new LlmError('PROVIDER_ERROR', `llm provider "${name}" 不支持模型发现（无 /models 实现）`);
-    }
-    return instance.listModels(params);
-  }
-
-  /**
-   * 视觉能力探测（模型能力元数据）：懒实例化同 stream/chat；provider
-   * 未实现 probeVision → PROVIDER_ERROR。三态语义见契约（探测不抛错，
-   * undefined = 未知是有效载荷）。
-   */
-  async probeVision(
-    name: string,
-    model: string,
-    params: { api_key?: string; signal?: AbortSignal } = {},
-  ): Promise<boolean | undefined> {
-    const instance = this.instance(this.resolveProvider({ provider: name }));
-    if (typeof instance.probeVision !== 'function') {
-      throw new LlmError('PROVIDER_ERROR', `llm provider "${name}" 不支持视觉探测`);
-    }
-    return instance.probeVision(model, params);
-  }
-
-  /**
    * 视觉能力查询（静态判定：注册 meta 的有效 visionModels 清单——
    * 精确 > 前缀 > 通配，与适配层物化门控同一匹配单源）。系统提示词
-   * 模型能力注入等消费面用；与 probeVision（真发图探测）互补。
+   * 模型能力注入等消费面用。
    * @returns true/false = 注册面可判定；undefined = 无能力元数据
    * （未声明 visionModels 的 provider——如实未知，消费方自行缺省）
    */

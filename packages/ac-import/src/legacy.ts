@@ -27,7 +27,6 @@ export interface LegacyRow {
   agent_id?: string;
   name?: string;
   source?: string;
-  label?: string;
   reasoning_content?: string;
   steps?: Array<LegacyStep>;
   seq?: number;
@@ -73,8 +72,6 @@ export interface LegacyInventory {
   unknown: Array<{ conversationId: string; dir: string }>;
   /** 子代理会话（subagents/<subId>/） */
   subagents: Array<{ subId: string; dir: string }>;
-  /** agent 注册表（agents-store/agents.json——旧活注册表） */
-  agentsStorePath: string | null;
 }
 
 /** 会话目录内已知三文件以外的文件（恒等拷贝面） */
@@ -89,7 +86,7 @@ export function agentIdOfPairKey(conversationId: string): string {
 
 /** 旧根扫描：四域枚举（坏目录跳过计 warning，不中止——宁慢勿丢） */
 export function scanLegacyRoot(dataRoot: string): LegacyInventory {
-  const inv: LegacyInventory = { pairs: [], singles: [], unknown: [], groups: [], subagents: [], agentsStorePath: null };
+  const inv: LegacyInventory = { pairs: [], singles: [], unknown: [], groups: [], subagents: [] };
   const singlesMeta = path.join(dataRoot, 'singles');
   const sessionsRoot = path.join(dataRoot, 'sessions');
   if (fs.existsSync(sessionsRoot)) {
@@ -134,9 +131,6 @@ export function scanLegacyRoot(dataRoot: string): LegacyInventory {
       }
     }
   }
-  // agent 注册表（旧活注册表——M8 切换时 8.9 消费）
-  const storePath = path.join(dataRoot, 'agents-store', 'agents.json');
-  if (fs.existsSync(storePath)) inv.agentsStorePath = storePath;
   return inv;
 }
 
@@ -150,11 +144,10 @@ export interface LegacySessionFiles {
   summary: string | null;
   /** 恒等拷贝面（KNOWN_FILES 以外的文件名） */
   extraFiles: string[];
-  marker: boolean;
 }
 
 export function readLegacySession(dir: string): LegacySessionFiles {
-  const out: LegacySessionFiles = { headerCreatedAt: null, rows: [], partials: [], subcalls: [], summary: null, extraFiles: [], marker: false };
+  const out: LegacySessionFiles = { headerCreatedAt: null, rows: [], partials: [], subcalls: [], summary: null, extraFiles: [] };
   const mainFile = path.join(dir, 'messages.jsonl');
   if (fs.existsSync(mainFile)) {
     for (const line of fs.readFileSync(mainFile, 'utf-8').split('\n')) {
@@ -203,7 +196,6 @@ export function readLegacySession(dir: string): LegacySessionFiles {
   const summaryFile = path.join(dir, 'summary.md');
   if (fs.existsSync(summaryFile)) out.summary = fs.readFileSync(summaryFile, 'utf-8');
   for (const entry of fs.readdirSync(dir)) {
-    if (entry === '.migrated') { out.marker = true; continue; }
     if (KNOWN_FILES.includes(entry)) continue;
     out.extraFiles.push(entry);
   }

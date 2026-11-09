@@ -9,23 +9,13 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { readLegacySession, agentIdOfPairKey, scanLegacyRoot, type LegacyRow, type LegacyRunSettled, type LegacyJournalRow } from './legacy.ts';
+import { readLegacySession, agentIdOfPairKey, scanLegacyRoot, type LegacyRow, type LegacyRunSettled, type LegacyJournalRow, type LegacySessionFiles } from './legacy.ts';
 import { projectSession, projectSubcalls, type ProjectContext, type Projected } from './project.ts';
 import { verifySession } from './verify.ts';
 import { importAgentsTree, type AgentTreeResult } from './agents-tree.ts';
 import { projectUserLedgers, type UserProjectionStats } from './user-projection.ts';
 import { readLedger, readJournal } from 'ac-ledger';
 
-/** 旧会话文件集（readLegacySession 返回面——参数透传用） */
-export interface LegacyFiles {
-  headerCreatedAt: string | null;
-  rows: Array<LegacyRow | LegacyRunSettled>;
-  partials: LegacyJournalRow[];
-  subcalls: LegacyRow[];
-  summary: string | null;
-  extraFiles: string[];
-  marker: boolean;
-}
 
 /**
  * agentId → 路径段净化（Windows 非法字符 : * ? " < > | 及控制符 → %XX 转义；
@@ -50,7 +40,7 @@ export interface SessionImportResult {
 }
 
 /** 单会话 staging 写入：投影产物 → 目标目录全量构造（文件写，不 rename） */
-export function writeSession(targetDir: string, files: LegacyFiles, legacyDir: string, projected: Projected): void {
+export function writeSession(targetDir: string, files: LegacySessionFiles, legacyDir: string, projected: Projected): void {
   fs.mkdirSync(path.join(targetDir, 'journal'), { recursive: true });
   const lines = [JSON.stringify(projected.header), ...projected.rows.map((r) => JSON.stringify(r))];
   fs.writeFileSync(path.join(targetDir, 'messages.jsonl'), lines.join('\n') + '\n', 'utf-8');

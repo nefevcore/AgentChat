@@ -17,7 +17,6 @@ function elementsFixture(): CdpSnapshotDoc {
         nodeType: [9, 1, 1, 1, 3, 1, 1, 1],
         nodeName: [-1, 0, 1, 2, -1, 3, 4, 3],
         textValue: [-1, -1, -1, -1, 11, -1, -1, -1],
-        backendNodeId: [1, 2, 3, 11, 12, 13, 14, 15],
         attributes: [[], [], [], [5, 6], [], [7, 8], [9, 10], []],
       },
       // 文档级布局（nodeIndex[i] → 节点下标；第 7 个 button 不在布局 = 无 layout 被滤）
@@ -70,7 +69,6 @@ describe('extractText（扁平索引形态）', () => {
           nodeType: [9, 1, 1, 1, 3, 1, 1, 3, 1, 3, 1, 3],
           nodeName: [-1, 0, 15, 16, -1, 1, 17, -1, 18, -1, 3, -1],
           textValue: [-1, -1, -1, -1, 12, -1, -1, 13, -1, 14, -1, 11],
-          backendNodeId: new Array(12).fill(0),
           attributes: [[], [], [], [], [], [], [], [], [], [], [], []],
         },
       }],

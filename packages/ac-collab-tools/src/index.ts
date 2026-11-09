@@ -38,23 +38,8 @@ import { pairKey, GROUP_CONTRACT_TEXT } from 'ac-core-utils'; // 对桶键（cr-
 import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 
-/** update_agent_profile 允许修改的字段（白名单；其余拒绝） */
-const PROFILE_ALLOWED_FIELDS = ['name', 'description', 'system', 'persona', 'tools', 'maxSteps', 'settings'] as const;
-
 function err(message: string): ToolResult {
   return { ok: false, error: message };
-}
-
-/**
- * admin 能力判定（cr-953：tags 轴退役——levels.collab 行内档位单源，
- * settings.collab.admin 为回滚兼容线；levels 赢（与 capabilitySetOf
- * 同款合成））。
- */
-function hasAdminCapability(ctx: Context, agentId: string): boolean {
-  const agent = ctx.agents.get(agentId);
-  if (agent?.levels?.collab === 'admin' || agent?.levels?.collab === true) return true;
-  const s = ctx.agents.settingsOf(agentId, 'collab');
-  return typeof s === 'object' && s !== null && (s as { admin?: unknown }).admin === true;
 }
 
 export const name = 'ac-collab-tools';

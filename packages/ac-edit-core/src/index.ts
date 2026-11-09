@@ -15,7 +15,6 @@
 export {
   normalizeForFuzzyMatch,
   fuzzyFindText,
-  countOccurrencesByLevel,
 } from './fuzzy-match.ts';
 // countOccurrences 已删（2026-10-12 cr-340：全仓零调用——countOccurrencesRaw 直供 countOccurrencesByLevel）
 export {
@@ -30,7 +29,6 @@ export {
 export type { LineEnding, RawLine } from './line-ending.ts';
 export { applyEditsToNormalizedContent } from './apply.ts';
 export { generateIncrementalDiff, generateDiffString, countLineChanges } from './diff.ts';
-export { syntaxCheckBeforeWrite } from './syntax-check.ts';
 export type { SyntaxCheckResult } from './syntax-check.ts';
 export { withFileMutationQueue } from './mutation-queue.ts';
 export { applyEditBatch } from './executor.ts';

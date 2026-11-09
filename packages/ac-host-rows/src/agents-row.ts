@@ -115,11 +115,6 @@ export class AgentsEditService extends Service {
     return readAgentConfig(this.dataRoot, id) !== null;
   }
 
-  /** 全部身份配置（目录扫描；config 损坏的 id 不入清单，见 agentIds） */
-  listAgents(): AgentConfig[] {
-    return this.agentIds().map((id) => this.getAgent(id)).filter((c): c is AgentConfig => c !== undefined);
-  }
-
   /** 全部身份 id（有目录即算——config 损坏也列出供诊断） */
   agentIds(): string[] {
     return listAgentIds(this.dataRoot);
@@ -154,27 +149,6 @@ export class AgentsEditService extends Service {
       return JSON.parse(fs.readFileSync(this.entryFile(id, key), 'utf-8')) as T;
     } catch {
       return undefined;
-    }
-  }
-
-  removeEntry(id: string, key: string): boolean {
-    assertEntryKey(key);
-    const file = this.entryFile(id, key);
-    if (!fs.existsSync(file)) return false;
-    fs.rmSync(file);
-    return true;
-  }
-
-  /** 某身份的 entry 键清单（目录扫描；缺席 = 空表） */
-  entryKeys(id: string): string[] {
-    const dir = this.entriesDir(id);
-    try {
-      return fs.readdirSync(dir, { withFileTypes: true })
-        .filter((e) => e.isFile() && e.name.endsWith('.json'))
-        .map((e) => e.name.slice(0, -'.json'.length))
-        .sort();
-    } catch {
-      return [];
     }
   }
 
@@ -260,16 +234,6 @@ export class AgentsEditService extends Service {
     }
     materializeTemplateSkills(this.dataRoot, id, skills);
     return config;
-  }
-
-  /**
-   * transient boot 合成：宿主从模板合成身份（argv 传临时壳，账本住
-   * sessions/<uuid> 不落 agents/ 树）——纯合成不落盘（模板文档同样不落地，
-   * 人设 file 指向 agents/<id>/AGENTS.md 缺席时 persona 行按 text 回退/
-   * 不注入——transient 是短命形态，不物化文档）。
-   */
-  transientConfigOf(templateId: string, id: string, overrides: Partial<AgentConfig> = {}): AgentConfig {
-    return this.templateConfigOf(this.templateOf(templateId), id, overrides);
   }
 
   // ---- 内部 ----

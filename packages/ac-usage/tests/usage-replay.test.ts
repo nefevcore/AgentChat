@@ -107,7 +107,8 @@ describe('ac-usage 持久聚合回读（M15）', () => {
       expect(ctx.usage.totals().runs).toBe(1);
 
       // 流水行含 conversationId（byPair 维度数据基础）
-      const file = path.join(root, 'usage', ctx.usage.auditFiles()[0]);
+      const auditFile = fs.readdirSync(path.join(root, 'usage')).find((f) => f.endsWith('.jsonl'))!;
+      const file = path.join(root, 'usage', auditFile);
       const line = JSON.parse(fs.readFileSync(file, 'utf-8').trim());
       expect(line.conversationId).toBe('a');
 

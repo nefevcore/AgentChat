@@ -70,7 +70,7 @@ describe('usage 自报链 e2e（壳 run 收束 → 事件信 → 宿主聚合并
       const agg = ctx.usage.byAgent();
       expect(agg.alpha.runs).toBe(1);
       // 审计流水（主线聚合并单源——webui 查询面恒等）
-      expect(ctx.usage.auditFiles().length).toBe(1);
+      expect(fs.readdirSync(path.join(ROOT, 'usage')).filter((f) => f.endsWith('.jsonl')).length).toBe(1);
       // 壳侧 journal 计量对拍（journal-settled 携带 usage/model——R2 journal 计量半边）
       const uuids = fs.readdirSync(path.join(ROOT, 'agents', 'alpha', 'sessions'));
       const jfile = path.join(ROOT, 'agents', 'alpha', 'sessions', uuids[0], 'journal', 'partials.jsonl');

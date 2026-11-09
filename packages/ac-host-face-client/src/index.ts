@@ -144,9 +144,7 @@ export function makeHostFaceClientRow(options: HostFaceClientRowOptions): Plugin
             },
           });
           disposers.push(d);
-          console.log('[face-diag] 代理已注册+dispose 收集', spec.name);
         }
-        console.log('[face-diag] 工具段完成');
         // sections → 远程段（本地段优先：同名已注册跳过——宿主段是补位面）
         for (const spec of contract.sections) {
           const order = resolveSectionPlacement(spec.name, spec.order);

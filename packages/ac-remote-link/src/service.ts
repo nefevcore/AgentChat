@@ -771,9 +771,6 @@ export class RemoteLinkService extends Service {
     this.ensureHeartbeat();
   }
 
-  testGetConnection(deviceId: string): RelayConnection | undefined {
-    return this.connections.get(deviceId);
-  }
 }
 
 declare module '@agentchat/cordis' {

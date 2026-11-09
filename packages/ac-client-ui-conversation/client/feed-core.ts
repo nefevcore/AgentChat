@@ -37,19 +37,7 @@ import {
 const HISTORY_PAGE_SIZE = 5;
 const GROUP_HISTORY_PAGE_SIZE = 50;
 const TURN_DONE_DELAY = 300;
-const MAX_ACTIVITY = 500;
 
-/** 全局活动条目（社区流 / 星图 / 会话列表排序的单一来源） */
-interface ActivityEntry {
-  dialogId: DialogId;
-  ts: number;
-  kind: DialogKind;
-  agentId: string;
-  /** 消息/事件摘要（列表/社区流展示） */
-  summary: string;
-  /** 事件类型：message | tool | event | group */
-  event: string;
-}
 
 /** 单个对话分区的完整状态 */
 interface DialogFeed {
@@ -188,21 +176,6 @@ export function createFeedCore(
   const _turnsMemo = new Map<DialogId, TurnsMemo>();
   const _historyOffset: Record<string, number> = {};
 
-  // ── 全局活动索引（按 ts 倒序，cap MAX_ACTIVITY）──
-  const _activity = ref<ActivityEntry[]>([]);
-  function recordActivity(entry: Omit<ActivityEntry, 'ts' | 'kind'> & { kind?: DialogKind; ts?: number }) {
-    const item: ActivityEntry = {
-      ts: Date.now(),
-      kind: parseDialogId(entry.dialogId).kind,
-      ...entry,
-    };
-    const arr = _activity.value;
-    const idx = arr.findIndex(a => a.ts < item.ts);
-    if (idx === -1) arr.push(item);
-    else arr.splice(idx, 0, item);
-    if (arr.length > MAX_ACTIVITY) arr.length = MAX_ACTIVITY;
-  }
-  const activity = computed(() => _activity.value);
 
   /** 全局指示器（UI 兼容 chat store 的对应状态） */
   const turnInProgress = ref(false);
@@ -1298,10 +1271,6 @@ export function createFeedCore(
     // 仅 viewer 参与会话：agent 对/自会话（矩阵格）不进 agent⇋viewer 名册
     if (asst.content && isViewerDialog(id)) {
       roster().bumpAgentById(agentKeyOf(id), 'assistant', asst.content);
-      recordActivity({
-        dialogId: id, agentId: agentKeyOf(id),
-        summary: (asst.content || '').slice(0, 60), event: 'message',
-      });
     }
     bump(id);
   }
@@ -1697,10 +1666,6 @@ export function createFeedCore(
     if (fallbackAdded && isViewerDialog(id)) {
       const agentId = agentKeyOf(id);
       roster().bumpAgentById(agentId, 'assistant', content);
-      recordActivity({
-        dialogId: id, agentId,
-        summary: content.slice(0, 60), event: 'message',
-      });
     }
     if (active) scheduleDone(d.rawMessages);
   }
@@ -2176,7 +2141,6 @@ export function createFeedCore(
     });
     touch(dialogId, from, payload, Date.now());
     bump(dialogId);
-    recordActivity({ dialogId, agentId: from, summary: payload.slice(0, 60), event: 'message' });
     // 未读与名册 bump 仅对 viewer 参与的对桶有意义（agent 对分区无
     // 列表入口；矩阵视角的实时性由本分区直接承载）
     const viewerRelevant =
@@ -2668,7 +2632,6 @@ export function createFeedCore(
         });
         touch(gDialog, from, posted.content, Date.now());
         bump(gDialog);
-        recordActivity({ dialogId: gDialog, agentId: from, summary: posted.content.slice(0, 60), event: 'group' });
         // 未读：非 viewer 发言且该群非当前活跃群 → +1（与 direct 入站同口径
         // ——正在看的会话不计未读；清除经 clearUnread(group:gid)，由 ui-group
         // selectGroup 触发，名册群行/活动栏聚合徽章同源消费）
@@ -2809,14 +2772,13 @@ export function createFeedCore(
     dialogs, activeDialogId, activeDialog, activeAgentId, activeGroupId, activeSingleId,
     authoritativeRuns, settleDeadDialog,
     setActiveGroup, clearActiveGroup, setActiveSingle, clearActiveSingle,
-    activity,
     turnInProgress, lastStepEndAt, archivePending,
-    unreadAgents, getUnreadCount, loadingHistory, hasMoreHistory,
+    getUnreadCount, loadingHistory, hasMoreHistory,
     getDialog, getRaw, getTurns,
     // 原语
     ensureById, append, removeMessage, replaceMessage, truncateAfter, resetDialog, setRaw,
-    maybeEvict, // A2：热集对账（宿主可在大批量注入后显式调用；测试面同)
-    clearUnread, pruneSingleUnread, touch, bump,
+    maybeEvict, // A2：热集对账（测试面显式调用）
+    clearUnread, pruneSingleUnread,
     // busy 排队发送回显登记（chat store 排队路径专用）
     registerQueuedSend, dropQueuedSend,
     // 历史

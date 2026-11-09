@@ -9,7 +9,7 @@
 // ============================================================
 
 /** 行角色（消费通道）：agent = 真实发言；context = 上下文材料 */
-export type LedgerRole = 'agent' | 'context';
+type LedgerRole = 'agent' | 'context';
 
 /** 账本行（messages.jsonl 每行一 JSON） */
 export interface LedgerRow {
@@ -202,19 +202,9 @@ export interface JournalSettled {
 }
 
 /** run 级用量聚合（主线 LoopRunUsage 形状——双轨制）；envelope-core
- * UsageRunMeter 同形（schema owning 在彼——journal 计量词汇 re-export） */
+ * UsageRunMeter 同形（schema owning 在彼） */
 import type { UsageRunMeter } from 'ac-envelope-core';
 export type RunUsage = UsageRunMeter;
-export type { UsageRunMeter };
 
 /** 行类型判别（读侧路由） */
 export type JournalLine = JournalStep | JournalInject | JournalToolResult | JournalSettled;
-
-export function journalLineType(line: string): 'step' | 'inject' | 'tool-result' | 'settled' | null {
-  const t = line.trimStart();
-  if (t.startsWith('{"type":"journal-step"')) return 'step';
-  if (t.startsWith('{"type":"journal-inject"')) return 'inject';
-  if (t.startsWith('{"type":"journal-tool-result"')) return 'tool-result';
-  if (t.startsWith('{"type":"journal-settled"')) return 'settled';
-  return null;
-}

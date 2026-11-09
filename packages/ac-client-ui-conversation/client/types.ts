@@ -1,4 +1,4 @@
-import type { MessageSource, PersistedMessage as SharedPersistedMessage, ToolCall as SharedToolCall, PluginMeta as SharedPluginMeta } from '@agentchat/protocol';
+import type { MessageSource, ToolCall as SharedToolCall } from '@agentchat/protocol';
 
 // ============================================================
 // 前端 WebSocket 消息类型
@@ -75,27 +75,6 @@ export interface DisplayItem {
   key?: string;
   /** （inject 独立降级卡）注入卡数据（前后皆无 agent 轮可挂时占位） */
   inject?: InjectCard;
-}
-
-/**
- * 插件元数据（跨端共享契约 + 启用状态）。
- * 基础契约来自 @agentchat/protocol（消除类型漂移）；
- * enabled 为 getAgentPlugins() 返回时附加的启用状态。
- */
-export type PluginMeta = SharedPluginMeta & { enabled: boolean; description: string };
-
-/**
- * 持久化消息（基础契约来自 @agentchat/protocol，role 含 event 与后端对齐）。
- * _meta 为前端展示私有字段（WS 实时消息包装），不影响持久化契约。
- */
-export interface PersistedMessage extends SharedPersistedMessage {
-  _meta?: {
-    timestamp: string;
-    from: string;
-    to: string;
-    correlation_id?: string;
-    message_id?: string;
-  };
 }
 
 /** 工具调用（来自 shared 契约，保持单源） */
@@ -222,7 +201,6 @@ export interface ChatMessage {
   subcall?: boolean;
   timestamp: number;
   files?: FileAttachment[];
-  _archived_context?: boolean;
 }
 
 export interface FileAttachment {
@@ -245,17 +223,4 @@ export interface GroupInfo {
   description?: string;
   /** 最近活动时间戳（毫秒），由前端 WS 消息驱动，与 Agent.lastActivity 统一排序 */
   lastActivity?: number;
-}
-
-/** 群组持久化消息（来自 API） */
-export interface GroupPersistedMessage {
-  role: string;
-  content: string | null;
-  agent_id: string;
-  name?: string;
-  tool_calls?: ToolCall[];
-  tool_call_id?: string;
-  reasoning_content?: string;
-  label?: string;
-  timestamp: string;
 }

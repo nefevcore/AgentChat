@@ -28,7 +28,7 @@
 // 会话内编辑链重放）。RPC 缺席/失败 = 回落方案 A 纯重放。
 // ============================================================
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { Button, IconAction, Icon, Select, Tooltip, toastError } from '@agentchat/webui-kit';
+import { IconAction, Icon, Select, Tooltip, toastError } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { countLineChanges } from 'ac-edit-core/src/diff.ts';
 import { openLocalFile, openWith } from 'ac-client-ui-workspace/client/fileApi.ts';

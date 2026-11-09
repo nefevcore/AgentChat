@@ -153,7 +153,7 @@ export function rowOptionsFor(dataRoot: string, agentDir?: string): Record<strin
 export { makeShimsRow };
 export { makeToolsGateRow } from './gate.ts';
 // 会话查询工具行（cr-544：D10 收敛为 agent 只搜自己——宿主行改树入壳工具面）
-export { makeSessionQueryRow, replayConversation } from './session-query.ts';
+export { makeSessionQueryRow } from './session-query.ts';
 export type { SessionQueryRowOptions } from './session-query.ts';
 // 归档编排行（cr-546：D11 全壳内——主线 ac-archive 编排半边的壳内形态）
 export { makeArchiveRow, ArchiveShellService } from './archive.ts';

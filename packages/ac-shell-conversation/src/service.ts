@@ -18,8 +18,8 @@ import { ConversationMachine, type DeliverPlan, type QueuedTurn } from './state.
 import type {} from './events.ts';
 import { readAgentConfig, readChildConfig, resolveToolNames, type AgentConfig } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
-import type { Envelope, StreamFrame } from 'ac-envelope-core';
-import { budgetAfterReceive, deliver, entersInbox, isBudgetSource, type RendezvousPaths } from 'ac-envelope-core';
+import type { Envelope } from 'ac-envelope-core';
+import { budgetAfterReceive, deliver, entersInbox, type RendezvousPaths } from 'ac-envelope-core';
 import { readLedger, readJournal } from 'ac-ledger';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
 import { effectiveToolMode, narrowToolsByMode, accessOf, ACCESS_RANK, type AccessLevel } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）

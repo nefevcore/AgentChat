@@ -45,7 +45,6 @@ export const inject = ['llm', 'config'];
 
 // 凭据注入（llm/before-chat → pool:<provider> apiKey；2026-09-05 自
 // ac-credentials 迁入——纯函数与订阅装配详见 ./credentials.ts）
-export { resolveLlmApiKey } from './credentials.ts';
 export { resolveSessionHeader, sessionHeaderValue } from './session-affinity.ts';
 
 /**

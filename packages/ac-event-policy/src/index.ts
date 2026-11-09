@@ -38,4 +38,4 @@ export function apply(ctx: Context) {
 export { EventPolicyService } from './service.ts';
 // fiber→顶层行聚合（M25 §3.5：events/listeners / 治理双命中 / policy-list
 // live 交叉共用；聚合只改呈现不改键）
-export { computeRowAggregates, rowOfFiber } from './aggregate.ts';
+export { computeRowAggregates } from './aggregate.ts';

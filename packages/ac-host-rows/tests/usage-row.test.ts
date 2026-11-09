@@ -42,7 +42,7 @@ describe('宿主 usage 行（事件信收信面）', () => {
       const byAgent = h.ctx.usage.byAgent();
       expect(byAgent.alpha).toMatchObject({ runs: 1, steps: 2, prompt: 150, completion: 20 });
       // 审计流水（<root>/usage/usage-<date>.jsonl——主线聚合并单源）
-      expect(h.ctx.usage.auditFiles().length).toBe(1);
+      expect(fs.readdirSync(path.join(ROOT, 'usage')).filter((f) => f.endsWith('.jsonl')).length).toBe(1);
     } finally {
       await h.dispose();
     }

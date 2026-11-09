@@ -85,7 +85,7 @@ export { TEMPLATE_DIR, DOC_NAME, listTemplates, readTemplate, materializeConfigO
 export type { AgentTemplate, TemplateDoc, TemplateSkill } from './preset-builtin.ts';
 // —— 预设模板升级通路（cr-812 copy-on-write；cr-879 skills 纳入）：origin 指纹 + reconcile 纯库 ——
 export {
-  fingerprintOf, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin,
+  templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin,
 } from './preset-origin.ts';
 export type { PresetOrigin, ReconcileResult, TemplateCorpus } from './preset-origin.ts';
 
@@ -114,8 +114,7 @@ export type { SinglesHostRowOptions, SingleMeta, SingleView } from './singles-ro
 import { makeGroupsHostRow } from './groups-row.ts';
 export { makeGroupsHostRow };
 // 群读词汇（cr-712 下沉 ac-core-utils 单源）——转发出口保消费面 import 路径不变
-export { listGroupConfigs, memberStreamKey } from 'ac-core-utils';
-export type { GroupConfig } from 'ac-core-utils';
+export { listGroupConfigs } from 'ac-core-utils';
 // 工作区登记表（cr-583）：纯函数直读直写（REST 编排住 web-api 行）
 export { listWorkspaces, registerWorkspace, updateWorkspace, removeWorkspace, workspacePathOf } from './workspaces.ts';
 export type { WorkspaceRegistration } from './workspaces.ts';

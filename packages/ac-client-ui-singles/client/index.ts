@@ -409,12 +409,6 @@ export class SingleBoardService extends Service {
     }
   }
 
-  /** 快速创建空会话（P4：无 Agent；已有空会话时复用，避免堆积空白条目）。
-   *  延迟落盘主入口已改 startDraft（cr-894）；本方法留作旧路径兜底。 */
-  async createQuick(): Promise<SingleSession | null> {
-    return this.create({ reuse: true });
-  }
-
   /**
    * 进入草稿位（新建会话入口，cr-894）：无草稿即建（身份字段就地），
    * 有草稿 = 回到它——服务端零往返零落盘，id 延迟到首次发送签发。

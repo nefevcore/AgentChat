@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-954**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-957**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -971,4 +971,7 @@
 - 【cr-952 2026-11-08 run_code worker 快照降级链修复：快照源码 import 绝对化（相对/裸包名 → file URL，node: 不动）+ 快照后缀 .ts + execArgv 补 strip-types——修复 strip 单文件快照在 tmpdir 无法解析模块依赖、降级候选形同虚设的潜伏 bug（开发会话自锁事故实测证伪）】
 - 【cr-953 2026-11-08 AgentConfig.tags 全链退役（cr-484 终态收口）：档位/模式词换轨结构化 access/toolMode 字段 + requiredTags 门禁退役（授权 = 行装载单闸）+ caps 合成缩减（browser/admin 走 levels）+ 预设模板与消费面换轨 + 存量读侧归一】
 - 【cr-954 2026-11-08 兼容代码全量扫描鉴定：16+1 处「webui re-export 维持旧路径」头注释已随 cr-932 webui-v3 cutover 失真（门面物理消失），逐处改写为迁移叙事；其余 600+ 命中经全仓求证为活代码（数据兼容窗/边界防御/叙事记录），不动】
+- 【cr-955 2026-11-09 死代码全仓审计清理：129 包 6.6 万行经 20 组扫描 + 5 组对抗式复核，269 条候选（confirmed 116、disputed 112、rejected 41），confirmed 约 2461 行按包分批删除，disputed 留档待裁决】
+- 【cr-956 2026-11-09 死代码审计补扫批：32 个未覆盖包（client-ui-* 单文件包 + ac-webui/ac-mcp-core/ac-config 等，含 ac-client-ui-conversation 1.9 万行拆三分）经 6 组扫描 + 3 组对抗式复核，confirmed 24 条按包清理（tags 孤儿链约 620 行、feed-core 活动索引整族、chat-core 死透传、assertDeclarableSlot 滞留防线等）；disputed 154 条留档】
+- 【cr-957 2026-11-09 disputed 第三批处置（用户裁决：仅测试面锁住的删除 其余保留）：16 条纯测试锁定项清理——plugin-core 四导出面收窄/删除（projectLegacyManifest/highRiskSlotsOf/readAudit/installedDocFile）、host-rows 三方法（listAgents/removeEntry/entryKeys/transientConfigOf）、post-office 两面（reachable/inboxDecision）、webui-core 历史读增量面（readLedgerFrom/splitLines/listSessions/readHeaderOnly）、usage.auditFiles、jobs.size、LlmError/classifyLlmHttpStatus 门面收窄；锁定测试同步改写（auditFiles→直读目录、size→list()、增量读→整读）或删用例；约 20 条档案/协议/族约理由的 disputed 保留】
 

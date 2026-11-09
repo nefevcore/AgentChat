@@ -39,9 +39,6 @@ export interface LaunchOptions {
 
 export interface LaunchedBrowser {
   child: ChildProcess;
-  /** OS 分配的调试端口 */
-  port: number;
-  version: CdpVersionInfo;
   /** 浏览器级 webSocketDebuggerUrl（连 CdpClient 用） */
   webSocketDebuggerUrl: string;
 }
@@ -181,7 +178,7 @@ export async function launchBrowser(options: LaunchOptions): Promise<LaunchedBro
     killTree(child);
     throw err;
   }
-  return { child, port, version, webSocketDebuggerUrl: version.webSocketDebuggerUrl };
+  return { child, webSocketDebuggerUrl: version.webSocketDebuggerUrl };
 }
 
 /** profile 目录清理（Windows 上浏览器进程句柄延迟释放是常态——重试 + 失败容忍） */

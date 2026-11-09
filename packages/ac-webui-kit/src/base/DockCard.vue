@@ -7,7 +7,7 @@
   - 头部轻量（cr-186）：纯图标 lead + 不加粗文本——eyebrow = 类别/状态
     （text-3）、title = 内容主体（text-1），替代旧「大写粗眉标 + 粗标题」；
   - 可折叠（cr-186）：collapsible 时 header 整体是折叠开关（不再挤行尾
-    小钮），aria 范式对齐 CollapseRow——真 button + aria-expanded/
+    小钮），aria 范式对齐 CardFrame——真 button + aria-expanded/
     aria-controls、命中区 --hit-min，行尾自动 chevron；折叠态自动取
     紧凑档（dense 语义保留——不可折叠卡仍显式传）；
   - 浮层分层：--shadow-dock（轻 composer 一档）+ --elev-hairline（暗色下
@@ -35,7 +35,7 @@ const props = withDefaults(defineProps<{
   dense?: boolean;
   /** 可折叠：header 整体可点切换折叠，正文显隐归壳（v-show） */
   collapsible?: boolean;
-  /** 展开态（collapsible 时配合 toggle 受控使用——CollapseRow 同款范式） */
+  /** 展开态（collapsible 时配合 toggle 受控使用——CardFrame 同款范式） */
   open?: boolean;
 }>(), { eyebrow: '', icon: '', title: '', tone: 'idle', dense: false, collapsible: false, open: false });
 
@@ -111,7 +111,7 @@ const hasHead = computed(() =>
 
 .dock-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .dock.min .dock-head { margin-bottom: 0; }
-/* 头部左区：可折叠 = 整体可点开关（命中区 --hit-min，CollapseRow 家法），
+/* 头部左区：可折叠 = 整体可点开关（命中区 --hit-min，CardFrame 家法），
    否则静态流。cr-186 减重：纯图标 lead + 不加粗文本（eyebrow 弱色类别 ·
    title 本色主体），替代旧「大写粗眉标 + 粗标题」双重视觉重量 */
 .dock-toggle, .dock-static { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }

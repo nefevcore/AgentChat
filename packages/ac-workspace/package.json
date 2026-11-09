@@ -3,9 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "工作区初始化行（ctx.workspace）：目录布局 + 默认 user（virtual）/admin 数据 register + 首启消息经 ac-session append API（不直写会话文件）+ agentWorkdir/sandboxWorkdir 唯一事实源 + 文件树/预览/上传落盘/工作区登记/本机浏览与原生选择。前端半边 = ac-client-ui-workspace 独立 UI 行（M27.1，D19 改裁——本行回归纯后端）",
+  "description": "本机浏览/原生选择/打开方式辅助模块集（4 个模块经深路径被 ac-host-webui 消费）。行入口 src/index.ts 已随死代码清理删除（cr-955：无任何装载路径，行基座与本包无关；文件树/预览/上传面已由 ac-host-rows/workspace-files + ac-host-webui 承载）",
   "exports": {
-    ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
   "scripts": {
@@ -22,9 +21,6 @@
     "ac-agents": "workspace:*",
     "ac-extension-core": "workspace:*",
     "vitest": "^4.1.10"
-  },
-  "agentchat": {
-    "plugin": true
   },
   "keywords": [
     "agentchat"

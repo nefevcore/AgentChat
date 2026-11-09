@@ -32,14 +32,12 @@ import type { Envelope } from 'ac-envelope-core';
 import type { PostOffice } from 'ac-post-office';
 import {
   createHolidayResolver,
-  describeEntry,
   localISO,
   msUntilTime,
   nextDelayOf,
   parseInterval,
   randomDelay,
   renderHint,
-  validateTimerEntries,
   withinActiveHours,
   type TimerEntry,
 } from 'ac-timer-core';

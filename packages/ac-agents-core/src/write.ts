@@ -62,9 +62,6 @@ export function sanitizeAgentInput(
     if (!isAgentIdentity(agentId)) throw new Error(`Agent id "${agentId}" 非法（禁 ~——对键桶会话键词形，非身份词）`);
     if (isPresetId(agentId)) throw new Error(`Agent id "${agentId}" 非法（__<key>__ 词形为预设保留，不可用于普通身份）`);
   }
-  if (rest.tags !== undefined) {
-    throw new Error('tags 已退役（cr-953）——档位/模式词换轨 access/toolMode 字段，行内档位归 levels');
-  }
   let nextProvider = typeof provider === 'string' && provider !== '' ? provider : undefined;
   const clearProvider = provider === null || provider === '';
   let nextModel: string | undefined;

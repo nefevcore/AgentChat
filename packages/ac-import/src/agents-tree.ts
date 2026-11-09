@@ -25,13 +25,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { pathSegment } from './writer.ts';
 
-/** 机制 entries 旧文件名 → 新键名（旧键归一——cr-540「旧键归一」项） */
-const ENTRY_ALIASES: Record<string, string> = {
-  // 主线扁平键与新键一致（todo.json / timer.json / goal.json /
-  // timer-archive.json）——无更名实例；别名表留空作归一锚点，旧键
-  // hooks/conductor 归一进 entries 时在此登记。
-};
-
 /** 身份文件（树根留驻——非机制 entries）：文档双名 + 头像扩展名族 */
 const IDENTITY_FILES = [/^AGENTS?\.md$/i, /^avatar\.(svg|png|jpe?g)$/i];
 
@@ -159,7 +152,7 @@ export function importAgentTree(legacyAgentDir: string, targetRoot: string): Age
     if (!e.isFile()) continue;
     const m = e.name.match(/^(.+)\.json$/);
     if (m === null) continue;
-    const key = ENTRY_ALIASES[m[1]] ?? m[1];
+    const key = m[1];
     if (!ENTRY_KEYS.includes(key)) continue;
     const target = path.join(targetDir, 'entries', key + '.json');
     if (fs.existsSync(target)) continue;

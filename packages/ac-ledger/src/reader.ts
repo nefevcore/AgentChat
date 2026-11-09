@@ -6,10 +6,10 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { journalLineType, type LedgerRow, type LedgerHeader, type JournalLine, type JournalStep, type JournalInject, type JournalToolResult, type ProjectedStep } from './records.ts';
+import { type LedgerRow, type LedgerHeader, type JournalLine, type JournalStep, type JournalInject, type JournalToolResult, type ProjectedStep } from './records.ts';
 import type { LlmMessage } from 'ac-llm';
 
-export interface ReadResult {
+interface ReadResult {
   header: LedgerHeader | null;
   rows: LedgerRow[];
 }
@@ -40,6 +40,16 @@ export function readLedger(dir: string): ReadResult {
     rows.push(parsed as LedgerRow);
   }
   return { header, rows };
+}
+
+/** 行类型判别（读侧路由——readJournal 读过滤私有） */
+function journalLineType(line: string): 'step' | 'inject' | 'tool-result' | 'settled' | null {
+  const t = line.trimStart();
+  if (t.startsWith('{"type":"journal-step"')) return 'step';
+  if (t.startsWith('{"type":"journal-inject"')) return 'inject';
+  if (t.startsWith('{"type":"journal-tool-result"')) return 'tool-result';
+  if (t.startsWith('{"type":"journal-settled"')) return 'settled';
+  return null;
 }
 
 /** 读 journal 全量（partials.jsonl；缺席 = 空） */
@@ -87,7 +97,7 @@ export function readSubcalls(dir: string): JournalToolResult[] {
 }
 
 /** LLM 回放视图（viewer 投影：自己 = assistant，对端 = user） */
-export interface ReplayMessage {
+interface ReplayMessage {
   role: 'assistant' | 'user' | 'system';
   content: string;
 }

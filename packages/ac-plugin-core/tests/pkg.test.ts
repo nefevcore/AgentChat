@@ -5,11 +5,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import {
-  readPluginPackage, evaluateEngines, projectLegacyManifest,
-  AGENTCHAT_ABI_VERSION,
-} from '../src/pkg.ts';
-import { readInstalledDoc, writeInstalledDoc, installedDocFile } from '../src/installed.ts';
+import { readPluginPackage, evaluateEngines, AGENTCHAT_ABI_VERSION } from '../src/pkg.ts';
+import { readInstalledDoc, writeInstalledDoc } from '../src/installed.ts';
 import type { PluginManifest } from '../src/manifest.ts';
 
 const ROOT = path.join('sandbox', 'test-pkg-' + process.pid);
@@ -63,21 +60,19 @@ describe('readPluginPackage（ac 字段）', () => {
   });
 
   it('旧 manifest.json 投影：entry→faces.node、ui→faces.web、contracts→legacyContracts', () => {
-    const manifest: PluginManifest = {
-      name: 'old-one',
-      version: '0.2.0',
-      entry: 'index.ts',
-      contracts: '^1',
-      permissions: ['network'],
-      provides: { tools: ['hello'] },
+    const dir = path.join(ROOT, 'old-one');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify({
+      name: 'old-one', version: '0.2.0', entry: 'index.ts', contracts: '^1',
+      permissions: ['network', 'ui'], provides: { tools: ['hello'] },
       ui: { entry: 'client.js', slots: ['perspective'] },
-    };
-    const p = projectLegacyManifest(manifest, path.join(ROOT, 'x'));
+    } satisfies PluginManifest));
+    const p = readPluginPackage(dir);
     expect(p.form).toBe('legacy-manifest');
     expect(p.ac?.faces?.node).toEqual({ entry: 'index.ts' });
     expect(p.ac?.faces?.web).toEqual({ entry: 'client.js', seats: ['perspective'] });
     expect(p.legacyContracts).toBe('^1');
-    expect(p.ac?.permissions).toEqual(['network']);
+    expect(p.ac?.permissions).toEqual(['network', 'ui']); // ui 在场时投影自动补 'ui' 权限
   });
 
   it('目录内旧 manifest 无 package.json → 投影读取', () => {
@@ -127,9 +122,9 @@ describe('installed.patch.yml 读写', () => {
       { id: 'my-todo', name: 'ac-plugin-todo', owner: 'agent-1', scope: 'shell' },
       { id: 'my-local', name: 'link:C:/dev/my-plugin', disabled: true },
     ]);
-    fs.writeFileSync(installedDocFile(ROOT), 'version: 2\n');
+    fs.writeFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'), 'version: 2\n');
     expect(() => readInstalledDoc(ROOT)).toThrow('顶层必须是条目数组');
-    fs.writeFileSync(installedDocFile(ROOT), '- id: x\n');
+    fs.writeFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'), '- id: x\n');
     expect(() => readInstalledDoc(ROOT)).toThrow('缺 id/name');
   });
 });

@@ -15,7 +15,7 @@ const ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
 const IV_LENGTH = 16;
 const TAG_LENGTH = 16;
-export const SALT = 'AgentChatCredentialStore:v1';
+const SALT = 'AgentChatCredentialStore:v1';
 export const PBKDF2_ITERATIONS = 600_000;
 const ENCRYPTED_PREFIX = 'v1:';
 

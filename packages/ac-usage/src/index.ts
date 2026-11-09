@@ -672,19 +672,11 @@ export class UsageService extends Service {
     return out;
   }
 
-  /** 诊断：审计流水文件名（已有者） */
-  auditFiles(): string[] {
-    try {
-      return fs.readdirSync(this.usageDir).filter((f) => f.endsWith('.jsonl'));
-    } catch {
-      return [];
-    }
-  }
 }
 
 declare module '@agentchat/cordis' {
   interface Context {
-    /** 用量统计服务（ac-usage 提供）：after-run 记账 + 持久回读 + 十一查询面（byAgent/byModel/byDay/byDayModel/byDayPair/byPair/byConversation/bySelfSession/conversationTimeline/totals/auditFiles） */
+    /** 用量统计服务（ac-usage 提供）：after-run 记账 + 持久回读 + 十查询面（byAgent/byModel/byDay/byDayModel/byDayPair/byPair/byConversation/bySelfSession/conversationTimeline/totals） */
     usage: UsageService;
   }
 }

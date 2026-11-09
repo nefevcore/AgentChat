@@ -45,7 +45,7 @@ function readProcessKinds(dataRoot: string): string[] {
   }
 }
 /** installed.patch.yml 文档位 */
-export function installedDocFile(dataRoot: string): string {
+function installedDocFile(dataRoot: string): string {
   return path.join(dataRoot, 'profile', 'installed.patch.yml');
 }
 

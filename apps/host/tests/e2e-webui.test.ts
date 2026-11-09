@@ -14,7 +14,6 @@ import { fileURLToPath } from 'node:url';
 import { makeEnvelope } from 'ac-envelope-core';
 import { tapShellStream } from 'ac-post-office';
 import { bootShell } from '../../shell/boot.ts';
-import { readLedgerFrom } from 'ac-webui-core';
 import { UserLedger } from 'ac-ledger';
 
 const ROOT = path.join('sandbox', 'test-webui-e2e-' + process.pid);
@@ -60,16 +59,13 @@ describe('M7.5 webui 三拆 + 通道 端到端', () => {
     await uled.writeThrough({ agentId: 'alpha', content: '[alpha 回复 第一问]', uuid: 'u-e2e-a', run: 'run-1', requestId: 'rr-1' });
     await uled.writeOwn('第二问', 'rq-a2');
     await uled.writeThrough({ agentId: 'alpha', content: '[alpha 回复 第二问]', uuid: 'u-e2e-a', run: 'run-2', requestId: 'rr-2' });
-    // webui 读面（历史读纯库）——user 账本回放
+    // webui 读面——user 账本整读（readLedgerFrom 增量读已随 cr-957 删除，直读文件验证）
     const udir = path.join(ROOT, 'viewer', 'sessions', 'u-e2e-a');
-    const first = readLedgerFrom(udir, 0);
-    expect(first.rows.map((r) => r.content)).toEqual(['第一问', '[alpha 回复 第一问]', '第二问', '[alpha 回复 第二问]']);
-    // 增量读：追加一行再读只交付新行
+    const allRows = fs.readFileSync(path.join(udir, 'messages.jsonl'), 'utf-8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.role !== undefined);
+    expect(allRows.map((r) => r.content)).toEqual(['第一问', '[alpha 回复 第一问]', '第二问', '[alpha 回复 第二问]']);
     await uled.writeThrough({ agentId: 'alpha', content: '[alpha 回复 第三问]', uuid: 'u-e2e-a', run: 'run-3', requestId: 'rr-3' });
-    const second = readLedgerFrom(udir, first.anchor);
-    expect(second.rows.map((r) => r.content)).toEqual(['[alpha 回复 第三问]']);
-    // 会话列表（扫描发现 user 账本 + agent 账本）
-    // listSessions 现扫 agents/——user 账本在 users/ 下（端点轴分离）
+    const rows3 = fs.readFileSync(path.join(udir, 'messages.jsonl'), 'utf-8').trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.role !== undefined);
+    expect(rows3.map((r) => r.content)).toEqual(['第一问', '[alpha 回复 第一问]', '第二问', '[alpha 回复 第二问]', '[alpha 回复 第三问]']);
     await boot.close();
   }, 30_000);
 

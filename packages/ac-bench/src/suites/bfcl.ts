@@ -257,10 +257,7 @@ function parseGroundTruth(raw: unknown): BenchCallSpec[] | null {
   return specs;
 }
 
-export interface BfclSuite extends BenchSuite {
-  /** 最近一次 load 的跳过明细（文件:原因；诊断用） */
-  skippedReasons(): string[];
-}
+export interface BfclSuite extends BenchSuite {}
 
 /** BFCL 单轮套件工厂（files 缺省 = 内置样例数据集） */
 export function createBfclSuite(options: BfclSuiteOptions = {}): BfclSuite {
@@ -270,7 +267,6 @@ export function createBfclSuite(options: BfclSuiteOptions = {}): BfclSuite {
   return {
     name: 'bfcl',
     description: 'Berkeley Function Calling Leaderboard 单轮类目（simple/multiple/parallel/parallel-multiple 形态）',
-    skippedReasons: () => [...skipped],
     async load(): Promise<BenchCase[]> {
       skipped = [];
       // 答案文件按 id join（v3 官方分离形态）

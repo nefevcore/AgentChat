@@ -5,9 +5,9 @@
 // M28 P3/T9：纯数据面（LEGACY_SLOT_CATALOG/highRiskOf/
 // COMPONENT_CLASS_SLOTS/UISlotId）迁 ac-webui-extensions/src/
 // slotCatalog.ts（第三方 manifest 声明词汇表与注册面同宿主）——本模块
-// re-export 维持旧路径 + 保留 clientRuntime 依赖的注册前校验
-//（assertDeclarableSlot——浏览器侧注册面防线；publicLegacySlots 诊断口
-// 已于 2026-10-15 删除——全仓零消费）。
+// re-export 维持旧路径（cr-955：assertDeclarableSlot 注册前校验随 webui-v3
+// cutover 的 bridge 链退役一并删除——全仓零调用；publicLegacySlots 诊断口
+// 已于 2026-10-15 删除）。
 //
 // 第三方可声明集 = 【声明账本的显式公开子集】：组件贡献类六项映射的
 // 席位须在账本中声明且 public（数据源由账本派生——各 owning 基础件的
@@ -22,36 +22,3 @@ import {
 
 export { LEGACY_SLOT_CATALOG, COMPONENT_CLASS_SLOTS, highRiskOf } from 'ac-webui-extensions/src/slotCatalog.ts';
 export type { UISlotId, LegacySlotMapping } from 'ac-webui-extensions/src/slotCatalog.ts';
-
-/**
- * 注册前校验（bridge 六方法调用）：
- *   ① manifest 显式声明该 id（运行时不超声明——既有语义）；
- *   ② id ∈ 永久目录（未知 id = 未公开，拒绝）；
- *   ③ 组件类 id 的映射席位须在账本声明且 public（公开子集 fail-closed）；
- *   ④ 高危 seat：诊断信息明示（manifest 显式声明是门槛本身）。
- * 违反即抛可诊断错误（install 外层捕获回滚）。
- */
-export function assertDeclarableSlot(descriptor: { name: string; slots?: string[] }, slot: UISlotId): void {
-  // slots 形状 = 服务端透传 manifest.ui.slots（string[]——M30 D7 后非仅旧 8 集合，
-  // 未知 id 由下方 LEGACY_SLOT_CATALOG 查键 fail-closed 兜住）
-  const declared = (descriptor.slots ?? []).includes(slot);
-  if (!declared) {
-    throw new Error(
-      `[ui-ext] 插件 "${descriptor.name}" 未在 manifest.ui.slots 中声明 "${slot}"，拒绝注册`,
-    );
-  }
-  const mapping: LegacySlotMapping = LEGACY_SLOT_CATALOG[slot];
-  if (mapping.standing) return; // 常设通道：授权照旧（不进 slot 注册表）
-  const ctx = clientRuntime();
-  const decl = mapping.seatKey ? ctx?.slots.declOf(mapping.seatKey) : undefined;
-  if (!decl) {
-    throw new Error(
-      `[ui-ext] 插件 "${descriptor.name}" 目标席位 "${mapping.seatKey}"（"${slot}" 的归一位）未在声明账本中 declare——fail-closed 拒绝`,
-    );
-  }
-  if (!decl.public) {
-    throw new Error(
-      `[ui-ext] 插件 "${descriptor.name}" 目标席位 "${mapping.seatKey}"（"${slot}" 的归一位）未公开（public 子集之外）——拒绝注册（D13 开口策略）`,
-    );
-  }
-}

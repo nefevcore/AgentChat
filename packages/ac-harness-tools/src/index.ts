@@ -24,22 +24,6 @@ import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only）
 import { runGateway, claudeCodeAdapter, codexAdapter, type HarnessRunResult } from 'ac-harness-core';
 import { sessionRunKeyOf, recordSession } from './sessions.ts';
 import type { ExtensionMeta } from 'ac-extension-core';
-/** 单条手工标签声明（tag-registry 退役内联——形状同 TagDeclaration） */
-interface TagDeclaration {
-  tag: string;
-  description: string;
-  tools?: string[];
-  group?: string;
-  order?: number;
-  /** 分层族提示：低 ⊂ 高 单向层级（order 升序呈现） */
-  tier?: boolean;
-  /** 抉择组：同组标签互斥（UI 聚合下拉） */
-  exclusive?: string;
-  /** 抉择组「都不选」词（落词不写 tags，缺席即语义） */
-  exclusiveNone?: boolean;
-  /** 抉择组「全关」后果说明 */
-  exclusiveOffDesc?: string;
-}
 import type { ConvSettingsKeyDef } from 'ac-conv-settings';
 
 export const name = 'ac-harness-tools';
@@ -53,11 +37,6 @@ export const extension: ExtensionMeta = {
   // 无 fields：maxConcurrent/defaultTimeoutMs/gateways/enabled 是行配置（cordis.yml），
   // 不走 settings 面——假配置面撤除（sap-adt config-layer-bug 同款裁决）。
 };
-
-/** 标签目录声明（tag-registry 扫描面；RESERVED 未占——D10 已核） */
-export const tagDeclarations: TagDeclaration[] = [
-  { tag: 'harness', description: '本地 harness 委托（run_harness 把任务委托给 Claude Code/Codex CLI——订阅额度执行）', tools: ['run_harness'] },
-];
 
 export interface HarnessToolsRowOptions {
   /** 全局停用（缺省启用） */

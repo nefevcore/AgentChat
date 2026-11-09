@@ -219,7 +219,6 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   const ringOptions = {
     dataRoot,
     ...(options.port !== undefined ? { port: options.port } : {}),
-    ...(options.pluginsDir !== undefined ? { pluginsDir: options.pluginsDir } : {}),
     ...(options.staticDir !== undefined ? { staticDir: options.staticDir } : {}),
     catalogFile: options.catalogFile,
     shellPort: () => shellPort.port,

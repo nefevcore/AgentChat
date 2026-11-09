@@ -140,36 +140,22 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       ? singleDialog(ctx.sessionId)
       : directDialog(ctx.agentId);
   }
-  /** ctx → WS 载荷的 session 维度（pair 无） */
-  function ctxSession(ctx: ChatContext): Record<string, unknown> {
-    return ctx.kind === 'single' && ctx.sessionId ? { session: ctx.sessionId } : {};
-  }
-
-  // ══ 视图状态（委托 feed，storeToRefs 保持响应式引用）══
-  const {
-    activeDialogId, unreadAgents, turnInProgress,
-    loadingHistory, hasMoreHistory, lastStepEndAt, archivePending,
-  } = toRefs(feed);
-
-  const messages = computed(() => {
-    const id = activeDialogId.value;
-    return id ? feed.getRaw(id) : [];
-  });
-  /** 当前会话上下文是否生成中（per-dialog 流式态）。全局 turnInProgress 会被
-   *  任何会话的运行点亮——用它驱动输入框会让别的会话流式时当前会话误显
-   *  「打断并发送」，且发送前的自动打断会误杀其他会话的运行（隔离缺陷）。 */
+  /**
+   * 当前会话上下文是否生成中（per-dialog 流式态）。全局 turnInProgress 会被
+   * 任何会话的运行点亮——用它驱动输入框会让别的会话流式时当前会话误显
+   * 「打断并发送」，且发送前的自动打断会误杀其他会话的运行（隔离缺陷）。
+   */
   const contextBusy = computed(() => {
     const id = feed.activeDialogId;
     const d = id ? feed.getDialog(id) : null;
     return d ? d.streaming : turnInProgress.value;
   });
-  const turns = computed(() => {
-    const id = activeDialogId.value;
-    return id ? feed.getTurns(id).value : [];
-  });
-  const currentMessages = computed(() =>
-    messages.value.filter(m => m.role === 'agent' || m.role === 'tool')
-  );
+
+  // ══ 视图状态（委托 feed，storeToRefs 保持响应式引用）══
+  const {
+    activeDialogId, turnInProgress,
+    loadingHistory, hasMoreHistory, lastStepEndAt, archivePending,
+  } = toRefs(feed);
 
   // ══ 复制反馈 ══
   const copyFeedback = ref(false);
@@ -1042,8 +1028,8 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
 
   return {
     // 视图状态
-    messages, turns, currentMessages, contextBusy,
-    unreadAgents, turnInProgress, loadingHistory, hasMoreHistory, lastStepEndAt, archivePending,
+    contextBusy,
+    turnInProgress, loadingHistory, hasMoreHistory, lastStepEndAt, archivePending,
     // 未读：进入会话时清除；获取指定 Agent 未读数
     clearUnread: (agentId: string) => feed.clearUnread(directDialog(agentId)),
     getUnreadCount: feed.getUnreadCount,

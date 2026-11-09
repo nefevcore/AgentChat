@@ -7,7 +7,6 @@ import {
   describeError,
   isTransientNetworkError,
   LlmHttpError,
-  classifyLlmHttpStatus,
   parseRetryAfter,
   isRetryableLlmHttpError,
   llmRetryWaitMs,
@@ -90,16 +89,16 @@ describe('isTransientNetworkError（瞬时网络故障判定）', () => {
 });
 
 describe('LlmHttpError 分类（cr-98）', () => {
-  it('状态码 → 分类映射（401/403=AUTH，429=RATE_LIMIT，402/文案=QUOTA，5xx=SERVER，其余=INVALID）', () => {
-    expect(classifyLlmHttpStatus(401, '')).toBe('AUTH');
-    expect(classifyLlmHttpStatus(403, '')).toBe('AUTH');
-    expect(classifyLlmHttpStatus(429, '')).toBe('RATE_LIMIT');
-    expect(classifyLlmHttpStatus(402, '')).toBe('QUOTA');
-    expect(classifyLlmHttpStatus(400, 'insufficient_balance')).toBe('QUOTA');
-    expect(classifyLlmHttpStatus(500, '')).toBe('SERVER');
-    expect(classifyLlmHttpStatus(503, '')).toBe('SERVER');
-    expect(classifyLlmHttpStatus(400, 'bad request')).toBe('INVALID');
-    expect(classifyLlmHttpStatus(404, '')).toBe('INVALID');
+  it('状态码 → 分类映射（经 LlmHttpError.kind 间接断言：401/403=AUTH，429=RATE_LIMIT，402/文案=QUOTA，5xx=SERVER，其余=INVALID）', () => {
+    expect(new LlmHttpError(401, 'x').kind).toBe('AUTH');
+    expect(new LlmHttpError(403, 'x').kind).toBe('AUTH');
+    expect(new LlmHttpError(429, 'x').kind).toBe('RATE_LIMIT');
+    expect(new LlmHttpError(402, 'x').kind).toBe('QUOTA');
+    expect(new LlmHttpError(400, 'insufficient_balance').kind).toBe('QUOTA');
+    expect(new LlmHttpError(500, 'x').kind).toBe('SERVER');
+    expect(new LlmHttpError(503, 'x').kind).toBe('SERVER');
+    expect(new LlmHttpError(400, 'bad request').kind).toBe('INVALID');
+    expect(new LlmHttpError(404, 'x').kind).toBe('INVALID');
   });
 
   it('构造器携带分类与 Retry-After；isRetryable 只认 RATE_LIMIT/SERVER', () => {

@@ -378,10 +378,6 @@ export class LedgerService extends Service {
     return out;
   }
 
-  /** 会话概要直读（archive 行消费——mtime 判新鲜归 overview 收尾） */
-  summaryOf(uuid: string): string {
-    return summaryTextOf(path.join(this.agentDirOf(), 'sessions', uuid));
-  }
   /**
    * 续跑状态读面（cr-667，A1）：run 有步行/注入且无 settled → 重建消息前缀
    * + 已提交步数（续跑准入与额度基数）；journal 损坏/重建抛错 → 'degraded'

@@ -39,7 +39,7 @@ import {
   removeMcpServer,
   type AssetRef,
 } from 'ac-auth-core';
-import { writeCredential, listCredentialNames, credentialKey, deriveKey, machineMaterial } from 'ac-credentials-core';
+import { writeCredential, listCredentialNames, deriveKey, machineMaterial } from 'ac-credentials-core';
 
 /** auth-registry 行装配参数 */
 export interface AuthRegistryRowOptions {

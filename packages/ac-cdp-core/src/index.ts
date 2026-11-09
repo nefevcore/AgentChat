@@ -6,20 +6,8 @@
 // owning 仍住 ac-web-tools（ctx.browser Service + browser 工具 +
 // tier 门禁），本包只提供协议原语。
 // ============================================================
-export { CdpClient, CdpCommandError, type CdpClientOptions } from './client.ts';
-export {
-  launchBrowser, killTree, removeProfile,
-  type LaunchOptions, type LaunchedBrowser, type CdpVersionInfo,
-} from './launch.ts';
-export {
-  CdpPage,
-  type CdpPageOptions, type DiagConsoleEntry, type DiagNetEntry,
-} from './page.ts';
-export {
-  extractElements, serializeElements, extractText,
-  type RefElement, type ExtractedText,
-} from './perceive.ts';
-export type {
-  CdpWireMessage, CdpEventPayload, CdpRemoteObject,
-  CdpSnapshotDoc, CdpSnapshotDocument, CdpFlatNodes, CdpTargetInfo,
-} from './protocol.ts';
+export { CdpClient } from './client.ts';
+export { launchBrowser, killTree, removeProfile, type LaunchedBrowser } from './launch.ts';
+export { CdpPage } from './page.ts';
+export { extractElements, serializeElements, extractText } from './perceive.ts';
+export type { CdpTargetInfo } from './protocol.ts';

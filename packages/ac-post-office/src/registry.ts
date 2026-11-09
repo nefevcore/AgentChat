@@ -73,7 +73,4 @@ export class ReachabilityTable {
     return this.endpoints.get(endpointId)?.transportHint;
   }
 
-  reachable(): string[] {
-    return [...this.endpoints.keys()].sort();
-  }
 }

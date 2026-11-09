@@ -223,7 +223,7 @@ export function packageToManifest(pkg: PluginPackage): PluginManifest {
 }
 
 /** 旧 manifest → 包描述符投影（faces.node = entry；faces.web = ui；contracts → legacyContracts） */
-export function projectLegacyManifest(manifest: PluginManifest, dir: string): PluginPackage {  const faces: AcFaces = {};
+function projectLegacyManifest(manifest: PluginManifest, dir: string): PluginPackage {  const faces: AcFaces = {};
   if (manifest.entry !== '') faces.node = { entry: manifest.entry };
   if (manifest.ui !== undefined && manifest.ui.entry !== undefined) {
     faces.web = {

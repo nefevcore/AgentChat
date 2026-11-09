@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { makeEnvelope, socketPathFor, type Envelope } from 'ac-envelope-core';
 import { ConversationRegistry, ReachabilityTable } from '../src/registry.ts';
-import { routeEnvelope, inboxDecision } from '../src/router.ts';
+import { routeEnvelope } from '../src/router.ts';
 import { Outbox } from '../src/outbox.ts';
 import { listenIpc, IpcClient } from 'ac-envelope-core';
 import { PostOffice } from '../src/post-office.ts';
@@ -62,7 +62,6 @@ describe('M4.1 registry：可达表', () => {
     expect(reach.hintFor('alpha')).toBeUndefined();
     reach.markReachable('alpha', 'hint-a');
     expect(reach.hintFor('alpha')).toBe('hint-a');
-    expect(reach.reachable()).toEqual(['alpha']);
     reach.markGone('alpha');
     expect(reach.hintFor('alpha')).toBeUndefined();
   });
@@ -91,16 +90,6 @@ describe('M4.1 router：三通道决策', () => {
       multicast: { membersOf: (a) => a === 'g-team' ? ['user', 'alpha', 'beta'] : undefined },
     });
     expect(out.map((i) => i.to)).toEqual(['alpha', 'beta']); // user 发送方被跳过
-  });
-
-  it('inboxDecision（A4 + budget）：非 message → 不入 inbox；user 直发 → 重置满额；budget 0 → 只落账', () => {
-    // receipt：不触发 run（不进 inbox）；sender=user 仍重置满额（预算之源与 kind 正交）
-    expect(inboxDecision(msg({ kind: 'receipt', budget: 0 }))).toEqual({ entersInbox: false, budgetAfter: 3 });
-    const reset = inboxDecision(msg({ sender: 'user', budget: 0 }));
-    expect(reset.entersInbox).toBe(true); // 重置满额后 >0 → 入 inbox
-    expect(reset.budgetAfter).toBe(3);
-    expect(inboxDecision(msg({ sender: 'beta', budget: 0 }))).toEqual({ entersInbox: false, budgetAfter: 0 });
-    expect(inboxDecision(msg({ sender: 'beta', budget: 2 }))).toEqual({ entersInbox: true, budgetAfter: 2 });
   });
 });
 

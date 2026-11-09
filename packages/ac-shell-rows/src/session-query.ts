@@ -55,7 +55,7 @@ interface ReplayLine {
  * 本 agent 会话回放（只读直读本域——D4 空间不变式：读面不越域）。
  * 目录/文件缺席 → undefined（调用方转 fail-loud 工具错误）。
  */
-export function replayConversation(
+function replayConversation(
   agentDir: string,
   agentId: string,
   conversationId: string,
