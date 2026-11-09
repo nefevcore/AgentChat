@@ -74,7 +74,7 @@ describe('M8.4 user 壳半边端到端', () => {
       let arows: ReturnType<typeof readLedger>['rows'];
       for (;;) {
         arows = readLedger(adir).rows
-          .filter((r) => r.source !== 'segment' && r.source !== 'inject');
+          .filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject');
         if (arows.length >= 2) break;
         if (Date.now() > deadline) throw new Error('终稿未回链：' + JSON.stringify(arows));
         await new Promise((r) => setTimeout(r, 100));
@@ -102,10 +102,11 @@ describe('M8.4 user 壳半边端到端', () => {
     po.reach.markReachable('alpha', hint);
     try {
       const first = await user.send('alpha', '第一问');
-      // cr-973：等待面 = agent 域账本（viewer 不再物化；段行/注入行不计）
+      // cr-973：等待面 = agent 域账本（viewer 不再物化）；cr-974 v2：相位/
+      // run-end 行无 role——终稿层只看发言行（段行/注入行不计）
       const adir = path.join(ROOT, 'agents', 'alpha', 'sessions', first.uuid);
       const talkRows = (): ReturnType<typeof readLedger>['rows'] =>
-        readLedger(adir).rows.filter((r) => r.source !== 'segment' && r.source !== 'inject');
+        readLedger(adir).rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject');
       const waitRows = async (n: number): Promise<void> => {
         const deadline = Date.now() + 10_000;
         for (;;) {

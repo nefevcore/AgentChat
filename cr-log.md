@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-973**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-974**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -990,4 +990,5 @@
 - 【cr-971 2026-11-09 steer 注入落账时机根修：journalInject 从 steer 受理时刻（到达）移到消费点（loop 步边界 splice 时 emit loop/steer-consumed，壳订阅后落账）——修复注入行比模型实际消费点早一步的账本错位（journalInject 注释承诺消费点真序但实现在受理点落账）；崩溃安全 = steer 受理时 inboxStore durable，收束残留 pending 兜底落账】
 - 【cr-972 2026-11-09 登记 session 事件日志统一实施计划（session-event-log-unification-plan.md）：viewer 实时投影+指针索引第一刀；journal 事件化/收束退役/压缩事件化第二刀；run 概念与直播管线影响评估】
 - 【cr-973 2026-11-09 session 事件日志统一 Phase 1（cr-972 第一刀）：ac-session-index 索引服务行 + web-api 读时投影/偏移分页/指纹短路 + viewer 停写与消费方迁移】
+- 【cr-974 2026-11-09 session 事件日志统一 Phase 2（cr-972 第二刀）：事件词汇 v2 + fold 单源 + writer 停物化 + settleOrphan 退役 + 压缩事件化】
 

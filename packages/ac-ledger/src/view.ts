@@ -17,6 +17,7 @@ import { conversationDirs } from './manage.ts';
 import { readLedger, readJournal, readSubcalls, stepsOfLedger, stepsOfRun } from './reader.ts';
 import { sessionDir } from './writer.ts';
 import { projectUserReplay } from './project.ts';
+import { foldSession, foldViewRecords } from './fold.ts';
 import type { JournalLine, JournalToolResult, LedgerRow, ProjectedStep } from './records.ts';
 
 /** 活跃 run 聚集行（face-ops collectRunning 形状子集） */
@@ -72,11 +73,26 @@ function liteRow(r: Record<string, unknown>): Record<string, unknown> {
 
 /**
  * 会话读面视图组装（session/history 的投影体）。
- * 读面单次化（cr-768）：viewer 账本读一次、每 agent 域 journal/账本解析
- * 一次（对桶键 participants 双端并读按合并面缓存）——此前 web-api 三层
- * 循环各自重读，同文件最多解析四遍。
+ * cr-974（cr-972 第二刀）起 = fold 单源的 webui 投影（fold.ts——读方配平
+ * 与 v1/v2 归一化同源）；下文 assembleSessionViewLegacy 为切换前实现，
+ * 仅供 parity 对拍保留一个版本（Phase 2 收尾随 v1 读兼容窗退役）。
  */
 export function assembleSessionView(
+  dataRoot: string,
+  conversationId: string,
+  opts: SessionViewOptions = {},
+): Array<Record<string, unknown>> {
+  return foldViewRecords(foldSession(dataRoot, conversationId), dataRoot, conversationId, {
+    ...(opts.view !== undefined ? { view: opts.view } : {}),
+    ...(opts.running !== undefined ? { running: opts.running } : {}),
+    ...(opts.subcallsOf !== undefined ? { subcallsOf: opts.subcallsOf } : {}),
+  });
+}
+
+/**
+ * 会话读面视图组装（cr-768 读面单次化形态——cr-974 前实现，parity 对拍保留）。
+ */
+export function assembleSessionViewLegacy(
   dataRoot: string,
   conversationId: string,
   opts: SessionViewOptions = {},

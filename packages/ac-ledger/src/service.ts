@@ -2,17 +2,20 @@
 // service.ts —— ledger 行装配面（M8.2：账本行进 boot 装配）
 //
 // 纯库面（writer/reader/records）保持零 cordis；本模块 = 行的 cordis
-// 服务面：writer 注册表（per-conversation 惰性）+ journal 步行接线
-//（loop/after-step → journal-step——账本计量面归 ledger 行，manifest R2）。
+// 服务面：writer 注册表（per-conversation 惰性）+ 步行相位接线
+//（loop/after-step → step/* 事件行——cr-974 v2 单文件事件日志，账本
+// 计量面归 ledger 行，manifest R2）。
 // 类型增强 ctx.ledger 为 preview 专属键（主线对应键是 session，无冲突）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
-import { readLedger, readJournal, replayView, summaryTextOf, trajectoryOfRun, trajFromRows, resumeContextOfRun } from './reader.ts';
+import { summaryTextOf, UNCOMMITTED_TOOL_ERROR } from './reader.ts';
+import { foldLlmReplay, foldSession, foldTextReplay } from './fold.ts';
+import { readDomainFacts, type RunFactsV2 } from './events-v2.ts';
 import { readAnchor, type CompactOptions, type CompactReport } from './archive.ts';
-import type { LedgerRow, JournalInject, JournalStep, RunUsage } from './records.ts';
+import type { LedgerRow, JournalInject, RunUsage } from './records.ts';
 import type { LoopStepRecord, LoopStepEnvelope, LoopRunRequestLike, LoopRunResult } from './loop-events.ts';
 
 /** tool/after-execute 首参最小面（执行身份四键 + 子调用档案键——主线 ToolCall 子集） */
@@ -81,19 +84,20 @@ export class LedgerService extends Service {
           step.ts ?? Date.now(), su.cacheHit ?? 0, su.cacheMiss ?? 0, su.prompt);
       }
     });
-    // 工具结果补行（cr-596，主线 ac-session 同义）：loop/after-step 在工具
-    // 执行前发射（副作用前 durable），步行 toolResults 恒空；结果到达即落
-    // journal-tool-result 补行，读侧 stepsOfRun 按 toolCallId 覆盖合并——
+    // 工具结果事件（cr-596 语义，cr-974 v2 落形）：loop/after-step 在工具
+    // 执行前发射（副作用前 durable），步内调用行先落；结果到达即落
+    // step/tool-call-result 事件行，读侧 fold 按 toolCallId 覆盖合并——
     // 历史/刷新后工具卡不再是「永恒运行中」。run_code 子调用（runId 继承）
-    // 同路带出。call 身份缺席（宿主直调等）不落。
+    // 全文内联主日志（D-1——subcalls.jsonl 分流退役）。call 身份缺席
+    //（宿主直调等）不落。
     ctx.on('tool/after-execute', (call: ToolCallLike, result: ToolResultLike | undefined, error?: unknown, durationMs?: number) => {
       if (call.agentId !== this.agentId || call.conversationId === undefined
         || call.runId === undefined || call.toolCallId === undefined) return;
       const r = result !== undefined
         ? { ok: result.ok === true, ...(result.output !== undefined ? { output: result.output } : {}), ...(result.error !== undefined ? { error: result.error } : {}) }
         : { ok: false, ...(error !== undefined ? { error: String(error) } : { error: '工具执行失败' }) };
-      void this.writerFor(call.conversationId, [this.agentId], 'user').journal({
-        type: 'journal-tool-result',
+      void this.writerFor(call.conversationId, [this.agentId], 'user').appendEvents([{
+        type: 'step/tool-call-result',
         run: call.runId,
         toolCallId: call.toolCallId,
         result: r,
@@ -101,13 +105,13 @@ export class LedgerService extends Service {
         ...(durationMs !== undefined ? { durationMs } : {}),
         // 子调用档案（cr-597）：run_code 程序内桥接的子调用携带名/参——
         // 宿主步行只有宿主 run_code 调用对，子调用卡片的名/参唯一来源
-        //（主线 subcalls.jsonl 同义，preview 随补行落）
         ...(call.runCodeSubcall === true ? {
           subcall: true,
           name: call.name,
           arguments: JSON.stringify(call.args ?? {}),
         } : {}),
-      });
+        ts: Date.now(),
+      }]);
     });
     // usage 计量（cr-538：R2「journal 计量 + 事件信」）：after-run 缓存
     // run 级聚合（无计量步的 run 不缓存——主线同判），settleRun 消费。
@@ -141,11 +145,12 @@ export class LedgerService extends Service {
     return this.agentDirOverride ?? path.join(this.dataRoot, 'agents', this.agentId);
   }
 
-  /** writer 注册表（per-conversation 惰性；participants/kind 首建生效） */
+  /** writer 注册表（per-conversation 惰性；participants/kind 首建生效。
+   *  cr-974 起恒 eventsV2 模式——v2 事件日志写面（判别行 + 停物化）。 */
   private writerFor(uuid: string, participants: string[], kind: string): LedgerWriter {
     let w = this.writers.get(uuid);
     if (w === undefined) {
-      w = new LedgerWriter(path.join(this.agentDirOf(), 'sessions', uuid), { participants, kind });
+      w = new LedgerWriter(path.join(this.agentDirOf(), 'sessions', uuid), { participants, kind }, undefined, { eventsV2: true });
       this.writers.set(uuid, w);
     }
     return w;
@@ -156,56 +161,65 @@ export class LedgerService extends Service {
     return this.writerFor(uuid, participants, kind).deliver(row);
   }
 
-  /** 入站行在场判定（盘面直读——cr-639 恢复面补行门）：writer 幂等门在内存、
-   *  跨进程不防重投双写，恢复面重投前以此判「行是否已落」，缺席才补写。 */
+  /** 入站行在场判定（cr-639 恢复面补行门；cr-974 起走 fold 归一事实——
+   *  speech/context 行与注入事件统一判键）：writer 幂等门在内存、跨进程
+   *  不防重投双写，恢复面重投前以此判「行是否已落」，缺席才补写。 */
   hasInboundRow(uuid: string, requestId: string): boolean {
-    const dir = path.join(this.agentDirOf(), 'sessions', uuid);
-    if (readLedger(dir).rows.some((r) => r.requestId === requestId)) return true;
-    // cr-713：busy-steer 消息的记录 = journal-inject（物化前窗口）——同键判重
-    return readJournal(dir).some((l) => l.type === 'journal-inject' && l.requestId === requestId);
+    const facts = readDomainFacts(path.join(this.agentDirOf(), 'sessions', uuid), this.agentId);
+    if (facts.speech.some((s) => s.requestId === requestId)) return true;
+    if (facts.contexts.some((c) => c.requestId === requestId)) return true;
+    // cr-713：busy-steer 消息的记录 = inject 事件（消费点窗口）——同键判重
+    for (const rf of facts.runs.values()) {
+      if (rf.events.some((ev) => ev.kind === 'inject' && ev.requestId === requestId)) return true;
+    }
+    return false;
   }
 
-  /** 步行落 journal（run 周期台账） */
+  /** 步行落账（cr-974 v2：聚合步 → 相位事件族逐行入事件日志——行序即
+   *  步内序；cr-946 textBeforeTools 退役（不落盘——相位序由事件序承载，
+   *  读侧 fold 据首见序推导）。步末计量（usage/elapsedMs/aborted/textMs）
+   *  挂步内末相位行。 */
   async journalStep(uuid: string, run: string, step: LoopStepRecord): Promise<void> {
     if (run === '') return;
-    const line: JournalStep = {
-      type: 'journal-step',
+    const ts = step.ts ?? Date.now();
+    const base = {
       run,
       step: step.index,
-      // 步身份键（cr-772 落盘透传）：与直播 delta 帧 meta.stepId 同值——
-      // 历史合并键控对齐（契约早已声明，此前落盘面漏传）
+      // 步身份键（cr-772 落盘透传）：与直播 delta 帧 meta.stepId 同值
       ...(step.stepId !== undefined ? { stepId: step.stepId } : {}),
-      content: step.text,
-      ...(step.reasoning !== undefined && step.reasoning !== '' ? { reasoning: step.reasoning } : {}),
-      // 步内相位序（cr-946 / cr-804 回归）：正文先于工具调用的步——不落
-      // 则历史/刷新/收束重拉后正文与工具卡序对调（直播自判值只活在内存）。
-      ...(step.textBeforeTools !== undefined ? { textBeforeTools: step.textBeforeTools } : {}),
-      // 中止步保真（cr-766）：部分聚合步照常落盘——读侧据此剔除不完整
-      // tool_calls（续跑/轨迹重建），前端渲染中断态
-      ...(step.aborted === true ? { aborted: true } : {}),
-      ...(step.reasoningMs !== undefined ? { reasoningMs: step.reasoningMs } : {}),
-      ...(step.textMs !== undefined ? { textMs: step.textMs } : {}),
-      // 步级 API 计时/用量（cr-772 落盘透传）：历史链栏速率段（Σcompletion/
-      // ΣelapsedMs）的数据源——与直播 after-step 帧同字段面
-      ...(step.elapsedMs !== undefined ? { elapsedMs: step.elapsedMs } : {}),
-      ...(step.usage !== undefined ? { usage: step.usage } : {}),
-      ...(step.toolCalls.length > 0 ? {
-        toolCalls: step.toolCalls.map((tc) => ({ id: tc.id, name: tc.name, arguments: tc.arguments })),
-      } : {}),
-      ...(step.toolResults.length > 0 ? {
-        toolResults: step.toolResults.map((r) => ({
-          ok: r.ok,
-          ...(r.output !== undefined ? { output: r.output } : {}),
-          ...(r.error !== undefined ? { error: r.error } : {}),
-        })),
-      } : {}),
     };
-    const seq = await this.writerFor(uuid, [this.agentId], 'user').journal(line);
-    // B2 帧携带：步行落盘完成后补发 journal 锚事件——刻意晚于落盘（不反转
-    // cr-707「事件先于落盘」：本事件的语义就是「seq 已 durable」），供
-    // ws-bridge 直转前端维护步级 seq 水位（st.lastStepSeq）与直播行 seq
-    // 身份锚（settlement 前直播行即获稳定身份，B3 供料）。agent 随载荷
-    // 携带（前端 routeDialog 路由键）。
+    const rows: Array<Record<string, unknown>> = [];
+    // 思考相位恒先行（D-2 步内序：reasoning → 正文/工具调用）
+    if (step.reasoning !== undefined && step.reasoning !== '') {
+      rows.push({ type: 'step/reasoning', ...base, text: step.reasoning, ...(step.reasoningMs !== undefined ? { reasoningMs: step.reasoningMs } : {}), ts });
+    }
+    const contentRow = step.text !== '' ? { type: 'step/content', ...base, text: step.text, ts } as Record<string, unknown> : undefined;
+    const callRows = step.toolCalls.map((tc) => ({ type: 'step/tool-call', ...base, toolCallId: tc.id, name: tc.name, arguments: tc.arguments, ts }));
+    // cr-946 相位序：聚合记录携带 textBeforeTools（正文先于工具调用）——
+    // 决定落行序，本身不落盘
+    if (step.textBeforeTools === true && contentRow !== undefined) rows.push(contentRow);
+    rows.push(...callRows);
+    if (step.textBeforeTools !== true && contentRow !== undefined) rows.push(contentRow);
+    // 早期形态（cr-596 前）：聚合步自带 toolResults 按位对应 → 结果事件行
+    for (let i = 0; i < step.toolResults.length; i++) {
+      const tc = step.toolCalls.at(i);
+      if (tc === undefined) break;
+      const tr = step.toolResults[i]!;
+      rows.push({ type: 'step/tool-call-result', run, toolCallId: tc.id, result: { ok: tr.ok, ...(tr.output !== undefined ? { output: tr.output } : {}), ...(tr.error !== undefined ? { error: tr.error } : {}) }, ts });
+    }
+    // 步末计量挂步内末相位行（cr-766 aborted / cr-772 计时用量）
+    const meter: Record<string, unknown> = {
+      ...(step.usage !== undefined ? { usage: step.usage } : {}),
+      ...(step.elapsedMs !== undefined ? { elapsedMs: step.elapsedMs } : {}),
+      ...(step.aborted === true ? { aborted: true } : {}),
+      ...(step.textMs !== undefined ? { textMs: step.textMs } : {}),
+    };
+    const last = rows.at(-1);
+    if (last !== undefined && Object.keys(meter).length > 0) Object.assign(last, meter);
+    const seq = rows.length > 0 ? await this.writerFor(uuid, [this.agentId], 'user').appendEvents(rows) : 0;
+    // B2 帧携带：相位行落盘完成后补发 durable 锚事件——刻意晚于落盘（不
+    // 反转 cr-707「事件先于落盘」：本事件的语义就是「seq 已 durable」），
+    // seq = 步内末相位行。agent 随载荷携带（前端 routeDialog 路由键）。
     this.ctx.emit('ledger/step-journaled', {
       agent: this.agentId,
       conversationId: uuid,
@@ -216,10 +230,10 @@ export class LedgerService extends Service {
     });
   }
 
-  /** steer 注入行（journal-inject——按消费点真序落）。extra（cr-707）：
-   * 注入身份/来源/文案随行落盘——settlement 物化行据此还原 message_id
-   *（= injectionId，直播行同锚）、injectSource（UI 卡片 kind）与 label
-   *（流式与刷新两路径同文案）；ts 由调用方给同一时刻。 */
+  /** steer 注入事件（cr-974 v2 type:'inject'——按消费点真序落）。
+   * extra（cr-707）：注入身份/来源/文案随行落盘——injectionId（直播行
+   * 同锚）、injectSource（UI 卡片 kind）与 label（流式与刷新两路径同
+   * 文案）；ts 由调用方给同一时刻。 */
   async journalInject(
     uuid: string,
     run: string,
@@ -228,8 +242,8 @@ export class LedgerService extends Service {
     extra?: { injectionId?: string; injectSource?: string; label?: string; payload?: JournalInject['payload']; ts?: number },
   ): Promise<void> {
     if (run === '') return;
-    await this.writerFor(uuid, [this.agentId], 'user').journal({
-      type: 'journal-inject',
+    await this.writerFor(uuid, [this.agentId], 'user').appendEvents([{
+      type: 'inject',
       run,
       content,
       ...(requestId !== undefined ? { requestId } : {}),
@@ -237,16 +251,15 @@ export class LedgerService extends Service {
       ...(extra?.injectSource !== undefined ? { injectSource: extra.injectSource } : {}),
       ...(extra?.label !== undefined ? { label: extra.label } : {}),
       ...(extra?.payload !== undefined ? { payload: extra.payload } : {}),
-      ...(extra?.ts !== undefined ? { ts: extra.ts } : {}),
-    } satisfies JournalInject);
+      ts: extra?.ts ?? Date.now(),
+    }]);
   }
 
-  /** run 收束：终稿行 + journal-settled（settlement 两阶段）+ 计量落账与
-   * usage 事件信（cr-538——meter 取 after-run 缓存，消费即清）。
-   * cr-807：error 收束补落 context+source:error 行（session-design §2.5
-   * 承诺的落盘形态，实现此前缺席）——错误文案只在瞬态帧（run-settled
-   * .message → 前端红条），刷新/错过帧即蒸发。行形与读面既有消费
-   * （historyApi context+source:error → 红条；replay 按 user 喂回）对齐。 */
+  /** run 收束（cr-974 v2：终稿 message 行 +（error 时 context/error 行）+
+   * run-end 标记行——物化/journal 两阶段退役）+ 计量落账与 usage 事件信
+   *（cr-538——meter 取 after-run 缓存，消费即清）。cr-807：error 收束补落
+   * 错误行——错误文案只在瞬态帧（run-settled.message → 前端红条），刷新/
+   * 错过帧即蒸发，落盘行补齐两路径。 */
   async settleRun(uuid: string, participants: string[], kind: string, row: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'>, runId: string, finish: 'ok' | 'interrupted' | 'error', errorMessage?: string): Promise<void> {
     const meter = this.runMeters.get(runId);
     this.runMeters.delete(runId);
@@ -320,7 +333,8 @@ export class LedgerService extends Service {
   historyFor(uuid: string, viewer: string = this.agentId): Array<{ role: 'assistant' | 'user' | 'system'; content: string }> {
     const dir = path.join(this.agentDirOf(), 'sessions', uuid);
     const summary = summaryTextOf(dir);
-    const view = replayView(readLedger(dir).rows, viewer);
+    // cr-974：文本投影改走 fold 单源（events-v2 归一化——v1/v2 同构）
+    const view = foldTextReplay(foldSession(this.dataRoot, uuid, [dir]), viewer);
     return summary !== '' ? [{ role: 'system', content: summary }, ...view] : view;
   }
 
@@ -335,75 +349,46 @@ export class LedgerService extends Service {
   historyMessagesFor(uuid: string): LlmMessage[] {
     const dir = path.join(this.agentDirOf(), 'sessions', uuid);
     const summary = summaryTextOf(dir);
-    const rows = readLedger(dir).rows;
-    const journal = readJournal(dir);
+    // cr-974：LLM 回放改走 fold 单源（轨迹展开/注入归口/判重语义不变——
+    // parity 由 fold.test.ts 对拍锁定）；末步与终稿同文让位在 fold 内承载。
     const out: LlmMessage[] = summary !== '' ? [{ role: 'system', content: summary }] : [];
-    const traced = new Set<string>();
-    // cr-713：已注入 run 轨迹的消息（物化 inject 行携带 requestId）不再以
-    // 入站行文本复读——queue→steerQueued 路径入站行 + 注入行同文双份，
-    // 此前双喂模型上下文。
-    const injected = new Set<string>();
-    for (const row of rows) {
-      if (row.source === 'inject' && typeof row.requestId === 'string' && row.requestId !== '') injected.add(row.requestId);
-    }
-    for (const row of rows) {
-      // cr-888 会话设置变化通知行（context+event）：按 user 回放——落账先于
-      // history 读（run 入口对账），本 run 消息天然自带；行持久在场，后续
-      // run 照常复读（append-only，前缀稳定）。
-      if (row.role === 'context' && row.source === 'event' && row.content.trim() !== '') {
-        out.push({ role: 'user', content: row.content });
-        continue;
-      }
-      if (row.role !== 'agent') continue;
-      // 物化段行/注入行（cr-697）按 run 归口消费；存量文本段行（无 source）
-      // 过滤防双计
-      if (row.source === 'segment' || row.source === 'inject' || row.message_id.startsWith('seg-')) continue;
-      if (typeof row.run === 'string' && row.run !== '' && !traced.has(row.run)) {
-        traced.add(row.run);
-        const traj = trajFromRows(rows, row.run) ?? trajectoryOfRun(journal, row.run);
-        // 末步去重：自然收束 run 的末步 content 即终稿（loop 自然停点），
-        // settle 行同文再入 = 终稿双份。轨迹末条 assistant 与终稿行同文时
-        // 让位给终稿行（权威投影），其余步全保留。
-        const last = traj.at(-1);
-        if (row.content.trim() !== '' && last !== undefined && last.role === 'assistant'
-          && !Array.isArray(last.tool_calls) && last.content === row.content) {
-          traj.pop();
-        }
-        out.push(...traj);
-      }
-      if (row.content.trim() !== '' && !injected.has(row.requestId ?? '')) {
-        out.push({ role: row.agent_id === this.agentId ? 'assistant' : 'user', content: row.content });
-      }
-    }
+    out.push(...foldLlmReplay(foldSession(this.dataRoot, uuid, [dir]), this.agentId, this.dataRoot, uuid));
     return out;
   }
 
   /**
-   * 续跑状态读面（cr-667，A1）：run 有步行/注入且无 settled → 重建消息前缀
-   * + 已提交步数（续跑准入与额度基数）；journal 损坏/重建抛错 → 'degraded'
-   *（调用方退回重投 + 标注）；无步行或已 settled → null（走常规链）。
+   * 续跑状态读面（cr-667，A1；cr-974 起走 fold 归一事实——v1 journal 与
+   * v2 相位行同构）：run 有步/注入事实且无 run-end → 重建消息前缀 +
+   * 已提交步数（续跑准入与额度基数）；重建抛错 → 'degraded'（调用方退回
+   * 重投 + 标注）；无步或已收束 → null（走常规链）。
+   * 未提交调用合成 UNCOMMITTED_TOOL_ERROR（结果未知——唯一诚实状态）；
+   * 中止步（aborted）整调用剔除、不计 committedSteps（cr-766）。
    */
   resumeStateFor(uuid: string, runId: string): { messages: import('ac-llm').LlmMessage[]; committedSteps: number } | 'degraded' | null {
-    let lines;
+    let rf: RunFactsV2 | undefined;
     try {
-      lines = readJournal(path.join(this.agentDirOf(), 'sessions', uuid));
+      rf = readDomainFacts(path.join(this.agentDirOf(), 'sessions', uuid), this.agentId).runs.get(runId);
     } catch {
-      return null; // journal 目录级不可读（缺席等）——常规链
+      return null; // 域目录级不可读（缺席等）——常规链
     }
-    const hasSteps = lines.some((l) => l.run === runId && (l.type === 'journal-step' || l.type === 'journal-inject'));
+    if (rf === undefined) return null;
+    const hasSteps = rf.events.some((ev) => ev.kind !== 'tool-call-result');
     if (!hasSteps) return null;
-    if (lines.some((l) => l.run === runId && l.type === 'journal-settled')) return null;
+    if (rf.end !== undefined) return null; // 已收束（run-end）
     try {
-      return resumeContextOfRun(lines, runId);
+      return resumeFromFacts(rf);
     } catch {
       return 'degraded'; // 轨迹重建失败（版本不兼容等）——降级重投
     }
   }
 
+  // 孤儿 run 收口 recoverOrphanRuns（cr-628）已随 cr-974 退役：D-3 读方
+  // 配平——未闭合 run 不回写，fold 投影层合成 run-end(interrupted)；
+  // inbox 在途信恢复面（recoverPendingInbox）不受影响（defer 仲裁随收口
+  // 面一同退役——续跑准入本身以 resumeStateFor 的「无 run-end」判定）。
+
   /**
-   * inbox 在途 requestId 集（cr-667，A1——恢复面仲裁）：boot 期先取，
-   * recoverOrphanRuns 以此 defer 命中的 run（不补 interrupted settled，留给
-   * 续跑面原地续跑）。
+   * inbox 在途 requestId 集（诊断/测试面保留；cr-974 前为恢复面 defer 仲裁）。
    */
   pendingInboxRequestIds(): Set<string> {
     const sessionsRoot = path.join(this.agentDirOf(), 'sessions');
@@ -440,50 +425,6 @@ export class LedgerService extends Service {
     await this.writerFor(uuid, [this.agentId], 'user').settleMechanism(runId, finish);
   }
 
-  /**
-   * 孤儿 run 收口（cr-628，主线 recoverJournal 惰性幂等语义的 preview 形态）：
-   * 壳死于 mid-run 时 journal 留下无 journal-settled 的步行——读侧
-   * stepsOfRun 恒报 partial（真在途），run 永远「运行中」。boot 期对全部
-   * 会话域扫一遍：有步行/注入行但无 settled 标记的 run 经 settleOrphan
-   * 收口（段行物化 + journal-settled(interrupted) + 步行剔除——幂等，
-   * 已收束 run 不动）。
-   * cr-698 锚信通道退役：viewer 侧不再补投锚信（空终稿 run 不落 viewer
-   * 行——「有 steps 无正文」是中断常态，由 session/history 读面的 steps
-   * 盲区投影渲染，显示形态归前端）。
-   * cr-667（A1 续跑）：defer = inbox 在途 requestId 集（boot 先取
-   * pendingInboxRequestIds）——命中的 run 不收口（留给 recoverPendingInbox
-   * 续跑面原地续跑，续跑收束即落 ok settled）。
-   */
-  async recoverOrphanRuns(defer?: Set<string>): Promise<number> {
-    const sessionsRoot = path.join(this.agentDirOf(), 'sessions');
-    let uuids: string[] = [];
-    try { uuids = fs.readdirSync(sessionsRoot); } catch { return 0; }
-    let settled = 0;
-    for (const uuid of uuids) {
-      const dir = path.join(sessionsRoot, uuid);
-      const lines = readJournal(dir);
-      if (lines.length === 0) continue;
-      const seen = new Set<string>();
-      for (const line of lines) {
-        if (line.run === '') continue;
-        if (line.type === 'journal-settled') seen.add(line.run);
-      }
-      const orphans = new Set<string>();
-      for (const line of lines) {
-        if (line.run !== '' && !seen.has(line.run)
-          && (line.type === 'journal-step' || line.type === 'journal-inject')) orphans.add(line.run);
-      }
-      for (const run of orphans) {
-        // cr-667 defer：inbox 在途信的 run 走续跑面——不补 settled（补了
-        // 续跑准入〔无 settled〕即失效，退回 step 0 重跑）。
-        if (defer !== undefined && run.startsWith('run-') && defer.has(run.slice(4))) continue;
-        await this.writerFor(uuid, [this.agentId], 'user').settleOrphan(run, 'interrupted', this.agentId, uuid);
-        settled += 1;
-      }
-    }
-    return settled;
-  }
-
   // —— inbox durable（A4：投递未消费消息；队列事实源——收束后链跑消费） ——
 
   inboxStore(uuid: string, envelope: { requestId: string; payload: unknown }): void {
@@ -509,6 +450,62 @@ export class LedgerService extends Service {
   inboxClear(uuid: string, requestId: string): void {
     this.writerFor(uuid, [this.agentId], 'user').inboxClear(requestId);
   }
+}
+
+/**
+ * 续跑前缀重建（cr-667 resumeContextOfRun 的 fold 形态——v1 journal 与
+ * v2 相位行经归一化同构）：事件行序遍历——注入入序；步按首见序分组；
+ * 未提交调用合成 UNCOMMITTED_TOOL_ERROR（结果未知）；中止步整调用剔除
+ * （aborted 是明确未执行）、不计 committedSteps。无有效消息 → null。
+ */
+function resumeFromFacts(rf: RunFactsV2): { messages: LlmMessage[]; committedSteps: number } | null {
+  const results = new Map<string, { ok: boolean; output?: unknown; error?: string }>();
+  for (const ev of rf.events) {
+    if (ev.kind === 'tool-call-result' && ev.subcall !== true) results.set(ev.toolCallId, ev.result);
+  }
+  interface StepAcc { content: string[]; calls: Array<{ id: string; name: string; arguments: string }> }
+  const order: number[] = [];
+  const acc = new Map<number, StepAcc>();
+  for (const ev of rf.events) {
+    if (ev.kind === 'tool-call-result') continue;
+    if (ev.kind === 'inject') continue;
+    if (!acc.has(ev.step)) { acc.set(ev.step, { content: [], calls: [] }); order.push(ev.step); }
+    const s = acc.get(ev.step)!;
+    if (ev.kind === 'reasoning') continue; // 思考相位不进续跑协议面（v1 同判）
+    if (ev.kind === 'content') s.content.push(ev.text);
+    else s.calls.push({ id: ev.toolCallId, name: ev.name, arguments: ev.arguments });
+  }
+  const out: LlmMessage[] = [];
+  let committedSteps = 0;
+  // 注入点 = 事件行序（步首见序与注入交错还原——v1 seq 序同构）
+  const seenSteps = new Set<number>();
+  for (const ev of rf.events) {
+    if (ev.kind === 'inject') { out.push({ role: 'user', content: ev.content }); continue; }
+    if (ev.kind !== 'reasoning' && ev.kind !== 'content' && ev.kind !== 'tool-call') continue;
+    if (seenSteps.has(ev.step)) continue;
+    seenSteps.add(ev.step);
+    const s = acc.get(ev.step)!;
+    const content = s.content.join('');
+    const meter = rf.meters.get(ev.step);
+    // 中止步（cr-766）：调用从未执行且参数可能截断——整调用剔除（不合成
+    // UNCOMMITTED——那是「结果未知」的语义；aborted 是明确未执行）。
+    // 部分正文如实保留（携带面），不计入 committedSteps。
+    if (meter?.aborted === true) {
+      if (content.trim() !== '') out.push({ role: 'assistant', content });
+      continue;
+    }
+    if (content.trim() === '' && s.calls.length === 0) continue;
+    if (s.calls.length > 0 && s.calls.every((tc) => results.has(tc.id))) committedSteps += 1;
+    out.push({
+      role: 'assistant',
+      content,
+      ...(s.calls.length > 0 ? { tool_calls: s.calls.map((tc) => ({ id: tc.id, type: 'function' as const, function: { name: tc.name, arguments: tc.arguments } })) } : {}),
+    });
+    for (const tc of s.calls) {
+      out.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(results.get(tc.id) ?? { ok: false, error: UNCOMMITTED_TOOL_ERROR }) });
+    }
+  }
+  return out.length === 0 ? null : { messages: out, committedSteps };
 }
 
 declare module '@agentchat/cordis' {

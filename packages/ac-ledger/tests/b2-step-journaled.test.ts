@@ -1,14 +1,15 @@
 // ============================================================
 // b2-step-journaled.test.ts —— B2 帧携带 ledger 半边：
-//   · writer.journal() 返回分配的 seq（分配在串行队列内，零额外成本）
+//   · writer.journal() 返回分配的 seq（v1 存量写面——夹具专用）
 //   · journalStep 落盘完成后补发 ledger/step-journaled 锚事件（刻意晚于
-//     落盘——cr-707「事件先于落盘」不反转，事件语义即「seq 已 durable」）
+//     落盘——cr-707「事件先于落盘」不反转，事件语义即「seq 已 durable」；
+//     cr-974 v2：seq = 步内末相位行，落 messages.jsonl 事件日志）
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
-import { readJournal } from '../src/reader.ts';
+import { readJournal, readLedger } from '../src/reader.ts';
 
 const ROOT = path.join('sandbox', 'test-ledger-b2-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -47,9 +48,13 @@ describe('B2 帧携带：journal seq 返回 + 落盘后锚事件', () => {
       // stepId 缺席（旧形步记录）不带 stepId 键——前端回落不变
       expect(got[1]).toMatchObject({ agent: 'b2b', conversationId: uuid, runId: 'run-j', step: 3 });
       expect('stepId' in got[1]!).toBe(false);
-      // 锚事件携带的 seq 即落盘行 seq（已 durable 的身份锚）
-      const line = readJournal(sessionDir(ROOT, 'b2b', uuid)).find((l) => l.type === 'journal-step' && l.step === 2);
-      expect(line?.seq).toBe(got[0]!.seq);
+      // 锚事件携带的 seq 即步内末相位落盘行 seq（已 durable 的身份锚；
+      // cr-974 v2——相位行住 messages.jsonl，journal 停写）
+      const rows = readLedger(sessionDir(ROOT, 'b2b', uuid)).rows as unknown as Array<Record<string, unknown>>;
+      const stepRows = rows.filter((r) => r.type === 'step/content' && r.step === 2);
+      expect(stepRows.at(-1)?.seq).toBe(got[0]!.seq);
+      // journal 零写入（单文件事件日志——停物化停分流的落盘面断言）
+      expect(readJournal(sessionDir(ROOT, 'b2b', uuid)).some((l) => l.run === 'run-j')).toBe(false);
     } finally {
       await fiber.dispose();
     }

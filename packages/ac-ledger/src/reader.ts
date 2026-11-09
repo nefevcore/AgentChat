@@ -316,7 +316,7 @@ export function stepsOfLedger(rows: LedgerRow[], run: string, subcalls?: Journal
 /** 档案子调用卡 → 宿主卡后注入（cr-803 读侧平铺复原；宿主缺席如实丢弃
  *  ——无渲染锚，与 journal 投影同语义）。存量内联形态防重：宿主卡组内
  *  已含 subcall 卡即整组跳过。 */
-function injectSubcallCards(steps: ProjectedStep[], subcalls: JournalToolResult[]): void {
+export function injectSubcallCards(steps: ProjectedStep[], subcalls: JournalToolResult[]): void {
   const byHost = new Map<string, JournalToolResult[]>();
   for (const k of subcalls) {
     // 旧轨道存量档案行宽容：toolCallId 缺席/无 # 前缀（无宿主锚）跳过

@@ -36,7 +36,7 @@ import { runNativeOpen } from 'ac-workspace/src/native-open.ts';
 import { resolveOpenTargets, refreshTarget, runOpenWith, targetIconOf } from 'ac-workspace/src/open-targets.ts';
 import { assocIconOfExt, folderIconOf } from 'ac-workspace/src/file-assoc-icons.ts';
 import { readCatalog } from 'ac-rowset-core';
-import { conversationDirs, projectUserReplay, readJournal, readLedger, summaryTextOf } from 'ac-ledger';
+import { conversationDirs, foldStepsOf, projectUserReplay, readDomainFacts, readJournal, readLedger, summaryTextOf } from 'ac-ledger';
 import { readAgentConfig, settingsOf } from 'ac-agents-core';
 import { estimateTokens } from 'ac-text-budget';
 import { estimateReplayTokens } from 'ac-archive-core';
@@ -814,7 +814,18 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       if (dir.includes(path.join('viewer', 'sessions'))) continue; // 投影域不计（与 agent 域重复）
       const { rows } = readLedger(dir);
       agentRows += rows.length;
-      total += estimateReplayTokens(rows, agentId, { summary: summaryTextOf(dir) });
+      // cr-974：v2 会话步级事实 = 事件行（无 role——估算器只见 role 行）→
+      // 折叠出 steps 合成 v1 段行同形行，口径与物化时代恒等
+      const domain = path.basename(path.dirname(path.dirname(dir)));
+      const facts = readDomainFacts(dir, domain);
+      const pseudo: Array<Record<string, unknown>> = [];
+      if (facts.version >= 2) {
+        for (const [run, rf] of facts.runs) {
+          const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
+          if (steps.length > 0) pseudo.push({ role: 'agent', content: '', agent_id: domain, run, steps, message_id: 'v2-' + run, timestamp: '' });
+        }
+      }
+      total += estimateReplayTokens([...rows, ...pseudo] as never, agentId, { summary: summaryTextOf(dir) });
     }
     if (agentRows > 0) return total;
     // 终稿层直估（cr-973 读时投影——agent 域无行的导入前会话走兼容窗）

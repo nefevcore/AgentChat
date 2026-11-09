@@ -89,10 +89,11 @@ export interface ProjectedStep {
   toolCalls?: Array<{ id: string; name: string; arguments: string; result: unknown; subcall?: boolean; durationMs?: number }>;
 }
 
-/** 头行（writer 首建文件时写入） */
+/** 头行（writer 首建文件时写入；cr-974 起新建文件 version:2——
+ *  v2 单文件事件日志，v1 存量头行永不重写） */
 export interface LedgerHeader {
   type: 'session-header';
-  version: 1;
+  version: 1 | 2;
   createdAt: string;
   /** participants（端点集合——D4.1 header.json 元数据并进首行） */
   participants: string[];

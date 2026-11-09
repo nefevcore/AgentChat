@@ -22,8 +22,8 @@ const ROOT = path.join('sandbox', 'test-ledger-cr946-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-describe('cr-946 ① textBeforeTools 落盘链路', () => {
-  it('journalStep 落 textBeforeTools → journal 读面/物化切段/settle 段行全程透传', async () => {
+describe('cr-946 ① 相位序落盘链路（cr-974 v2：textBeforeTools 字段退役——相位序由事件行序承载）', () => {
+  it('journalStep 按相位序落 step/* 行（reasoning 先行、正文先于调用）→ fold 投影推导 textBeforeTools；settle run-end 后读面仍带标记', async () => {
     const { Context } = await import('@agentchat/cordis');
     const { makeLedgerRow } = await import('../src/service.ts');
     const ctx = new Context();
@@ -46,19 +46,17 @@ describe('cr-946 ① textBeforeTools 落盘链路', () => {
         toolResults: [],
       });
       const dir = sessionDir(ROOT, 'alpha', uid);
-      // journal 读面（在途）透传
-      const inFlight = stepsOfRun(readJournal(dir), 'run-p')!;
-      expect(inFlight.steps[0]).toMatchObject({ content: '先口述再调工具：', textBeforeTools: true });
-      // 物化切段（写侧纯函数）透传
-      const seg = segmentizeRun(readJournal(dir), 'run-p');
-      expect((seg[0] as { steps: Array<{ textBeforeTools?: boolean }> }).steps[0]!.textBeforeTools).toBe(true);
-      // settle 物化段行（落盘形态）透传
+      // 相位行序 = 步内序（reasoning → content → tool-call；行内无
+      // textBeforeTools——该字段退役，序即语义）
+      const rows = readLedger(dir).rows as unknown as Array<Record<string, unknown>>;
+      const phases = rows.filter((r) => typeof r.type === 'string' && String(r.type).startsWith('step/'));
+      expect(phases.map((r) => r.type)).toEqual(['step/reasoning', 'step/content', 'step/tool-call']);
+      expect(phases.every((r) => !('textBeforeTools' in r))).toBe(true);
+      // settle = message 行 + run-end（无物化段行）；读面组装（fold）仍带标记
       await svc.settleRun(uid, ['alpha', 'user'], 'user', {
         role: 'agent', content: '终稿', agent_id: 'alpha', requestId: 'reply-p', uuid: uid, run: 'run-p',
       }, 'run-p', 'ok');
-      const segRow = readLedger(dir).rows.find((r) => r.source === 'segment');
-      expect(segRow?.steps?.[0]).toMatchObject({ textBeforeTools: true });
-      // 读面组装（view → 前端）仍带该标记
+      expect(readLedger(dir).rows.some((r) => r.source === 'segment')).toBe(false);
       const view = assembleSessionView(ROOT, uid).find((r) => Array.isArray(r.steps));
       expect((view!.steps as Array<{ textBeforeTools?: boolean }>)[0]!.textBeforeTools).toBe(true);
     } finally {

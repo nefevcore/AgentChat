@@ -184,7 +184,50 @@ ac-import 物化退役）。存量 viewer 文件读面兼容一个版本。
    → `pnpm test:integration`；索引行摘除等价测试
 6. 同步：README 架构面 + session-design §3.1/§7.3 改写（标注 cr-972 取代关系）
 
-### Phase 2 = 第二刀：存储统一（§2；前端零改动——D-4 裁决）
+### Phase 2 = 第二刀：存储统一（§2；前端零改动——D-4 裁决）——◐ 实施中（cr-974，2026-11-09）
+
+**已落地**：§2.6 实施细化（见下）；事件词汇 v2 + 归一化（ac-ledger events-v2.ts）+
+fold 单源四投影 + 读方配平 + 性质化测试（fold.test.ts：parity / v1↔v2 等价 /
+前缀稳定 / 配平零回写）；读面全切换（assembleSessionView / historyFor /
+historyMessagesFor / userReplay）；writer v2（停物化、相位逐行落账、run-end
+durable、cr-946 字段写面退役、v1 双文件停写）；settleOrphan / recoverOrphanRuns
+退役（D-3 配平归 fold）；resume / hasInboundRow 改走 fold；索引事件列
+（records.type / tool_call_id，旧库弃重建）；v2 回放估位补齐（face-ops）。
+**待办**：压缩事件化 + 归档物理回收（§2.3，含 ac-archive-core 迁移）；
+session-design.md 全面改版；v1 写面测试夹具随读兼容窗退役。
+
+**§2.6 实施细化（cr-974，2026-11-09 设计定稿）**：
+
+- **单文件**：`messages.jsonl` 头行升 `{version:2}`，即会话唯一事件日志；
+  `journal/partials.jsonl` 与 `subcalls.jsonl` 停写（存量读兼容，不强制合并——
+  M-v2 物理迁移经 ac-backup-core 快照通道择机，读兼容先行）。
+- **v2 事件 schema**（全行带 `type` 判别；未知 type 安全忽略沿用）：
+  - `message`（终稿/入站发言：role·agent_id·content·requestId?·run?·runMs?）
+  - `context`（材料/通知/错误行：source 词表沿用 event/error/inject-源/直落源）
+  - `step/reasoning` · `step/content`（run·step·stepId?·text；步末计量
+    usage?/elapsedMs? 随末相位行；aborted 随步内末行）
+  - `step/tool-call`（toolCallId·name·arguments）· `step/tool-call-result`
+    （toolCallId·result·durationMs?；subcall 全文内联——D-1）
+  - `inject`（cr-707 全字段快照）· `run-end`（finish: completed|interrupted|
+    error；usage?/model?/errorMessage?/runMs?——落账即 durable，回放闸门锚）
+  - `compaction/start|summary|end`（§2.3）
+  - **cr-946 textBeforeTools 退役**：相位序 = 事件行序（v1 行读兼容保留该字段）
+- **归一化层**（readEvents）：v1 messages 行（role 判别）+ v1 journal 行
+  （journal-step 按 textBeforeTools 拆相位；journal-settled → run-end）+
+  v1 段行（聚合 steps 直入 run 轨迹）+ subcalls.jsonl（subcall 结果事件）→
+  统一 `SessionEvent[]`；fold 只认归一化词汇。
+- **fold 单源**（fold.ts）：events → 会话模型（runs 轨迹表 + 消息流），
+  三方投影 = 其纯读数：LLM 回放（轨迹展开 + injected 判重 + 概要头）/
+  user 终稿层（cr-973 projectUserReplay 谓词）/ webui 视图（注入卡归口 +
+  steps 联查 + 盲区→未闭合 run 配平 + 活投影门控 + view 参数化）。
+  **读方配平（D-3）**：未闭合 run 不回写——投影层合成 run-end(interrupted)
+  （webui partial 态；LLM 轨迹照常注入）。**索引辅助（D-1 配套）**：fold 的
+  轨迹按类型定位行、跳过 subcall 载荷（session-index 事件表）。
+- **writer**：journalStep 逐相位落账（受理聚合步 → 按相位序拆行）；
+  tool/after-execute → step/tool-call-result；settleRun = 终稿 message +
+  （error 时 context/error）+ run-end——**停物化/停 prune**；settleMechanism
+  = run-end 单行；**settleOrphan/recoverOrphanRuns 退役**（配平归 fold）。
+
 1. 事件词汇 v2（step/* 族 + inject + run-end + compaction/*；判别行 + version:2 +
    迁移集 M-v2：段行/journal 双文件 → 单事件日志；subcalls.jsonl 存量读兼容，不强制合并；
    经 ac-backup-core 快照通道，唯一重写许可）

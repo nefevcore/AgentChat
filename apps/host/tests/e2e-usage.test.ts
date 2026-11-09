@@ -71,13 +71,14 @@ describe('usage 自报链 e2e（壳 run 收束 → 事件信 → 宿主聚合并
       expect(agg.alpha.runs).toBe(1);
       // 审计流水（主线聚合并单源——webui 查询面恒等）
       expect(fs.readdirSync(path.join(ROOT, 'usage')).filter((f) => f.endsWith('.jsonl')).length).toBe(1);
-      // 壳侧 journal 计量对拍（journal-settled 携带 usage/model——R2 journal 计量半边）
+      // 壳侧计量对拍（cr-974 v2：run-end 行携带 usage/model——R2 计量半边；
+      // journal 停写，事件日志即台账）
       const uuids = fs.readdirSync(path.join(ROOT, 'agents', 'alpha', 'sessions'));
-      const jfile = path.join(ROOT, 'agents', 'alpha', 'sessions', uuids[0], 'journal', 'partials.jsonl');
-      const jraw = fs.readFileSync(jfile, 'utf-8');
-      const settled = jraw.split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l)).find((l) => l.type === 'journal-settled');
+      const rows = fs.readFileSync(path.join(ROOT, 'agents', 'alpha', 'sessions', uuids[0], 'messages.jsonl'), 'utf-8')
+        .split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as Record<string, unknown>);
+      const settled = rows.find((l) => l.type === 'run-end') as { model?: string; usage?: { steps?: number } };
       expect(settled.model).toBe('mock');
-      expect(settled.usage.steps).toBeGreaterThanOrEqual(1);
+      expect(settled.usage!.steps).toBeGreaterThanOrEqual(1);
     } finally {
       await fiber.dispose();
       user.stop();

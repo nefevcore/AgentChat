@@ -119,11 +119,12 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       expect(header?.participants).toEqual(['alpha', 'user']);
       // cr-697：settlement 物化段行（source='segment'，content 恒空）——
       // 终稿层断言过滤物化行（steps 在场性归 ledger.test）
-      const final = rows.filter((r) => r.source !== 'segment' && r.source !== 'inject');
+      const final = rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject');
       expect(final.map((r) => r.content)).toEqual(['第一问', '[回复 第一问]', '第二问', '[回复 第二问]']);
       expect(final[1]).toMatchObject({ agent_id: 'alpha', run: 'run-r1' });
-      // 步级事实已物化段行在账（journal 收束即清）
-      expect(rows.some((r) => r.source === 'segment' && r.run === 'run-r1')).toBe(true);
+      // cr-974 v2：步级相位行在事件日志（journal 停写）；run-end 收束标记在账
+      expect(rows.some((r) => (r as unknown as Record<string, unknown>).type === 'step/content' && r.run === 'run-r1')).toBe(true);
+      expect(rows).toContainEqual(expect.objectContaining({ type: 'run-end', run: 'run-r1', finish: 'completed' }));
       // 第二轮历史延续：mock 回声带最后一问 → 隐含多轮上下文装配
       void ctx;
     } finally {
@@ -190,7 +191,7 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       expect(dup).toBe('deduped');
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
       // 重发未增行（物化段行不计——幂等只看消息行）
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject')).toHaveLength(2);
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject')).toHaveLength(2);
     } finally {
       await dispose(fibers);
     }
@@ -370,13 +371,13 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       const dir = path.join(ROOT, 'agents', 'alpha', 'sessions', INIT);
       const { rows } = readLedger(dir);
       // 无独立入站行：发起会话不出现 kid1 的非注入行（修复前 seq 错位行）
-      expect(rows.some((r) => r.agent_id === 'kid1' && r.source !== 'inject')).toBe(false);
-      // 注入行恰一条，携带回执派生 requestId（重放判重锚）
-      const inj = rows.filter((r) => r.source === 'inject');
+      expect(rows.some((r) => r.agent_id === 'kid1')).toBe(false); // cr-974 v2：注入事件行无 agent_id
+      // 注入事件恰一条（type='inject'），携带回执派生 requestId（重放判重锚）
+      const inj = rows.filter((r) => (r as unknown as Record<string, unknown>).type === 'inject');
       expect(inj).toHaveLength(1);
       expect(inj[0]).toMatchObject({ content: expect.stringContaining('mid-run 结果正文'), requestId: 'subagent-done-reply-sub-9' });
       // 注入行落在 run 轨迹位（用户行之后、终稿行之前）——不在 run 块之前
-      const injAt = rows.findIndex((r) => r.source === 'inject');
+      const injAt = rows.findIndex((r) => (r as unknown as Record<string, unknown>).type === 'inject');
       expect(injAt).toBeGreaterThan(rows.findIndex((r) => r.requestId === 'm1'));
       expect(injAt).toBeLessThan(rows.findIndex((r) => r.requestId === 'reply-m1'));
       // 轨迹单份（不双喂）：通知正文精确一份（mock 终稿回声含原文属正常回复，
@@ -386,7 +387,7 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       expect(ledgerFace.historyMessagesFor(INIT).filter((m) => m.content === notice)).toHaveLength(1);
       // 重放（壳重启 inbox 重投）：注入行同键判重 → 不再唤醒、不二份
       expect(await conv.receiveEnvelope(done, { fresh: true }, { recovered: true })).toBe('ledger-only');
-      expect(readLedger(dir).rows.filter((r) => r.source === 'inject')).toHaveLength(1);
+      expect(readLedger(dir).rows.filter((r) => (r as unknown as Record<string, unknown>).type === 'inject')).toHaveLength(1);
     } finally {
       release();
       await dispose(fibers);
@@ -481,13 +482,13 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       // 账本：入站两行（慢问题 + 排队消息A）+ 终稿一行；steer 注入物化行
       // 携带 requestId（cr-713——queue→steered 双记录，读侧去重防双喂）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
-      expect(rows.filter((r) => r.requestId === 'q2').map((r) => r.source ?? '')).toEqual(['', 'inject']);
+      // cr-974 v2：注入事件行（type='inject'）不再用 source 判别
+      expect(rows.filter((r) => r.requestId === 'q2').map((r) => (r as unknown as Record<string, unknown>).type ?? '')).toEqual(['message', 'inject']);
       const ledgerFace = ctx.get('ledger', false) as unknown as { historyMessagesFor(u: string): Array<{ content: string }> };
       expect(ledgerFace.historyMessagesFor(UUID).filter((m) => m.content === '排队消息A')).toHaveLength(1);
-      const journal = readJournal(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
-      // cr-697：收束即清——注入行物化进账本（source='inject'），journal 不留
-      expect(rows).toContainEqual(expect.objectContaining({ source: 'inject', run: 'run-q1', content: '排队消息A' }));
-      expect(journal).not.toContainEqual(expect.objectContaining({ type: 'journal-inject', run: 'run-q1' }));
+      // cr-974 v2：注入事件行内联 messages.jsonl；journal 停写（零行）
+      expect(rows).toContainEqual(expect.objectContaining({ type: 'inject', run: 'run-q1', content: '排队消息A' }));
+      expect(readJournal(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID)).some((l) => l.run === 'run-q1')).toBe(false);
     } finally {
       release();
       await dispose(fibers);
@@ -521,9 +522,9 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       // 落盘：收束物化后注入行 message_id = 直播帧 injectionId（同锚）+
       // 来源/文案随行（前端 context 行直出）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
-      const inj = rows.find((r) => r.source === 'inject');
+      const inj = rows.find((r) => (r as unknown as Record<string, unknown>).type === 'inject') as unknown as { injectionId?: string; label?: string; injectSource?: string; run?: string };
       expect(inj).toMatchObject({
-        message_id: ev.injectionId,
+        injectionId: ev.injectionId,
         label: '已收到用户回答',
         injectSource: 'durable-interaction',
         run: 'run-rc1',
@@ -561,11 +562,11 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       // cr-807：error 文案落 context+source:error 行（终稿行后）——刷新后
       // 前端红条仍可见（此前只活瞬态帧）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
-      expect(rows.at(-2)).toMatchObject({ requestId: 'reply-f1', run: 'run-f1' });
-      expect(rows.at(-1)).toMatchObject({
-        role: 'context', source: 'error', run: 'run-f1',
-        content: expect.stringContaining('连接超时'),
-      });
+      expect(rows.find((r) => (r as unknown as Record<string, unknown>).type === 'message' && r.run === 'run-f1')).toMatchObject({ requestId: 'reply-f1', run: 'run-f1' });
+      // cr-807：error 文案落 context/error 行；cr-974 v2：run-end 收束标记收尾
+      expect(rows.some((r) => r.role === 'context' && r.source === 'error' && r.run === 'run-f1'
+        && typeof r.content === 'string' && r.content.includes('连接超时'))).toBe(true);
+      expect(rows).toContainEqual(expect.objectContaining({ type: 'run-end', run: 'run-f1', finish: 'error' }));
     } finally {
       await dispose(fibers);
     }
@@ -789,7 +790,7 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       // 两会话账本各自闭环
       for (const [cid, text] of [['conv-a', '慢问题'], ['conv-b', '跨会话信']] as const) {
         const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', cid));
-        expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual([text, `[回复 ${text}]`]);
+        expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual([text, `[回复 ${text}]`]);
       }
     } finally {
       gates[0]!.resolve();
@@ -830,7 +831,7 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       expect(conv.isBusy()).toBe(false);
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-a'));
       // 行序：a2 入站行在 a1 收束前已落（到达序），a1 终稿在收束时
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['第一问', '第二问', '[回复 第一问]', '[回复 第二问]']);
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['第一问', '第二问', '[回复 第一问]', '[回复 第二问]']);
     } finally {
       gates[0]!.resolve();
       gates[1]!.resolve();
@@ -861,8 +862,8 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       // finally 再移位丢 b2，两 turn 全蒸发（creator 实锤现场）。
       // 行序：排队信入站行在占门 run 收束前已落（到达序），占门终稿在收束时
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['占门问', '第一封', '第二封', '[回复 占门问]', '[回复 第二封]']);
-      expect(rows.filter((r) => r.source !== 'segment')[4]).toMatchObject({ run: 'run-b2' });
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['占门问', '第一封', '第二封', '[回复 占门问]', '[回复 第二封]']);
+      expect(rows.find((r) => (r as unknown as Record<string, unknown>).type === 'message' && r.run === 'run-b2')).toMatchObject({ run: 'run-b2' });
       expect(conv.queue('conv-b')).toHaveLength(0);
     } finally {
       release();
@@ -916,7 +917,7 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
       expect(conv.isBusy()).toBe(false);
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-a'));
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['排队信', '[回复 排队信]']);
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['排队信', '[回复 排队信]']);
       expect(conv.queue('conv-a')).toHaveLength(0);
     } finally {
       release();
@@ -951,7 +952,7 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
       expect(conv.isBusy()).toBe(false);
       // 终稿照常入账（run 自然收束，非 interrupted）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-r'));
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['慢问题', '[回复 慢问题]']);
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['慢问题', '[回复 慢问题]']);
     } finally {
       release();
       await dispose(fibers);
@@ -1144,11 +1145,9 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
       expect(msgs.filter((m) => m.role === 'user' && m.content === '原任务')).toHaveLength(1);
       // 同 runId 收束恰一次 + resume 标注
       const rows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-f')).rows;
-      // 终稿行恰一份（cr-697 物化段行同 run 在场不计）；段行在账
-      expect(rows.filter((r) => r.agent_id === 'alpha' && r.run === 'run-f1' && r.source === undefined)).toHaveLength(1);
-      expect(rows.some((r) => r.source === 'segment' && r.run === 'run-f1')).toBe(true);
-      const journal = readJournal(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-f'));
-      expect(journal.filter((l) => l.type === 'journal-settled' && l.run === 'run-f1')).toHaveLength(1);
+      // 终稿 message 行恰一份 + run-end 收束标记恰一条（cr-974 v2：无物化段行）
+      expect(rows.filter((r) => r.agent_id === 'alpha' && r.run === 'run-f1' && (r as unknown as Record<string, unknown>).type === 'message')).toHaveLength(1);
+      expect(rows.filter((r) => (r as unknown as Record<string, unknown>).type === 'run-end' && r.run === 'run-f1')).toHaveLength(1);
       expect(injections.some((i) => i.source === 'resume')).toBe(true);
       const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-f', 'inbox');
       expect(fs.existsSync(inboxDir) ? fs.readdirSync(inboxDir) : []).toEqual([]);
@@ -1372,7 +1371,7 @@ describe('cr-712 跨壳投递与完成回执', () => {
       // 本壳只落自己的出站行（对桶 sender 侧投影）——不起 run（修复前
       // 喂本壳 receiveEnvelope：发送方自己跑一轮、对端永远收不到）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'alpha~beta'));
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((r) => r.content)).toEqual(['委托任务']);
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((r) => r.content)).toEqual(['委托任务']);
       expect(rows.some((r) => r.run !== undefined)).toBe(false);
       expect(chatMessages).toEqual([]);
     } finally {
@@ -1456,7 +1455,7 @@ describe('cr-712 跨壳投递与完成回执', () => {
       // 发送方账本多出 g1~alpha 成员流目录 + 群内互答链）
       expect(frames).toEqual([]);
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'g1~alpha'));
-      expect(rows.filter((r) => r.source !== 'segment' && r.source !== 'inject').map((r) => r.content)).toEqual(['群消息', '[回复 群消息]']);
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((r) => r.content)).toEqual(['群消息', '[回复 群消息]']);
     } finally {
       await dispose(fibers);
       await server.close();

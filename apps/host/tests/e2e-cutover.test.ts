@@ -213,7 +213,8 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
           expect(rows.map((r) => r.content)).toEqual(['壳半边全链问', '[mock 回复 壳半边全链问]']);
           // agent 侧账本 = 终稿层投影 + cr-697 物化段行（steps 载体）——对拍过滤
           const arows = readLedger(path.join(targetRoot, 'agents', 'alpha', 'sessions', outcome.uuid)).rows
-            .filter((r) => r.source !== 'segment' && r.source !== 'inject');
+            // cr-974 v2：相位/run-end 行无 role——终稿层只看发言行
+      .filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject');
           expect(arows.map((r) => r.content)).toEqual(rows.map((r) => r.content));
           break;
         }

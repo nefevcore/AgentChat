@@ -95,13 +95,20 @@ export class SessionIndex {
     fs.mkdirSync(path.dirname(dbFile), { recursive: true });
     this.db = new DatabaseSync(dbFile);
     this.db.exec('PRAGMA journal_mode=WAL');
+    // cr-974：records 表增事件列（type/tool_call_id——v2 相位/收束行定位）；
+    // 旧 schema 落库 = 纯缓存过期 → 整库弃重建（files 一并清，refresh 自愈）
+    const cols = (this.db.prepare('PRAGMA table_info(records)').all() as Array<{ name?: unknown }>).map((c) => c.name);
+    if (cols.length > 0 && !cols.includes('type')) {
+      this.db.exec('DROP TABLE IF EXISTS records; DROP TABLE IF EXISTS journal_lines; DROP TABLE IF EXISTS subcalls; DROP TABLE IF EXISTS files;');
+    }
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS files (' +
         'path TEXT PRIMARY KEY, conv TEXT NOT NULL, consumed INTEGER NOT NULL, ' +
         'size INTEGER NOT NULL, mtimeMs REAL NOT NULL); ' +
       'CREATE TABLE IF NOT EXISTS records (' +
         'conv TEXT, domain TEXT, seq INTEGER, byte_offset INTEGER, line_len INTEGER, ' +
-        'role TEXT, agent_id TEXT, run TEXT, request_id TEXT, message_id TEXT, ts TEXT); ' +
+        'role TEXT, agent_id TEXT, run TEXT, request_id TEXT, message_id TEXT, ts TEXT, ' +
+        'type TEXT, tool_call_id TEXT); ' +
       'CREATE INDEX IF NOT EXISTS idx_records_conv_domain ON records(conv, domain); ' +
       'CREATE TABLE IF NOT EXISTS journal_lines (' +
         'conv TEXT, domain TEXT, seq INTEGER, byte_offset INTEGER, line_len INTEGER, ' +
@@ -201,9 +208,9 @@ export class SessionIndex {
     if (kind === 'records') {
       if (row.type === 'session-header') return false; // 头行不是消息行
       this.stmt(
-        'INSERT INTO records (conv, domain, seq, byte_offset, line_len, role, agent_id, run, request_id, message_id, ts) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      ).run(conv, domain, num(row.seq), byteOffset, lineLen, str(row.role), str(row.agent_id), str(row.run), str(row.requestId), str(row.message_id), str(row.timestamp));
+        'INSERT INTO records (conv, domain, seq, byte_offset, line_len, role, agent_id, run, request_id, message_id, ts, type, tool_call_id) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(conv, domain, num(row.seq), byteOffset, lineLen, str(row.role), str(row.agent_id), str(row.run), str(row.requestId), str(row.message_id), str(row.timestamp), str(row.type), str(row.toolCallId));
       return true;
     }
     if (kind === 'journal') {

@@ -43,7 +43,8 @@ function readLedgerRows(agentId: string, uuid: string): Array<{ role: string; co
   try {
     return fs.readFileSync(path.join(ROOT, 'agents', agentId, 'sessions', uuid, 'messages.jsonl'), 'utf-8')
       .split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l))
-      .filter((r) => r.type !== 'session-header' && r.source !== 'segment' && r.source !== 'inject');
+      // cr-974 v2：相位/run-end 行无 role——终稿层只看发言行
+    .filter((r) => r.type !== 'session-header' && r.role !== undefined && r.source !== 'segment' && r.source !== 'inject');
   } catch {
     return [];
   }

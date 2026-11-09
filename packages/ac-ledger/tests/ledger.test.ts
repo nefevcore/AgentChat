@@ -7,6 +7,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
 import { readLedger, readJournal, readSubcalls, replayView, stepsOfRun, stepsOfLedger, trajFromRows, orphanRunsOf, trajectoryOfRun, resumeContextOfRun, UNCOMMITTED_TOOL_ERROR } from '../src/reader.ts';
+import { foldStepsOf } from '../src/fold.ts';
+import { readDomainFacts } from '../src/events-v2.ts';
+import { assembleSessionView } from '../src/view.ts';
 
 const ROOT = path.join('sandbox', 'test-ledger-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -18,6 +21,67 @@ function mk(agentId: string): LedgerWriter {
   const dir = sessionDir(ROOT, agentId, uuid);
   return new LedgerWriter(dir, { participants: [agentId, 'user'], kind: 'user' });
 }
+
+describe('cr-974 v2 写面 → 读回恒等（service 全链：相位/结果/注入/收束）', () => {
+  it('journalStep/tool 结果事件/inject/settleRun 产出的事件日志经 fold 读回与写入语义恒等', async () => {
+    const { Context } = await import('@agentchat/cordis');
+    const { makeLedgerRow } = await import('../src/service.ts');
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'v2rw' }));
+    await fiber;
+    try {
+      const svc = ctx.ledger as unknown as {
+        deliverRow(u: string, p: string[], k: string, row: Record<string, unknown>): Promise<boolean>;
+        journalStep(u: string, run: string, step: unknown): Promise<void>;
+        journalInject(u: string, run: string, content: string, requestId?: string): Promise<void>;
+        settleRun(u: string, p: string[], k: string, row: Record<string, unknown>, runId: string, finish: string): Promise<void>;
+        historyMessagesFor(u: string): Array<{ role: string; content: string; tool_calls?: unknown[] }>;
+      };
+      const uid = 'user~v2rw';
+      await svc.deliverRow(uid, ['v2rw', 'user'], 'user', { role: 'agent', content: '任务', agent_id: 'user', requestId: 'q1', uuid: uid });
+      await svc.journalStep(uid, 'run-1', {
+        index: 0, stepId: 'run-1:0', text: '先想后查', reasoning: '思考', reasoningMs: 900,
+        toolCalls: [{ id: 'c1', name: 'read', arguments: '{}' }], toolResults: [],
+        usage: { prompt: 10, completion: 2 }, elapsedMs: 1500,
+      });
+      ctx.emit('tool/after-execute', { name: 'read', agentId: 'v2rw', conversationId: uid, runId: 'run-1', toolCallId: 'c1' }, { ok: true, output: '内容' }, undefined, 1234);
+      await new Promise((r) => setTimeout(r, 50));
+      await svc.journalInject(uid, 'run-1', '补充要求', 'steer-9');
+      await svc.journalStep(uid, 'run-1', { index: 1, text: '终稿正文', toolCalls: [], toolResults: [] });
+      await svc.settleRun(uid, ['v2rw', 'user'], 'user', {
+        role: 'agent', content: '终稿正文', agent_id: 'v2rw', requestId: 'reply-1', uuid: uid, run: 'run-1', runMs: 3000,
+      }, 'run-1', 'ok');
+      // 单文件事件日志：journal/subcalls 零写入；头行 version:2
+      const dir = sessionDir(ROOT, 'v2rw', uid);
+      expect(readJournal(dir)).toHaveLength(0);
+      expect(fs.existsSync(path.join(dir, 'subcalls.jsonl'))).toBe(false);
+      expect(readLedger(dir).header).toMatchObject({ version: 2 });
+      // LLM 回放（fold）：轨迹 + 注入按事件行序；末步与终稿同文让位
+      expect(svc.historyMessagesFor(uid)).toEqual([
+        { role: 'user', content: '任务' },
+        { role: 'assistant', content: '先想后查', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
+        { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true, output: '内容' }) },
+        { role: 'user', content: '补充要求' },
+        { role: 'assistant', content: '终稿正文' },
+      ]);
+      // webui 视图（fold）：终稿行带 steps（含 reasoning/usage/耗时/相位序）
+      const view = assembleSessionView(ROOT, uid);
+      const final = view.find((r) => r.run === 'run-1' && Array.isArray(r.steps));
+      expect(final).toMatchObject({ role: 'assistant', runMs: 3000 });
+      expect((final!.steps as unknown as Array<Record<string, unknown>>)[0]).toMatchObject({
+        content: '先想后查', reasoning: '思考', reasoningMs: 900, elapsedMs: 1500,
+        usage: { prompt: 10, completion: 2 },
+      });
+      const tc = ((final!.steps as Array<{ toolCalls?: Array<Record<string, unknown>> }>)[0]!.toolCalls)![0]!;
+      expect(tc).toMatchObject({ id: 'c1', name: 'read', result: { ok: true, output: '内容' }, durationMs: 1234 });
+      // user 终稿层（cr-973 投影——v2 message 行同构可读）
+      const { projectUserReplay } = await import('../src/project.ts');
+      expect(projectUserReplay(ROOT, uid).map((r) => r.content)).toEqual(['任务', '终稿正文']);
+    } finally {
+      await fiber.dispose();
+    }
+  });
+});
 
 describe('落账面（A2 落账即确认）', () => {
   it('首建：头行（participants/kind）+ 首行落账 + seq 单调', async () => {
@@ -122,14 +186,18 @@ describe('journal 面', () => {
       // 身份缺席（宿主直调无 runId）不落
       ctx.emit('tool/after-execute', { name: 'read', agentId: 'omega', conversationId: uuid, toolCallId: 'call_x' }, { ok: true });
       await new Promise((r) => setTimeout(r, 50));
-      const j = readJournal(sessionDir(ROOT, 'omega', uuid));
-      const sups = j.filter((l) => l.type === 'journal-tool-result');
+      // cr-974 v2：结果事件行内联 messages.jsonl（journal/subcalls 停写）
+      const dir = sessionDir(ROOT, 'omega', uuid);
+      const rows = readLedger(dir).rows as unknown as Array<Record<string, unknown>>;
+      const sups = rows.filter((r) => r.type === 'step/tool-call-result');
       expect(sups).toHaveLength(3);
       expect(sups[0]).toMatchObject({ run: 'run-t', toolCallId: 'call_a', result: { ok: true, output: { command: 'echo' } } });
       expect(sups[1]).toMatchObject({ run: 'run-t', toolCallId: 'run-t#1', result: { ok: false, error: '路径不存在' } });
       expect(sups[2]).toMatchObject({ run: 'run-t', toolCallId: 'call_a#1', subcall: true, name: 'read', arguments: '{"path":"a.ts"}', result: { ok: true, output: { path: 'a.ts' } } });
-      // 读侧合并：补行覆盖进 steps 投影 + 子调用平铺宿主卡后
-      const p = stepsOfRun(j, 'run-t')!;
+      // 单文件事件日志：journal 零写入
+      expect(readJournal(dir).some((l) => l.run === 'run-t')).toBe(false);
+      // 读侧合并（fold）：结果事件覆盖进 steps 投影 + 子调用平铺宿主卡后
+      const p = foldStepsOf(readDomainFacts(dir, 'omega').runs.get('run-t')!, [])!;
       expect(p.steps[0]!.toolCalls).toEqual([
         { id: 'call_a', name: 'pwsh', arguments: '{}', result: { ok: true, output: { command: 'echo' } } },
         { id: 'call_a#1', name: 'read', arguments: '{"path":"a.ts"}', result: { ok: true, output: { path: 'a.ts' } }, subcall: true },
@@ -163,15 +231,17 @@ describe('cr-772 历史耗时落盘：journal-step 计时字段 + 终稿行 runM
         toolCalls: [], toolResults: [],
         reasoningMs: 1234, elapsedMs: 5678, usage: { prompt: 10, completion: 20 },
       });
-      // journal 投影透传（在途读面）：速率段数据源 + 步身份键
-      const p = stepsOfRun(readJournal(sessionDir(root, 'dur', uid)), 'run-d')!;
+      // fold 投影透传（在途读面）：速率段数据源 + 步身份键——步末计量挂
+      // 步内末相位行（cr-974 v2），归一化还原
+      const dir = sessionDir(root, 'dur', uid);
+      const p = foldStepsOf(readDomainFacts(dir, 'dur').runs.get('run-d')!, [])!;
       expect(p.steps[0]).toMatchObject({ stepId: 'run-d:0', reasoningMs: 1234, elapsedMs: 5678, usage: { prompt: 10, completion: 20 } });
       await svc.settleRun(uid, ['dur', 'user'], 'user', {
         role: 'agent', content: '终稿', agent_id: 'dur', run: 'run-d', runMs: 4242,
       }, 'run-d', 'ok');
-      // 终稿行带 runMs（历史链栏「用时」段持久锚）
-      const rows = readLedger(sessionDir(root, 'dur', uid)).rows;
-      expect(rows.find((r) => r.run === 'run-d' && r.source !== 'segment')).toMatchObject({ runMs: 4242 });
+      // 终稿 message 行带 runMs（历史链栏「用时」段持久锚）
+      const rows = readLedger(dir).rows;
+      expect(rows.find((r) => r.run === 'run-d' && (r as unknown as Record<string, unknown>).type === 'message')).toMatchObject({ runMs: 4242 });
     } finally {
       await fiber.dispose();
     }
@@ -271,7 +341,7 @@ describe('孤儿 run 收口 + 孤儿扫描（cr-628）', () => {
     expect(orphanRunsOf(lines)).toEqual(['runA', 'runC']); // runD 仅补行不算（无步行锚）
   });
 
-  it('recoverOrphanRuns：settleOrphan 收口（段行物化 + journal 剔除 + settled 留档）；幂等', async () => {
+  it('cr-974 D-3 读方配平：未闭合 run 不回写——无 run-end 落盘，fold 投影合成 interrupted（partial）；已收束 run 照常闭合', async () => {
     const { Context } = await import('@agentchat/cordis');
     const { makeLedgerRow } = await import('../src/service.ts');
     const ctx = new Context();
@@ -281,23 +351,24 @@ describe('孤儿 run 收口 + 孤儿扫描（cr-628）', () => {
       const svc = ctx.ledger as unknown as {
         journalStep(uuid: string, run: string, step: unknown): Promise<void>;
         settleMechanismFor(uuid: string, run: string, finish: string): Promise<void>;
-        recoverOrphanRuns(): Promise<number>;
       };
       await svc.journalStep(uuid, 'run-x', { index: 0, text: '死于中途', toolCalls: [], toolResults: [] });
       await svc.journalStep(uuid, 'run-y', { index: 0, text: '已收束', toolCalls: [], toolResults: [] });
       await svc.settleMechanismFor(uuid, 'run-y', 'ok');
-      expect(await svc.recoverOrphanRuns()).toBe(1);
       const dir = sessionDir(ROOT, 'orphan-1', uuid);
-      const j = readJournal(dir);
-      // settled 行留档（usage 计量/终态审计面）；步行已剔除（收束即清）
-      expect(j).toContainEqual(expect.objectContaining({ type: 'journal-settled', run: 'run-x', finish: 'interrupted' }));
-      expect(j.filter((l) => l.type === 'journal-step')).toHaveLength(0);
-      // steps 事实源转物化段行（非 partial——已收束）
-      const seg = stepsOfLedger(readLedger(dir).rows, 'run-x')!;
-      expect(seg.partial).toBe(false);
-      expect(seg.steps[0]).toMatchObject({ content: '死于中途' });
-      // 幂等：二扫零收口
-      expect(await svc.recoverOrphanRuns()).toBe(0);
+      const rows = readLedger(dir).rows as unknown as Array<Record<string, unknown>>;
+      // 未闭合 run 零回写（append-only 不补写——配平是 fold 的职责）；
+      // 已收束 run 有 run-end 标记行
+      expect(rows.some((r) => r.type === 'run-end' && r.run === 'run-x')).toBe(false);
+      expect(rows).toContainEqual(expect.objectContaining({ type: 'run-end', run: 'run-y', finish: 'completed' }));
+      // journal 零写入（v2 单文件事件日志）
+      expect(readJournal(dir)).toHaveLength(0);
+      // fold 配平：run-x 未闭合 → partial（合成 interrupted）；run-y 闭合
+      const facts = readDomainFacts(dir, 'orphan-1');
+      const px = foldStepsOf(facts.runs.get('run-x')!, [])!;
+      expect(px.partial).toBe(true);
+      expect(px.steps[0]).toMatchObject({ content: '死于中途' });
+      expect(foldStepsOf(facts.runs.get('run-y')!, [])!.partial).toBe(false);
     } finally {
       await fiber.dispose();
     }
@@ -446,10 +517,11 @@ describe('settlement 两阶段', () => {
     expect(rows.map((r) => r.source ?? 'final')).toEqual(['segment', 'inject', 'segment', 'final']);
   });
 
-  // cr-713：busy-steer 消息的账本记录 = 注入行（无入站行）——requestId 随
-  // 物化带出（重放判重锚跨 settle 存续）；hasInboundRow 认 journal 台账与
-  // 物化行两窗口；queue→steered 双记录（入站行 + 注入行同文）读侧去重防双喂。
-  it('注入行 requestId 随物化落盘 + hasInboundRow 两窗口 + historyMessagesFor 防双喂', async () => {
+  // cr-713：busy-steer 消息的账本记录 = 注入事件（无入站行）——requestId
+  // 随 inject 事件行带出（重放判重锚跨 settle 存续）；hasInboundRow 认
+  // speech 行与注入事件两窗口（cr-974 v2 归一事实）；queue→steered 双记录
+  //（入站行 + 注入事件同文）读侧去重防双喂。
+  it('注入事件 requestId 落盘 + hasInboundRow 两窗口 + historyMessagesFor 防双喂', async () => {
     const { Context } = await import('@agentchat/cordis');
     const { makeLedgerRow } = await import('../src/service.ts');
     const ctx = new Context();
@@ -464,19 +536,19 @@ describe('settlement 两阶段', () => {
         hasInboundRow(uuid2: string, req: string): boolean;
         historyMessagesFor(uuid2: string): Array<{ content: string }>;
       };
-      // queue→steerQueued 形态：入站行（排队时）+ 注入行（steer 出队）同 requestId
+      // queue→steerQueued 形态：入站行（排队时）+ 注入事件（steer 出队）同 requestId
       await svc.journalStep(uuid, 'runR', { index: 0, text: '步', toolCalls: [], toolResults: [] });
       await svc.deliverRow(uuid, ['delta-req', 'user'], 'user', { role: 'agent', content: '插话', agent_id: 'user', requestId: 'rq-1', uuid });
       await svc.journalInject(uuid, 'runR', '插话', 'rq-1');
-      // 物化前窗口：journal-inject 台账同键判重
+      // 消费点窗口：inject 事件同键判重
       expect(svc.hasInboundRow(uuid, 'rq-1')).toBe(true);
       expect(svc.hasInboundRow(uuid, 'rq-none')).toBe(false);
       await svc.settleRun(uuid, ['delta-req', 'user'], 'user', { role: 'agent', content: '终稿', agent_id: 'delta-req', requestId: 'reply-r', uuid, run: 'runR' }, 'runR', 'ok');
-      const inj = readLedger(sessionDir(ROOT, 'delta-req', uuid)).rows.find((r) => r.source === 'inject')!;
+      // cr-974 v2：注入事件行住 messages.jsonl（requestId 随行，跨 settle 存续）
+      const inj = (readLedger(sessionDir(ROOT, 'delta-req', uuid)).rows as unknown as Array<Record<string, unknown>>).find((r) => r.type === 'inject')!;
       expect(inj.requestId).toBe('rq-1');
-      // journal 收束即清后，物化行仍可判重（重放幂等跨 settle 存续）
       expect(svc.hasInboundRow(uuid, 'rq-1')).toBe(true);
-      // 双记录防双喂：轨迹带注入行一份，入站行文本不再复读
+      // 双记录防双喂：轨迹带注入事件一份，入站行文本不再复读
       expect(svc.historyMessagesFor(uuid).filter((m) => m.content === '插话')).toHaveLength(1);
     } finally {
       await fiber.dispose();
@@ -578,7 +650,7 @@ describe('轨迹读面（cr-658）', () => {
     }
   });
 
-  it('recoverOrphanRuns（孤儿收口）：只补 settled，轨迹经读面可见；二扫零重复', async () => {
+  it('cr-974 D-3：硬死 run 不回写——无终稿行轨迹不进 LLM 回放（run 键锚定），webui 盲区投影可见（partial）', async () => {
     const { Context } = await import('@agentchat/cordis');
     const { makeLedgerRow } = await import('../src/service.ts');
     const ctx = new Context();
@@ -587,16 +659,17 @@ describe('轨迹读面（cr-658）', () => {
     try {
       const svc = ctx.ledger as unknown as {
         journalStep(uuid2: string, run: string, step: unknown): Promise<void>;
-        recoverOrphanRuns(): Promise<number>;
         historyMessagesFor(uuid2: string): Array<{ role: string; content: string }>;
       };
       await svc.journalStep(uuid, 'run-z', { index: 0, text: '硬死前的推理', toolCalls: [], toolResults: [] });
-      expect(await svc.recoverOrphanRuns()).toBe(1);
       // 孤儿 run 无终稿行 = 轨迹不进 historyMessagesFor（无 run 键行锚）——
-      // 上下文可见性归 run 键锚定面（cr-631 补投）；收口幂等 + settled 落盘
-      expect(await svc.recoverOrphanRuns()).toBe(0);
-      const j = readJournal(sessionDir(ROOT, 'traj-4', uuid));
-      expect(j).toContainEqual(expect.objectContaining({ type: 'journal-settled', run: 'run-z', finish: 'interrupted' }));
+      // 上下文可见性归 run 键锚定面；零回写（不再补 settled）
+      expect(svc.historyMessagesFor(uuid).some((m) => m.content === '硬死前的推理')).toBe(false);
+      const rows = readLedger(sessionDir(ROOT, 'traj-4', uuid)).rows as unknown as Array<Record<string, unknown>>;
+      expect(rows.some((r) => r.type === 'run-end' && r.run === 'run-z')).toBe(false);
+      // webui 盲区投影：未闭合 run 配平为 partial（读方配平——显示形态归读面）
+      const blind = assembleSessionView(ROOT, uuid).find((r) => r.run === 'run-z');
+      expect(blind).toMatchObject({ partial: true });
     } finally {
       await fiber.dispose();
     }
@@ -697,7 +770,7 @@ describe('续跑读面（cr-667）', () => {
     expect(traj.at(-1)).toEqual({ role: 'assistant', content: '写到一半' });
   });
 
-  it('recoverOrphanRuns(defer)：defer 命中 run 不补 settled（留给续跑面）；未命中照旧', async () => {
+  it('cr-974：续跑准入不再依赖 defer 仲裁——两未闭合 run 均不回写，resumeStateFor 以「无 run-end」各自准入', async () => {
     const { Context } = await import('@agentchat/cordis');
     const { makeLedgerRow } = await import('../src/service.ts');
     const ctx = new Context();
@@ -706,14 +779,17 @@ describe('续跑读面（cr-667）', () => {
     try {
       const svc = ctx.ledger as unknown as {
         journalStep(uuid: string, run: string, step: unknown): Promise<void>;
-        recoverOrphanRuns(defer?: Set<string>): Promise<number>;
+        resumeStateFor(uuid: string, runId: string): unknown;
       };
       await svc.journalStep(uuid, 'run-keep', { index: 0, text: '在途续跑', toolCalls: [], toolResults: [] });
       await svc.journalStep(uuid, 'run-drop', { index: 0, text: '普通孤儿', toolCalls: [], toolResults: [] });
-      expect(await svc.recoverOrphanRuns(new Set(['keep']))).toBe(1); // 只收口 run-drop
-      const j = readJournal(sessionDir(ROOT, 'resume-1', uuid));
-      expect(j).toContainEqual(expect.objectContaining({ type: 'journal-settled', run: 'run-drop', finish: 'interrupted' }));
-      expect(j).not.toContainEqual(expect.objectContaining({ run: 'run-keep', type: 'journal-settled' }));
+      const rows = readLedger(sessionDir(ROOT, 'resume-1', uuid)).rows as unknown as Array<Record<string, unknown>>;
+      expect(rows.filter((r) => r.type === 'run-end')).toHaveLength(0); // 零收口
+      // 续跑面准入：两 run 均可原地续跑（无 run-end 即准入——defer 仲裁退役）
+      for (const run of ['run-keep', 'run-drop']) {
+        const st = svc.resumeStateFor(uuid, run);
+        expect(typeof st === 'object' && st !== null && 'committedSteps' in (st as Record<string, unknown>)).toBe(true);
+      }
     } finally {
       await fiber.dispose();
     }

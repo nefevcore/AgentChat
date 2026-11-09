@@ -924,25 +924,12 @@ export async function bootShell(
     });
   });
   emit('boot.ready', bootId, transportHint, fingerprint.root);
-  // boot 恢复面（cr-628/629）：①孤儿 run 收口——上代壳死于 mid-run 的
-  // journal 无 settled 标记（读侧恒「真在途」），补 journal-settled
-  // (interrupted)（幂等；主线 recoverJournal 惰性收口同义）。②pending
-  // inbox 重投——已落账未消费的信（排队/steer 落空/安全重启回队）经标准
-  // 收信链续跑（此前 pending inbox 只阻止 idle-exit、无人消费 = 死信）。
-  // fire-and-forget：恢复 run 走正常事件面，不阻塞 boot 返回。
-  const ledgerSvc = ctx.get('ledger', false) as
-    | { recoverOrphanRuns?(defer?: Set<string>): Promise<number>; pendingInboxRequestIds?(): Set<string> }
-    | undefined;
-  if (ledgerSvc?.recoverOrphanRuns !== undefined) {
-    // cr-667（A1 续跑）：inbox 在途信的 run 不补 interrupted settled——留给
-    // ②recoverPendingInbox 续跑分支原地续跑（defer 集在 ①前快照，R2）。
-    const defer = ledgerSvc.pendingInboxRequestIds?.();
-    void ledgerSvc.recoverOrphanRuns(defer).then((n) => {
-      if (n > 0) emit('journal.orphans-settled', String(n));
-    }).catch((err: unknown) => {
-      process.stderr.write('[shell] 孤儿 run 收口失败：' + String(err) + '\n');
-    });
-  }
+  // boot 恢复面（cr-629；cr-974 起孤儿收口退役——D-3 读方配平：上代壳
+  // 死于 mid-run 的未闭合 run 不回写，读侧（fold）合成 run-end(interrupted)
+  // 投影）。pending inbox 重投——已落账未消费的信（排队/steer 落空/安全
+  // 重启回队）经标准收信链续跑（此前 pending inbox 只阻止 idle-exit、
+  // 无人消费 = 死信）。fire-and-forget：恢复 run 走正常事件面，不阻塞
+  // boot 返回。
   const convSvc = ctx.get('conversation', false) as
     | { recoverPendingInbox?(): Promise<number>; reconcileUndelivered?(): Promise<number>; replayAnsweredInteractions?(): Promise<number>; receiveEnvelope?(env: unknown, ack: { fresh: boolean }): Promise<unknown> }
     | undefined;
