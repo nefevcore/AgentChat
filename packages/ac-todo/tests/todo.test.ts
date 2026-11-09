@@ -5,7 +5,7 @@
 // · write 整表全量重写 / read 查看（经 ctx.tools.execute 真注册面）
 // · action 缺省推定（带 todos = write——程序化直传漏 action 实测高频）
 // · 桶隔离（conversationId ?? agentId——桶互不串扰）
-// · 域校验（非数组 / 空条目 / 非法 status / 上限 / in_progress 至多 1 / 缺身份）
+// · 域校验（非数组 / 空条目 / 非法 status / 上限 / 缺身份）
 // · agentStore 落盘形状；卸载级联回收工具
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
@@ -180,14 +180,15 @@ describe('todo 工具 · 域校验与边界', () => {
     expect(r.output?.todos?.[1]).toEqual({ content: '不再做', status: 'cancelled' });
   });
 
-  it('in_progress 超过 1 项 → 报错（at-most-one 代码级强制）', async () => {
+  it('多项 in_progress 并行 → 接受（at-most-one 限制已随 cr-958 退役）', async () => {
     const ctx = await boot();
     const r = await exec(ctx, { action: 'write', todos: [
       { content: '甲', status: 'in_progress' },
       { content: '乙', status: 'in_progress' },
-    ] }, { agentId: 'a1' });
-    expect(r.ok).toBe(false);
-    expect(r.error).toContain('in_progress');
+    ] }, { agentId: 'a1', conversationId: 'c1' });
+    expect(r.ok).toBe(true);
+    const back = await exec(ctx, { action: 'read' }, { agentId: 'a1', conversationId: 'c1' });
+    expect(back.output?.todos?.filter((t) => t.status === 'in_progress').length).toBe(2);
   });
 
   it('超 50 条上限 → 报错', async () => {

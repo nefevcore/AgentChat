@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-957**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-958**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -974,4 +974,5 @@
 - 【cr-955 2026-11-09 死代码全仓审计清理：129 包 6.6 万行经 20 组扫描 + 5 组对抗式复核，269 条候选（confirmed 116、disputed 112、rejected 41），confirmed 约 2461 行按包分批删除，disputed 留档待裁决】
 - 【cr-956 2026-11-09 死代码审计补扫批：32 个未覆盖包（client-ui-* 单文件包 + ac-webui/ac-mcp-core/ac-config 等，含 ac-client-ui-conversation 1.9 万行拆三分）经 6 组扫描 + 3 组对抗式复核，confirmed 24 条按包清理（tags 孤儿链约 620 行、feed-core 活动索引整族、chat-core 死透传、assertDeclarableSlot 滞留防线等）；disputed 154 条留档】
 - 【cr-957 2026-11-09 disputed 第三批处置（用户裁决：仅测试面锁住的删除 其余保留）：16 条纯测试锁定项清理——plugin-core 四导出面收窄/删除（projectLegacyManifest/highRiskSlotsOf/readAudit/installedDocFile）、host-rows 三方法（listAgents/removeEntry/entryKeys/transientConfigOf）、post-office 两面（reachable/inboxDecision）、webui-core 历史读增量面（readLedgerFrom/splitLines/listSessions/readHeaderOnly）、usage.auditFiles、jobs.size、LlmError/classifyLlmHttpStatus 门面收窄；锁定测试同步改写（auditFiles→直读目录、size→list()、增量读→整读）或删用例；约 20 条档案/协议/族约理由的 disputed 保留】
+- 【cr-958 2026-11-09 todo 工具移除 in_progress 至多 1 项限制（at-most-one 校验退役，允许多项并行标记）】
 

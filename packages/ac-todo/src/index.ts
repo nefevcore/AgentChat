@@ -124,8 +124,7 @@ export class TodosService extends Service {
   /**
    * 整表全量重写（DSH todo_write 语义：每次发送完整清单替换旧表）。
    * 校验：数组 ≤ 50 条；content 非空（trim）≤ 1000 字符；status 枚举
-   * （缺省 pending）；in_progress 至多 1 项（Gemini 同款代码级强制——
-   * 同时只做一件事是清单的纪律面）。空数组 = 清单清空。返回归一化后的清单。
+   * （缺省 pending）。空数组 = 清单清空。返回归一化后的清单。
    */
   write(agentId: string, key: string, items: unknown): TodoItem[] {
     this.assertKey(agentId, key);
@@ -144,10 +143,6 @@ export class TodosService extends Service {
       }
       return { content, status: item.status !== undefined ? (item.status as TodoStatus) : 'pending' };
     });
-    const doing = normalized.filter((t) => t.status === 'in_progress').length;
-    if (doing > 1) {
-      throw new Error(`in_progress 同时只能有 1 项（收到 ${doing} 项）——先完成或挪出再标新项`);
-    }
     const store = this.loadStore(agentId);
     store.buckets[key] = { items: normalized, updatedAt: new Date().toISOString() };
     this.saveStore(agentId, store);
@@ -203,7 +198,7 @@ export function apply(ctx: Context) {
   ctx.tools.register({
     name: 'todo',
     description:
-      '管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空；返回计数摘要——查看完整清单用 read）、read 查看。action 缺省按携带面推定：带 todos = write、其余 = read。条目 = { content, status: pending|in_progress|completed|cancelled（缺省 pending；in_progress 至多 1 项；不再相关标 cancelled）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。',
+      '管理工作清单：write 整表全量重写（todos 数组，每次发送完整清单替换旧表；空数组 = 清空；返回计数摘要——查看完整清单用 read）、read 查看。action 缺省按携带面推定：带 todos = write、其余 = read。条目 = { content, status: pending|in_progress|completed|cancelled（缺省 pending；不再相关标 cancelled）}；随做随更——开工标 in_progress、完成即标，不批量补记；跨 run 推进时先 read 对齐当前清单。',
     parameters: {
       type: 'object',
       properties: {
@@ -215,7 +210,7 @@ export function apply(ctx: Context) {
             type: 'object',
             properties: {
               content: { type: 'string', description: '待办内容（祈使句，一条一个动作）' },
-              status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'cancelled'], description: '状态（缺省 pending；in_progress 至多 1 项）' },
+              status: { type: 'string', enum: ['pending', 'in_progress', 'completed', 'cancelled'], description: '状态（缺省 pending）' },
             },
             required: ['content'],
           },
