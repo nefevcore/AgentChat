@@ -224,6 +224,40 @@ describe('superviseShell 常驻监护', () => {
     } finally { h.stop(); }
   });
 
+  it('双源喂活（换代接管 D1）：stdout 静默 + noteProbe 在喂 → 不判死；双源齐断 → 判死强杀', async () => {
+    const clock = new ManualClock();
+    const adopter = new FakeAdopter();
+    const reach = new ReachabilityTable();
+    let killed = false;
+    let pump: (() => void) | null = null;
+    const h = await superviseShell(
+      { agentId: 'a1', dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', reach },
+      {
+        adopt: adopter.fn,
+        now: () => clock.now(),
+        tickIntervalMs: 30_000,
+        tickPump: (onTick) => { pump = onTick; return () => { pump = null; }; },
+      },
+    );
+    adopter.shells[0].kill = () => { killed = true; };
+    try {
+      adopter.shells[0].emitBoot();
+      // stdout 心跳全静默（模拟管道损伤），仅 socket 探测喂活——跨多拍不判死
+      for (let i = 0; i < 5; i++) {
+        clock.advance(30_000);
+        h.noteProbe(); // peek 探测成功（编排面接线等价面）
+        pump!();
+      }
+      expect(h.superviseEvents.some((ev) => ev.type === 'declared-dead')).toBe(false);
+      // 探测也停（双源齐断）→ 3 拍判死 + 强杀
+      clock.advance(30_001); pump!();
+      clock.advance(30_001); pump!();
+      clock.advance(30_001); pump!();
+      expect(h.superviseEvents.some((ev) => ev.type === 'declared-dead' && ev.reason === 'heartbeat-lost')).toBe(true);
+      expect(killed).toBe(true);
+    } finally { h.stop(); }
+  });
+
   it('cr-662 退出现场：shell-exit 编排事件带 signal + stderr 尾行', async () => {
     const clock = new ManualClock();
     const adopter = new FakeAdopter();

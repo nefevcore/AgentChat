@@ -6,11 +6,15 @@
 // supervisor，宿主崩溃时活着的壳是唯一执行者，必须承担常态恢复。
 // 保底 supervisor 仅辖「宿主+壳同死」场景（D5 原裁决不变）。
 //
-// 让路判定（cr-859 §三.1）：system 在场 = 让路（supervisor 是快路——
-// 宿主退出码 42 → 1.5s 重拉）。判定基础从 AGENTCHAT_SUPERVISED env
-// 继承链（第三方重拉壳后失真）升级为**双证据探测**：仓库根 .runtime 锁
-// 内 pid 活 ∧ 数据根心跳文件新鲜（probeSystemAlive）。system 缺席 =
-// 本壳即时承担恢复（§三 恢复边降级语义）。
+// 让路判定（cr-859 §三.1 + 换代接管 D2/cr-968 收紧）：system 在场 = 让路
+//（supervisor 是快路——宿主退出码 42 → 1.5s 重拉）。判定基础从
+// AGENTCHAT_SUPERVISED env 继承链（第三方重拉壳后失真）升级为**双证据
+// 探测**：仓库根 .runtime 锁内 pid 活 ∧ 数据根心跳文件新鲜
+//（probeSystemAlive）。**接管证据升级（D2）**：新宿主接管成功（句柄入池
+// ——host-facts.json adoptedAt 戳 + pid 活）即免除复活职责（新宿主对活壳
+// 心跳判死/收割/重拉全链就位，壳侧复活是多余执行者）；接管证据缺席时维持
+// 宽限窗让路（宽限过 = 快路未兑现，本壳兜底）。system 缺席 = 本壳即时
+// 承担恢复（§三 恢复边降级语义）。
 //
 // 语义（rollback-not-retry 的常态版——普通崩溃拉同版本，快照回退仍只在
 // 自进化失败时由 evolve 链负责）：
@@ -41,6 +45,11 @@ export interface HostReviveDeps {
   probe(): Promise<boolean>;
   /** system 在场（true = 让路——supervisor 快路负责恢复；cr-859 双证据） */
   systemAlive(): boolean;
+  /**
+   * 新宿主接管完成（D2：host-facts adoptedAt 戳 ∧ facts pid 活）——
+   * true = 复活职责免除（新宿主监护全链就位）。缺省 false（无证据 = 旧让路语义）。
+   */
+  hostAdopted?(): boolean;
   /** 停机戳在场（宿主有意停机——stand down） */
   stampPresent(): boolean;
   /** 复活仲裁锁（O_EXCL try——false = 已有壳在拉） */
@@ -127,10 +136,13 @@ export async function tickHostRevive(
     return; // 有意停机——不复活（宿主 boot 清戳后探测面自会恢复）
   }
   const now = deps.now();
-  // system 让路判定（cr-859 §三.1）：在场 = 快路负责恢复，本壳宽限等待；
-  // 缺席（双证据假）= 恢复边降级到本壳，宽限不适用（即时复活）。
+  // system 让路判定（cr-859 §三.1 + D2 收紧）：在场 = 快路负责恢复，本壳
+  // 宽限等待；缺席（双证据假）= 恢复边降级到本壳，宽限不适用（即时复活）。
+  // 接管证据（D2）：新宿主已建接管句柄 = 复活职责免除（宽限语义整体跳过
+  // ——宿主真死则 facts pid 证据翻转，恢复边即时回到本壳）。
   // 每拍现探——system 中途恢复（被拉起）即回到让路语义，中途死亡即时接管。
   if (deps.systemAlive()) {
+    if (deps.hostAdopted?.() === true) return; // 接管完成——新宿主管壳，本壳免复活
     if (now < state.confirmedDownAt + grace) return; // 快路窗口内让路
   }
   if (now < state.nextReviveAt) return;
@@ -217,6 +229,30 @@ export function spawnHostProcess(hostBoot: string, dataRoot: string, hostPort?: 
   fs.closeSync(logFd);
 }
 
+/**
+ * 新宿主接管完成证据（D2）：host-facts.json 的 adoptedAt 戳（宿主接管
+ * 扫描完成时落——监护全链就位）∧ facts pid 活（宿主换代会覆写 facts，
+ * pid 翻死 = 证据失效，恢复边回到壳侧）。纯域可测（fs/时钟真实面）。
+ */
+export function hostAdoptedAlive(dataRoot: string): boolean {
+  let pid: number;
+  try {
+    const facts = JSON.parse(
+      fs.readFileSync(path.join(dataRoot, '.runtime', 'host-facts.json'), 'utf-8'),
+    ) as { pid?: unknown; adoptedAt?: unknown };
+    if (typeof facts.pid !== 'number' || typeof facts.adoptedAt !== 'string' || facts.adoptedAt === '') return false;
+    pid = facts.pid;
+  } catch {
+    return false; // 文件缺席/损坏 = 无证据
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err: unknown) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM'; // 无权限探活 = 宿主进程在
+  }
+}
+
 /** 真实装配：interval 驱动 tickHostRevive；返回停面 + kick（失联旁证
  * 〔stdin EOF〕触发的立即探测——不等下一拍 interval） */
 export function startHostRevive(options: HostReviveJobOptions): { stop(): void; kick(): void } {
@@ -233,6 +269,9 @@ export function startHostRevive(options: HostReviveJobOptions): { stop(): void; 
     // 注入（缺省仓库根 .runtime，见 spawnHostProcess 同族锚定）。
     systemAlive: () => options.systemLockFile !== undefined
       && probeSystemAlive(options.systemLockFile, dataRoot).alive,
+    // 接管证据（D2/cr-968）：facts adoptedAt ∧ pid 活——与新宿主换代接管
+    //（adoptLiveShells 句柄入池）配套，接管成功即免除本壳复活职责。
+    hostAdopted: () => hostAdoptedAlive(dataRoot),
     stampPresent: () => fs.existsSync(hostStampPath(dataRoot)),
     tryLock: () => {
       try {

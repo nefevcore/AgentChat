@@ -109,6 +109,20 @@ export class ShellWarden {
   }
 
   /**
+   * socket 探测喂活（换代接管 D1 双源之二）：poller peek 的 run-state
+   * 探测成功 = 等价心跳（stdout push ping 之外的 pull 源）——任一源在喂
+   * 即判活，双源齐断才跨窗判死（管道损伤与壳假死两类故障由此可区分）。
+   * busy = 在途 run：兼喂活跃时钟（idle 收割面——接管壳无 stdout，idle
+   * 证据只有探测）。
+   */
+  noteProbe(now: number, busy = false): void {
+    if (!this.adopted || this.terminated) return;
+    this.lastHeartbeatAt = now;
+    this.missedBeats = 0;
+    if (busy) this.lastActiveAt = now;
+  }
+
+  /**
    * 时钟节拍（宿主定时器驱动）：心跳丢失判定 + idle 收割决策。
    * 返回 'kill' = 宿主应优雅终止壳。
    */

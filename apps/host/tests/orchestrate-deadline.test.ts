@@ -61,6 +61,68 @@ describe('adoptShell stdout 循环常驻性（cr-580）', () => {
   }, 20_000);
 });
 
+describe('adopt watchdog 独立定时器 + 分级预算（cr-962）', () => {
+  it('壳完全静默（零 stdout 行）→ 到拍即杀——kill 不再寄生在行到达上', async () => {
+    let killed = false;
+    const spawnFn: SpawnFn = () => ({
+      pid: 7777,
+      stdout: {
+        async *[Symbol.asyncIterator]() {
+          // 永不出行（挂死壳——旧实现此形态永不触发 deadline 检查）
+          await new Promise(() => {});
+          yield ''; // unreachable
+        },
+      },
+      write: () => {},
+      on: (event: string, cb: (code: number | null, signal: string | null) => void) => { void event; void cb; },
+      kill: () => { killed = true; },
+    });
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-adopt-silent-'));
+    const t0 = Date.now();
+    try {
+      await expect(adoptShell({
+        agentId: 'a1', dataRoot, catalogFile: 'C', bootFile: 'B',
+        reach: new ReachabilityTable(), spawnFn, timeoutMs: 80,
+      })).rejects.toThrow(/adopt 超时.*已终止拉起中的壳进程/);
+      expect(killed).toBe(true);
+      expect(Date.now() - t0).toBeLessThan(2_000); // 到拍即杀（非等行到达）
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  it('boot.* 节拍间慢但有进度 → 每拍预算重挂，慢启动不误杀', async () => {
+    const spawnFn: SpawnFn = () => ({
+      pid: 7778,
+      stdout: {
+        async *[Symbol.asyncIterator]() {
+          // 每拍间隔 60ms——单拍预算 150ms 内有下一节拍即续命；三拍后 adopted
+          await new Promise((r) => setTimeout(r, 60));
+          yield 'boot.lock.acquired\tb-1';
+          await new Promise((r) => setTimeout(r, 60));
+          yield 'boot.rows.ready\tb-1\t12';
+          await new Promise((r) => setTimeout(r, 60));
+          yield 'boot.ready\tb-1\tpipe-slow';
+          for (;;) await new Promise(() => {});
+        },
+      },
+      write: () => {},
+      on: (event: string, cb: (code: number | null, signal: string | null) => void) => { void event; void cb; },
+      kill: () => {},
+    });
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-adopt-slow-'));
+    try {
+      const adopted = await adoptShell({
+        agentId: 'a1', dataRoot, catalogFile: 'C', bootFile: 'B',
+        reach: new ReachabilityTable(), spawnFn, timeoutMs: 150,
+      });
+      expect(adopted.transportHint).toBe('pipe-slow');
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  }, 10_000);
+});
+
 describe('adopt 超时终止拉起中进程（cr-805 幽灵持锁根修）', () => {
   it('deadline 超时 → kill 子进程 + 拒绝（不留持 activation.lock 的幽灵）', async () => {
     let killed = false;

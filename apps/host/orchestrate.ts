@@ -244,8 +244,15 @@ export async function adoptShell(
     });
   } catch { /* 盘面退化不反噬拉起链 */ }
   const proc = spawnFn(AGENTCHAT_EXE, shellArgs, { onStderrLine: (line) => reportStderr(line) });
-  const timeout = input.timeoutMs ?? 15_000;
-  const deadline = Date.now() + timeout;
+  // 分级预算（cr-962）：首拍 = 进程启动 + 全量模块装载（源码直载形态
+  // 1904 文件/5373 解析——暖态 ~1.3s，待机唤醒冷态实测 40~47s），固定 15s
+  // 把一切慢启动判死（11 天 44 次误杀现场）；后续拍（lock → rows.ready →
+  // boot.ready）纯装配，冷热方差小，维持 15s。timeoutMs 注入（测试）=
+  // 各拍同值。watchdog 独立定时器：检查不再寄生在 stdout 行到达上——壳
+  // 静默期 kill 曾迟到 47s（spawn 07:13:41 → 杀 07:14:28，15s 窗形同虚设）。
+  const budgets = input.timeoutMs !== undefined
+    ? [input.timeoutMs, input.timeoutMs, input.timeoutMs]
+    : [45_000, 15_000, 15_000];
   // agent 配置预置（壳 boot 读 AgentConfig）——编排面确保在场
   // （cr-918：在场探测/写口走 readAgentConfig/writeAgentConfig——patch
   // 主写，config.json 镜像退役）
@@ -298,7 +305,30 @@ export async function adoptShell(
   };
   return new Promise<AdoptResult>((resolve, reject) => {
     let settled = false;
+    // watchdog（cr-962）：到拍即杀（cr-805 反幽灵语义不变——无节拍 = 幽灵
+    // 必杀）；boot.* 节拍每到达一行进下一拍并重挂预算（慢启动 = 有节拍的慢，
+    // 不该死；挂死 = 无节拍，必死）。非 boot 行（业务日志等）不重挂——挂死
+    // 壳吐杂行不该续命。
+    let stage = 0;
+    const killState = { timedOut: false }; // 对象盒：闭包内赋值不受字面量收窄误判
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    const clearWatchdog = (): void => {
+      if (watchdog !== undefined) { clearTimeout(watchdog); watchdog = undefined; }
+    };
+    const armWatchdog = (): void => {
+      clearWatchdog();
+      const budget = budgets[Math.min(stage, budgets.length - 1)]!;
+      watchdog = setTimeout(() => {
+        if (settled) return;
+        killState.timedOut = true;
+        proc.kill();
+        reject(new Error('adopt 超时（第 ' + (stage + 1) + ' 拍预算 ' + budget + 'ms 用尽，无下一节拍）——已终止拉起中的壳进程'));
+      }, budget);
+      watchdog.unref();
+    };
+    armWatchdog();
     proc.on('exit', (code, signal) => {
+      clearWatchdog();
       // 退出现场（cr-662）：code/signal + 时间戳收口进日志；非正常退出
       //（含早退）同步转宿主 stderr——崩溃不再零现场。
       const exitLine = `=== exit code=${code ?? 'null'} signal=${signal ?? ''} at ${new Date().toISOString()} ===`;
@@ -316,17 +346,9 @@ export async function adoptShell(
     });
     void (async () => {
       for await (const line of proc.stdout) {
-        // adopt deadline 只辖拉起窗（cr-580 根因修复：此前 adopted 后仍检查，
-        // 15s 后下一行 stdout 即退出本循环——ctrl.done/心跳行永无人分发，
-        // 控制帧恒 60s 超时、监护面失流。adopted 后循环必须常驻。）
-        // cr-805：超时即杀拉起中进程——壳在 boot 早期已持有 activation.lock，
-        // 留活 = 幽灵持有者（无人监护、单例语义拒绝一切重拉，直到 15min idle
-        // 自杀；冷启 boot 慢场景曾批量产生，与 2s 控制帧轮询叠加成 spawn 风暴）。
-        if (!settled && Date.now() > deadline) {
-          proc.kill();
-          reject(new Error('adopt 超时（' + timeout + 'ms）——已终止拉起中的壳进程'));
-          return;
-        }
+        if (killState.timedOut) return; // watchdog 已杀——行流停读
+        // 拉起窗辖制（cr-580 根因回归锁 + cr-805 反幽灵）由 watchdog 独立承担：
+        // adopted 后循环常驻分发 ctrl 回执/心跳（clearWatchdog 已解除辖制）。
         if (settled) {
           // adopted 后：控制回执行优先拦截（cr-552——管理面往返，不进监护面）
           if (ctrlDispatch(line)) continue;
@@ -334,6 +356,11 @@ export async function adoptShell(
           // 消费已完成，避免双计）
           lineCb?.(line);
           continue;
+        }
+        // boot.* 节拍 = 有进度：进下一拍并重挂预算（cr-962 分级）
+        if (line.startsWith('boot.')) {
+          stage += 1;
+          armWatchdog();
         }
         warden.feedLine(line, Date.now());
         const evts = warden.emitted();
@@ -345,6 +372,7 @@ export async function adoptShell(
             void input.postOffice.flushOutbox().catch(() => { /* 转投失败留箱重试 */ });
           }
           settled = true;
+          clearWatchdog(); // 拉起窗结束——cr-580：adopted 后不再受任何预算辖制
           resolve({
             agentId: input.agentId,
             bootId: adopted.bootId,

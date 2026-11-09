@@ -109,4 +109,47 @@ describe('M8.3 boot 控制帧面', () => {
       await boot.close();
     }
   }, 30_000);
+
+  it('system/shutdown 帧（换代接管）：回执 ok 后触发 onShutdown——与 stdin shutdown 行同语义', async () => {
+    fs.writeFileSync(path.join(ROOT, 'agents', 'kilo', 'config.json'),
+      JSON.stringify({ id: 'kilo', model: 'mock', system: '我是 kilo', tools: { include: ['math'] } }), 'utf-8');
+    let shutdownCalls = 0;
+    const boot = await bootShell(
+      { dataRoot: ROOT, agentId: 'kilo', catalogFile: CATALOG, mockProvider: true },
+      { emit: () => {}, onShutdown: () => { shutdownCalls += 1; } },
+    );
+    const client = new IpcClient();
+    try {
+      await client.connect(boot.transportHint);
+      const reply = await client.request(
+        makeManageRequest('m3', { ctrl: 'system', op: 'shutdown' }),
+        (f) => isManageReply(f, 'm3'),
+      ) as ManageReply;
+      expect(reply.manage.ok).toBe(true);
+      expect(shutdownCalls).toBe(1);
+      // 无 onShutdown 面时 fail-loud（ok:false 可读拒因）
+      fs.mkdirSync(path.join(ROOT, 'agents', 'mini'), { recursive: true });
+      fs.writeFileSync(path.join(ROOT, 'agents', 'mini', 'config.json'), JSON.stringify({ id: 'mini', model: 'mock' }), 'utf-8');
+      const boot2 = await bootShell(
+        { dataRoot: ROOT, agentId: 'mini', catalogFile: CATALOG, mockProvider: true },
+        { emit: () => {} },
+      );
+      try {
+        const c2 = new IpcClient();
+        await c2.connect(boot2.transportHint);
+        const bad = await c2.request(
+          makeManageRequest('m4', { ctrl: 'system', op: 'shutdown' }),
+          (f) => isManageReply(f, 'm4'),
+        ) as ManageReply;
+        expect(bad.manage.ok).toBe(false);
+        expect(bad.manage.error).toContain('system 帧无面');
+        c2.close();
+      } finally {
+        await boot2.close();
+      }
+    } finally {
+      client.close();
+      await boot.close();
+    }
+  }, 30_000);
 });

@@ -351,7 +351,9 @@ export type ControlFrame =
   | { ctrl: 'preview'; what: 'system-prompt'; conversationId?: string }
   | { ctrl: 'preview'; what: 'assembly-tools' }
   /** 壳内管理面（cr-569）：goal / todo 等会话桶状态——宿主 RPC 面的壳内半边 */
-  | AdminFrame;
+  | AdminFrame
+  /** 系统面（换代接管 §4.1）：shutdown = 优雅退出请求（接管宿主经 socket 下发——与 stdin 'shutdown' 行同语义） */
+  | { ctrl: 'system'; op: 'shutdown' };
 
 /**
  * 壳 boot 编排（可测半边——emit/onExit 注入）。锁拒绝/断言失败 = 抛错
@@ -362,6 +364,8 @@ export async function bootShell(
   opts: {
     emit?: (signal: string, ...fields: string[]) => void;
     onExit?: (handler: () => void) => void;
+    /** 优雅退出请求面（换代接管：system/shutdown 帧 → 进程入口 resolve 0） */
+    onShutdown?: () => void;
   } = {},
 ): Promise<ShellBootResult> {
   const emit = opts.emit ?? emitBootSignal;
@@ -610,6 +614,11 @@ export async function bootShell(
   // 控制面（cr-675）：同一个 control() 既服务 stdin 控制帧（拉起方管道），
   // 也服务 transportHint socket 上的 manage 帧——外壳换代后活壳仍可受控。
   const control = async (frame: ControlFrame): Promise<unknown> => {
+    if (frame.ctrl === 'system') {
+      if (opts.onShutdown === undefined) throw new Error('system 帧无面（进程入口未接优雅退出）');
+      opts.onShutdown();
+      return { shutdown: true };
+    }
     if (frame.ctrl === 'admin') return handleAdminFrame(ctx, frame);
     if (frame.ctrl === 'interrupt') {
       const conv = ctx.get('conversation', false) as
@@ -1028,9 +1037,10 @@ export async function bootShell(
   };
 }
 
-/** restart_shell 退出前向宿主发「重拉本壳」请求（cr-648）：宿主换代后活壳
- * 只在可达表不在句柄池，exit 42 无人 respawn → 在途消息滞留 inbox 直到下一条
- * 新消息。宿主收信后在锁释放后按需 ensureAgent；CLI 直连形态（无邮局）跳过。
+/** restart_shell 退出前向宿主发「重拉本壳」请求（cr-648）：接管常态化
+ *（cr-967——宿主恒有活壳句柄）后 warden 快路已接 exit 42，本请求是
+ * 「句柄恰好缺席」边缘的保险面。宿主收信后在锁释放后按需 ensureAgent；
+ * CLI 直连形态（无邮局）跳过。
  * cr-651：请求可能撞宿主换代窗口（restart_host 的 exit 42 与新壳拉起之间）而
  * 丢失——先落盘复活标记（dataRoot/.runtime/restart-shell/<agent>.json），新
  * 宿主 boot 扫标记兜底重拉；宿主收信成功则由钩子删除标记。 */
@@ -1088,7 +1098,13 @@ export async function main(argv: string[]): Promise<number> {
     return 2;
   }
   try {
-    const result = await bootShell(args, { onExit: (h) => process.on('exit', h) });
+    let gracefulExit: (code: number) => void = () => {};
+    const result = await bootShell(args, {
+      onExit: (h) => process.on('exit', h),
+      // system/shutdown 帧（换代接管）：与 stdin 'shutdown' 行同语义——延时
+      // resolve 让 manage 回执先冲出 socket（宿主侧不依赖回执，丢亦无害）。
+      onShutdown: () => { setTimeout(() => gracefulExit(0), 200); },
+    });
     process.stderr.write('[shell] boot 完成：agent=' + args.agentId + ' rows=' + result.rowsReady + '\n');
     // 常驻（监护下的常命壳）：stdin = 控制通道（拉起方行协议）——
     // 'shutdown' 行 = 优雅退出；{"ctrl":...} JSON 行 = 控制帧（interrupt/bench，
@@ -1141,10 +1157,11 @@ export async function main(argv: string[]): Promise<number> {
       : null;
     // 安全重启退出码（cr-629）：conversation/restart-ready → 优雅退出 42
     //（宿主 warden 42 = 有意重启——立即 respawn、不计崩溃熔断）。
-    // cr-648：宿主换代后本壳可能只在可达表、不在宿主句柄池（救援只回登记
-    // 不接管），exit 42 无人 respawn——退出前先向宿主发重拉请求（宿主在
-    // 锁释放后按需拉起），再以 42 退出。
+    // cr-648：退出前先向宿主发重拉请求兜底——换代接管（cr-967）后宿主
+    // 恒有本壳句柄（exit 42 → warden 快路 respawn），此请求仅剩「句柄
+    // 恰好缺席」边缘的保险面。
     const exitCode = await new Promise<number>((resolve) => {
+      gracefulExit = resolve;
       result.ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => {
         void notifyHostRestartShell(args, p.conversationId).finally(() => resolve(42));
       });

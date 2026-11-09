@@ -127,6 +127,39 @@ describe('steer 注入（Service 方法，ADR-1）', () => {
     expect(s2.calls[0].messages.map((m) => m.content)).toContain('等等，还有一件事');
   });
 
+  it('cr-971 消费点事件：steer-consumed 在注入并入下一步请求的边界发出（不在受理时）', async () => {
+    const s1: Script = { calls: [], chunks: () => toolCallChunks('c1', 'probe_tool', '{}') };
+    const s2: Script = { calls: [], chunks: () => textChunks('完成') };
+    const { ctx } = await boot([s1, s2]);
+    const events: Array<{ at: string; requestId?: string }> = [];
+    ctx.on('loop/steer-consumed', (agent, conversationId, handle, consumed) => {
+      expect(agent).toBe('a1');
+      expect(handle).toBe('a1');
+      void conversationId;
+      for (const c of consumed) events.push({ at: 'consumed', requestId: c.requestId });
+    });
+    ctx.tools.register({
+      name: 'probe_tool',
+      execute: () => {
+        // 工具执行中注入（步1 在飞）——受理此刻不发事件
+        const ok = ctx.agentLoop.steer('a1', { role: 'user', content: '插话' }, { requestId: 'req-1' });
+        expect(ok).toBe(true);
+        expect(events).toHaveLength(0); // 受理 ≠ 消费：事件未发
+        return { ok: true };
+      },
+    });
+    const result = await ctx.agentLoop.run({
+      agent: 'a1',
+      model: 'mock-1',
+      messages: USER('开始'),
+      conversationId: 'a1',
+    });
+    expect(result.finish).toBe('stop');
+    // 消费事件恰一次、requestId 随行、时序 = 步2 请求前（注入已在步2 消息里）
+    expect(events).toEqual([{ at: 'consumed', requestId: 'req-1' }]);
+    expect(s2.calls[0].messages.map((m) => m.content)).toContain('插话');
+  });
+
   it('before-run 阶段即可注入（注册先于拦截链）→ 首步消费', async () => {
     const s1: Script = { calls: [], chunks: () => textChunks('ok') };
     const { ctx } = await boot([s1]);

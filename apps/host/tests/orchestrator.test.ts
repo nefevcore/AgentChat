@@ -6,6 +6,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
+import { spawn } from 'node:child_process';
 import { createOrchestrator } from '../orchestrator.ts';
 import type { AdoptedShellFace } from '../supervise.ts';
 import { PostOffice, ReachabilityTable } from 'ac-post-office';
@@ -131,8 +132,8 @@ describe('撞活锁救援（cr-612 D5 边 2 配套；cr-647 前置化）', () =>
   });
 });
 
-describe('换代活壳收复（cr-659）', () => {
-  it('rescueLiveShells：活壳可达登记 + re-tap；死锁/无锁跳过', async () => {
+describe('换代壳完整接管（cr-967——socket-only 句柄入池）', () => {
+  it('adoptLiveShells：活壳句柄入池 + 可达登记 + re-tap；死锁/无锁跳过；不 spawn', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();
     // 活壳 beta（本测试进程 pid）+ 陈锁 gamma + 无锁 delta
@@ -156,7 +157,11 @@ describe('换代活壳收复（cr-659）', () => {
       adopt: async () => { throw new Error('收复面不得 spawn'); },
     });
     try {
-      expect(orch.rescueLiveShells()).toBe(1);
+      expect(await orch.adoptLiveShells()).toBe(1);
+      // 完整接管：句柄在池（非仅可达登记）+ adopted 事件（re-tap 同链）
+      const h = orch.handles().get('beta');
+      expect(h).toBeDefined();
+      expect(h!.superviseEvents.some((ev) => ev.type === 'adopted')).toBe(true);
       expect(reach.hintFor('beta')).toBe('pipe\\\\.\\mock-beta-alive');
       expect(reach.hintFor('gamma')).toBeUndefined();
       expect(reach.hintFor('delta')).toBeUndefined();
@@ -165,6 +170,112 @@ describe('换代活壳收复（cr-659）', () => {
       expect(taps).toEqual([{ agentId: 'beta', hint: 'pipe\\\\.\\mock-beta-alive' }]);
     } finally {
       orch.close();
+    }
+  });
+  it('接管壳控制帧经 socket；探测断供判死 → shutdown 帧不应答 → 点名 pid 强杀 → 常规链重拉', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    // 活壳替身：真 IPC server（答 run-state；system 关停帧不应答 = 挂死壳）+ 真子进程持锁
+    const hint = socketPathFor(path.resolve(ROOT), 'adopt-hung');
+    const frames: Array<Record<string, unknown>> = [];
+    let hung = false; // 翻真 = 挂死壳：连接照收、全部帧不应答（探测超时 = 心跳断供）
+    const server = await listenIpc(hint, (payload) => {
+      if (!isManageRequest(payload)) return undefined;
+      const frame = payload.manage.frame as Record<string, unknown>;
+      frames.push(frame);
+      if (hung) return undefined;
+      return makeManageReply(payload.manage.id, { ok: true, value: { busy: false, runs: [], recentSettled: [] } });
+    });
+    const holder = spawn('node', ['-e', 'setInterval(() => {}, 1 << 30)'], { stdio: 'ignore' });
+    const agentDir = path.join(ROOT, 'agents', 'adopt-hung');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: holder.pid, bootId: 'b-hung', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    let t = 1_000_000;
+    let pump: (() => void) | null = null;
+    const spawned: FakeShell[] = [];
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      manageProbeMs: 300,
+      superviseOptions: {
+        now: () => t,
+        config: { heartbeatIntervalMs: 1_000 },
+        tickIntervalMs: 1_000,
+        respawnDelayMs: 5,
+        tickPump: (onTick) => { pump = onTick; return () => { pump = null; }; },
+      },
+      adopt: async () => { // 判死后的重拉（常规 spawn 链——接管首拉已被 socket-only 面消费）
+        const s = new FakeShell(['boot.ready	b2	mock-respawned']);
+        spawned.push(s);
+        return s;
+      },
+    });
+    try {
+      expect(await orch.adoptLiveShells()).toBe(1);
+      // 控制帧经 socket（接管壳无 stdin 管道）
+      expect(await orch.control('adopt-hung', { ctrl: 'admin', op: 'run-state' })).toEqual({ busy: false, runs: [], recentSettled: [] });
+      // 探测断供（挂死：连接在但不应答）→ 双源齐断（接管壳无 stdout）→ 3 拍判死 → kill
+      hung = true;
+      t += 1_001; pump!(); t += 1_001; pump!(); t += 1_001; pump!();
+      const h = orch.handles().get('adopt-hung')!;
+      expect(h.superviseEvents.some((ev) => ev.type === 'declared-dead' && ev.reason === 'heartbeat-lost')).toBe(true);
+      // kill 链：shutdown 帧已发（不应答）→ 点名锁内 pid 强杀（探活收敛断言）
+      await new Promise((r) => setTimeout(r, 600));
+      expect(frames.some((f) => f.ctrl === 'system' && f.op === 'shutdown')).toBe(true);
+      let holderDead = false;
+      for (let i = 0; i < 30 && !holderDead; i++) {
+        try { process.kill(holder.pid!, 0); await new Promise((r) => setTimeout(r, 100)); }
+        catch { holderDead = true; }
+      }
+      expect(holderDead).toBe(true);
+      // 判死 kill = crash 现场 → respawn 常规链（真 spawn adopter）
+      await new Promise((r) => setTimeout(r, 150));
+      expect(spawned.length).toBe(1);
+    } finally {
+      orch.close();
+      holder.kill();
+      await server.close();
+      await po.close();
+    }
+  }, 20_000);
+
+  it('接管壳 idle 自杀（锁消失）：句柄 exit 0 终结——不重拉（idle 语义不因接管改变）', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const hint = socketPathFor(path.resolve(ROOT), 'adopt-idle');
+    const server = await listenIpc(hint, (payload) => {
+      if (!isManageRequest(payload)) return undefined;
+      return makeManageReply(payload.manage.id, { ok: true, value: { busy: false, runs: [], recentSettled: [] } });
+    });
+    const holder = spawn('node', ['-e', 'setInterval(() => {}, 1 << 30)'], { stdio: 'ignore' });
+    const agentDir = path.join(ROOT, 'agents', 'adopt-idle');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: holder.pid, bootId: 'b-idle', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    let spawned = 0;
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      superviseOptions: { respawnDelayMs: 5 },
+      adopt: async () => { spawned += 1; return new FakeShell([]); },
+    });
+    try {
+      expect(await orch.adoptLiveShells()).toBe(1);
+      // 壳 idle 自杀：停进程 + 放锁（锁文件 = 生命周期投影）
+      holder.kill(); // 先停进程再删锁（避免观察器撞崩溃分支）
+      fs.rmSync(path.join(agentDir, 'activation.lock'), { force: true });
+      await new Promise((r) => setTimeout(r, 3_000)); // 锁观察器缺省 2s 拍
+      const h = orch.handles().get('adopt-idle')!;
+      expect(h.superviseEvents.some((ev) => ev.type === 'shell-exit' && ev.code === 0)).toBe(true);
+      expect(h.superviseEvents.some((ev) => ev.type === 'respawned')).toBe(false); // done——不重拉
+      await new Promise((r) => setTimeout(r, 150));
+      expect(spawned).toBe(0);
+    } finally {
+      orch.close();
+      holder.kill();
+      await server.close();
+      await po.close();
     }
   });
 });
@@ -240,6 +351,7 @@ describe('编排面（orchestrator——按需拉起触发链）', () => {
       expect(orch.spawningIds()).toEqual([]); // 初始无在飞
       const p = orch.ensureAgent('alpha');
       expect(orch.spawningIds()).toEqual(['alpha']); // spawn → boot.ready 窗口在飞
+      await new Promise((r) => setTimeout(r, 0)); // cr-962 并发门：adopt 在并发位取得后构造
       resolveAdopt!(new FakeShell(['boot.ready\tb1\tpipe\\\\.\\mock-3\troot3']));
       await p;
       expect(orch.spawningIds()).toEqual([]); // adopt 完成、句柄池登记——退场
@@ -280,6 +392,143 @@ describe('编排面（orchestrator——按需拉起触发链）', () => {
     }
   });
 });
+describe('拉起链冷启韧性（cr-962：并发门 / 超时补拉 / 冷却窗）', () => {
+  it('并发门：maxConcurrentSpawns=1 → 第二个 agent 排队等先行者 adopt 完成', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    let inFlight = 0;
+    let peak = 0;
+    const gates: Array<(s: FakeShell) => void> = [];
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      maxConcurrentSpawns: 1,
+      adopt: () => new Promise((resolve) => {
+        inFlight += 1; peak = Math.max(peak, inFlight);
+        gates.push((s) => { inFlight -= 1; resolve(s); });
+      }),
+    });
+    try {
+      const p1 = orch.ensureAgent('alpha');
+      const p2 = orch.ensureAgent('beta');
+      await new Promise((r) => setTimeout(r, 30));
+      gates[0]!(new FakeShell(['boot.ready\tb1\tpipe\\.\mock-c1'])); // 放行第一个
+      await p1;
+      await new Promise((r) => setTimeout(r, 10));
+      gates[1]!(new FakeShell(['boot.ready\tb2\tpipe\\.\mock-c2'])); // 第二个才获并发位
+      await p2;
+      expect(peak).toBe(1); // 全程至多 1 只在飞
+    } finally {
+      orch.close();
+      await po.close();
+    }
+  });
+
+  it('adopt 超时补拉：首次超时 → 退避后重拉成功（慢启动 ≠ 死）', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    let attempts = 0;
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      spawnRetries: 2, spawnRetryBaseMs: 10,
+      adopt: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error('adopt 超时（第 1 拍预算 15000ms 用尽，无下一节拍）——已终止拉起中的壳进程');
+        return new FakeShell(['boot.ready\tb1\tpipe\\.\mock-r1']);
+      },
+    });
+    try {
+      const h = await orch.ensureAgent('alpha');
+      expect(h.agentId).toBe('alpha');
+      expect(attempts).toBe(2);
+      expect(orch.handles().has('alpha')).toBe(true);
+    } finally {
+      orch.close();
+      await po.close();
+    }
+  });
+
+  it('非超时失败不补拉；终败后冷却窗内快速失败（零重复 spawn）', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    let attempts = 0;
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      spawnRetries: 2, spawnRetryBaseMs: 5, spawnFailCooldownMs: 60_000,
+      adopt: async () => {
+        attempts += 1;
+        throw new Error('壳进程早退（code=1）——未达 boot.ready');
+      },
+    });
+    try {
+      await expect(orch.ensureAgent('alpha')).rejects.toThrow(/壳进程早退/);
+      expect(attempts).toBe(1); // 锁拒族不补拉
+      await expect(orch.ensureAgent('alpha')).rejects.toThrow(/拉起退避中/);
+      expect(attempts).toBe(1); // 冷却窗内零重复 spawn
+    } finally {
+      orch.close();
+      await po.close();
+    }
+  });
+});
+
+describe('双源喂活接线（换代接管 D1——peek 探测喂池内句柄）', () => {
+  it('stdout 静默 + peek 成功在喂 → 不判死；探测断供 → 双源齐断判死', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const hint = socketPathFor(path.resolve(ROOT), 'probe-alpha');
+    const server = await listenIpc(hint, (payload) => {
+      if (!isManageRequest(payload)) return undefined;
+      return makeManageReply(payload.manage.id, { ok: true, value: { busy: false, runs: [], recentSettled: [] } });
+    });
+    const agentDir = path.join(ROOT, 'agents', 'probe-alpha');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'b-probe', acquiredAt: new Date().toISOString(), transportHint: hint,
+    }), 'utf-8');
+    // 手动时钟 + 同步泵（supervise 惯例）
+    let t = 1_000_000;
+    let pump: (() => void) | null = null;
+    const shells: FakeShell[] = [];
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      superviseOptions: {
+        now: () => t,
+        tickIntervalMs: 30_000,
+        tickPump: (onTick) => { pump = onTick; return () => { pump = null; }; },
+      },
+      adopt: async () => {
+        const s = new FakeShell(['boot.ready	b1	' + hint]);
+        shells.push(s);
+        return s;
+      },
+    });
+    let killed = 0;
+    try {
+      await orch.ensureAgent('probe-alpha');
+      shells[0]!.kill = () => { killed += 1; };
+      shells[0]!.emitBoot(); // adopt 三节拍（无后续 stdout——心跳全静默）
+      // 探测在喂：每周期 peek 成功 → noteProbe 喂活，多拍不判死
+      for (let i = 0; i < 4; i++) {
+        t += 30_001;
+        await orch.peek();
+        pump!();
+        expect(orch.handles().get('probe-alpha')!.superviseEvents.some((ev) => ev.type === 'declared-dead')).toBe(false);
+      }
+      // 探测断供（server 关停 + peek 无数据）：双源齐断 → 3 拍判死 + kill
+      await server.close();
+      t += 30_001; pump!();
+      t += 30_001; pump!();
+      t += 30_001; pump!();
+      const h = orch.handles().get('probe-alpha')!;
+      expect(h.superviseEvents.some((ev) => ev.type === 'declared-dead' && ev.reason === 'heartbeat-lost')).toBe(true);
+      expect(killed).toBe(1);
+    } finally {
+      orch.close();
+      await po.close();
+    }
+  });
+});
+
 describe('控制面通道选择（cr-675——控制点不绑 spawn 所有权）', () => {
   it('池内句柄优先：不打 socket 也不 spawn', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
@@ -334,16 +583,16 @@ describe('控制面通道选择（cr-675——控制点不绑 spawn 所有权）
     }
   });
 
-  it('老壳不认 manage 帧（探针超时）：按 bootId 记一次后降级拉起链', async () => {
+  it('不应答壳（连接照收、帧静默丢）：探针超时 → 控制帧原样上抛，不降级拉起（cr-968 退役黑名单/降级路径）', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();
     const hint = socketPathFor(path.resolve(ROOT), 'gamma');
-    // 老壳形态：连接照收，帧静默丢（无回执）
+    // 不应答形态：连接照收，帧静默丢（无回执）
     const silent = await listenIpc(hint, () => undefined);
     const agentDir = path.join(ROOT, 'agents', 'gamma');
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
-      pid: process.pid, bootId: 'b-old', acquiredAt: new Date().toISOString(), transportHint: hint,
+      pid: process.pid, bootId: 'b-silent', acquiredAt: new Date().toISOString(), transportHint: hint,
     }), 'utf-8');
     let spawned = 0;
     const orch = createOrchestrator({
@@ -352,16 +601,13 @@ describe('控制面通道选择（cr-675——控制点不绑 spawn 所有权）
       adopt: async () => { spawned += 1; return new FakeShell([]); },
     });
     const stderrWrite = process.stderr.write.bind(process.stderr);
-    const notes: string[] = [];
-    process.stderr.write = ((chunk: string) => { notes.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    process.stderr.write = (() => true) as typeof process.stderr.write;
     try {
-      expect(await orch.control('gamma', { ctrl: 'admin', op: 'run-state' })).toEqual({ ok: true });
-      expect(spawned).toBe(1); // 探针超时 → 降级拉起
-      expect(notes.join('')).toContain('活壳 manage 通道不可用');
-      // 同一 bootId 记过一次：第二次直接走拉起链，不再吃探针超时
-      const t0 = Date.now();
-      await orch.control('gamma', { ctrl: 'admin', op: 'run-state' });
-      expect(Date.now() - t0).toBeLessThan(500);
+      await expect(orch.control('gamma', { ctrl: 'admin', op: 'run-state' })).rejects.toThrow(/探活超时|超时/);
+      expect(spawned).toBe(0); // 不降级拉起——锁在必拒，spawn 只会刷早退
+      // 第二次同链：仍走探针（无黑名单记忆——不应答是壳内现场，非通道形态）
+      await expect(orch.control('gamma', { ctrl: 'admin', op: 'run-state' })).rejects.toThrow(/超时/);
+      expect(spawned).toBe(0);
     } finally {
       process.stderr.write = stderrWrite;
       orch.close();
@@ -492,33 +738,6 @@ describe('控制面通道选择（cr-675——控制点不绑 spawn 所有权）
       process.stderr.write = stderrWrite;
       orch.close();
       await server.close();
-      await po.close();
-    }
-  });
-  it('老壳不应答且拉起被锁拒：诊断说清「不认控制帧」而不是「壳进程早退」', async () => {
-    const po = new PostOffice({ dataRoot: ROOT });
-    const reach = new ReachabilityTable();
-    const hint = socketPathFor(path.resolve(ROOT), 'delta');
-    const silent = await listenIpc(hint, () => undefined);
-    const agentDir = path.join(ROOT, 'agents', 'delta');
-    fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
-      pid: process.pid, bootId: 'b-old2', acquiredAt: new Date().toISOString(), transportHint: hint,
-    }), 'utf-8');
-    const orch = createOrchestrator({
-      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
-      manageProbeMs: 60,
-      adopt: async () => { throw new Error('壳进程早退（code=1）——未达 boot.ready'); },
-    });
-    const stderrWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = (() => true) as typeof process.stderr.write;
-    try {
-      await expect(orch.control('delta', { ctrl: 'admin', op: 'run-state' }))
-        .rejects.toThrow(/不认控制帧.*重启该壳后恢复/);
-    } finally {
-      process.stderr.write = stderrWrite;
-      orch.close();
-      await silent.close();
       await po.close();
     }
   });

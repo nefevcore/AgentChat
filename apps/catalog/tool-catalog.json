@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-09T02:07:37.226Z",
+  "generatedAt": "2026-11-09T11:21:00.390Z",
   "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
   "tools": [
     {
@@ -2808,6 +2808,16 @@
         },
         {
           "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "loop/steer-consumed",
+      "listeners": [
+        {
+          "owner": "shell-conversation-row",
           "prepend": false,
           "global": false
         }

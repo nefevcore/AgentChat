@@ -436,6 +436,35 @@ conversation / persona / system-prompt / llm-pool）为第五条；`exclude` 仍
   （档位/模式词换轨结构化 access/toolMode 字段、browser/admin 归 levels；
   requiredTags 门禁退役、授权 = 行装载单闸；存量读侧归一 normalizeLegacyTags；
   tags/catalog RPC 退役、UI 编辑面换结构化三抉择；预设模板与导入换轨同步）。
+- cr-966/967/968（2026-11-09）：〈换代接管〉三批——批1 判死双源喂活
+  （ShellWarden.noteProbe + peek 接线）；批2 socket-only 句柄 + boot 完整接管
+  （takeover.ts / adoptLiveShells 替代 rescueLiveShells）+ 壳侧 system/shutdown
+  帧；批3 让路收紧（host-facts adoptedAt 证据）+ cr-675 黑名单/降级路径退役。
+
+# 〈换代接管〉（2026-11-09 定向，cr-966/967/968 落地）
+
+监护权的载体（spawn stdin/stdout 管道）不可继承——「host 管 shell」只在一代
+宿主内成立。换代后旧链只能降级收复（回登记可达 + re-tap；判死/退避/熔断全缺）
++ 壳侧反向武装 host-revive 让路窗，派生 E1（可达表多写点、双真相源互写）与
+E2（生命周期状态散布五层）两大事故族。断根裁决：**监护改挂 socket manage
+通道**（transportHint 纯函数派生，壳自 listen，不绑管道）——
+
+- 判活双源（D1）：stdout push ping + peek 探测 pull，任一在喂即活，双源齐断
+  才判死（ShellWarden.noteProbe）——管道损伤与壳假死两类故障可区分；
+- socket-only 句柄（§4.1）：接管壳包装成 AdoptedShellFace（takeover.ts），
+  superviseShell 监护链全量复用；kill = socket system/shutdown 帧，不应答
+  按锁内 pid 点名强杀（锁 = 壳自写的 kill 凭证，非进程表扫描）；退出感知 =
+  锁观察器（锁消失 → done 不重拉——idle 自杀语义不因接管改变；锁在 pid 死
+  → crash 重拉）；
+- boot 完整接管（§4.2）：adoptLiveShells() 替代 rescueLiveShells 降级语义
+  ——活壳句柄入池，心跳判死/idle 收割/崩溃感知/按需重拉全链就位；
+- 让路收紧（D2）：system 在场判据升级为「锁内 pid 活 ∧ 新宿主已建接管句柄
+  」（host-facts adoptedAt 戳 + pid 活）——接管成功即免除壳侧复活职责，
+  证据失效回宽限窗语义；host-revive 保留为 supervisor 缺席形态最后兜底；
+- 黑名单退役（D3）：cr-675 老壳黑名单 + 「不认控制帧」降级 spawn 路径删除
+  （本机无存量老壳，2026-11-09 确认）——不应答 = 壳内现场，原样上抛。
+
+设计全文：host-generation-takeover.md。E1/E2 余量在此裁决落地后重估收敛。
 
 # 〈读面搬迁〉（2026-10-31 定向，cr-824 随批一落地）
 

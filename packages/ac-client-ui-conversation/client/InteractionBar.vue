@@ -14,7 +14,7 @@
     计数）；提交绑定当前卡的 interaction_id——顶换窗口内不串卡（作答草稿
     亦按卡 id 保留，切走再回不丢）。 -->
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue';
+import { ref, reactive, computed, watch, onUnmounted } from 'vue';
 import { DockCard, FeedbackNotice, Icon, OptionRow, Tooltip } from '@agentchat/webui-kit';
 import { useChatStore } from './chatStore.ts';
 
@@ -30,13 +30,16 @@ const index = ref(0);
  * 重答且易在错位窗口提交（「后续提问被前面回答直接回复」事故面）。
  */
 const draftsByCard = new Map<string, Array<{ selected: string[]; custom: string; skipped: boolean }>>();
-/** 当前卡的草稿（无草稿时按当前题集现建——形状恒定，渲染读安全） */
+/** 当前卡的草稿（无草稿时按当前题集现建——形状恒定，渲染读安全）。
+ *  草稿必须 reactive：answered/选项选中态/自定义输入框渲染都读草稿字段，
+ *  普通对象改字段不触发依赖更新——answered 恒 false，表现为「填了自定义
+ *  回答仍报请选择一个选项」（cr-960：3d716a72 把 ref 草稿改普通对象引入）。 */
 const drafts = computed(() => {
   const it = interaction.value;
-  const init = (it?.questions ?? []).map(() => ({ selected: [] as string[], custom: '', skipped: false }));
-  if (!it) return init;
+  const init = () => (it?.questions ?? []).map(() => ({ selected: [] as string[], custom: '', skipped: false }));
+  if (!it) return init();
   let d = draftsByCard.get(it.interaction_id);
-  if (!d) { d = init; draftsByCard.set(it.interaction_id, d); }
+  if (!d) { d = reactive(init()); draftsByCard.set(it.interaction_id, d); }
   return d;
 });
 /** 收起态：只留头部条（问题仍可见，作答区折叠不遮挡会话流） */

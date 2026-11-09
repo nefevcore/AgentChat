@@ -46,7 +46,8 @@
     "release:preflight": "node scripts/release-preflight.mjs",
     "build": "pnpm -r build",
     "build:frontend": "pnpm --filter ac-ui-app build",
-    "build:bundle": "node scripts/build-bundle.mjs"
+    "build:bundle": "node scripts/build-bundle.mjs",
+  "build:shell": "node scripts/build-shell-bundle.mjs"
   },
   "devDependencies": {
     "@agentchat/cordis": "workspace:*",

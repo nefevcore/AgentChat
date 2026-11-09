@@ -9,6 +9,10 @@
 //
 // env 显式覆盖（AGENTCHAT_CATALOG/TEMPLATES/STATIC/SHELL_BOOT）优先于
 // 两形态缺省——诊断/定制部署通道。
+//
+// dev 壳 bundle 偏好（cr-961 冷启 IO 治本）：仓库形态下 dist/shell.mjs
+//（pnpm build:shell 产物）在场且指纹新鲜 → 优先于源码直载（1904 文件
+// 装载 → 1 文件）；任何输入源码漂移（mtime/size 对拍失配）→ 回落源码。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -28,6 +32,32 @@ export interface HostAnchors {
   factoryPluginsDir: string | null;
 }
 
+/**
+ * dev 壳 bundle 解析（cr-961）：dist/shell.mjs + 指纹旁车在场且全部输入
+ * mtime/size 对拍一致 → bundle 路径；旁车缺席/失配/任何 stat 失败 → null
+ *（回落源码直载——dev 改码后无需重建即自动回源，产物只在显式
+ * pnpm build:shell 后生效）。enabled 注入面：测试环境恒 false（源码形态
+ * 确定性——与 AGENTCHAT_EXE 的 VITEST 惯例同源）。
+ */
+export function devShellBundle(here: string, enabled: boolean = process.env.VITEST === undefined): string | null {
+  if (!enabled) return null;
+  const repoRoot = path.resolve(here, '../..');
+  const bundle = path.join(repoRoot, 'dist', 'shell.mjs');
+  const sidecar = path.join(repoRoot, 'dist', 'shell.bundle.json');
+  try {
+    if (!fs.existsSync(bundle)) return null;
+    const stamp = JSON.parse(fs.readFileSync(sidecar, 'utf-8')) as { version?: unknown; entries?: unknown };
+    if (stamp.version !== 1 || !Array.isArray(stamp.entries)) return null;
+    for (const e of stamp.entries as Array<[string, number, number]>) {
+      const st = fs.statSync(path.join(repoRoot, e[0]!)); // 失配/缺席 → throw → 回落
+      if (st.mtimeMs !== e[1] || st.size !== e[2]) return null;
+    }
+    return bundle;
+  } catch {
+    return null;
+  }
+}
+
 export function resolveAnchors(here: string): HostAnchors {
   const homeEnv = process.env.AGENTCHAT_HOME;
   const home = homeEnv !== undefined && homeEnv !== '' ? path.resolve(homeEnv) : null;
@@ -40,7 +70,7 @@ export function resolveAnchors(here: string): HostAnchors {
     staticDir: process.env.AGENTCHAT_STATIC
       ?? (home !== null ? path.join(home, 'webui') : path.resolve(here, '../ui/dist')),
     shellBoot: process.env.AGENTCHAT_SHELL_BOOT
-      ?? (home !== null ? path.join(home, 'shell.mjs') : path.resolve(here, '../shell/boot.ts')),
+      ?? (home !== null ? path.join(home, 'shell.mjs') : devShellBundle(here) ?? path.resolve(here, '../shell/boot.ts')),
     factoryPluginsDir: home !== null ? path.join(home, 'plugins') : null,
   };
 }

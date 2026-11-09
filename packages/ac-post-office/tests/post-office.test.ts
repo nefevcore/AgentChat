@@ -297,3 +297,54 @@ describe('cr-885 flushOutbox 失败面', () => {
     await po.close();
   });
 });
+
+// —— cr-962：不可达滞留目标周期补拉 ——
+
+describe('cr-962 flushOutbox 不可达补拉', () => {
+  it('滞留目标无可达项 → flushOutbox 触发 ensureHook（每目标一次）；可达目标不触发', async () => {
+    const ensured: string[] = [];
+    const po = new PostOffice({ dataRoot: ROOT });
+    po.setEnsureHook((target) => { ensured.push(target); });
+    // beta 不可达落箱 ×2（同目标去重）+ user 可达直投（uuid 逐封唯一——登记校验 R-1）
+    let seq = 0;
+    const env = (init: Parameters<typeof msg>[0]) => msg({ uuid: 'u-bp-' + (++seq), ...init });
+    po.registerLocal('user', async (e) => ({ ack: e.requestId, fresh: true }));
+    await po.dispatch(env({ to: 'beta', sender: 'user', requestId: 'r-b1' }));
+    await po.dispatch(env({ to: 'beta', sender: 'user', requestId: 'r-b2' }));
+    const dispatched = await po.dispatch(env({ to: 'user', sender: 'alpha', requestId: 'r-u1' }));
+    expect(dispatched[0]).toMatchObject({ channel: 'local' });
+    expect(ensured).toEqual(['beta', 'beta']); // dispatch 落箱逐封触发（原链——与补拉拍语义分立）
+    ensured.length = 0;
+    await po.flushOutbox(); // beta 仍不可达——补拉再触发；user 可达不触发
+    expect(ensured).toEqual(['beta']);
+    ensured.length = 0;
+    await po.flushOutbox(); // 同拍同目标恒一次（去重）
+    expect(ensured).toEqual(['beta']);
+    await po.close();
+  });
+
+  it('cr-963 回归：转投失败目标抑制窗内不补拉——rescue 形态的 ensureHook 不再与失败摘项振荡刷屏', async () => {
+    const logs: string[] = [];
+    let hookCalls = 0;
+    const po = new PostOffice({ dataRoot: ROOT, onLog: (_l, m) => { logs.push(m); } });
+    // ensureHook 模拟编排面 rescue：锁活 → 回登记可达 + 再冲刷（cr-647 链）
+    const deadHint = socketPathFor(path.resolve(ROOT), 'booting-shell');
+    po.setEnsureHook(() => {
+      hookCalls += 1;
+      po.reach.markReachable('gamma', deadHint);
+      void po.flushOutbox();
+    });
+    // 现场形态：可达表已有 hint（peek/rescue 标记）+ pipe 未 listen（boot 窗口）
+    po.reach.markReachable('gamma', deadHint);
+    await po.dispatch(msg({ to: 'gamma', sender: 'user', requestId: 'r-g1', uuid: 'u-osc-1' }));
+    // dispatch 直投已失败落箱；等振荡窗口（修复前此形态 microtask 级自激）
+    await new Promise((r) => setTimeout(r, 300));
+    await po.flushOutbox();
+    await new Promise((r) => setTimeout(r, 100));
+    // 抑制窗生效：失败后零补拉（hookCalls 只来自 dispatch 落箱拍，flush 拍零新增）
+    expect(hookCalls).toBe(1);
+    expect(logs.length).toBeLessThan(5); // 有界——修复前单秒数百条
+    expect(fs.existsSync(path.join(ROOT, 'outbox'))).toBe(true); // 留箱 at-least-once
+    await po.close();
+  });
+});

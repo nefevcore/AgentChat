@@ -155,7 +155,7 @@ function mergeUsage(
  */
 interface SteerQueue {
 
-  items: Array<{ message: LlmMessage; sender?: string; source?: string }>;
+  items: Array<{ message: LlmMessage; sender?: string; source?: string; requestId?: string }>;
 
   durable: LlmMessage[];
 
@@ -387,13 +387,14 @@ export class AgentLoopService extends Service {
    * @returns false = 该地址无活跃 run 或已收束（sealed——D3：收束判定后
    *          的注入不再受理，调用方回落 next-run）
    */
-  steer(handle: string, message: LlmMessage, meta?: { sender?: string; source?: string }): boolean {
+  steer(handle: string, message: LlmMessage, meta?: { sender?: string; source?: string; requestId?: string }): boolean {
     const queue = this.steerQueues.get(handle);
     if (!queue || queue.sealed) return false;
     queue.items.push({
       message,
       ...(meta?.sender !== undefined ? { sender: meta.sender } : {}),
       ...(meta?.source !== undefined ? { source: meta.source } : {}),
+      ...(meta?.requestId !== undefined ? { requestId: meta.requestId } : {}),
     });
     return true;
   }
@@ -463,7 +464,16 @@ export class AgentLoopService extends Service {
         // run 级驻留注入不在此消费——step() 内 before-step 后本步即取
         // （bade5362 实测：边界消费晚一步可见，模型困惑正文是否在场）
         const steering = steerQueue?.items.splice(0);
-        if (steering && steering.length > 0) messages.push(...steering.map((s) => s.message));
+        if (steering && steering.length > 0) {
+          messages.push(...steering.map((s) => s.message));
+          // 消费点通知（cr-971）：注入行落账面订阅本事件——账本文件序 =
+          // 模型消息序（受理时刻落账比消费点早一步）。agent/conversationId
+          // 缺席（宿主直调）无壳落账面，跳过通知。
+          const address = runAddress(request.agent, request.conversationId);
+          if (address !== undefined) {
+            this.ctx.emit('loop/steer-consumed', request.agent, request.conversationId, address, steering);
+          }
+        }
         const step = await this.step(request, index, messages, specs, steerQueue);
         steps.push(step);
         if (step.usage) usage = mergeUsage(usage, step.usage, step.elapsedMs);

@@ -56,6 +56,14 @@ export class PostOffice {
   private readonly multicast: MulticastTable | undefined;
   /** 诊断日志面（cr-885：转投/出箱失败此前全静默——盘上无痕，滞留排查只能物证反推） */
   private readonly onLog: ((level: 'W' | 'E', message: string) => void) | undefined;
+  /**
+   * 补拉抑制窗（cr-963）：转投失败的目标 10s 内不再触发补拉。补拉会经
+   * rescue 面（锁活 → markReachable + flushOutbox）与转投失败摘项（cr-885）
+   * 在壳 boot 窗口（锁已持、ipc 未 listen）形成 microtask 级振荡——现场：
+   * 宿主重启后三壳齐发，单秒 600+ 条「转投失败」W 刷屏。抑制纯时间窗：
+   * 真死壳的补拉由不可达拍（无 hint、无失败记录）照常承载，不受影响。
+   */
+  private readonly ensureSuppressedUntil = new Map<string, number>();
   private readonly locals = new Map<string, LocalReceiver>();
   private readonly pool = new Map<string, IpcClient>();
   private ensureHook: ((target: RouteTarget) => void) | undefined;
@@ -174,9 +182,30 @@ export class PostOffice {
         this.outbox.remove(entry.seq, entry.envelope.requestId);
         delivered.push({ entry, ack });
       } catch (err) {
+        // 补拉抑制（cr-963）：刚撞死的目标短期不再补拉——见字段注释的振荡现场
+        this.ensureSuppressedUntil.set(entry.envelope.to, Date.now() + 10_000);
         if (!transportHint.startsWith(LOCAL_PREFIX)) this.reach.markGone(entry.envelope.to);
         this.onLog?.('W', 'outbox 转投失败（' + entry.envelope.requestId + ' → ' + entry.envelope.to
           + '，已摘可达项，留箱待通道恢复）：' + String(err instanceof Error ? err.message : err));
+      }
+    }
+    // 不可达滞留目标补拉（cr-962 恢复面）：flush 此前只转投可达表命中项，
+    // 不可达目标静默跳过——adopt 失败后滞留信只能等下一封新信重触发（现场：
+    // 冷启超时被杀后 news 滞留整整一个 cron 拍）。dispatch 的 ensureHook 语义
+    // 在此复用：fire-and-forget 拉起（编排面在飞去重/冷却窗自防风暴），
+    // 留箱 at-least-once 不变。
+    if (this.ensureHook !== undefined) {
+      const ensured = new Set<string>();
+      for (const entry of this.outbox.list()) {
+        const to = entry.envelope.to;
+        if (ensured.has(to) || this.reach.hintFor(to) !== undefined) continue;
+        const suppressedUntil = this.ensureSuppressedUntil.get(to);
+        if (suppressedUntil !== undefined) {
+          if (Date.now() < suppressedUntil) continue; // cr-963：抑制窗内不补拉（防 boot 窗口振荡）
+          this.ensureSuppressedUntil.delete(to);
+        }
+        ensured.add(to);
+        try { this.ensureHook(to); } catch { /* 拉起拒绝不阻塞冲刷 */ }
       }
     }
     return delivered;

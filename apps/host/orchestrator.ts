@@ -20,6 +20,7 @@ import { isManageReply, makeManageRequest, type ManageReply } from 'ac-envelope-
 import { adoptShell, appendRollingLine } from './orchestrate.ts';
 import { hostLog } from './host-log.ts';
 import { superviseShell, type SuperviseHandle, type SuperviseSpawnInput, type SuperviseAdopter, type RunbeatSink } from './supervise.ts';
+import { adoptSocketShell } from './takeover.ts';
 
 /** 编排面装配入参 */
 export interface OrchestratorOptions {
@@ -40,12 +41,24 @@ export interface OrchestratorOptions {
   adopt?: SuperviseAdopter;
   /** supervise 面板注入（测试——退避档/心跳） */
   superviseOptions?: Omit<Partial<import('./supervise.ts').SuperviseOptions>, 'adopt'>;
-  /** socket manage 探活超时（缺省 4s——老壳不认 manage 帧时快速降级拉起链） */
+  /** socket manage 探活超时（缺省 4s） */
   manageProbeMs?: number;
   /** boot 窗口等待（缺省 15s——锁已持有而 ipc 未 listen 的 connect 失败在此窗内重试，cr-681） */
   manageBootWaitMs?: number;
   /** socket manage 控制帧超时（缺省 60s——与 adoptShell.control 同档） */
   manageFrameMs?: number;
+  /**
+   * 拉起并发门（cr-962）：同时在飞的 spawn·adopt ≤ 此值（缺省 2）。冷态下
+   * N 只壳并发 spawn 互拖 N 倍单只延迟（共享页缓存/AV 队列/磁盘——五 agent
+   * 同秒超时现场）；超出的 ensureAgent 排队，串行化让后来者搭先行者预热车。
+   */
+  maxConcurrentSpawns?: number;
+  /** adopt 超时补拉次数（缺省 2——慢启动 ≠ 死，指数退避基数 spawnRetryBaseMs） */
+  spawnRetries?: number;
+  /** 补拉退避基数 ms（缺省 3s，翻倍递增；补拉间隔不占并发位） */
+  spawnRetryBaseMs?: number;
+  /** 拉起终败冷却窗 ms（缺省 60s——窗内按需拉起快速失败，防周期补拉成 spawn 风暴） */
+  spawnFailCooldownMs?: number;
   /**
    * run 节拍落盘面（cr-740 运维日志；缺省 = 滚动落
    * dataRoot/.runtime/logs/runbeat-<agent>.log，cap 512KB——shell-<agent>.log
@@ -68,8 +81,12 @@ export type ReconcileEvent =
 export interface OrchestratorHandle {
   /** 按需拉起（幂等——首次真拉起，后续复用句柄） */
   ensureAgent(agentId: string): Promise<SuperviseHandle>;
-  /** 宿主换代后活壳收复（cr-659）：可达登记 + 旁带流 re-tap，返回收复数 */
-  rescueLiveShells(): number;
+  /**
+   * 宿主换代后活壳完整接管（cr-967，替代 cr-659 降级收复）：盘上活锁壳建
+   * socket-only 句柄入池（心跳判死/idle 收割/崩溃感知/按需重拉全链就位），
+   * 返回接管数。可达登记 + re-tap 走 ensureAgent adopted 同链。
+   */
+  adoptLiveShells(): Promise<number>;
   /**
    * 控制帧往返（控制面统一入口）：句柄池活壳 → 盘上活锁壳（socket manage 通道）
    * → 按需拉起。控制面不绑拉起所有权——宿主换代后活壳（stdin 管道已随旧宿主
@@ -132,7 +149,52 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     mockProvider: options.mockProvider ?? false,
   });
 
-  const adopter: SuperviseAdopter = options.adopt ?? ((input) => adoptShell(input));
+  const baseAdopter: SuperviseAdopter = options.adopt ?? ((input) => adoptShell(input));
+  // 换代接管首拉面（cr-967）：adoptLiveShells 预登记的活锁壳首次 adopt 返回
+  // socket-only 句柄（无 spawn）；后续 respawn 走常规 spawn 链（kill 后锁已
+  // 自然释放，ensureAgent 语义不变）。
+  const takeoverLocks = new Map<string, { bootId: string; pid: number; hint: string }>();
+  const adopter: SuperviseAdopter = async (input) => {
+    const lock = takeoverLocks.get(input.agentId);
+    if (lock !== undefined) {
+      takeoverLocks.delete(input.agentId);
+      return adoptSocketShell(
+        { agentId: input.agentId, bootId: lock.bootId, pid: lock.pid, hint: lock.hint },
+        {
+          agentDir: path.join(options.dataRoot, 'agents', input.agentId),
+          manageCall: (hint, frame, ms) => manageCall(hint, frame, ms),
+          manageProbeMs,
+          manageFrameMs,
+        },
+      );
+    }
+    return baseAdopter(input);
+  };
+
+  // 拉起并发门 + 失败冷却（cr-962 冷启韧性）：并发门消群体冷启互拖；冷却窗
+  // 承接 supervise 侧 adoptFailedUntil 的防风暴职责（superviseShell 实例随
+  // 拉起失败丢弃，其退避门随之蒸发——per-agent 冷却归编排面自持）。
+  const maxConcurrent = options.maxConcurrentSpawns ?? 2;
+  const spawnRetries = options.spawnRetries ?? 2;
+  const spawnRetryBaseMs = options.spawnRetryBaseMs ?? 3_000;
+  const spawnFailCooldownMs = options.spawnFailCooldownMs ?? 60_000;
+  let spawningCount = 0;
+  const spawnWaiters: Array<() => void> = [];
+  const releaseSpawnSlot = (): void => {
+    spawningCount -= 1;
+    const next = spawnWaiters.shift();
+    if (next !== undefined) next();
+  };
+  const acquireSpawnSlot = (): Promise<() => void> => {
+    if (spawningCount < maxConcurrent) {
+      spawningCount += 1;
+      return Promise.resolve(releaseSpawnSlot);
+    }
+    return new Promise((resolve) => {
+      spawnWaiters.push(() => { spawningCount += 1; resolve(releaseSpawnSlot); });
+    });
+  };
+  const spawnCooldownUntil = new Map<string, number>();
 
   // 在飞去重（cr-663 单一仲裁）：并发触发面（ensureHook / restart_shell 信封
   // 钩子 / boot 标记扫）共享同一次拉起——句柄池在 adopt 完成才登记，此前同
@@ -144,22 +206,49 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       await existing.restart(); // 幂等：死态重拉 / 活态复用
       return existing;
     }
+    // 冷却窗（cr-962）：adopt 终败后的快速失败——周期补拉（poller flushOutbox）
+    // 与控制面轮询在窗内零重复 spawn。
+    const blockedUntil = spawnCooldownUntil.get(agentId);
+    if (blockedUntil !== undefined && Date.now() < blockedUntil) {
+      throw new Error('拉起退避中（adopt 刚失败，' + (blockedUntil - Date.now()) + 'ms 后放开）');
+    }
     const pending = inflight.get(agentId);
     if (pending !== undefined) return pending;
+    const maxAttempts = 1 + spawnRetries;
     const start = (async () => {
-      const handle = await superviseShell(spawnInputOf(agentId), {
-        adopt: adopter,
-        ...options.superviseOptions,
-        ...{ onPluginLoadFailure: options.superviseOptions?.onPluginLoadFailure },
-        ...{ onRunbeat: options.superviseOptions?.onRunbeat ?? runbeatSinkOf(agentId) },
-      });
-      if (options.tap !== undefined) {
-        handle.onAdopted((hint) => { void options.tap!(agentId, hint); });
-        const hint = handle.superviseEvents.find((e) => e.type === 'adopted')?.transportHint;
-        if (hint !== undefined) await options.tap(agentId, hint);
+      for (let attempt = 1; ; attempt++) {
+        // 补拉间隔不占并发位（等待期放行其它 agent 的拉起）
+        if (attempt > 1) await sleep(spawnRetryBaseMs * 2 ** (attempt - 2));
+        const release = await acquireSpawnSlot();
+        let handle: SuperviseHandle;
+        try {
+          handle = await superviseShell(spawnInputOf(agentId), {
+            adopt: adopter,
+            ...options.superviseOptions,
+            ...{ onPluginLoadFailure: options.superviseOptions?.onPluginLoadFailure },
+            ...{ onRunbeat: options.superviseOptions?.onRunbeat ?? runbeatSinkOf(agentId) },
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // 只补拉冷启超时族（慢 ≠ 死）；锁拒/熔断/退避重试无意义，原样上抛
+          if (attempt < maxAttempts && msg.includes('adopt 超时')) {
+            hostLog('W', 'orchestrator', `ensureAgent(${agentId}) adopt 超时——冷启补拉（第 ${attempt}/${spawnRetries} 次）`);
+            continue;
+          }
+          spawnCooldownUntil.set(agentId, Date.now() + spawnFailCooldownMs);
+          throw err;
+        } finally {
+          release();
+        }
+        spawnCooldownUntil.delete(agentId);
+        if (options.tap !== undefined) {
+          handle.onAdopted((hint) => { void options.tap!(agentId, hint); });
+          const hint = handle.superviseEvents.find((e) => e.type === 'adopted')?.transportHint;
+          if (hint !== undefined) await options.tap(agentId, hint);
+        }
+        handles.set(agentId, handle);
+        return handle;
       }
-      handles.set(agentId, handle);
-      return handle;
     })();
     inflight.set(agentId, start);
     try {
@@ -176,15 +265,15 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
   const reach = options.reach ?? options.postOffice.reach;
 
   // 撞活锁探活（cr-612 D5 边 2 / cr-659 共用依据）：读 activation.lock，
-  // holder 活着返回其 transportHint；死锁/缺席 = null。
-  const liveShellLockOf = (agentId: string): { bootId: string; hint: string } | null => {
+  // holder 活着返回其 pid + transportHint；死锁/缺席 = null。
+  const liveShellLockOf = (agentId: string): { bootId: string; pid: number; hint: string } | null => {
     try {
       const info = JSON.parse(
         fs.readFileSync(path.join(options.dataRoot, 'agents', agentId, 'activation.lock'), 'utf-8'),
       ) as { pid: number; bootId?: unknown; transportHint: string };
       if (typeof info.pid !== 'number' || typeof info.transportHint !== 'string') return null;
       process.kill(info.pid, 0); // ESRCH = holder 已死（陈锁）
-      return { bootId: typeof info.bootId === 'string' ? info.bootId : String(info.pid), hint: info.transportHint };
+      return { bootId: typeof info.bootId === 'string' ? info.bootId : String(info.pid), pid: info.pid, hint: info.transportHint };
     } catch {
       return null;
     }
@@ -193,8 +282,9 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
 
   // 撞活锁救援（cr-612 D5 边 2 配套）：宿主被壳复活后可达表空白，旧壳
   // 持 activation.lock 使 adopt 必拒（单例语义）——救援 = 探活 holder
-  // pid，活着即按锁内 transportHint 回登记可达（消息路径立即恢复；监护面
-  // 降级——idle-exit 收割旧壳后下次拉起回完整 adopt 链）。
+  // pid，活着即按锁内 transportHint 回登记可达（消息路径立即恢复）。监护
+  // 接管的主面 = boot adoptLiveShells（cr-967）；此处只兜 boot 后新出现
+  // 的盘上活锁（消息路径前置探活，不 spawn）。
   const rescueReachableFromLock = (agentId: string): boolean => {
     const hint = liveShellHintOf(agentId);
     if (hint === null) return false;
@@ -202,28 +292,33 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     return true;
   };
 
-  // 宿主换代后活壳收复（cr-659）：restart_host 后新宿主可达表/旁带流
-  // 订阅双空白——re-tap 只挂在 adopted 事件上，活壳（持锁、无 adopt）永不
-  // 触发 → webui 断连重连后直播帧（llm delta / run-settled / queue）恒断供，
-  // 直到该壳恰好重启。boot 扫 agents/*/activation.lock 探活：活壳回登记
-  // 可达 + 旁带流 re-tap（帧面在换代后立即恢复，不依赖下一封信触发
-  // ensureHook）。监护面维持降级语义（完整 adopt 链归下次拉起）。
-  const rescueLiveShells = (): number => {
+  // 宿主换代后活壳完整接管（cr-967，替代 cr-659 降级收复）：boot 扫
+  // agents/*/activation.lock 探活——活壳建 socket-only 句柄入池（adopted
+  // 同链触发可达登记 + re-tap + outbox 冲刷），心跳判死/idle 收割/崩溃
+  // 感知/按需重拉全链就位；在途 run 的收束对账沿用 cr-748 peek 面。
+  // 首次探测失败（壳恰在退出）由锁观察器以 exit 0 终结句柄——idle 自杀
+  // 语义不因接管而改变（§4.2.4）。
+  const adoptLiveShells = async (): Promise<number> => {
     let agentIds: string[] = [];
     try { agentIds = fs.readdirSync(path.join(options.dataRoot, 'agents')); } catch { return 0; }
-    let rescued = 0;
+    let adopted = 0;
     for (const agentId of agentIds) {
-      const hint = liveShellHintOf(agentId);
-      if (hint === null) continue;
-      reach.markReachable(agentId, hint);
-      if (options.tap !== undefined) {
-        void options.tap(agentId, hint).catch((err: unknown) => {
-          hostLog('E', 'orchestrator', '活壳 re-tap 失败（' + agentId + '）：' + String(err));
-        });
+      if (handles.has(agentId) || inflight.has(agentId)) continue; // 幂等——已在监护/在飞
+      const lock = liveShellLockOf(agentId);
+      if (lock === null) continue; // 无锁/陈锁——归按需拉起链
+      takeoverLocks.set(agentId, { bootId: lock.bootId, pid: lock.pid, hint: lock.hint });
+      try {
+        await ensureAgent(agentId);
+        // 可达恢复 = 通道恢复（cr-885 同语义）：登记 + 滞留信即刻冲刷
+        reach.markReachable(agentId, lock.hint);
+        void options.postOffice.flushOutbox().catch(() => { /* 转投失败留箱重试 */ });
+        adopted += 1;
+      } catch (err) {
+        takeoverLocks.delete(agentId);
+        hostLog('W', 'orchestrator', '活壳接管失败（' + agentId + '）：' + String(err));
       }
-      rescued += 1;
     }
-    return rescued;
+    return adopted;
   };
 
   // —— 控制面（cr-675）：socket manage 通道 ——
@@ -236,13 +331,9 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
   const manageFrameMs = options.manageFrameMs ?? 60_000;
   // 壳 boot 窗口（cr-681）：activation 锁在壳 boot 早期取得，ipc listen 在
   // 整段行集装载之后——两事件之间的探针 connect 必 ENOENT。这是窗口内
-  // 常态而非「老壳不认帧」：传输层失败按 holder 探活重试等窗口（cr-675
-  // 的黑名单 + spawn 降级只保留给「连上了但不应答」的真老壳——锁还在时
-  // spawn 必被单例语义拒绝，只会刷屏 + 管理面全挂）。
+  // 常态而非故障：传输层失败按 holder 探活重试等窗口（锁还在时 spawn 必被
+  // 单例语义拒绝，只会刷屏 + 管理面全挂）。
   const manageBootWaitMs = options.manageBootWaitMs ?? 15_000;
-  // 老壳（改动前装载的进程）不认 manage 帧——入站分流无此分支，帧被静默丢。
-  // 探针失败按 bootId 记一次：该壳生命周期内后续调用直接走拉起链，不吃二次超时。
-  const manageUnsupported = new Set<string>();
 
   /** 窗口耗尽（holder 活着但 ipc 一直没起来）——不黑名单（boot 慢≠不支持）、不 spawn（锁在必拒） */
   class ManageChannelUnreachable extends Error {}
@@ -287,7 +378,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     return ids.filter((id) => liveShellLockOf(id) !== null);
   };
 
-  /** 活壳探针（cr-681 含 boot 窗口重试）。返回 alive=false = 探针期间 holder 已死（拉起链正当）；回执超时原样上抛（真老壳——cr-675 黑名单路径）；窗口耗尽抛 ManageChannelUnreachable。 */
+  /** 活壳探针（cr-681 含 boot 窗口重试）。返回 alive=false = 探针期间 holder 已死（拉起链正当）；回执超时原样上抛（壳不应答现场）；窗口耗尽抛 ManageChannelUnreachable。 */
   const probeLiveShell = async (agentId: string, lock0: { bootId: string; hint: string }): Promise<{ alive: boolean; hint: string }> => {
     let lock = lock0;
     const deadline = Date.now() + manageBootWaitMs;
@@ -298,7 +389,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
         await manageCall(lock.hint, { ctrl: 'admin', op: 'run-state' }, manageProbeMs);
         return { alive: true, hint: lock.hint };
       } catch (err) {
-        if (!isTransportError(err)) throw err; // 回执超时/壳侧错误 → 老壳路径
+        if (!isTransportError(err)) throw err; // 回执超时/壳侧错误 → 壳不应答现场（上抛）
         const fresh = liveShellLockOf(agentId);
         if (fresh === null) return { alive: false, hint: lock.hint }; // holder 已死/锁消失
         if (fresh.bootId !== lock.bootId) { lock = fresh; continue; } // 壳换代——追新锁
@@ -336,6 +427,10 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
           | { busy?: unknown; runs?: unknown; recentSettled?: unknown }
           | null
           | undefined;
+        // 双源喂活（换代接管 D1）：探测成功 = 第二心跳源喂池内句柄——
+        // spawn 壳管道损伤但循环健康不再误杀；接管壳唯一心跳源。busy 兼喂
+        // 活跃时钟（接管壳 idle 证据）。
+        handles.get(agentId)?.noteProbe(st?.busy === true);
         out.set(agentId, {
           bootId: lock.bootId,
           busy: st?.busy === true,
@@ -360,7 +455,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
             : [],
         });
       } catch {
-        // 探测失败（boot 窗口/老壳/退出中）——本拍无数据，不拉起
+        // 探测失败（boot 窗口/退出中）——本拍无数据，不拉起
       }
     }
     return out;
@@ -396,25 +491,18 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       }
     }
     const lock = liveShellLockOf(agentId);
-    if (lock !== null && !manageUnsupported.has(lock.bootId)) {
+    if (lock !== null) {
       try {
         const probe = await probeLiveShell(agentId, lock);
         if (probe.alive) return await manageCall(probe.hint, frame, manageFrameMs);
         // holder 探针期间死了——锁已放，拉起链正当（落到下方共尾）。
       } catch (err) {
-        if (err instanceof ManageChannelUnreachable) throw err; // 不黑名单（boot 慢≠不支持）、不 spawn（锁在必拒）
-        manageUnsupported.add(lock.bootId);
-        hostLog('W', 'orchestrator', '活壳 manage 通道不可用（' + agentId + '，bootId=' + lock.bootId + '）：' + String(err));
-        // 降级拉起（壳可能恰在此刻退出——那时新壳拿锁正当）。拉不起 = 锁 holder
-        // 还在跑却不应答控制帧（多为改动前装载的老壳）——把诊断说清楚，别让
-        // 用户看到「壳进程早退 code=1」以为平台坏了。
-        try {
-          const handle = await ensureAgent(agentId);
-          return handle.control(frame);
-        } catch (spawnErr) {
-          const msg = spawnErr instanceof Error ? spawnErr.message : String(spawnErr);
-          throw new Error('活壳 ' + agentId + ' 不认控制帧（多为改动前装载的壳）且新壳被单例锁拒：' + msg + ' —— 重启该壳后恢复（cr-675）');
-        }
+        if (err instanceof ManageChannelUnreachable) throw err; // 窗口耗尽——不 spawn（锁在必拒）
+        // 探针通过但帧不应答 / 壳侧拒因 = 壳内现场——原样上抛。不降级拉起：
+        // 锁还在时 spawn 必被单例语义拒（cr-675 老壳黑名单/降级路径已退役
+        // ——本机已无存量老壳，2026-11-09 确认，换代接管 cr-967/968）。
+        hostLog('W', 'orchestrator', '活壳控制帧失败（' + agentId + '，bootId=' + lock.bootId + '）：' + String(err));
+        throw err;
       }
     }
     const handle = await ensureAgent(agentId);
@@ -444,7 +532,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     liveShellIds,
     peek,
     spawningIds,
-    rescueLiveShells,
+    adoptLiveShells,
     handles: () => handles,
     ensureHook,
     close() {

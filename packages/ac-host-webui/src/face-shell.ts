@@ -425,6 +425,22 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
           });
           continue;
         }
+        // cr-959：context 直落行（memory/skill 等——source 非 event/error 机制词）
+        // 与主投影 assembleSessionView 同判据投注入卡（此前只认 inject 行——
+        // memory-snapshot/delta 直落行在子会话视图整类缺席）。
+        if (r.role === 'context' && r.source !== undefined && r.source !== 'event' && r.source !== 'error') {
+          all.push({
+            role: 'context',
+            content: r.content,
+            source: r.source,
+            label: r.label ?? r.source, // label 缺席回落 source 词
+            ...(r.payload !== undefined ? { payload: r.payload } : {}),
+            message_id: r.message_id,
+            timestamp: r.timestamp,
+            ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}),
+          });
+          continue;
+        }
         const projected = steppedRuns.has(String(r.run ?? '')) ? null
           : r.role === 'agent' && r.agent_id === id && r.run !== undefined && r.run !== ''
             ? stepsOfLedger(rows, r.run, subcalls) ?? stepsOfRun(lines, r.run)

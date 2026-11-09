@@ -74,6 +74,23 @@ declare module '@agentchat/cordis' {
     ): void;
 
     /**
+     * steer 注入消费点通知（cr-971）：步边界 splice 把注入消息并入工作数组
+     * （即将进入下一步请求）的瞬间。注入行落账（journalInject）订阅本事件
+     * 在消费点落——账本文件序 = 模型消息序（此前受理时刻落账，比真实消费
+     * 点早一步：注入到达时在飞步的请求已发出，注入实际进的是下一步请求）。
+     * 载荷 requestId = steer 受理时登记的账本关联键（壳侧 pending → 落账
+     * 身份对齐）。观察通知：订阅方不得改写消息（waterfall 才有改写权）。
+     * @mode emit
+     * @scope run
+     */
+    'loop/steer-consumed'(
+      agent: string | undefined,
+      conversationId: string | undefined,
+      handle: string,
+      consumed: Array<{ message: LlmMessage; sender?: string; source?: string; requestId?: string }>,
+    ): void;
+
+    /**
      * 每步模型调用前拦截（可改写本步消息列表，如注入临时上下文）。
      * @mode waterfall
      * @scope run

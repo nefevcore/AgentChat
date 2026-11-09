@@ -40,6 +40,49 @@ describe('心跳监视', () => {
   });
 });
 
+describe('socket 探测喂活（换代接管 D1 双源）', () => {
+  it('noteProbe = 等价心跳：stdout 静默、探测在喂 → 不判死', () => {
+    const w = adopted();
+    // 无 ping，仅探测喂活（每拍一次）
+    w.noteProbe(900);
+    expect(w.tick(1500)).toBe('ok');
+    w.noteProbe(1900);
+    expect(w.tick(2500)).toBe('ok');
+    w.noteProbe(2900);
+    expect(w.tick(3500)).toBe('ok');
+    expect(w.emitted().some((ev) => ev.type === 'declared-dead')).toBe(false);
+  });
+  it('双源齐断才判死：探测也停 → 跨窗 declare-dead', () => {
+    const w = adopted();
+    w.noteProbe(900);
+    expect(w.tick(2100)).toBe('ok'); // miss 1
+    expect(w.tick(3100)).toBe('ok'); // miss 2
+    expect(w.tick(4100)).toBe('declare-dead'); // miss 3
+  });
+  it('busy 探测兼喂活跃时钟；非 busy 不喂（idle 收割不因探测成功而失效）', () => {
+    const idleCfg = { ...cfg, idleExitMs: 5000 };
+    const w = new ShellWarden('alpha', idleCfg);
+    w.feedLine('boot.ready	b1	h', 0);
+    // 非 busy 探测：心跳在喂但 idle 照走
+    w.noteProbe(4500);
+    expect(w.tick(9600)).toBe('kill-idle');
+    const w2 = new ShellWarden('alpha', idleCfg);
+    w2.feedLine('boot.ready	b1	h', 0);
+    w2.noteProbe(4500, true); // busy → 活跃重置
+    expect(w2.tick(9400)).toBe('ok'); // 4500 起算 5000ms 未到
+    expect(w2.tick(9600)).toBe('kill-idle'); // busy 之后无新活跃 → 收割照走
+  });
+  it('未 adopt / 已终结时探测不喂（拉起窗与判死后零副作用）', () => {
+    const w = new ShellWarden('alpha', cfg);
+    w.noteProbe(500); // 未 adopt——无效果
+    w.feedLine('boot.ready	b1	h', 1000);
+    expect(w.tick(1100)).toBe('ok');
+    expect(w.tick(2100)).toBe('ok'); // miss 1（500 的喂活未计入）
+    expect(w.tick(3100)).toBe('ok'); // miss 2
+    expect(w.tick(4100)).toBe('declare-dead');
+  });
+});
+
 describe('idle-exit 收割', () => {
   it('空闲超 idleExitMs → kill-idle；run 节拍重置计时', () => {
     const idleCfg = { ...cfg, idleExitMs: 5000 };

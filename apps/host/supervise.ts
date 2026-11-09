@@ -131,6 +131,11 @@ export interface SuperviseHandle {
   /** adopted 订阅（每次拉起/重拉成功后回调——re-tap 面经此接线） */
   onAdopted(cb: (hint: string) => void): void;
   /**
+   * socket 探测喂活（换代接管 D1 双源之二）：编排面 peek 成功后接线——
+   * spawn 壳与接管壳共用（双源任一在喂即活）。
+   */
+  noteProbe(busy?: boolean): void;
+  /**
    * 控制帧往返（cr-552）：经当前壳实例转发；无活壳（idle 自杀/崩溃后）
    * 经 restart 按需拉起后转发。熔断态抛错（同 restart 语义——不静默半拉起）。
    */
@@ -326,6 +331,7 @@ export async function superviseShell(
       await start();
     },
     onAdopted: (cb) => { adoptedCallbacks.push(cb); },
+    noteProbe: (busy) => { warden.noteProbe(now(), busy === true); },
     control: (frame) => doControl(frame),
   };
 }

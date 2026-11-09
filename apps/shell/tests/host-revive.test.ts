@@ -9,7 +9,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
   createHostReviveState, tickHostRevive, reviveBackoffMs, startHostRevive,
-  hostStampPath, hostReviveLockPath, spawnHostProcess, type HostReviveDeps,
+  hostStampPath, hostReviveLockPath, spawnHostProcess, hostAdoptedAlive,
+  type HostReviveDeps,
 } from '../host-revive.ts';
 
 const ROOT = path.join('sandbox', 'test-host-revive-' + process.pid);
@@ -25,11 +26,13 @@ interface Fake {
   stamp: boolean;
   /** system 在场（缺省 false——缺席形态，恢复边在本壳） */
   system: boolean;
+  /** 新宿主接管完成证据（D2——缺省 false 无证据） */
+  adopted: boolean;
   signals: string[];
   clock: number;
 }
 
-function makeFake(overrides: Partial<{ stamp: boolean; lockHeld: boolean; system: boolean }> = {}): Fake {
+function makeFake(overrides: Partial<{ stamp: boolean; lockHeld: boolean; system: boolean; adopted: boolean }> = {}): Fake {
   const fake: Fake = {
     probes: [],
     spawns: 0,
@@ -37,6 +40,7 @@ function makeFake(overrides: Partial<{ stamp: boolean; lockHeld: boolean; system
     lockCalls: 0,
     stamp: overrides.stamp === true,
     system: overrides.system === true,
+    adopted: overrides.adopted === true,
     signals: [],
     clock: 1_000,
     deps: undefined as unknown as HostReviveDeps,
@@ -44,6 +48,7 @@ function makeFake(overrides: Partial<{ stamp: boolean; lockHeld: boolean; system
   fake.deps = {
     probe: () => (fake.probes.length > 0 ? fake.probes.shift()!() : Promise.resolve(true)),
     systemAlive: () => fake.system,
+    hostAdopted: () => fake.adopted,
     stampPresent: () => fake.stamp,
     tryLock: () => { fake.lockCalls += 1; return !fake.lockHeld; },
     unlock: () => { fake.lockHeld = false; },
@@ -159,6 +164,36 @@ describe('tickHostRevive 纯域', () => {
     expect(fake.spawns).toBe(1); // 双证据假 → 宽限不适用，即时接管
   });
 
+  it('接管完成免除复活（D2/cr-968）：system 在场 ∧ 接管证据 → 宽限过后也不拉', async () => {
+    const fake = makeFake({ system: true, adopted: true });
+    const state = createHostReviveState(fake.clock);
+    const config = { reviveGraceMs: 10_000 };
+    fake.probes.push(down, down);
+    await tickHostRevive(state, fake.deps, config); // 首败
+    await tickHostRevive(state, fake.deps, config); // 确认失联——接管证据在场
+    fake.clock += 60_000; // 宽限远过
+    fake.probes.push(down, down);
+    await tickHostRevive(state, fake.deps, config);
+    await tickHostRevive(state, fake.deps, config);
+    expect(fake.spawns).toBe(0); // 新宿主监护全链就位——本壳复活职责免除
+    expect(fake.lockCalls).toBe(0);
+  });
+
+  it('接管证据中途失效（新宿主接管后又死）：恢复边即时回到本壳', async () => {
+    const fake = makeFake({ system: true, adopted: true });
+    const state = createHostReviveState(fake.clock);
+    const config = { reviveGraceMs: 10_000 };
+    fake.probes.push(down, down);
+    await tickHostRevive(state, fake.deps, config);
+    await tickHostRevive(state, fake.deps, config); // 接管在场——免复活
+    expect(fake.spawns).toBe(0);
+    fake.adopted = false; // facts pid 翻死（宿主接管后崩溃）
+    fake.clock += 10_000; // 宽限过（证据失效 → 回到宽限窗让路语义，窗过兜底）
+    fake.probes.push(down);
+    await tickHostRevive(state, fake.deps, config);
+    expect(fake.spawns).toBe(1);
+  });
+
   it('退避指数增长有 cap', () => {
     expect(reviveBackoffMs(1_500, 60_000, 0, () => 0.5)).toBe(1_500);
     expect(reviveBackoffMs(1_500, 60_000, 5, () => 0.5)).toBe(48_000);
@@ -199,6 +234,23 @@ describe('startHostRevive 真实装配（锁物理面）', () => {
     expect(fs.existsSync(lockPath)).toBe(false); // 拉完即释放
     a.stop();
     expect(fs.existsSync(hostStampPath(ROOT))).toBe(false);
+  });
+});
+
+describe('接管证据物理面（D2——hostAdoptedAlive 读 host-facts.json）', () => {
+  const writeFacts = (dir: string, facts: Record<string, unknown>): void => {
+    fs.mkdirSync(path.join(dir, '.runtime'), { recursive: true });
+    fs.writeFileSync(path.join(dir, '.runtime', 'host-facts.json'), JSON.stringify(facts), 'utf-8');
+  };
+  it('adoptedAt ∧ pid 活 = true；pid 死 / adoptedAt 缺席 / 文件缺席 = false', () => {
+    const dir = path.join(ROOT, 'facts');
+    expect(hostAdoptedAlive(dir)).toBe(false); // 文件缺席
+    writeFacts(dir, { pid: process.pid, port: 1, bootAt: 'T' });
+    expect(hostAdoptedAlive(dir)).toBe(false); // adoptedAt 缺席（诊断形态）
+    writeFacts(dir, { pid: process.pid, port: 1, bootAt: 'T', adoptedAt: 'T' });
+    expect(hostAdoptedAlive(dir)).toBe(true); // 完整证据
+    writeFacts(dir, { pid: 99999999, port: 1, bootAt: 'T', adoptedAt: 'T' });
+    expect(hostAdoptedAlive(dir)).toBe(false); // facts pid 翻死（宿主换代/崩溃）
   });
 });
 

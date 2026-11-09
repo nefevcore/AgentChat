@@ -2692,6 +2692,9 @@ importers:
       ac-sandbox-core:
         specifier: workspace:*
         version: link:../ac-sandbox-core
+      ac-session-index:
+        specifier: workspace:*
+        version: link:../ac-session-index
       ac-timer-core:
         specifier: workspace:*
         version: link:../ac-timer-core
@@ -3253,6 +3256,19 @@ importers:
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/ac-session-index:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+    devDependencies:
+      ac-ledger:
+        specifier: workspace:*
+        version: link:../ac-ledger
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
