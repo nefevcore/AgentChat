@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
 import { summaryTextOf, UNCOMMITTED_TOOL_ERROR } from './reader.ts';
-import { foldLlmReplay, foldSession, foldTextReplay } from './fold.ts';
+import { foldLlmReplay, foldSession, foldSummaryOf, foldTextReplay } from './fold.ts';
 import { readDomainFacts, type RunFactsV2 } from './events-v2.ts';
 import { readAnchor, type CompactOptions, type CompactReport } from './archive.ts';
 import type { LedgerRow, JournalInject, RunUsage } from './records.ts';
@@ -332,9 +332,11 @@ export class LedgerService extends Service {
    * 对端视角投影（cr-712——委托对历史播种） */
   historyFor(uuid: string, viewer: string = this.agentId): Array<{ role: 'assistant' | 'user' | 'system'; content: string }> {
     const dir = path.join(this.agentDirOf(), 'sessions', uuid);
-    const summary = summaryTextOf(dir);
-    // cr-974：文本投影改走 fold 单源（events-v2 归一化——v1/v2 同构）
-    const view = foldTextReplay(foldSession(this.dataRoot, uuid, [dir]), viewer);
+    // cr-974：摘要源切换——压缩事件在场用事件摘要（§2.3 三态），否则
+    // summary.md 兼容窗（v1）；文本投影走 fold 单源（含 shadowed 过滤）
+    const fold = foldSession(this.dataRoot, uuid, [dir]);
+    const summary = foldSummaryOf(fold)?.text ?? summaryTextOf(dir);
+    const view = foldTextReplay(fold, viewer);
     return summary !== '' ? [{ role: 'system', content: summary }, ...view] : view;
   }
 
@@ -348,11 +350,15 @@ export class LedgerService extends Service {
    * 重写后 run 键行随 keep 面消失 = 轨迹注入自然有界。 */
   historyMessagesFor(uuid: string): LlmMessage[] {
     const dir = path.join(this.agentDirOf(), 'sessions', uuid);
-    const summary = summaryTextOf(dir);
-    // cr-974：LLM 回放改走 fold 单源（轨迹展开/注入归口/判重语义不变——
-    // parity 由 fold.test.ts 对拍锁定）；末步与终稿同文让位在 fold 内承载。
-    const out: LlmMessage[] = summary !== '' ? [{ role: 'system', content: summary }] : [];
-    out.push(...foldLlmReplay(foldSession(this.dataRoot, uuid, [dir]), this.agentId, this.dataRoot, uuid));
+    // cr-974：LLM 回放走 fold 单源——压缩在场时摘要头与 shadowed 过滤
+    // 均由 fold 三态承载（system 头在 foldLlmReplay 内置）；v1 概要
+    // 兼容窗仍取 summary.md（fold 无压缩时）。parity 由 fold.test.ts 锁定。
+    const fold = foldSession(this.dataRoot, uuid, [dir]);
+    const out = foldLlmReplay(fold, this.agentId, this.dataRoot, uuid);
+    if (foldSummaryOf(fold) === null) {
+      const summary = summaryTextOf(dir);
+      return summary !== '' ? [{ role: 'system', content: summary }, ...out] : out;
+    }
     return out;
   }
 
@@ -415,9 +421,15 @@ export class LedgerService extends Service {
   }
 
   /** 归档重写（archive 行编排调用——物理面归 writer.compact；per-uuid
-   * writer 注册表路由） */
-  async compactFor(uuid: string, opts: CompactOptions): Promise<CompactReport> {
+   * writer 注册表路由；compress = 归档段整段单流 gzip——S5 白名单时机） */
+  async compactFor(uuid: string, opts: CompactOptions & { compress?: boolean }): Promise<CompactReport> {
     return this.writerFor(uuid, [this.agentId], 'user').compact(opts);
+  }
+
+  /** 压缩事件落账（cr-974 §2.3——archive 行编排消费：语义边界先 durable，
+   * 物理回收随后经 compactFor（压缩事件行经 B1 窗口 late-merge 自然保留） */
+  async compactionFor(uuid: string, runId: string, summary: string, shadowedSeq?: number): Promise<number> {
+    return this.writerFor(uuid, [this.agentId], 'user').compaction(runId, summary, shadowedSeq);
   }
 
   /** 机制 run 收束（archive 行消费——journal-settled 落账、账本不落行） */

@@ -29,7 +29,7 @@ import {
   thresholdOf,
   type ArchiveBudgets,
 } from 'ac-archive-core';
-import { readLedger, summaryTextOf, type LedgerRow } from 'ac-ledger';
+import { foldSession, foldStepsOf, foldSummaryOf, readDomainFacts, readLedger, summaryTextOf, type LedgerRow } from 'ac-ledger';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
 export interface ArchiveRowOptions {
@@ -112,14 +112,23 @@ export class ArchiveShellService extends Service {
   }
 
   /** 阈值估算（回放口径——estimateReplayTokens 纯库单源：概要头计入
-   * 〔cr-424 单口径——注入形状含概要〕；viewer = 本 agent。preview 账本
-   * 行协议无 steps/partial 键——轨迹展开/悬空过滤自然退化为空行不计，
-   * 与 replayView 注入同源） */
+   * 〔cr-424 单口径——注入形状含概要〕；viewer = 本 agent。cr-974：v2
+   * 会话步级事实 = 事件行（无 role）——折叠出 steps 合成 v1 段行同形
+   * 伪行（face-ops replayTokensOf 同型）；概要源 = 压缩事件优先，
+   * summary.md 兼容窗兜底） */
   private estimateOf(uuid: string): number {
     const dir = this.sessionDir(uuid);
     const { rows } = readLedger(dir);
-    const summary = summaryTextOf(dir);
-    return estimateReplayTokens(rows, this.agentId, summary !== '' ? { summary } : {});
+    const facts = readDomainFacts(dir, this.agentId);
+    const pseudo: LedgerRow[] = [];
+    if (facts.version >= 2) {
+      for (const [run, rf] of facts.runs) {
+        const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
+        if (steps.length > 0) pseudo.push({ role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
+      }
+    }
+    const summary = foldSummaryOf(foldSession(this.dataRoot, uuid, [dir]))?.text ?? summaryTextOf(dir);
+    return estimateReplayTokens([...rows, ...pseudo], this.agentId, summary !== '' ? { summary } : {});
   }
 
   /** 阈值检测 + 触发（run 收束后异步）：超阈值 → 整理 → 归档重建。 */
@@ -203,20 +212,68 @@ export class ArchiveShellService extends Service {
   }
 
   /**
-   * 归档重建：读账本 → splitForArchive 分割（ac-archive-core）→
-   * ctx.ledger.compactFor（分段 + 重写 + 概要滚动）。概要缺省（整理
-   * 失败/降级）= 概要不动。LedgerRow ≈ ArchiveMessage 结构子集
-   *（role/content/seq/message_id——分割词汇兼容）。
+   * 归档重建：读账本 → splitForArchive 分割（ac-archive-core）→ 落语义
+   * 边界（v2：compaction 事件）→ ctx.ledger.compactFor（分段 + 重写 +
+   * 概要滚动）。概要缺省（整理失败/降级）= 概要不动。
+   * cr-974 v2（§2.3 压缩事件化 + S5 物理回收）：分割在富化行（伪段行
+   * 承载步级体积）上计量；shadowed 前缀 = 原 rows 中 seq ≤ boundary 的
+   * 全部行（相位/收束行随迁——append-only 真序整体搬移），整段单流 gzip
+   * 落 archive/history_N.jsonl.gz（Node 24.18 无 zstdSync，回落 gzip 如实
+   * 命名）；主日志保留 = header + compaction 事件（经 B1 窗口 late-merge
+   * 自然留存——audit 面永在）+ 尾部行。v1 会话走原 compact 流程不动。
    */
   async archiveAndRebuild(uuid: string, summary: string | undefined, requestedAt: number): Promise<void> {
     const ledger = this.ctx.ledger;
-    const { rows } = readLedger(this.sessionDir(uuid));
+    const dir = this.sessionDir(uuid);
+    const { header, rows } = readLedger(dir);
     if (rows.length === 0) return;
     const anchor = ledger.archiveAnchorOf(uuid);
     const budgets = this.budgetsFor(uuid);
     const lastArchived = anchor !== null && anchor.seq !== undefined
       ? { seq: anchor.seq, message_id: anchor.messageId, role: '', content: '' }
       : null;
+    if ((header?.version ?? 1) >= 2) {
+      // 富化行（估算/水位计量面）——分割边界取回原 rows 的 seq 锚
+      const facts = readDomainFacts(dir, this.agentId);
+      const pseudo: LedgerRow[] = [];
+      for (const [run, rf] of facts.runs) {
+        const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
+        if (steps.length > 0) pseudo.push({ role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
+      }
+      const enriched = [...rows, ...pseudo] as never[];
+      const split = splitForArchive(enriched, budgets, lastArchived);
+      const archivedSeqs = new Set(split.archive.map((r) => (r as LedgerRow).seq).filter((s): s is number => typeof s === 'number'));
+      // compaction 事件永留主日志（§2.3 可审计可重建；其 run-end 同留——
+      // 机制标记）——归档排除，fold summaryOf 跨轮迭替不受影响
+      const compactionRuns = new Set(rows
+        .filter((r) => String((r as { type?: unknown }).type ?? '').startsWith('compaction/'))
+        .map((r) => (r as { run?: unknown }).run));
+      const isCompactionRow = (r: LedgerRow): boolean => {
+        const t = String((r as { type?: unknown }).type ?? '');
+        return t.startsWith('compaction/') || (t === 'run-end' && compactionRuns.has((r as { run?: unknown }).run));
+      };
+      const archivedOriginal = rows.filter((r) => r.seq !== undefined && archivedSeqs.has(r.seq) && !isCompactionRow(r));
+      const baselineSeq = rows.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
+      const boundary = Math.max(lastArchived?.seq ?? 0, ...archivedSeqs, 0);
+      // 语义边界先 durable（摘要滚动即使零移出也落事件——回放头即刻换新）
+      if (summary !== undefined) {
+        await ledger.compactionFor(uuid, requestedAt + '-compaction-' + uuid, summary, boundary);
+      }
+      if (archivedOriginal.length === 0) return; // 零移出（尾部水位未越）——只滚摘要
+      // 尾部保留 = 边界后行 + compaction 事件行（永留主日志——边界前的
+      // 机制行不随 shadowed 前缀搬移，audit 面跨轮在场）
+      const keepRows = rows.filter((r) => (r.seq ?? Infinity) > boundary || isCompactionRow(r));
+      const report = await ledger.compactFor(uuid, {
+        archive: archivedOriginal,
+        keep: keepRows,
+        baselineSeq: baselineSeq > 0 ? baselineSeq : undefined,
+        compress: true,
+      });
+      this.ctx.logger.info(
+        '[archive] 已归档 ' + report.archived + ' 条 → ' + (report.segment ?? '') + '（压缩段；保留尾部 ' + report.kept + ' 条）',
+      );
+      return;
+    }
     const split = splitForArchive(rows, budgets, lastArchived);
     const baselineSeq = rows.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
     const report = await ledger.compactFor(uuid, {

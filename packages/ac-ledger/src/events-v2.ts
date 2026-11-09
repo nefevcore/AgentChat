@@ -102,7 +102,7 @@ export interface RunEndEvent {
 export type CompactionEvent =
   | { kind: 'compaction-start'; run: string; ts: number; seq?: number }
   | { kind: 'compaction-summary'; run: string; summary: string; ts: number; seq?: number }
-  | { kind: 'compaction-end'; run: string; ts: number; seq?: number };
+  | { kind: 'compaction-end'; run: string; boundarySeq?: number; ts: number; seq?: number };
 
 /** v2 事件全集 */
 export type SessionEvent = SpeechEvent | ContextEvent | PhaseEvent | InjectEvent | RunEndEvent | CompactionEvent;
@@ -119,7 +119,20 @@ export interface RunFactsV2 {
   aggOrder?: Array<{ type: 'steps'; count: number } | { type: 'inject'; ev: InjectEvent }>;
 }
 
-/** 一个域（agent 目录）的归一化事实 */
+/** 压缩事实（§2.3 fold 三态语义边界——最新一次压缩） */
+export interface CompactionFacts {
+  /** 压缩 run */
+  run: string;
+  /** 摘要全文（compaction/summary 事件携带——回放注入的 system 头取源） */
+  summary: string;
+  /** 覆盖边界（shadowed 前缀的最大 seq——exclusive；compaction/end 行携带，
+   *  缺席回落该 run 三事件最大 seq） */
+  boundarySeq: number;
+}
+
+/**
+ * 一个域（agent 目录）的归一化事实
+ */
 export interface DomainFacts {
   domain: string;
   speech: SpeechEvent[];
@@ -129,6 +142,8 @@ export interface DomainFacts {
   subcallArchive: JournalToolResult[];
   /** 日志版本（头行） */
   version: number;
+  /** 最新压缩事实（compaction/* 事件——§2.3；缺席 = 无压缩） */
+  compaction?: CompactionFacts;
 }
 
 const V2_TYPES = new Set(['message', 'context', 'step/reasoning', 'step/content', 'step/tool-call', 'step/tool-call-result', 'inject', 'run-end', 'compaction/start', 'compaction/summary', 'compaction/end']);
@@ -155,6 +170,12 @@ function v2RowToEvent(row: Record<string, unknown>): SessionEvent | 'segment' | 
       return { kind: 'tool-call-result', run: String(row.run ?? ''), toolCallId: String(row.toolCallId ?? ''), result: (row.result ?? { ok: false }) as { ok: boolean; output?: unknown; error?: string }, ...(row.durationMs !== undefined ? { durationMs: Number(row.durationMs) } : {}), ...(row.subcall === true ? { subcall: true, ...(row.name !== undefined ? { name: String(row.name) } : {}), ...(row.arguments !== undefined ? { arguments: String(row.arguments) } : {}) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'inject':
       return { kind: 'inject', run: String(row.run ?? ''), content: String(row.content ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectionId !== undefined ? { injectionId: String(row.injectionId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
+    case 'compaction/start':
+      return { kind: 'compaction-start', run: String(row.run ?? ''), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
+    case 'compaction/summary':
+      return { kind: 'compaction-summary', run: String(row.run ?? ''), summary: String(row.summary ?? ''), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
+    case 'compaction/end':
+      return { kind: 'compaction-end', run: String(row.run ?? ''), ...(row.boundarySeq !== undefined ? { boundarySeq: Number(row.boundarySeq) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'run-end':
       return { kind: 'run-end', run: String(row.run ?? ''), finish: row.finish === 'interrupted' || row.finish === 'error' ? row.finish : 'completed', ...(row.usage !== undefined ? { usage: row.usage as RunUsage } : {}), ...(row.model !== undefined ? { model: String(row.model) } : {}), ...(row.errorMessage !== undefined ? { errorMessage: String(row.errorMessage) } : {}), ...(row.runMs !== undefined ? { runMs: Number(row.runMs) } : {}), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     default:
@@ -270,6 +291,21 @@ function placeEvent(facts: DomainFacts, ev: SessionEvent): void {
       return;
     }
     case 'run-end': runOf(facts.runs, ev.run).end = ev; return;
+    // 压缩三态（§2.3）：summary 建档（最新 seq 胜），end 回填边界（同 run
+    // 才回填——多次压缩按 seq 迭替，旧边界随旧档淘汰）
+    case 'compaction-summary': {
+      const cur = facts.compaction;
+      if (cur === undefined || cur.run === ev.run || (ev.seq ?? 0) > cur.boundarySeq) {
+        facts.compaction = { run: ev.run, summary: ev.summary, boundarySeq: cur?.run === ev.run ? cur.boundarySeq : ev.seq ?? 0 };
+      }
+      return;
+    }
+    case 'compaction-end': {
+      const cur = facts.compaction;
+      if (cur !== undefined && cur.run === ev.run) cur.boundarySeq = ev.boundarySeq ?? Math.max(cur.boundarySeq, ev.seq ?? 0);
+      return;
+    }
+    case 'compaction-start': return;
     default: return; // compaction/* 由 fold 消费（本层不缓）
   }
 }

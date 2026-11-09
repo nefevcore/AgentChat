@@ -29,18 +29,19 @@ export interface CompactReport {
   segment?: string;
 }
 
-/** 下一段分段名（history_1..N 扫描取最大 + 1） */
-export function nextSegmentName(sessionDir: string): string {
+/** 下一段分段名（history_1..N 扫描取最大 + 1；compressed = .gz 单流段
+ * ——cr-974 S5 白名单时机的物理回收形态，与明文段同命名族并存） */
+export function nextSegmentName(sessionDir: string, compressed = false): string {
   let max = 0;
   try {
     for (const name of fs.readdirSync(archiveDirOf(sessionDir))) {
-      const m = /^history_(\d+)\.jsonl$/.exec(name);
+      const m = /^history_(\d+)\.jsonl(?:\.gz)?$/.exec(name);
       if (m !== null) max = Math.max(max, Number(m[1]));
     }
   } catch {
     // 目录缺席 = 首段
   }
-  return 'history_' + (max + 1) + '.jsonl';
+  return 'history_' + (max + 1) + '.jsonl' + (compressed ? '.gz' : '');
 }
 
 export function archiveDirOf(sessionDir: string): string {

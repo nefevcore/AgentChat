@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as zlib from 'node:zlib';
 import { Context, Service } from '@agentchat/cordis';
 import { ArchiveShellService, makeArchiveRow } from '../src/archive.ts';
 import { makeLedgerRow, readLedger, LedgerService } from 'ac-ledger';
@@ -86,9 +87,10 @@ describe('archive 行（D11 全壳内）', () => {
       const segs = fs.readdirSync(path.join(dir, 'archive')).filter((n) => n.startsWith('history_'));
       expect(segs.length).toBeGreaterThanOrEqual(1);
       expect(after.rows.length).toBeLessThan(6);
-      // 概要滚动（回退文本线——mock 不写文件）
-      expect(fs.readFileSync(path.join(dir, 'summary.md'), 'utf-8')).toContain('此前，');
-      // 概要头注入（historyFor 置首 system）
+      // 概要滚动（cr-974 v2：摘要 = compaction/summary 事件——mock 回退文本线）
+      const summaryRow = after.rows.find((r) => (r as { type?: string }).type === 'compaction/summary') as { summary?: string } | undefined;
+      expect(summaryRow?.summary ?? '').toContain('此前，');
+      // 概要头注入（historyFor 置首 system——事件摘要取源）
       const hist = h.ledger.historyFor('user~alpha');
       expect(hist[0]?.role).toBe('system');
       expect(hist[0]?.content).toContain('此前，');
@@ -109,8 +111,10 @@ describe('archive 行（D11 全壳内）', () => {
     try {
       await seedBulkyConversation(h.ledger, 'user~beta', 'beta', 6);
       await h.archive.requestArchive('user~beta');
-      expect(fs.readFileSync(path.join(ROOT, 'agents', 'beta', 'sessions', 'user~beta', 'summary.md'), 'utf-8'))
-        .toContain('亲写概要');
+      // cr-974 v2：亲写文件仍是概要取源（mtime 判新鲜）——落入 compaction 事件
+      const rows2 = readLedger(path.join(ROOT, 'agents', 'beta', 'sessions', 'user~beta')).rows;
+      const summary2 = rows2.find((r) => (r as { type?: string }).type === 'compaction/summary') as { summary?: string } | undefined;
+      expect(summary2?.summary ?? '').toContain('亲写概要');
     } finally {
       await h.dispose();
     }
@@ -148,10 +152,15 @@ describe('archive 行（D11 全壳内）', () => {
       });
       await h.archive.requestArchive('user~delta'); // 第二次归档
       const dir = path.join(ROOT, 'agents', 'delta', 'sessions', 'user~delta', 'archive');
-      const segs = fs.readdirSync(dir).filter((n) => /^history_\d+\.jsonl$/.test(n)).sort();
+      // cr-974 v2：归档段 = 整段单流 gzip（.gz）
+      const segs = fs.readdirSync(dir).filter((n) => /^history_\d+\.jsonl(\.gz)?$/.test(n)).sort();
       expect(segs.length).toBe(2); // 两段
       // 二段不含一段已归档行（seq 锚去重）——读两段行数对照
-      const readSeg = (n: string) => fs.readFileSync(path.join(dir, n), 'utf-8').split('\n').filter((l) => l.trim() !== '').length;
+      const readSeg = (n: string) => {
+        const raw = fs.readFileSync(path.join(dir, n));
+        const text = n.endsWith('.gz') ? zlib.gunzipSync(raw).toString('utf-8') : raw.toString('utf-8');
+        return text.split('\n').filter((l) => l.trim() !== '').length;
+      };
       const seg1 = readSeg(segs[0]!);
       const seg2 = readSeg(segs[0]! < segs[1]! ? segs[1]! : segs[0]!);
       // 一段 = 初次归档条数；二段仅含新增行（< 一段——keep 窗内已保留）

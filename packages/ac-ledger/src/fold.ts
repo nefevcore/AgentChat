@@ -157,6 +157,8 @@ export interface SessionFold {
   /** run → 事实（对桶 participants 并域合并——run 键不相交无重） */
   runs: Map<string, RunFactsV2 & { domain: string }>;
   version: number;
+  /** 最新压缩事实（多域取边界最大者——对桶跨域压缩的保守归并） */
+  compaction?: import('./events-v2.ts').CompactionFacts;
 }
 
 export function foldSession(dataRoot: string, conversationId: string, dirs?: string[]): SessionFold {
@@ -169,6 +171,10 @@ export function foldSession(dataRoot: string, conversationId: string, dirs?: str
     fold.domains.push(domain);
     fold.factsOf.set(domain, facts);
     fold.version = Math.max(fold.version, facts.version);
+    if (facts.compaction !== undefined
+      && (fold.compaction === undefined || facts.compaction.boundarySeq > fold.compaction.boundarySeq)) {
+      fold.compaction = facts.compaction;
+    }
     fold.speech.push(...facts.speech);
     fold.contexts.push(...facts.contexts);
     for (const [run, rf] of facts.runs) fold.runs.set(run, { ...rf, domain });
@@ -190,6 +196,15 @@ export function foldTextReplay(fold: SessionFold, viewer: string): Array<{ role:
   return fold.speech
     .filter((r) => r.content.trim() !== '')
     .map((r) => ({ role: r.agentId === viewer ? 'assistant' as const : 'user' as const, content: r.content }));
+}
+
+/** 域名归并辅助（上）——会话压缩三态查询口（§2.3）：当前态回放的
+ * 摘要头与边界（shadowed 前缀 seq ≤ boundarySeq 不进回放；v1 会话
+ * 无压缩事件 → null，调用方回落 summary.md 兼容窗）。 */
+export function foldSummaryOf(fold: SessionFold): { text: string; boundarySeq: number } | null {
+  return fold.compaction !== undefined && fold.compaction.summary !== ''
+    ? { text: fold.compaction.summary, boundarySeq: fold.compaction.boundarySeq }
+    : null;
 }
 
 // —— 投影一：user 终稿层（projectUserReplay 谓词原样） ——
@@ -441,6 +456,10 @@ export function foldLlmReplay(
 ): LlmMessage[] {
   const out: LlmMessage[] = [];
   const traced = new Set<string>();
+  // 压缩三态（§2.3）：压缩事件在场 → 回放 = [摘要 system 头] + 边界后
+  // 行（shadowed 前缀仍在日志但不再注入）；v1 无压缩 → 调用方概要兼容窗
+  const compaction = foldSummaryOf(fold);
+  if (compaction !== null) out.push({ role: 'system', content: compaction.text });
   // 注入判重（cr-713）：注入行（物化/journal 两源归一后同在 runs.events）
   // 携带 requestId 的——对应入站行文本不再复读
   const injected = new Set<string>();
@@ -458,9 +477,16 @@ export function foldLlmReplay(
     if (c.source === 'event' && c.content.trim() !== '') timeline.push({ ts: c.timestamp, ord: ord++, notice: c });
   }
   timeline.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.ord - b.ord));
+  // 压缩边界过滤（shadowed 前缀不进回放——v2 行恒带 seq；无 seq 存量行放行）
+  const bounded = compaction !== null
+    ? timeline.filter((s) => {
+        const seq = s.speech?.seq ?? s.notice?.seq;
+        return seq === undefined || seq > compaction.boundarySeq;
+      })
+    : timeline;
   const subcallsFor = (domain: string, run: string): JournalToolResult[] =>
     subcallsOf?.(domain, run) ?? foldSubcallArchive(fold, dataRoot, conversationId, domain);
-  for (const slot of timeline) {
+  for (const slot of bounded) {
     if (slot.notice !== undefined) {
       // cr-888 机制通知行（context+event）：按 user 回放（落账先于 run 入口读）
       out.push({ role: 'user', content: slot.notice.content });

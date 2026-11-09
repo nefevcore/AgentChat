@@ -1,6 +1,6 @@
 # AgentChat Session 设计（域设计事实源）
 
-> **定位**：Session 域的现行设计事实源——设计理念、消息定义（存储词汇 v2）、落盘格式（三文件分工）、
+> **定位**：Session 域的现行设计事实源——设计理念、消息定义（存储词汇 v2 + 事件词汇 v2）、落盘格式（单文件事件日志——cr-974 起；v1 三文件读兼容一个版本）、
 > 三种会话形态（Agent 对会话 / 独立会话 / 群组会话）、消息链路与收敛协议、Run 生命周期、KV 缓存分析，
 > 以及**裁决链**（被取代的旧方案保留结论与裁决过程，勿按历史文本动手）。
 >
@@ -8,6 +8,18 @@
 > 本文描述设计裁决与机制语义；与源码冲突时以源码为准并回改本文。
 >
 > **文档级裁决链**（本文自身的历史，逐条注明取代关系）：
+> - **cr-973 / cr-974（2026-11-09，cr-972 事件日志统一第一/第二刀）**：Phase 1 = viewer 物化退役 +
+>   `ac-session-index` 指针索引（§3.1/§3.6/§7.3 已同步）；Phase 2 = **事件词汇 v2 + fold 单源**：
+>   会话存储 = 单文件事件日志（`messages.jsonl` 头行 `version:2`，`message`/`context`/`step·reasoning·
+>   content·tool-call·tool-call-result`/`inject`/`run-end`/`compaction·start·summary·end` 判别行族）；
+>   journal/partials.jsonl 与 subcalls.jsonl **停写**（存量读兼容一个版本——归一化层
+>   `events-v2.ts` 把 v1 三文件与 v2 单文件折成同构事实）；一切投影 = `fold.ts` 单源纯函数
+>   （文本/user 终稿/webui 视图/LLM 轨迹四投影 + 读方配平）；writer 停物化（无段行/无 prune、
+>   `run-end` 落账即 durable、cr-946 textBeforeTools 写面退役——相位序 = 事件行序）；
+>   `settleOrphan`/`recoverOrphanRuns` 退役（D-3：未闭合 run 由 fold 投影层合成 interrupted，
+>   零回写）。取代 2026-09-20 三文件分工（§3.2）、cr-697/698 settlement 两阶段物化、cr-803
+>   subcalls 分流（D-1：subcall 全文内联主日志 + 索引精准定位）；裁决总谱住
+>   `session-event-log-unification-plan.md`。
 > - 由 `m21-replay-prefix-cache-plan.md`（回放重构规划：实证档案 + 分阶段步骤 + 决策点 D1-D7）**重写**而成——
 >   M21 是本文的落地计划与实证档案（2026-08-27 实测基线在彼），已归档至仓库外归档根，内容冻结。
 > - 原稿写作于 `preview/` 轨道时期（2026-08-31 整体部署原地保留历史）；旧 `src/` 轨史料见
@@ -232,18 +244,45 @@ role='system'                        → system     （直通，不参与变换�
 
 会话键校验：`conversationId` 禁路径分隔/遍历字符与 `~`（群 id）——文件名即键，无 `chat~lo~hi` 排序魔法、无 `group~` 前缀判别（规约 2）。
 
-### 3.2 两文件 + journal 子目录与 settlement（cr-697/698 现行形态，沿 2026-09-20 三文件裁决演进）
+### 3.2 单文件事件日志（cr-974 / cr-972 第二刀；v1 三文件形态读兼容一个版本）
+
+**v2 现行形态**：`messages.jsonl` 头行 `{type:'session-header', version:2}`，是会话唯一事件日志
+（append-only，零重写；`compact` 归档回收 = S5 白名单唯一重写许可）。事件判别行族：
+
+| type | 定位 | 备注 |
+|---|---|---|
+| `message` | 发言行（终稿/入站/通知——role/agent_id/content 保留 v1 字段面） | 兼 v1 role 行混读 |
+| `context` | 材料/通知/错误行（source 词表沿用 event/error/inject-源/直落源） | cr-888/807/959 语义不变 |
+| `step/reasoning`·`step/content` | 步内相位行（run/step/stepId/text；步末计量随末行） | **D-2**：行序即步内序——cr-946 textBeforeTools 写面退役（读面按事件序推导） |
+| `step/tool-call` / `step/tool-call-result` | 调用对（结果补行按 toolCallId 合并；**subcall 全文内联**——D-1 推翻 cr-803 分流） | subcalls.jsonl 存量读兼容 |
+| `inject` | 注入行（cr-707 全字段快照） | 落位即消费点真序 |
+| `run-end` | run 终态标记（completed/interrupted/error；usage/model/runMs 随行） | **落账即 durable**——回放闸门锚（E-2 根治形态） |
+| `compaction/start·summary·end` | 压缩事件（§3.4） | shadowed 前缀语义边界 |
+
+未知 `type` 安全忽略（前向兼容）。**停写**：`journal/partials.jsonl`（run 台账由相位行承载）
+与 `subcalls.jsonl`（D-1 内联）；两文件存量由归一化层（`events-v2.ts`）折成同构事实——
+journal-step 按相位标注拆行、journal-settled → run-end、段行聚合轨迹按物化文件序（`aggOrder`）。
+
+**settlement（cr-974 起）**：壳收束 → `settle()` = 终稿 `message` 行 +（error 时）`context/error`
+行 + `run-end` 行（一个串行队列切片）——**无段行物化、无 journal 剔除**。崩溃闭合 =
+**读方配平**（D-3）：未闭合 run（有相位/注入事实、无 run-end）由 fold 投影层合成
+interrupted（webui partial 态），不回写日志；`settleOrphan`/`recoverOrphanRuns` 退役。
+
+**历史形态（裁决存档）**：cr-697/698 两阶段物化（段行/注入行物化 → journal 剔除 →
+孤儿收口）与 2026-09-20 三文件分工（messages/partials/subcalls）由上表取代——
+当年「变体乙写侧切分三缺陷」（终值误清/时点无保证/归位歧义）源自物化而非 journal
+本身，单文件 + 判别行 + 索引回避其根源。
 
 | 文件 | 定位 | 生命周期 |
 |---|---|---|
-| `messages.jsonl` | 会话定稿流（header / agent 段行 / context 段行 / 注入行 / 终稿行） | append-only，零死重 |
-| `journal/partials.jsonl` | run 台账：`journal-step` 步行 + `journal-inject` 注入行 + `journal-tool-result` 补行（含 subcall 档案） | **run 收束即清**（settlement 物化后剔除该 run 全部行，cr-697——推翻 cr-658「journal 永源 + 读侧重建」，治 267MB 膨胀） |
-| `subcalls.jsonl` | 子调用永久档案（cr-803 复活）：run 收束时 subcall 补行**原样分流**至此——不再内联进段行 steps（重度会话 98.7% 体积在子调用全文，主文件热扫描路径被拖垮）；读面 `stepsOfLedger` 联查注入复原 UI 平铺卡，存量内联段行天然防重 | append-only 永久 |
+| `messages.jsonl` | ~~会话定稿流~~ → **v2 起为唯一事件日志**（§3.2 上表） | append-only，零死重 |
+| `journal/partials.jsonl` | ~~run 台账~~ → **cr-974 停写**（相位行入主日志；存量读兼容——归一化拆行） | 收束即清语义随物化退役 |
+| `subcalls.jsonl` | ~~子调用永久档案（cr-803）~~ → **cr-974 停写**（D-1 内联主日志 + 索引定位；存量读兼容） | append-only 永久（存量） |
 
 **原「为什么拆三文件」论证（保留为裁决史）**：变体乙（写侧 run 切分）首版实测暴露三缺陷——关闭行终值被误清理、关闭行落盘时点无法保证工具完成、同毫秒 timestamp 归位歧义；解法 = partials 独立成文件 + vacuum 退役。cr-697 后 `echoSeq` 归位锚随「读侧重建」一并退役。
 
-**settlement（run 收束物化，现行 = `ac-ledger` writer）**：壳 conversation 收束 → `settle()` → `materialize()`（段行 + 注入行，各带原 ts，append 到 `messages.jsonl`）→ 终稿行 → `journal-settled`（写 journal）→ `pruneJournal()`（剔除该 run 的 journal 行）。
-崩溃窗口由壳 boot 的 `settleOrphan()`（`recoverJournal` 幂等）收口——补 `journal-settled(interrupted)`。
+**settlement（历史形态——cr-974 停用）**：壳 conversation 收束 → `settle()` → `materialize()`（段行 + 注入行，各带原 ts，append 到 `messages.jsonl`）→ 终稿行 → `journal-settled`（写 journal）→ `pruneJournal()`（剔除该 run 的 journal 行）。
+崩溃窗口由壳 boot 的 `settleOrphan()`（`recoverJournal` 幂等）收口——补 `journal-settled(interrupted)`。cr-974 起 = 终稿 + run-end 两行落账；崩溃闭合改读方配平（§3.2）。
 
 ### 3.3 写入语义（writer 队列）
 
@@ -257,6 +296,7 @@ role='system'                        → system     （直通，不参与变换�
 ### 3.4 概要与重建（replace 的落盘面）
 
 - `compact({summary, keep})`：flush → 写 `summary.md` → tmp+rename 原子重写消息流（Windows 主场，不做硬链接发布）→ 旧队列作废；
+  **cr-974 压缩事件化**：v2 会话摘要全文进 `compaction/summary` 事件（`summary.md` 停写——v1 存量读兼容），fold 三态（current / shadowed〔被摘要替换，仍在日志〕/ log-only〔机制行〕）——LLM 回放 = 最新摘要置首 + 边界后行；物理回收只发生在归档时机（shadowed 前缀整段搬 `history_N` + 单流压缩，主日志保留 compaction 事件 + 摘要——S5 白名单唯一重写许可）；
 - `deleteMessage` / `truncateAfter`（行内编辑语义）同款原子重写；
 - 归档分段（ac-archive-core：`message_id` 去重 + 尾部水位截断不拆工具对）写 `history_N.jsonl`，会话流由 compact 重建为尾部 keep；
 - 群本体轮转：500k token 阈值 → `groups/<gid>/archive/history_N.jsonl` + 机械摘要 `summary_N.md`，本体重建保留尾部 30k（§6.1）。
@@ -266,7 +306,7 @@ role='system'                        → system     （直通，不参与变换�
 原「mid-run 崩溃整轮丢失、已执行工具副作用零痕迹」的落盘弱点**已由 run journal 消解**（2026-09-21 partials 泛化）：
 
 - **步级增量落盘**：`loop/after-step` → `journal-step`（决策先于工具副作用落盘）；`tool/after-execute` → `journal-tool-result` 补行；
-- **崩溃闭合**：孤儿 journal 由壳 boot 的 `settleOrphan()`（`recoverJournal` 幂等）收口——补 `journal-settled(interrupted)`；run 未收束时 journal 行保留，刷新后历史首屏据此恢复思维链/工具卡（宿主 `session/history` 的 journal 活投影）；
+- **崩溃闭合**：~~孤儿 journal 由壳 boot 的 `settleOrphan()`（`recoverJournal` 幂等）收口~~——**cr-974 起读方配平（D-3）**：未闭合 run 由 fold 投影层合成 interrupted（webui partial 态；LLM 回放不含未闭合 run——续跑归 resume 面），日志允许存在未闭合区间（append-only 不补写）；刷新后历史首屏据相位行恢复思维链/工具卡（宿主 `session/history` 的活投影）；
 - **悬空调用合成**：中断 run 中 `result` 为 null 的调用在轨迹展开时合成 tool 行（防 provider 消息序被悬空 tool_calls 破坏）；
 - **残留缺口**（显式枚举）：工具执行中进程死亡的步无结果 → 该 run 不进 LLM 回放（只服务 UI）；跨进程崩溃的 steer stash 由启动恢复重投（cr-250）。
 
@@ -564,6 +604,7 @@ news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
 | D12 | 错误行一等化 | **改写**：`role:'error'` → v2 的 `role:'context' + source:'error'` | 原「error 是词表一等成员」→ 2026-09-18 词汇 v2 取代（三轴，§2.2）；行为面不变（UI 红色语义 / LLM 按 user 喂回） |
 | D13 | 中性格式切换 + viewer 变换 + 迁移 | ✓ 迁移 `M-role-v2` 后写侧不再产生旧词；旧 baked 文件宽容读 | v1 词表定义被 v2 扩展（role 收敛为消费通道，source/label 承载呈现） |
 | D14 | 轨迹回放布尔开关 | ✓ `settings.session.replayTrajectory`（settingsOf 合成 + 存量键双读，热生效）；**缺省 true（2026-09-03 缺省翻转）** | 取代 M21 D7「不实装」；K 截断档否决（§9.3）；文档旧稿把翻转日记为 2026-09-23，按源码/测试头注更正 |
+| D15 | **事件词汇 v2 + fold 单源**（cr-972/973/974） | ✓ 单文件事件日志（`version:2` 判别行族 §3.2）；一切投影 = `fold.ts` 纯函数（文本/user 终稿/webui/LLM 轨迹 + 读方配平）；writer 停物化（run-end 即 durable）；viewer 物化退役（终稿层读时投影）+ SQLite 指针索引行（摘除 = 全扫回落等价） | 取代 2026-09-20 三文件分工 / cr-697 两阶段物化 / cr-698 viewer 派生 / cr-803 subcalls 分流（D-1 内联 + 索引定位） / settleOrphan 写方修复（D-3 读方配平）；总谱 `session-event-log-unification-plan.md` |
 
 ### 10.1 历史实证存档（原 §8.2/§8.3 的三层回放失败与审核差距——结论保留，均已消解或有现行对应）
 

@@ -15,6 +15,7 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as zlib from 'node:zlib';
 import type { LedgerRow, LedgerHeader, JournalLine, JournalStep, JournalInject, JournalToolResult, JournalSettled, RunUsage } from './records.ts';
 import { AdmissionGate } from 'ac-envelope-core';
 import { nextSegmentName, writeAnchor, type CompactOptions, type CompactReport } from './archive.ts';
@@ -220,6 +221,26 @@ export class LedgerWriter {
       }
       return last;
     });
+  }
+
+  /**
+   * 压缩事件落账（cr-974 §2.3）：compaction/start → summary（全文入事件
+   * ——回放 system 头取源）→ end（携带 shadowedSeq 覆盖边界）→
+   * run-end(completed)，单队列切片原子追加。物理回收（shadowed 前缀搬
+   * 归档段）是另一时机的事（compact 压缩分段——S5 白名单唯一重写许可），
+   * 本方法只落语义边界。shadowedSeq 缺省 = 本 run 起点前已落账最大 seq
+   * （调用方分割时给出精确边界）。返回末行 seq。cr-974 起 v2 会话不再
+   * 写 summary.md（摘要即事件；v1 读兼容窗保留）。
+   */
+  async compaction(runId: string, summary: string, shadowedSeq?: number): Promise<number> {
+    const boundary = shadowedSeq ?? Math.max(tailMaxSeq(path.join(this.dir, MESSAGES)), 0);
+    const ts = Date.now();
+    return this.appendEvents([
+      { type: 'compaction/start', run: runId, ts },
+      { type: 'compaction/summary', run: runId, summary, ts },
+      { type: 'compaction/end', run: runId, boundarySeq: boundary, ts },
+      { type: 'run-end', run: runId, finish: 'completed', ts },
+    ]);
   }
 
   /**
@@ -444,12 +465,16 @@ export class LedgerWriter {
   // —— 归档重写（D11：archive 行编排调用——物理面归账本 writer） ——
 
   /**
-   * 归档重写：分段落盘（archive/history_N.jsonl + 尾锚）→ messages.jsonl
-   * tmp+rename 原子重写（头行保留）→ 概要滚动（undefined = 不动）。
+   * 归档重写：分段落盘（archive/history_N.jsonl〔.gz〕+ 尾锚）→ messages.jsonl
+   * tmp+rename 原子重写（头行保留）→ 概要滚动（undefined = 不动；v2 模式
+   * 恒不写 summary.md——摘要已是事件，见 compaction()）。
    * B1 窗口基线（主线 cr-315 语义）：快照 T0 之后新落账的行（seq >
-   * baselineSeq）重读并入 keep 尾部——整理 run 分钟级窗口内新到消息不丢。
+   * baselineSeq）重读并入 keep 尾部——整理 run 分钟级窗口内新到消息不丢
+   * （压缩事件行经此通道自然保留在主日志——audit 面永在）。
+   * cr-974：compress = 归档段整段单流 gzip（.gz——S5 白名单时机的物理
+   * 回收；Node 24.18 无 zlib.zstdSync，zstd 落空时回落 gzip 并如实命名）。
    */
-  async compact(opts: CompactOptions): Promise<CompactReport> {
+  async compact(opts: CompactOptions & { compress?: boolean }): Promise<CompactReport> {
     return this.enqueue(() => {
       let keep = opts.keep as Array<{ seq?: number } | unknown>;
       if (opts.baselineSeq !== undefined) {
@@ -459,11 +484,12 @@ export class LedgerWriter {
       let segment: string | undefined;
       if (opts.archive.length > 0) {
         fs.mkdirSync(path.join(this.dir, 'archive'), { recursive: true });
-        segment = nextSegmentName(this.dir);
+        segment = nextSegmentName(this.dir, opts.compress === true);
+        const body = opts.archive.map((r) => JSON.stringify(r)).join('\n') + '\n';
         fs.writeFileSync(
           path.join(this.dir, 'archive', segment),
-          opts.archive.map((r) => JSON.stringify(r)).join('\n') + '\n',
-          'utf-8',
+          opts.compress === true ? zlib.gzipSync(body) : body,
+          opts.compress === true ? undefined : 'utf-8',
         );
         const last = opts.archive[opts.archive.length - 1] as { uuid?: string; seq?: number; message_id?: string };
         writeAnchor(this.dir, {
@@ -480,7 +506,7 @@ export class LedgerWriter {
       for (const r of keep) lines.push(JSON.stringify(r));
       fs.writeFileSync(tmp, lines.length > 0 ? lines.join('\n') + '\n' : '', 'utf-8');
       fs.renameSync(tmp, file);
-      if (opts.summary !== undefined) {
+      if (opts.summary !== undefined && !this.eventsV2) {
         fs.writeFileSync(path.join(this.dir, 'summary.md'), opts.summary, 'utf-8');
       }
       return { archived: opts.archive.length, kept: keep.length, ...(segment !== undefined ? { segment } : {}) };

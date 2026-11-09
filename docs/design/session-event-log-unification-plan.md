@@ -184,17 +184,18 @@ ac-import 物化退役）。存量 viewer 文件读面兼容一个版本。
    → `pnpm test:integration`；索引行摘除等价测试
 6. 同步：README 架构面 + session-design §3.1/§7.3 改写（标注 cr-972 取代关系）
 
-### Phase 2 = 第二刀：存储统一（§2；前端零改动——D-4 裁决）——◐ 实施中（cr-974，2026-11-09）
+### Phase 2 = 第二刀：存储统一（§2；前端零改动——D-4 裁决）——✅ 已实施（cr-974，2026-11-09/10）
 
-**已落地**：§2.6 实施细化（见下）；事件词汇 v2 + 归一化（ac-ledger events-v2.ts）+
-fold 单源四投影 + 读方配平 + 性质化测试（fold.test.ts：parity / v1↔v2 等价 /
-前缀稳定 / 配平零回写）；读面全切换（assembleSessionView / historyFor /
-historyMessagesFor / userReplay）；writer v2（停物化、相位逐行落账、run-end
-durable、cr-946 字段写面退役、v1 双文件停写）；settleOrphan / recoverOrphanRuns
-退役（D-3 配平归 fold）；resume / hasInboundRow 改走 fold；索引事件列
-（records.type / tool_call_id，旧库弃重建）；v2 回放估位补齐（face-ops）。
-**待办**：压缩事件化 + 归档物理回收（§2.3，含 ac-archive-core 迁移）；
-session-design.md 全面改版；v1 写面测试夹具随读兼容窗退役。
+**实施落点**：§2.6 实施细化（见下）全部落地——事件词汇 v2 + 归一化（ac-ledger
+events-v2.ts）+ fold 单源四投影（含读方配平、compaction 三态、索引钩子）+
+writer 停物化（run-end 即 durable；cr-946 字段写面退役）+ settleOrphan /
+recoverOrphanRuns 退役 + 压缩事件化（compaction/start·summary·end，摘要全文
+入日志，v2 不写 summary.md）+ 归档物理回收（shadowed 前缀搬 history_N.jsonl.gz
+**单流 gzip**——Node 24 无 zlib.zstdSync，如实以 gzip 落地；主日志保留压缩事件）+
+性质化测试（parity / v1↔v2 等价 / 前缀稳定 / 配平零回写 / 压缩回放 / 归档两轮）。
+验证：全量 2997 + 集成 89 + check:deps 全绿。**注**：群 500k 轮转在 preview 轨
+未实现（无迁移对象）；v1 写面保留为测试夹具，随读兼容窗退役。session-design.md
+已按 §5.8 改版（D15 总条目）。
 
 **§2.6 实施细化（cr-974，2026-11-09 设计定稿）**：
 
