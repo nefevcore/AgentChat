@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-974**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-975**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -991,4 +991,5 @@
 - 【cr-972 2026-11-09 登记 session 事件日志统一实施计划（session-event-log-unification-plan.md）：viewer 实时投影+指针索引第一刀；journal 事件化/收束退役/压缩事件化第二刀；run 概念与直播管线影响评估】
 - 【cr-973 2026-11-09 session 事件日志统一 Phase 1（cr-972 第一刀）：ac-session-index 索引服务行 + web-api 读时投影/偏移分页/指纹短路 + viewer 停写与消费方迁移】
 - 【cr-974 2026-11-09 session 事件日志统一 Phase 2（cr-972 第二刀）：事件词汇 v2 + fold 单源 + writer 停物化 + settleOrphan 退役 + 压缩事件化】
+- 【cr-975 2026-11-10 直播管线 B 案立项计划（cr-972 Phase 3 升格独立项目）：直播帧 = 事件日志 append 投影转发——ws-bridge/wire-format/feed-core 合流层全链改造 + 收敛协议重设计（E-2 一次做对）】
 
