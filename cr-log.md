@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-992**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-997**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -979,7 +979,7 @@
 - 【cr-958 2026-11-09 todo 工具移除 in_progress 至多 1 项限制（at-most-one 校验退役，允许多项并行标记）】
 - 【cr-959 2026-11-09 会话读面注入行投影补全：assembleSessionView 投出 context 直落行（memory-snapshot/memory-delta/skill 等非 event/error 源）——带 run 归口 inject 卡通道（source 原样透传）、无 run 直投，前端注入卡判据已天然覆盖零改动】
 - 【cr-960 2026-11-09 fix(conversation): ask_questions 作答草稿失去响应式——draftsByCard 普通对象致 answered 恒 false（自定义回答无法提交）】
-- 【cr-961 2026-11-09 计划(未实施):shell boot 图单文件 bundle 化——1904 文件冷装载并 1 次open,冷启 IO 治本;配套运维项:仓库/node_modules 加 Defender 实时防护排除】
+- 【cr-961 2026-11-09 shell boot 图单文件 bundle 化（随 cr-959~972 批次提交落地）——anchors dev 偏好链（dist/shell.mjs + 指纹旁车 mtime/size 对拍，漂移自动回源码直载）+ pnpm build:shell 双入口 + 测试锁；配套运维项完成:仓库根 Defender 实时防护排除（递归含 node_modules）+ 批后源码漂移重建】
 - 【cr-962 2026-11-09 拉起链冷启韧性三件套:并发上限+排队(冷态互拖消解)、adopt 超时独立定时器+分级预算(首拍 45s 冷启容忍)、adopt 超时有限重试+flushOutbox 不可达滞留目标周期补拉(带冷却窗防风暴)】
 - 【cr-963 2026-11-09 cr-962 补拉回归修复:flushOutbox 转投失败目标 10s 抑制补拉——补拉经 rescue 回 markReachable+flush 与 cr-885 失败摘项在壳 boot 窗口形成 microtask 振荡(现场单秒 600+ 条 W 刷屏,宿主重启后三壳齐发)】
 - 【cr-964 2026-11-09 记录:启动链结构评审存档 docs/design/bootchain-structural-review.md——E1 可达表多写者无 owner(结构性错误,振荡事故族之根)/E2 壳生命周期状态机五层打散(结构性弱点)——未裁决,待新会话讨论立项】
@@ -1011,4 +1011,9 @@
 - 【cr-990 2026-11-10 placeholder 灰调三连调：暗 #939da2→#adb2b8（用户参考值）；亮 #7d8186→#83868d（3.0 线上沿最浅同族档）】
 - 【cr-991 2026-11-10 IpcClient 感知对端关闭（close 摘 socket + reject 在途 waiter）+ PostOffice 连接池拒陈旧客户端——断宿主侧撞死 pipe 刷屏与在途挂死】
 - 【cr-992 2026-11-10 job 完成通知回投链路随迁补齐（cr-453 遗留）：ac-jobs 行内补 job/settled → conversation.deliver 唤醒接线（digest 5s 窗口聚合 / killedBy=owner 且非 failed 跳过 / sub owner 无会话键跳过——旧 ac-job-wakeup cr-696 退役时随迁未落）】
+- 【cr-993 2026-11-10 拉起链观测补全：orchestrate/supervise 的 spawn→三拍→adopted 与 respawn 决策/退避时刻落宿主日志（hostLog）——4 分钟空窗此前不可拆分（事件只进内存编排面，host log 全程空白）；cr-961 bundle 化前的第一步观测】
+- 【cr-994 2026-11-10 restart_shell 重启空窗根修（实测 31 分钟）：接管壳（takeover 锁观察）把 restart 退出恒映射 exit 0 → warden 判 done 不重拉 + 同代宿主 requestShellRespawn 见句柄在池直接 return——双保险同时失效退化为等来件。三层修复：壳侧退出意图优先级（42 晋升后 0 不覆盖）+ takeover 锁观察识别 restart marker（emitExit(42)）+ 宿主重拉请求持续轮询（句柄消失后确保拉起）】
+- 【cr-995 2026-11-10 fix(restart): cr-961 dev 壳 bundle 形态根锚回归——shellSelfRoot 三形态单源（AGENTCHAT_HOME 安装根 / dist 上级仓库根 / apps-shell 上两级）替换 host-revive 与 boot 的裸 ../../ 锚；bundle 壳里 systemAlive 恒假→复活宽限失效抢跑 supervisor 撞 EADDRINUSE 78 监护栈全灭（2026-11-10 18:34 现场：48.598 复活 vs 49.961 快路）】
+- 【cr-996 2026-11-10 fix(webui): webui-v3 出厂审计退场 disarm——restart_host 收面期 loader 拆 wire 触发 onGraphChanged 审计，31 条 error 级「行缺席 wire」误报（17:03-18:34 全程装载正常）；行 dispose 即 auditArmed=false】
+- 【cr-997 2026-11-10 宿主内监护模块日志前缀加 host. 前缀（supervise→host.supervise / orchestrator→host.orchestrator / shell:agent→host.shell:agent）——与独立进程 supervisor（拉宿主）一词之差，实测读日志易误读为另一进程；host-log.ts 头注来源段约定同步】
 

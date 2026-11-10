@@ -7,9 +7,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
   createHostReviveState, tickHostRevive, reviveBackoffMs, startHostRevive,
-  hostStampPath, hostReviveLockPath, spawnHostProcess, hostAdoptedAlive,
+  hostStampPath, hostReviveLockPath, spawnHostProcess, hostAdoptedAlive, shellSelfRoot,
   type HostReviveDeps,
 } from '../host-revive.ts';
 
@@ -201,6 +202,20 @@ describe('tickHostRevive 纯域', () => {
   });
 });
 
+describe('shellSelfRoot 三形态根锚（cr-995——dev bundle 裸 ../../ 锚回归）', () => {
+  it('源码形态（apps/shell/）→ 仓库根 = 上两级', () => {
+    const url = pathToFileURL(path.resolve('/r/apps/shell/host-revive.ts')).href;
+    expect(path.resolve(shellSelfRoot(url, undefined))).toBe(path.resolve('/r'));
+  });
+  it('dev bundle 形态（<repo>/dist/shell.mjs）→ 仓库根 = dist 上级（裸 ../../ 会指到仓库外）', () => {
+    const url = pathToFileURL(path.resolve('/r/dist/shell.mjs')).href;
+    expect(path.resolve(shellSelfRoot(url, undefined))).toBe(path.resolve('/r'));
+  });
+  it('bundle 安装形态（AGENTCHAT_HOME）→ 安装根', () => {
+    const url = pathToFileURL(path.resolve('/r/dist/shell.mjs')).href;
+    expect(path.resolve(shellSelfRoot(url, 'C:/install/agentchat'))).toBe(path.resolve('C:/install/agentchat'));
+  });
+});
 describe('startHostRevive 真实装配（锁物理面）', () => {
   it('O_EXCL 锁：两执行者并发只一个持锁；stop 释放', async () => {
     const opts = {

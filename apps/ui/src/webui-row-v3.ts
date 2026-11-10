@@ -169,6 +169,10 @@ export function makeWebuiRowV3(options: WebuiRowV3Options): Plugin {
       // 与装配文档短 id（midnight/agents/…）不同轴，直接对拍恒假阳性。
       // 审计窗 = 装载趟收口后（装载中行缺席是时序假象，非缺陷）。
       let auditArmed = false;
+      // 退场 disarm（cr-996）：收面期（restart_host close 链）loader 拆 wire
+      // 触发 onGraphChanged → 审计——不 disarm 则每条出厂行误报 error 级
+      // 「行缺席 wire」（2026-11-10 现场：退场刻 31 条，装载全程正常）。
+      ctx.effect(() => () => { auditArmed = false; }, 'webui-v3 出厂审计退场 disarm');
       const auditFactoryRows = () => {
         if (!auditArmed) return;
         const present = graph.names();

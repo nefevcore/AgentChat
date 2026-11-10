@@ -35,7 +35,7 @@ import { subjectFingerprint } from 'ac-fingerprint-core';
 import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow } from 'ac-shell-rows';
 import { makeHostFaceClientRow } from 'ac-host-face-client';
 import { handleAdminFrame, type AdminFrame } from './admin-frame.ts';
-import { startHostRevive } from './host-revive.ts';
+import { shellSelfRoot, startHostRevive } from './host-revive.ts';
 import { makeLedgerRow } from 'ac-ledger';
 import { scriptedBenchRow, type BenchRunOptions, type BenchReport } from 'ac-bench';
 import { makeConversationRow } from 'ac-shell-conversation';
@@ -1098,12 +1098,13 @@ export async function main(argv: string[]): Promise<number> {
           // system 缺席（dev:fg 直跑 / bundle 前台直跑 / supervisor 死亡或
           // 挂起）= 恢复边降级到本壳（即时复活）。判定每拍现探——
           // AGENTCHAT_SUPERVISED env 继承链退役（第三方重拉壳后失真，§三.1）。
-          // 锚定两形态单源（anchors 同款）：bundle（AGENTCHAT_HOME 安装根）/
-          // 仓库（源码树根）。bundle 形态产品入口暂无 supervisor（§七.3
-          // 开放裁决）——锁缺席 = 恒判缺席 = 恢复边即时，语义正确。
-          systemLockFile: process.env.AGENTCHAT_HOME !== undefined && process.env.AGENTCHAT_HOME !== ''
-            ? path.resolve(process.env.AGENTCHAT_HOME, '.runtime')
-            : path.resolve(fileURLToPath(new URL('../../', import.meta.url)), '.runtime'),
+          // 锚定（cr-995 shellSelfRoot 三形态单源）：bundle 安装
+          // （AGENTCHAT_HOME）/ dev bundle（dist 上级 = 仓库根）/ 源码
+          // （apps/shell 上两级）。bundle 安装形态产品入口暂无 supervisor
+          // （§七.3 开放裁决）——锁缺席 = 恒判缺席 = 恢复边即时，语义正确。
+          // 裸 '../../' 锚在 dev bundle（cr-961）指向仓库外 → systemAlive
+          // 恒假 → 复活抢跑 supervisor（2026-11-10 现场，cr-995）。
+          systemLockFile: path.join(shellSelfRoot(), '.runtime'),
           emit: emitBootSignal,
         })
       : null;

@@ -210,11 +210,27 @@ export function hostReviveLogPath(dataRoot: string, now = Date.now): string {
   return path.join(dataRoot, '.runtime', 'logs', `host-revive-${new Date(now()).toISOString().replace(/[:.]/g, '-')}.log`);
 }
 
+/** 壳自身运行形态的根锚（cr-995：cr-961 dev 偏好 bundle 拉壳后裸 '../../'
+ * 锚回归——bundle 内指向仓库外，system 锁恒缺席 → systemAlive 恒假 →
+ * 复活宽限失效抢跑 supervisor〔2026-11-10 现场〕）。三形态单源：
+ *   · bundle 安装（AGENTCHAT_HOME）→ 安装根；
+ *   · dev bundle（本文件目录名 = dist）→ 仓库根 = 其上级；
+ *   · 源码（apps/shell/）→ 仓库根 = 上两级。
+ * selfUrl/homeEnv 注入面供测试。 */
+export function shellSelfRoot(
+  selfUrl: string = import.meta.url,
+  homeEnv: string | undefined = process.env.AGENTCHAT_HOME,
+): string {
+  if (homeEnv !== undefined && homeEnv !== '') return path.resolve(homeEnv);
+  const selfDir = path.dirname(fileURLToPath(selfUrl));
+  return path.resolve(selfDir, path.basename(selfDir) === 'dist' ? '..' : '../..');
+}
+
 /** 拉起宿主进程（物理面——cr-662：stderr 不再 ignore，落代文件日志；
  * fd 由子进程继承，父侧副本 spawn 后即收） */
 export function spawnHostProcess(hostBoot: string, dataRoot: string, hostPort?: number): void {
   // 品牌单映像 exe（cr-620/624：bin/AgentChat.exe 在场即用——supervisor/宿主/壳同映像，任务管理器折一行；缺席回落 node 本体）
-  const brandedExe = path.join(path.resolve(fileURLToPath(new URL('../../', import.meta.url))), 'bin', 'AgentChat.exe');
+  const brandedExe = path.join(shellSelfRoot(), 'bin', 'AgentChat.exe');
   const exe = process.env.AGENTCHAT_NO_BRANDED_EXE === '1' || !fs.existsSync(brandedExe) || process.env.VITEST !== undefined
     ? process.execPath
     : brandedExe; // cr-669 诊断档：沙箱拒品牌 exe 连管道时回落 node
