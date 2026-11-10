@@ -393,7 +393,7 @@ defineExpose({ focus, caret, replaceRange, setCaret, takeText, clear });
   position: absolute;
   top: 0;
   left: 2px;
-  color: var(--text-3);
+  color: var(--placeholder);
   pointer-events: none;
   font-size: 14px;
   line-height: 1.5;

@@ -244,7 +244,7 @@ watch(() => props.options, () => { if (open.value) placeMenu(); });
 }
 /* 选中项品牌图标（cr-205）：与弹层行首同源（options[].icon），text-3 弱化 */
 .ui-sel-icon { flex-shrink: 0; color: var(--text-3); }
-.ui-sel-value.empty { color: var(--text-3); }
+.ui-sel-value.empty { color: var(--placeholder); }
 .ui-sel-chev { flex-shrink: 0; transition: transform var(--dur-fast) var(--ease-out); color: var(--text-3); }
 .ui-sel-chev.open { transform: rotate(180deg); }
 /* fixed 弹层：top（向下）/bottom（向上）由内联样式锚定；此处只清 absolute 残留 */

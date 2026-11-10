@@ -135,6 +135,12 @@ html.dark {
      on surface 6.52、on hover 6.30 仍稳 */
   --text-3: #b4bec2;
 
+  /* placeholder 专档（cr-987 立；cr-989/990 连调）：输入占位提示 = 弱于
+     text-3 的独立语义（承 cr-150 bg-inset 语义分离先例——text-3 是元信息
+     文字色不可随降）；暗底「淡」= 浅银灰方向——#939da2→#adb2b8（用户参考
+     值）：on surface 4.61→5.98，四底 ≥3.0（提示层线，②c 测试锁） */
+  --placeholder: #adb2b8;
+
   /* 线靛染（cr-135）：灰线改靛灰——边界也参与色彩氛围 */
   /* cr-170：结构线褪染回近中性（H276 微染），色彩让位交互路径 */
   --line: #3b3c3e;
@@ -249,6 +255,11 @@ html.light {
      cr-138 去蓝：Δ(b-r) 11→7 */
   --text-3: #65696e;
 
+  /* placeholder 专档（cr-987 立；cr-989/990 连调）：#7d8186→#83868d
+     （on surface 3.40）——白底「淡」到 3.0 线上沿即止（更浅则占位近隐形，
+     ②c 测试锁四底 ≥3.0） */
+  --placeholder: #83868d;
+
   /* 线靛染（cr-135）· cr-138 褪蓝：Δ(b-r) 10→6 / 27→10，柔化冷调 */
   /* cr-170：结构线褪染回近中性（暖底上的冷紫染读作「脏」） */
   --line: #e6e6e9;
@@ -347,6 +358,11 @@ body {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
 }
+
+/* ── 输入占位唯一源（cr-987）：原生 ::placeholder 统一 --placeholder 档，
+    组件不再各自声明；div 仿占位（PromptEditor）与 Select/DatePicker 空态
+    值直接引 var(--placeholder) ── */
+::placeholder { color: var(--placeholder); }
 
 /* ── 减少动态效果（全局兜底·cr-121）：--motion-scale 归零 → 一切
     calc 时长（过渡与动画）即时收敛，装饰性动画不再无限旋转 ── */

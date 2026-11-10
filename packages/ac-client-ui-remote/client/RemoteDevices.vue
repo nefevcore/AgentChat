@@ -376,7 +376,7 @@ onUnmounted(() => {
 /* SAS 输入（R-2 盲确认修复）：等宽数字输入，居中 */
 .sas-input { display: block; width: 100%; max-width: 260px; margin: 0 auto; background: transparent; border: 1px solid var(--input-border, var(--line)); border-radius: var(--r-sm); color: var(--text-1); padding: 6px 10px; font-size: 15px; font-family: var(--font-mono); letter-spacing: 2px; text-align: center; outline: none; transition: border-color var(--dur-fast) var(--ease-out); }
 .sas-input:focus { border-color: var(--input-focus, var(--primary)); }
-.sas-input::placeholder { font-family: var(--font-sans, inherit); font-size: 12px; letter-spacing: normal; color: var(--text-3); }
+.sas-input::placeholder { font-family: var(--font-sans, inherit); font-size: 12px; letter-spacing: normal; }
 
 /* 设备列表 */
 .list-head { font-size: 13px; font-weight: 600; color: var(--text-1); margin-bottom: var(--space-2); display: flex; align-items: center; gap: var(--space-2); }

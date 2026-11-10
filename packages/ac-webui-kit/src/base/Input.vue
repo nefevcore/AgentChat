@@ -37,5 +37,4 @@ const emit = defineEmits<{ 'update:modelValue': [v: string] }>();
 }
 .ui-input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
 .ui-input:disabled { opacity: 0.55; cursor: not-allowed; }
-.ui-input::placeholder { color: var(--text-3); }
 </style>

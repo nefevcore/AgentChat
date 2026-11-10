@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-986**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-990**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1005,4 +1005,8 @@
 - 【cr-984 2026-11-10 cr 工具 v2 批2（cr-981 设计实施）：sync 子命令——git log 全量/增量（投影记 scannedHead，merge-base 验祖代，--rebuild 强制全量）扫 message 引用生成 cr-commits.json 投影（生成物禁手改）+ 悬空引用校验；check 子命令——六锁（头行同步/无重复/目录单调/尾部块语法+引用存在/docs 路径存在/commit 引用存在）fail-loud；理卷——目录区按号重排（消 13 处物理逆序，cr-43 续行随块归属）；selftest 子命令——sandbox 临时副本全命令面自测】
 - 【cr-985 2026-11-10 cr 工具 v2 补修：sync 增量无新 commit 路径（scannedHead === HEAD）漏结转 prev.entries 致投影写空——实锤于 cr-984 提交后首跑 sync 返回 0 键；修复 = 等头分支显式结转，幂等复跑两遍验证 446 键不丢】
 - 【cr-986 2026-11-10 cr 工具 v2 补修二：sync refs 无变化不落盘——消投影自追尾（任何提交令 scannedHead 滞后一格，追平提交又生成新提交死循环）；scannedHead 允许滞后，增量重扫毫秒级】
+- 【cr-987 2026-11-10 placeholder 灰调降一档：tokens.css 立 --placeholder 专令牌（承 cr-150 bg-inset 语义分离先例），消费面收口全局 ::placeholder 单源】
+- 【cr-988 2026-11-10 goal useGoalTracking 可空守卫补漏（p?.subcall——webui:typecheck 存量红，cr-976/977 引入）】
+- 【cr-989 2026-11-10 placeholder 灰调再降一档（暗 #9aa4a9→#939da2 · 亮 #75797e→#7d8186，四底仍 ≥3.0）】
+- 【cr-990 2026-11-10 placeholder 灰调三连调：暗 #939da2→#adb2b8（用户参考值）；亮 #7d8186→#83868d（3.0 线上沿最浅同族档）】
 

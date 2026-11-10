@@ -310,7 +310,7 @@ onUnmounted(unbindDoc);
 .ui-dp-trigger:disabled { opacity: 0.55; cursor: not-allowed; }
 .ui-dp-ic { flex-shrink: 0; color: var(--text-3); }
 .ui-dp-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
-.ui-dp-value.empty { color: var(--text-3); }
+.ui-dp-value.empty { color: var(--placeholder); }
 /* 月历弹层：定宽（7×32 + gap/padding），覆盖 ui-dd-menu 的滚动条假设 */
 .ui-dp-menu { width: 200px; padding: 10px; max-height: none; overflow: visible; }
 .ui-dp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }

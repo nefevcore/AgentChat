@@ -1,10 +1,10 @@
 /* ============================================================
    midnight · 示例主题包（cr-693；cr-936 迁 v3 形态）——纯样式行
    （ac.faces.web theme+styles 声明；apps/ui/themes 旧链位迁本包）
-   深海色板：暗极深蓝黑 + 青主色；亮极冷纸白 + teal。52 词两极全覆盖
+   深海色板：暗极深蓝黑 + 青主色；亮极冷纸白 + teal。53 词两极全覆盖
    （TOKEN_VOCAB 对账测试锁）；选择器词形契约：暗极 html[data-theme='midnight']
    （特异性 0,2,0 > html.dark）+ 亮极 html.light[data-theme='midnight']（0,2,1）。
-   派生源：src/webui-kit/src/base/tokens.css（scripts/gen-midnight-theme.mjs）。
+   词表对齐 packages/ac-webui-kit/src/base/tokens.css（cr-936 迁入后手工维护）。
    ============================================================ */
 
 :root, html[data-theme='midnight'], html.dark { /* 暗极（深空底变体——dark class 同步命中保双轴一致） */
@@ -30,6 +30,7 @@
   --ok-rgb: 155, 211, 154;
   --ok-status: #4AC26B;
   --on-primary: #06202a;
+  --placeholder: #adb2b8;
   --primary: #22d3ee;
   --primary-border: #2b6478;
   --primary-border-soft: #1e4c63;
@@ -86,6 +87,7 @@ html.light[data-theme='midnight'] { /* 亮极 */
   --ok-rgb: 53, 111, 67;
   --ok-status: #2DA44E;
   --on-primary: #ffffff;
+  --placeholder: #83868d;
   --primary: #0e7490;
   --primary-border: #6fb8cf;
   --primary-border-soft: #a8d9e8;

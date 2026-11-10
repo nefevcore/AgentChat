@@ -379,7 +379,6 @@ function step(delta: number) {
   line-height: 20px;
   color: var(--text-1);
 }
-.ib-custom-input::placeholder { color: var(--text-3); }
 
 /* ── 底部：分页器 + 反馈 + 动作（密度对齐 dock 族：12px 元信息 · 紧凑按钮） ── */
 .ib-footer {

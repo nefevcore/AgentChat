@@ -750,7 +750,6 @@ html.dark .create-btn{background:transparent;color:var(--text-1)}
 .search-icon{position:absolute;left:8px;color:var(--text-3);pointer-events:none}
 .search-input{width:100%;padding:4px 8px 4px 26px;border:1px solid var(--line);border-radius:var(--r-sm);background:transparent;color:var(--text-1);font-size:12.5px;outline:none;transition:border-color var(--transition-fast)}
 .search-input:focus{border-color:var(--primary)}
-.search-input::placeholder{color:var(--text-3)}
 
 /* 搜索态扁平结果行（跨工作区、按最近活动降序；与树叶节点同视觉语言，
    左侧不缩进——无层级嵌套；归属副标给跨组结果以线索） */
@@ -857,7 +856,6 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 .optional-hint{color:var(--text-3);font-weight:400}
 .ws-path-row{display:flex;gap:6px}
 .ws-path-input{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:var(--r-sm);font-size:12px;background:transparent;color:var(--text-1);outline:none}
-.ws-path-input::placeholder{color:var(--text-3)}
 .ws-pick-btn{padding:6px 14px;border-radius:var(--r-sm);border:1px solid var(--line);background:var(--bg-base);color:var(--text-2);font-size:13px;cursor:pointer;flex-shrink:0}
 .ws-pick-btn:hover:not(:disabled){color:var(--primary);border-color:var(--primary)}
 .ws-pick-btn:disabled{opacity:.6;cursor:not-allowed}

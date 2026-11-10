@@ -112,6 +112,16 @@ describe('对比度契约（cr-121）', () => {
     }
   });
 
+  it('②c placeholder 档：占位提示 × 四底 ≥ 3.0（cr-987 降档线——提示层非正文）', () => {
+    for (const theme of ['nebula', 'aurora'] as const) {
+      const t = theme === 'nebula' ? nebula : aurora;
+      for (const s of SURFACES) {
+        const c = contrast(color(t, 'placeholder'), color(t, s));
+        expect(c, `${theme} --placeholder on --${s} = ${c.toFixed(2)}`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
   it('③ 实底上的前景（primary 按钮 / 开关滑块）可达', () => {
     for (const theme of ['nebula', 'aurora'] as const) {
       const t = theme === 'nebula' ? nebula : aurora;

@@ -23,6 +23,7 @@ export const TOKEN_VOCAB: ReadonlySet<string> = new Set([
   'primary', 'primary-strong', 'primary-strong-rgb', 'primary-tint', 'primary-light',
   'primary-tint-strong', 'primary-border-soft', 'primary-border', 'primary-rgb', 'on-primary',
   'text-1', 'text-2', 'text-3', 'text-1-rgb', 'text-2-rgb', 'text-3-rgb',
+  'placeholder',
   'line', 'line-strong',
   'ok', 'warn', 'err', 'ok-status', 'warn-status', 'err-status', 'star',
   'ok-rgb', 'warn-rgb', 'err-rgb',

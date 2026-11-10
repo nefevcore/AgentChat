@@ -235,9 +235,6 @@ async function createGroup() {
   transition: border-color 0.15s;
 }
 .form-input:focus { border-color: var(--primary); }
-.form-input::placeholder {
-  color: var(--text-3);
-}
 
 .section-label {
   display: flex;
