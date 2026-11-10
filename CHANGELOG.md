@@ -6,6 +6,9 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（发送看门狗误杀活 run：独立会话步边界空窗闪「连接可能已中断」，cr-999）
+- 两根因：① single 分区权威键取 `feed.activeAgentId || sessionId`——进入独立会话时 roster 选中被显式清空（SessionList.selectSingle 互斥），回落 sessionId 匹配 `conversation/stats` 的 agentId 恒 miss，30s 采样落进步边界空窗（after-step 已关占位、下一步 delta 未到、hasLive=false）即误杀活 run + 弹红条 6s + 强制重拉，下一帧 delta 到达又自愈——「偶尔闪现又恢复」的全部形态；② stats RPC 失败按断链杀，网络瞬断同样闪红条，而悬挂探针/Dock 对账同场景均不定罪。修复：① single 键改 `singleMeta` 激活时登记的目标 Agent（agentKeyOf 同口径）；② RPC 失败不定罪、重新武装下一轮（真死 run 由探针 3min + Dock 20s 静默判死兜底收敛，行为不弱化）。回归：`send-watchdog-single-key.test.ts` 3 例（权威命中不杀 / 双空仍杀 / 拒答不杀），突变验证旧代码 2 红新代码全绿。
+
 ### Fixed（workspace/open-local 忽略会话上下文，cr-827）
 - 本地打开此前相对路径恒按数据根解析，忽略 agentId/conversationId——挂载工作区的会话里文件编辑卡/预览的「本地打开」全部报「文件不存在」。定位与守卫对齐读面单源 resolveWorkspaceFile（数据根快路径 → 会话挂载工作区/Agent 基准两段推导，与 /api/workspace/raw、workspace/open-dir 同族语义）；绝对路径行为不变。
 

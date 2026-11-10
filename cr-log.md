@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-998**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-999**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1017,4 +1017,5 @@
 - 【cr-996 2026-11-10 fix(webui): webui-v3 出厂审计退场 disarm——restart_host 收面期 loader 拆 wire 触发 onGraphChanged 审计，31 条 error 级「行缺席 wire」误报（17:03-18:34 全程装载正常）；行 dispose 即 auditArmed=false】
 - 【cr-997 2026-11-10 宿主内监护模块日志前缀加 host. 前缀（supervise→host.supervise / orchestrator→host.orchestrator / shell:agent→host.shell:agent）——与独立进程 supervisor（拉宿主）一词之差，实测读日志易误读为另一进程；host-log.ts 头注来源段约定同步】
 - 【cr-998 2026-11-10 cr-972 兼容窗收尾：viewer 存量直读窗（projectUserReplay）/meta 旧路径窗（session.json·prefix-snapshot viewer 寄居位）退役 + v1 写面（writer journal/settle 两阶段/settleMechanism v1 分支/eventsV2 旗标）与 assembleSessionViewLegacy 退役（cr-973/974 收尾，多会话验证后清理）；附带修复 ac-host-face-client SinglesShim 仍读 cr-973 已迁走的 viewer 位注册表（壳侧 singles 判定恒 miss）；存量 meta 迁移归零（session.json 5 + prefix-snapshot 29 → meta/sessions/）后物理删除 workspace/home/viewer/ 投影树（11.7MB 纯派生物，读面冒烟验证通过）】
+- 【cr-999 2026-11-10 发送看门狗两修：single 会话权威键改 singleMeta 真实 agentId（roster 选中恒空→sessionId 匹配 stats 恒 miss，步边界空窗必误杀）+ stats RPC 失败不定罪改重新武装（对齐探针/Dock 口径）】
 

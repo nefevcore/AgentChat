@@ -354,9 +354,11 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
    *  分区 streaming 永真 → contextBusy 永久卡"停止"态。到期检查：
    *  分区里已无任何流式占位仍标记 streaming → 先问权威（cr-887：本地静默
    *  不再单独定罪——spawning/慢 run 由 stats 澄清）；权威也说不在跑才回落
-   *  并提示；RPC 失败（后端不可达与死行不可区分）维持原杀——投递确实断了。
-   *  在途判据含未闭合工具行（content 空）：streaming 升格 run 级后，工具
-   *  执行窗口（after-step 已关占位、结果未回）run 仍活着——长工具不误报。 */
+   *  并提示；RPC 失败（后端不可达与死行不可区分）不定罪——重新武装下一轮
+   *  （cr-999，悬挂探针/Dock 对账同口径；真死 run 由探针 3min + Dock 20s
+   *  静默判死兜底收敛）。在途判据含未闭合工具行（content 空）：streaming
+   *  升格 run 级后，工具执行窗口（after-step 已关占位、结果未回）run 仍
+   *  活着——长工具不误报。 */
   function armSendWatchdog(dialogId: DialogId) {
     setTimeout(() => void (async () => {
       const d = feed.getDialog(dialogId);
@@ -364,7 +366,11 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       const hasLive = d.rawMessages.some(m => m.isStreaming || (m.role === 'tool' && !m.content));
       if (!hasLive) {
         const { kind, key } = parseDialogId(dialogId);
-        const agent = kind === 'single' ? (feed.activeAgentId || key) : pairPartnerOf(key);
+        // single 权威键 = 激活时登记的目标 Agent（agentKeyOf 同口径）。此前
+        // feed.activeAgentId || key 依赖 roster 选中——进入独立会话时选中被
+        // 显式清空（SessionList.selectSingle），回落 sessionId 匹配 stats 的
+        // agentId 恒 miss → 步边界空窗采样必误杀（cr-999）。
+        const agent = kind === 'single' ? (singleMeta.get(key)?.agentId ?? key) : pairPartnerOf(key);
         const conv = kind === 'single' ? key : key.split('|').join('~');
         try {
           const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }>; spawning?: string[] }>('conversation/stats');
@@ -372,7 +378,12 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
             armSendWatchdog(dialogId); // 权威说在跑（含拉壳窗）——重新武装下一轮
             return;
           }
-        } catch { /* 后端不可达：按断链处理（与原路径一致） */ }
+        } catch {
+          // 后端不可达与死行不可区分——不定罪（悬挂探针/Dock 对账同口径），
+          // 重新武装下一轮（cr-999：此前按断链杀，网络瞬断即闪红条）。
+          armSendWatchdog(dialogId);
+          return;
+        }
         d.streaming = false;
         turnInProgress.value = false;
         // 收敛（cr-107 checkpoint-C）：看门狗触发 = 事件链断裂确证——关停
