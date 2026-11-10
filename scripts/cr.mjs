@@ -351,12 +351,19 @@ function doSync(rebuild) {
   }
   const known = new Set(parse(readLog()).entries.map((e) => e.n));
   const dangling = Object.keys(entries).map(Number).filter((n) => !known.has(n)).sort((a, b) => a - b);
+  const sorted = Object.fromEntries(Object.keys(entries).map(Number).sort((a, b) => a - b)
+    .map((n) => [String(n), entries[String(n)]]));
+  // refs 无变化不落盘（cr-986）：只差 scannedHead 的更新不写——否则任何提交
+  // 都令投影滞后一格，追着提交又生成新提交（自追尾）。scannedHead 允许滞后，
+  // 下次增量重扫这几枚 commit 是毫秒级
+  if (prev?.entries && JSON.stringify(prev.entries) === JSON.stringify(sorted)) {
+    return { proj: { ...prev, scannedHead: head }, dangling, refCount: Object.values(entries).reduce((a, v) => a + v.length, 0), unchanged: true };
+  }
   const proj = {
     scannedHead: head,
     generatedAt: new Date().toISOString(),
     _comment: '生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）',
-    entries: Object.fromEntries(Object.keys(entries).map(Number).sort((a, b) => a - b)
-      .map((n) => [String(n), entries[String(n)]])),
+    entries: sorted,
   };
   fs.writeFileSync(PROJ, JSON.stringify(proj, null, 1) + '\n');
   const refCount = Object.values(entries).reduce((a, v) => a + v.length, 0);
