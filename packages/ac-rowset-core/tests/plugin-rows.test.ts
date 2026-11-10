@@ -1,23 +1,15 @@
 // ============================================================
-// plugin-rows 纯库单测（cr-543）：插件行集条目 schema + 三条判据
-//（树归属恒 shell / 路径恒安装目录 / 撞名出厂行丢弃）+ 文件域往返。
+// plugin-rows 纯库单测（cr-543；cr-1001 文件域退役后仅 manifest 投影 +
+// 目录合并）：插件行集条目 schema + 三条判据（树归属恒 shell / 路径恒
+// 安装目录 / 撞名出厂行丢弃）。
 // ============================================================
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { describe, it, expect } from 'vitest';
 import {
   mergeRowsetCatalog,
-  pluginRowsFile,
   pluginRowsOf,
   readPluginRowDeclarations,
-  readPluginRows,
-  writePluginRows,
   type RowsetCatalog,
 } from '../src/index.ts';
-
-const ROOT = path.join('sandbox', 'test-plugin-rows-' + process.pid);
-beforeEach(() => { fs.rmSync(ROOT, { recursive: true, force: true }); fs.mkdirSync(ROOT, { recursive: true }); });
-afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 const INSTALL_DIR = '/data/plugins/demo';
 
@@ -69,17 +61,5 @@ describe('目录合并（保留字护栏）', () => {
     expect(merged.warnings).toEqual(['插件行与既有行撞名，已丢弃：backup', '插件行与既有行撞名，已丢弃：demo-tools']);
     // 不可变：基础目录不被就地改写
     expect(base.rows.length).toBe(2);
-  });
-});
-
-describe('插件行集文件域', () => {
-  it('写读往返 + 缺席/损坏 fail-soft 空集', () => {
-    expect(pluginRowsFile(ROOT)).toBe(ROOT + '/plugin-rows.json'); // 与 hostPreferenceFile 同口径
-    expect(readPluginRows(ROOT)).toEqual([]);
-    writePluginRows(ROOT, [{ id: 'demo-tools', tree: 'shell', path: '/p/demo' }]);
-    expect(readPluginRows(ROOT)).toEqual([{ id: 'demo-tools', tree: 'shell', path: '/p/demo' }]);
-    expect(fs.readdirSync(ROOT).filter((f) => f.endsWith('.tmp'))).toEqual([]);
-    fs.writeFileSync(pluginRowsFile(ROOT), '{ 坏 json', 'utf-8');
-    expect(readPluginRows(ROOT)).toEqual([]);
   });
 });

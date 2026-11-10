@@ -331,7 +331,9 @@ function doSync(rebuild) {
   if (!rebuild && prev?.scannedHead && prev.entries) {
     if (prev.scannedHead === head) { entries = prev.entries; range = []; }
     else if (gitOk(['merge-base', '--is-ancestor', prev.scannedHead, 'HEAD']) != null) {
-      entries = prev.entries;
+      // 深拷贝（cr-1001）：直接引用会让增量扫描同体变异 prev.entries，
+      // 下方「无变化」判定比较的两侧变为同一内容恒相等 → 恒不落盘
+      entries = JSON.parse(JSON.stringify(prev.entries));
       range = [prev.scannedHead + '..HEAD'];
     }
   }

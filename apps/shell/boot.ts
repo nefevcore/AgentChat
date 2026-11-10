@@ -29,7 +29,7 @@ import {
 import * as net from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis';
-import { deriveShellRowset, mergeRowsetCatalog, readCatalog, readPluginRows, installedRowDescriptors, readCustomLayer, type DerivedRowset, type RowDescriptor } from 'ac-rowset-core';
+import { deriveShellRowset, mergeRowsetCatalog, readCatalog, installedRowDescriptors, readCustomLayer, type DerivedRowset, type RowDescriptor } from 'ac-rowset-core';
 import { readAgentConfig, readChildConfig } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow } from 'ac-shell-rows';
@@ -174,15 +174,13 @@ export function deriveAndAssertRowset(
   catalogFile: string | undefined,
   parentId?: string,
 ): DerivedRowset & { catalogRows: RowDescriptor[] } {
-  // 目录 = 出厂目录 ∪ 插件行集（cr-543 窗口镜像）∪ installed.patch.yml 菜单
-  //（cr-908 批6：装配菜单合流——安装器代写登记进派生，owner 锚过滤 +
-  // 点名缺席降级语义；plugin-rows.json 转纯镜像窗口，拆旧收口件）。
-  // 撞名出厂行在合并层丢弃——保留字护栏（后到丢弃：installed 行让位于
-  // 镜像行——两者同源于统一安装器，正常不并存）
+  // 目录 = 出厂目录 ∪ installed.patch.yml 菜单（cr-908 批6 装配菜单合流；
+  // cr-1001 plugin-rows.json 镜像窗口退役——installed 菜单为唯一装载输入，
+  // owner 锚过滤 + 点名缺席降级语义）。
+  // 撞名出厂行在合并层丢弃——保留字护栏
   const catalogBase = readCatalog(catalogFile ?? path.join(dataRoot, 'row-catalog.json'));
-  const mirrorRows = readPluginRows(path.resolve(dataRoot));
   const installed = installedRowDescriptors(path.resolve(dataRoot), agentId);
-  const merged = mergeRowsetCatalog(mergeRowsetCatalog(catalogBase, mirrorRows).catalog, installed.rows);
+  const merged = mergeRowsetCatalog(catalogBase, installed.rows);
   if (installed.warnings.length > 0) {
     process.stderr.write('[shell] installed 菜单对账警告：' + installed.warnings.join('；') + '\n');
   }
@@ -223,7 +221,7 @@ export function deriveAndAssertRowset(
 /**
  * 插件行装配器（cr-543）：安装目录 manifest.entry 动态 import → ctx.plugin。
  * 装载 = 授权动作（A7/A10）——第三方代码只在壳进程内进进程，宿主进程不装载；
- * 行 id / 工具面来自 plugin-rows.json（宿主 plugin-registry 行物化，熔断/撞名
+ * 行 id / 工具面来自 installed.patch.yml 菜单投影（安装器登记，熔断/撞名
  * 已在宿主侧剔除）。装载失败由宿主 plugin/load-failure RPC 回报熔断（壳接线
  * 归 cutover/8.9 产品面收敛批）。
  */
@@ -419,15 +417,13 @@ export async function bootShell(
   // agents/<id>/ 与子壳 children/<parentId>/<id>/ 分域；每 boot 覆写。
   writeBootGraphSnapshot(path.resolve(args.dataRoot), args.agentId, args.parentId, rowset);
   seedPlaceholderAssemblers(rowset.catalogRows);
-  // 插件行装配器（cr-543）：行集内出现的插件行（安装态注入、非出厂目录行）
-  // 按安装目录动态装载——插件行 id 由宿主 plugin-registry 行物化。
+  // 插件行装配器（cr-543）：行集内出现的插件行（installed 菜单注入、非出
+  // 厂目录行）按安装目录动态装载。
   // 装载失败（cr-550）：emit plugin.load-failed TSV 行 + 跳行——插件熔断
   // 归宿主裁决（阈值 3 → 行集条目剔除），壳自身 boot 不被第三方插件拖死
   //（fail-closed 对插件：该行缺席即其工具面缺席；宿主回报面由常驻监护
   // supervise 消费本节拍转发 pluginRegistry.reportLoadFailure）。
-  const menuRows = readPluginRows(path.resolve(args.dataRoot)).concat(
-    installedRowDescriptors(path.resolve(args.dataRoot), args.agentId).rows,
-  );
+  const menuRows = installedRowDescriptors(path.resolve(args.dataRoot), args.agentId).rows;
   for (const pluginRow of menuRows) {
     if (!rowset.rowIds.includes(pluginRow.id)) continue;
     registerRowAssembler(pluginRow.id, async (c) => {

@@ -1,6 +1,6 @@
 {
- "scannedHead": "8a6ff4063ca3abbce9c165cfbad9e383f9d5fde4",
- "generatedAt": "2026-11-10T03:06:32.004Z",
+ "scannedHead": "72937e2c8f91b9c0c483dae3ea53ada68d20e091",
+ "generatedAt": "2026-11-10T15:18:10.465Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -3630,6 +3630,11 @@
     "sha": "f2d89cd245887881d71a6ac15a4c8cd590750512",
     "date": "2026-10-25",
     "subject": "refactor(cutover): cr-696 ◐c 旧树退役批——ac-client-ui-* 31 包迁出 preview/packages + A 类 24 包删除 + 类型墓碑 + cordis.yml/ac-app 退役"
+   },
+   {
+    "sha": "08034c9df94b26bbafde76e56219e33cb08759de",
+    "date": "2026-11-10",
+    "subject": "fix(jobs): cr-992 job 完成通知回投链路随迁补齐——ac-jobs 行内 wakeup 模块（job/settled → conversation.deliver）：digest 5s 窗口聚合 / killedBy=owner 且非 failed 跳过 / sub owner 无会话键跳过；旧 ac-job-wakeup cr-696 退役时随迁未落，注释四处漂移订正 + tool-catalog 快照重生成"
    }
   ],
   "697": [
@@ -4075,6 +4080,18 @@
     "subject": "feat: cr-959~cr-972 同日批次（读面注入补全/ask_questions 响应式/冷启韧性三件套/换代接管批1~批3/steer 落账时机/shell bundle 化）——boot.ts 与 cr-log.md 含 cr-973 混载，随下笔提交"
    }
   ],
+  "961": [
+   {
+    "sha": "96e9f223887a915d2a7f07fadc843711f96c3c4a",
+    "date": "2026-11-10",
+    "subject": "fix(restart): cr-995/996 收尾——shellSelfRoot 三形态单源（AGENTCHAT_HOME / dist 上级 / apps-shell 上两级）修 dev bundle 裸 ../../ 根锚回归（systemAlive 恒假 → 复活抢跑 → EADDRINUSE 78 监护栈全灭）+ webui-v3 出厂审计退场 disarm（restart_host 收面拆 wire 不再误报 31 条行缺席）+ cr-961 条目状态更新为已落地"
+   },
+   {
+    "sha": "366f503e510dcb6313d401cea4c331d068b8f632",
+    "date": "2026-11-10",
+    "subject": "obs(host): cr-993 拉起链观测补全——orchestrate 的 spawn t0/三拍节拍/adopted 收口（节拍与 adopted 落 shell 滚动日志）+ supervise 的退出/respawn 判定/退避值/broken/done/拉起失败落宿主日志；4 分钟空窗从此可按段拆分（cr-961 bundle 化前置观测）"
+   }
+  ],
   "962": [
    {
     "sha": "5956ed1b7a6cd2dbfc050afd45bf406b0cf6ab47",
@@ -4092,6 +4109,11 @@
     "sha": "02f53927cd70a73f108fbb7a0e76689af4c30a4b",
     "date": "2026-11-09",
     "subject": "feat: cr-959~cr-972 同日批次（读面注入补全/ask_questions 响应式/冷启韧性三件套/换代接管批1~批3/steer 落账时机/shell bundle 化）——boot.ts 与 cr-log.md 含 cr-973 混载，随下笔提交"
+   },
+   {
+    "sha": "eb01d70ee4e49d8e4a4731a4a19631dcd912925a",
+    "date": "2026-11-10",
+    "subject": "refactor(session): cr-998 cr-972 兼容窗收尾——viewer 退役 + v1 写面退役"
    }
   ],
   "973": [
@@ -4109,6 +4131,11 @@
     "sha": "02f53927cd70a73f108fbb7a0e76689af4c30a4b",
     "date": "2026-11-09",
     "subject": "feat: cr-959~cr-972 同日批次（读面注入补全/ask_questions 响应式/冷启韧性三件套/换代接管批1~批3/steer 落账时机/shell bundle 化）——boot.ts 与 cr-log.md 含 cr-973 混载，随下笔提交"
+   },
+   {
+    "sha": "eb01d70ee4e49d8e4a4731a4a19631dcd912925a",
+    "date": "2026-11-10",
+    "subject": "refactor(session): cr-998 cr-972 兼容窗收尾——viewer 退役 + v1 写面退役"
    }
   ],
   "974": [
@@ -4140,6 +4167,11 @@
     "sha": "f3fb88470d30b96e7f0a9dc4f3fb26bf86d253ad",
     "date": "2026-11-10",
     "subject": "feat(pipeline): cr-976/977 直播管线 B 案 Phase 3——事件投影转发 + feed-core 一次性重构"
+   },
+   {
+    "sha": "65fd922ccb297b644de15545552aea5cfdec8b90",
+    "date": "2026-11-10",
+    "subject": "fix(webui): cr-988 goal useGoalTracking 可空守卫补漏——p?.subcall（cr-976/977 引入的 webui:typecheck 存量红）"
    }
   ],
   "978": [
@@ -4168,6 +4200,11 @@
     "sha": "5062b9b4a0f9b06fba18c70eeeb139aa62ea42b8",
     "date": "2026-11-10",
     "subject": "feat(cr): cr-981~984 CR 工具 v2 批1+批2——设计成文（cr-tool-v2.md）+ 结构化尾部块 {status|#scope|→ref}/状态机 set/append 软门+O_EXCL 锁+尾部 O(1) 追加写+全 LF 修形 + sync 增量投影 cr-commits.json + check 六锁守门 + 理卷消 13 逆序 + cr-4 行尾笔误修复 + SKILL 使用引导同步"
+   },
+   {
+    "sha": "72937e2c8f91b9c0c483dae3ea53ada68d20e091",
+    "date": "2026-11-10",
+    "subject": "chore(eol): cr-1000 行尾统一 LF 单一真相——工具集读写面全归一（read 显示层剥 \\\\r / write·edit 写回恒 LF 收敛器 / str_replace_editor 匹配与写入同 LF 空间 / grep preview 剥 \\\\r，bat/cmd 例外保持 CRLF）+ cr-log 约定迁 LF（normalizeEol 修形翻转，cr-981 两事实源顶牛消解）+ 存量 19 化石 byte 级归一（17 包源码/fold-out/mixed 测试文件）+ line-ending 死码清理（restoreLineEndingsPreserving/parseRawLines 不可达删除）"
    }
   ],
   "985": [
@@ -4182,6 +4219,88 @@
     "sha": "8a6ff4063ca3abbce9c165cfbad9e383f9d5fde4",
     "date": "2026-11-10",
     "subject": "fix(cr): cr-986 sync refs 无变化不落盘——消投影自追尾"
+   },
+   {
+    "sha": "a773ef7049a3376fdf5d0cfd07eab6013a8e3709",
+    "date": "2026-11-10",
+    "subject": "chore(cr): 投影全量重建对齐（cr-986 refs 入账；顺带验证：探针伪引用被锁6 悬空校验捕获后清除）"
+   }
+  ],
+  "987": [
+   {
+    "sha": "45bc3f7b83263a4946df95d7b8c0dd6df0c76e2b",
+    "date": "2026-11-10",
+    "subject": "feat(webui): cr-987/989/990 placeholder 灰调独立档 + 三连调——tokens.css 立 --placeholder 专令牌（暗 #adb2b8 / 亮 #83868d）+ ::placeholder 全局唯一源；消费面收口（删 6 处散装声明；PromptEditor 仿占位与 Select/DatePicker 空态切令牌）；TOKEN_VOCAB +midnight 主题包同步；contrast ②c 四底 ≥3.0 测试锁"
+   }
+  ],
+  "988": [
+   {
+    "sha": "65fd922ccb297b644de15545552aea5cfdec8b90",
+    "date": "2026-11-10",
+    "subject": "fix(webui): cr-988 goal useGoalTracking 可空守卫补漏——p?.subcall（cr-976/977 引入的 webui:typecheck 存量红）"
+   }
+  ],
+  "991": [
+   {
+    "sha": "795ee72f8ad86a91baa65b277ea98e6f7081f42e",
+    "date": "2026-11-10",
+    "subject": "fix(ipc): cr-991 IpcClient 对端关闭感知 + PostOffice 连接池拒陈旧客户端——close 即摘 socket + reject 在途 waiter（断 write-才-炸的半死残留与在途永挂），deliverVia 断开池项弃旧重连；宿主侧 outbox 转投不再每拍撞死 pipe 刷 W"
+   }
+  ],
+  "992": [
+   {
+    "sha": "08034c9df94b26bbafde76e56219e33cb08759de",
+    "date": "2026-11-10",
+    "subject": "fix(jobs): cr-992 job 完成通知回投链路随迁补齐——ac-jobs 行内 wakeup 模块（job/settled → conversation.deliver）：digest 5s 窗口聚合 / killedBy=owner 且非 failed 跳过 / sub owner 无会话键跳过；旧 ac-job-wakeup cr-696 退役时随迁未落，注释四处漂移订正 + tool-catalog 快照重生成"
+   }
+  ],
+  "993": [
+   {
+    "sha": "366f503e510dcb6313d401cea4c331d068b8f632",
+    "date": "2026-11-10",
+    "subject": "obs(host): cr-993 拉起链观测补全——orchestrate 的 spawn t0/三拍节拍/adopted 收口（节拍与 adopted 落 shell 滚动日志）+ supervise 的退出/respawn 判定/退避值/broken/done/拉起失败落宿主日志；4 分钟空窗从此可按段拆分（cr-961 bundle 化前置观测）"
+   }
+  ],
+  "994": [
+   {
+    "sha": "de261eb849c44197f77ebe9dbae60e6a93be5b6a",
+    "date": "2026-11-10",
+    "subject": "fix(restart): cr-994 restart_shell 重启空窗根修——接管壳锁观察器识别 restart marker（锁消失+marker 在场 → exit 42 快路 respawn + marker 消费，替代恒 0 判 done）；壳侧退出意图优先级 decideExit（42 设立后 0 不再覆盖——system shutdown 帧竞态防护）；宿主 requestShellRespawn 句柄在池不再永久放弃（持续轮询确保拉起）；takeover-restart 测试 3 例锁定"
+   }
+  ],
+  "995": [
+   {
+    "sha": "96e9f223887a915d2a7f07fadc843711f96c3c4a",
+    "date": "2026-11-10",
+    "subject": "fix(restart): cr-995/996 收尾——shellSelfRoot 三形态单源（AGENTCHAT_HOME / dist 上级 / apps-shell 上两级）修 dev bundle 裸 ../../ 根锚回归（systemAlive 恒假 → 复活抢跑 → EADDRINUSE 78 监护栈全灭）+ webui-v3 出厂审计退场 disarm（restart_host 收面拆 wire 不再误报 31 条行缺席）+ cr-961 条目状态更新为已落地"
+   }
+  ],
+  "997": [
+   {
+    "sha": "af131b43980f96b6d7f888779c6efc5cb28d3c4f",
+    "date": "2026-11-10",
+    "subject": "obs(host): cr-997 宿主内监护模块日志前缀统一 host. 前缀——supervise→host.supervise / orchestrator→host.orchestrator / shell:agent→host.shell:agent（11 处日志行 + 壳滚动日志标签 + host-log 头注约定），与独立进程 supervisor（拉起宿主）一词之差不再误读；recipe 盘面 id（shell:agent 落盘键）非日志不动"
+   }
+  ],
+  "998": [
+   {
+    "sha": "eb01d70ee4e49d8e4a4731a4a19631dcd912925a",
+    "date": "2026-11-10",
+    "subject": "refactor(session): cr-998 cr-972 兼容窗收尾——viewer 退役 + v1 写面退役"
+   }
+  ],
+  "999": [
+   {
+    "sha": "7fb60702077418c85d92bd602f3733295a6f294b",
+    "date": "2026-11-10",
+    "subject": "fix(webui): cr-999 发送看门狗误杀活 run 两根因——single 权威键改 singleMeta 登记的目标 Agent（roster 选中恒空回落 sessionId 匹配 stats 恒 miss，步边界空窗采样必误杀）+ stats RPC 失败不定罪重新武装（对齐探针/Dock 口径）；回归 send-watchdog-single-key 3 例 + 突变验证旧代码 2 红"
+   }
+  ],
+  "1000": [
+   {
+    "sha": "72937e2c8f91b9c0c483dae3ea53ada68d20e091",
+    "date": "2026-11-10",
+    "subject": "chore(eol): cr-1000 行尾统一 LF 单一真相——工具集读写面全归一（read 显示层剥 \\\\r / write·edit 写回恒 LF 收敛器 / str_replace_editor 匹配与写入同 LF 空间 / grep preview 剥 \\\\r，bat/cmd 例外保持 CRLF）+ cr-log 约定迁 LF（normalizeEol 修形翻转，cr-981 两事实源顶牛消解）+ 存量 19 化石 byte 级归一（17 包源码/fold-out/mixed 测试文件）+ line-ending 死码清理（restoreLineEndingsPreserving/parseRawLines 不可达删除）"
    }
   ]
  }

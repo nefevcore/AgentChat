@@ -1,7 +1,7 @@
 // ============================================================
 // installed-rows.ts —— installed.patch.yml → 行集菜单投影（cr-908 /
 // cr-901 v2.1 批6 切片一：装配菜单合流——安装器代写的登记文档进壳
-// 行集派生，plugin-rows.json 转纯镜像窗口〔拆旧收口件〕）
+// 行集派生，唯一装载输入；cr-1001 plugin-rows.json 镜像窗口退役）
 //
 // owner 锚（§4.3）：行仅进 owner Agent 候选集（非 owner 壳不解析
 // 不装载）；scope 面：shell（缺省）进壳菜单，host/webui 不在本投影。

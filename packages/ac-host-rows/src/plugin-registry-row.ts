@@ -5,16 +5,16 @@
 // 与主线 ac-plugin-registry 的形态差（改造的实质，不是缩水）：
 //   主线：装载 = 把第三方代码 dynamic import 进**宿主进程**（ctx.plugin），
 //         行因此住宿主，熔断/健康记录围绕宿主内装载。
-//   本行：装载 = 授权动作（A7/A10）——批准安装后插件行集条目物化为
-//         <dataRoot>/plugin-rows.json，装载发生在**壳进程**（壳 boot 读目录
-//         + 插件行合并 → 行集派生 → 动态装配）。第三方代码零宿主驻留
-//         （R0a 判据 1）——宿主进程不 import 任何插件代码。
+//   本行：装载 = 授权动作（A7/A10）——批准安装后插件登记进
+//         installed.patch.yml（安装器代写），装载发生在**壳进程**（壳 boot
+//         读目录 + installed 菜单合并 → 行集派生 → 动态装配）。第三方代码
+//         零宿主驻留（R0a 判据 1）——宿主进程不 import 任何插件代码。
 //
 // 行内四件事：
 //   ① 安装态与 staging 人审（哈希 / 只读代理 / 权限快照 / 来源锚定）——
 //      算法全复用 ac-plugin-core 纯库（主线原样 import，零改动）；
 //   ② 装载裁决与熔断闸门：壳侧装载失败经 plugin/load-failure 回报 →
-//      阈值熔断 → 该插件行集条目从 plugin-rows.json 剔除（fail-closed）；
+//      阈值熔断 → 该插件行集条目从 installed 登记剔除（fail-closed）；
 //   ③ 行集偏好急救 RPC（rows/*）：写 <dataRoot>/host-rows.json，恒冷
 //      生效（restartRequired——〈patch 机制退役〉：无热通道无 patch 文件）；
 //   ④ client manifest 注入：安装目录即 boot graph 源
@@ -79,7 +79,6 @@ import {
   readCatalog,
   readHostPreferences,
   writeHostPreferences,
-  writePluginRows,
   type HostRowPreference,
   type RowDescriptor,
 } from 'ac-rowset-core';
@@ -180,7 +179,7 @@ export class PluginRegistryHostService extends Service {
       scope: 'shell',
     });
     const installedDir = path.join(this.root(), approved.manifest.name);
-    const rows = this.refreshRows();
+    const rows = this.pluginRows();
     await this.audit({
       event: 'install',
       name: approved.manifest.name,
@@ -261,7 +260,7 @@ export class PluginRegistryHostService extends Service {
     if (receipt.result !== 'applied') {
       return { status: 'rejected', name: receipt.name, error: (receipt.reasons ?? []).join('；') };
     }
-    const rows = this.refreshRows();
+    const rows = this.pluginRows();
     await this.audit({
       event: 'install', name: receipt.name, version: receipt.version, owner,
       sourceDir: receipt.installedDir, hash: receipt.hash,
@@ -287,7 +286,7 @@ export class PluginRegistryHostService extends Service {
     if (receipt.result !== 'applied') {
       throw new Error((receipt.reasons ?? []).join('；'));
     }
-    const rows = this.refreshRows();
+    const rows = this.pluginRows();
     await this.audit({
       event: 'uninstall',
       name,
@@ -323,8 +322,8 @@ export class PluginRegistryHostService extends Service {
 
   /**
    * 插件行集现算：已安装插件的 manifest.rows → 壳行集条目。
-   * 熔断（.load-health disabled）与撞名（保留字护栏）在此剔除；
-   * 产物落 plugin-rows.json（壳 boot 合并单源）。
+   * 熔断（.load-health disabled）与撞名（保留字护栏）在此剔除
+   *（cr-1001 镜像退役后纯现算视图——壳 boot 经 installed.patch.yml 单源）。
    */
   pluginRows(): PluginRowsView {
     const warnings: string[] = [];
@@ -355,13 +354,6 @@ export class PluginRegistryHostService extends Service {
     return { rows: merged.catalog.rows.slice(base.rows.length), warnings };
   }
 
-  /** 刷新 plugin-rows.json（安装/卸载/熔断变更后调用；返回现算结果） */
-  refreshRows(): PluginRowsView {
-    const view = this.pluginRows();
-    writePluginRows(this.dataRoot, view.rows);
-    return view;
-  }
-
   /** 装载裁决（壳侧装载前询问；熔断/未安装 = false——fail-closed） */
   canLoad(name: string): boolean {
     if (isLoadDisabled(this.dataRoot, name)) return false;
@@ -372,7 +364,6 @@ export class PluginRegistryHostService extends Service {
   async reportLoadFailure(name: string, error: string): Promise<{ disabled: boolean; count: number }> {
     const state = await recordLoadFailure(this.dataRoot, name, error);
     const disabled = isLoadDisabled(this.dataRoot, name);
-    if (disabled) this.refreshRows();
     await this.audit({
       event: 'load',
       name,
@@ -385,7 +376,6 @@ export class PluginRegistryHostService extends Service {
   /** 清熔断记录（修复后重装 / 人工急救） */
   async clearLoadHealthFor(name: string): Promise<void> {
     await clearLoadHealth(this.dataRoot, name);
-    this.refreshRows();
   }
 
   /** 熔断档案视图（webui 徽章数据源） */
@@ -507,7 +497,7 @@ async function applyPluginRequest(
         effective: result.effective,
         ...(result.backupDir !== undefined ? { backupDir: result.backupDir } : {}),
       },
-      nextPrompt: '[plugin] 你安装的 ' + result.name + '@' + result.version + ' 已写入安装态（宿主零代码装载——installed.patch.yml/plugin-rows.json 已刷新，本壳重启或新壳 boot 时装载'
+      nextPrompt: '[plugin] 你安装的 ' + result.name + '@' + result.version + ' 已写入安装态（宿主零代码装载——installed.patch.yml 已登记，本壳重启或新壳 boot 时装载'
         + (result.effective === 'restart-required' ? '；当前有活壳在场，生效轴 = restart-required' : '')
         + '）。要立即测试请用 register_plugin（会话级装载）。',
     };
@@ -573,7 +563,7 @@ export function makePluginRegistryRow(options: PluginRegistryHostRowOptions): Pl
 
       // —— ① 安装态与 staging 人审 ——
       web.registerRpc('plugin/installed', () => {
-        const rows = svc.refreshRows();
+        const rows = svc.pluginRows();
         return { installed: svc.listInstalled(), rows: rows.rows, warnings: rows.warnings };
       });
 

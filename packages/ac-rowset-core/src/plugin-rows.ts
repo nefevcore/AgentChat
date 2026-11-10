@@ -1,10 +1,10 @@
 // ============================================================
-// plugin-rows.ts —— 插件行集条目注入（8.8 前置第六批 cr-543）
+// plugin-rows.ts —— 插件行集条目投影（8.8 前置第六批 cr-543；cr-1001
+// 镜像窗口退役后仅存 manifest 投影 + 目录合并纯函数）
 //
 // install = 授权动作（A7/A10）：已安装插件的行集条目由其 manifest.rows
-// 声明，宿主 plugin-registry 行在批准/卸载后物化为
-// <dataRoot>/plugin-rows.json（壳行集派生输入）；壳 boot 读目录 + 本文件
-// 合并后交 deriveShellRowset（壳行集派生全域单一，A9）。
+// 声明，经 installed.patch.yml 菜单进壳行集派生
+//（installed-rows.ts——cr-908 装配菜单合流后的唯一装载输入）。
 //
 // 三条判据（承 R0a 判据 1「agent 代码零宿主驻留」+ 保留字护栏 F13/G1）：
 //   · 插件行恒 tree='shell'——插件代码只在壳进程内装载，宿主装配面
@@ -13,7 +13,6 @@
 //     插件不得自述路径（否则指纹可指向任意目录）；
 //   · 撞名出厂行 = 丢弃并告警——动态行不许覆盖出厂行（保留字护栏）。
 // ============================================================
-import * as fs from 'node:fs';
 import type { RowDescriptor, RowsetCatalog } from './rowset.ts';
 
 /** manifest.rows 条目（插件自述的行集条目） */
@@ -129,27 +128,3 @@ export function mergeRowsetCatalog(
   return { catalog: { rows: [...base.rows, ...appended] }, warnings };
 }
 
-/** 插件行集文件位（数据根内——宿主单写者 = plugin-registry 行） */
-export function pluginRowsFile(dataRoot: string): string {
-  return dataRoot + '/plugin-rows.json';
-}
-
-/** 读插件行集文件（缺席/损坏 = 空集——fail-soft：装载面不因文件坏而阻断 boot） */
-export function readPluginRows(dataRoot: string): RowDescriptor[] {
-  try {
-    // JSON.parse 返回 any 形态——按文件契约定型（rows 非数组 = 空集）
-    const parsed = JSON.parse(fs.readFileSync(pluginRowsFile(dataRoot), 'utf-8')) as { rows?: unknown };
-    if (Array.isArray(parsed.rows)) return parsed.rows as RowDescriptor[];
-  } catch {
-    // 缺席 = 无插件行
-  }
-  return [];
-}
-
-/** 写插件行集文件（原子换名；宿主 plugin-registry 行安装态变更后刷新） */
-export function writePluginRows(dataRoot: string, rows: RowDescriptor[]): void {
-  const file = pluginRowsFile(dataRoot);
-  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify({ version: 1, rows }, null, 2) + '\n', 'utf-8');
-  fs.renameSync(tmp, file);
-}
