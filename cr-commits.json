@@ -1,6 +1,6 @@
 {
- "scannedHead": "ae3963e3717ca2940c595ac1778b4d5fdad9f62b",
- "generatedAt": "2026-11-10T03:01:44.414Z",
+ "scannedHead": "8a6ff4063ca3abbce9c165cfbad9e383f9d5fde4",
+ "generatedAt": "2026-11-10T03:06:32.004Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -4175,6 +4175,13 @@
     "sha": "ae3963e3717ca2940c595ac1778b4d5fdad9f62b",
     "date": "2026-11-10",
     "subject": "fix(cr): cr-985 sync 增量等头分支结转 prev.entries——修无新 commit 时投影写空"
+   }
+  ],
+  "986": [
+   {
+    "sha": "8a6ff4063ca3abbce9c165cfbad9e383f9d5fde4",
+    "date": "2026-11-10",
+    "subject": "fix(cr): cr-986 sync refs 无变化不落盘——消投影自追尾"
    }
   ]
  }
