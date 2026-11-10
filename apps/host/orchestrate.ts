@@ -244,6 +244,10 @@ export async function adoptShell(
     });
   } catch { /* 盘面退化不反噬拉起链 */ }
   const proc = spawnFn(AGENTCHAT_EXE, shellArgs, { onStderrLine: (line) => reportStderr(line) });
+  // 拉起链观测（cr-993）：spawn → 三拍 → adopted 全程落宿主日志——空窗耗时
+  // 可拆分（boot.* 节拍行在下方行循环统一计时，此处只记起点）
+  const spawnAt = Date.now();
+  hostLog('I', 'orchestrator', `拉起壳 ${input.agentId}：spawn pid=${proc.pid}（cr-993 观测：t0）`);
   // 分级预算（cr-962）：首拍 = 进程启动 + 全量模块装载（源码直载形态
   // 1904 文件/5373 解析——暖态 ~1.3s，待机唤醒冷态实测 40~47s），固定 15s
   // 把一切慢启动判死（11 天 44 次误杀现场）；后续拍（lock → rows.ready →
@@ -357,15 +361,20 @@ export async function adoptShell(
           lineCb?.(line);
           continue;
         }
-        // boot.* 节拍 = 有进度：进下一拍并重挂预算（cr-962 分级）
+        // boot.* 节拍 = 有进度：进下一拍并重挂预算（cr-962 分级）。节拍行
+        // 落滚动日志不刷控制台（cr-741 噪音治理——每次拉壳 3 行必出；时间
+        // 戳 ISO 与 shell log 既有行同形，宿主侧盖（cr-993 观测））
         if (line.startsWith('boot.')) {
           stage += 1;
           armWatchdog();
+          appendRollingLine(stderrLog, `${new Date().toISOString()} [orchestrator] 壳 ${input.agentId} 节拍 t+${((Date.now() - spawnAt) / 1000).toFixed(1)}s：${line.slice(0, 80)}`, 512 * 1024);
         }
         warden.feedLine(line, Date.now());
         const evts = warden.emitted();
         const adopted = evts.find((e) => e.type === 'adopted');
         if (adopted !== undefined) {
+          // adopted 收口行同走落盘（cr-741 断言面：含 boot 字样不进控制台）
+          appendRollingLine(stderrLog, `${new Date().toISOString()} [orchestrator] 壳 ${input.agentId} adopted：bootId=${adopted.bootId}（spawn→ready 共 ${((Date.now() - spawnAt) / 1000).toFixed(1)}s）`, 512 * 1024);
           input.reach.markReachable(input.agentId, adopted.transportHint);
           // adopted = 通道恢复（协议 D2 节拍 2）：滞留信转投（at-least-once）
           if (input.postOffice !== undefined) {
