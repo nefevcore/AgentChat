@@ -348,3 +348,68 @@ describe('cr-962 flushOutbox 不可达补拉', () => {
     await po.close();
   });
 });
+
+// —— cr-991：连接池陈旧客户端拒用 ——
+
+describe('cr-991 连接池陈旧客户端', () => {
+  it('现场剧本：壳死（池残留）→ 可达回登记 → flush 弃旧重连直达——不再「socket ended」', async () => {
+    const logs: Array<[string, string]> = [];
+    const po = new PostOffice({ dataRoot: ROOT, onLog: (level, message) => { logs.push([level, message]); } });
+    // 第一代壳：真 ipc server，收信即 ack——dispatch 直投把客户端种进池
+    const addr1 = socketPathFor(path.resolve(ROOT), 'shell-a1');
+    let got: string[] = [];
+    const srv1 = await listenIpc(addr1, (payload) => {
+      const env = payload as Envelope;
+      got.push(env.requestId);
+      return { ack: env.requestId, fresh: true };
+    });
+    po.reach.markReachable('alpha', addr1);
+    await po.dispatch(msg({ requestId: 'st-gen1', uuid: 'u-gen1' }));
+    expect(got).toEqual(['st-gen1']); // 直投成功——池已缓存 addr1 客户端
+    // 壳 idle 退出（对端关闭）+ 可达表被外部回登记（rescue/peek 探活面——现场链）
+    await srv1.close();
+    await new Promise((r) => setTimeout(r, 100)); // close 事件送达宿主侧
+    const addr2 = socketPathFor(path.resolve(ROOT), 'shell-a2');
+    const srv2 = await listenIpc(addr2, (payload) => {
+      const env = payload as Envelope;
+      got.push(env.requestId);
+      return { ack: env.requestId, fresh: true };
+    });
+    po.reach.markReachable('alpha', addr2); // 新壳持新 pipe（bootId 换代）
+    const delivered = await po.flushOutbox(); // 空箱快路径——不触投递，仅验可达面
+    expect(delivered).toHaveLength(0);
+    // 关键断言（修复前现场）：hint 换代时旧池项（连 addr1 的半死客户端）不再被信
+    const dispatched = await po.dispatch(msg({ requestId: 'st-gen2', uuid: 'u-gen2' }));
+    expect(dispatched[0].ack).not.toBe(null); // 直投成功——弃旧重连 addr2
+    expect(got).toEqual(['st-gen1', 'st-gen2']);
+    expect(logs).toHaveLength(0); // 全程零 W——不撞死 pipe
+    await srv2.close();
+    await po.close();
+  });
+
+  it('同 hint 复活：池内断开客户端 → 重连同地址新 server（close 摘 socket 而非只靠 hint 换代）', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const addr = socketPathFor(path.resolve(ROOT), 'shell-b');
+    let count = 0;
+    let srv = await listenIpc(addr, (payload) => {
+      const env = payload as Envelope;
+      count += 1;
+      return { ack: env.requestId, fresh: true };
+    });
+    po.reach.markReachable('beta', addr);
+    await po.dispatch(msg({ to: 'beta', sender: 'user', requestId: 'st-same1', uuid: 'u-same1' }));
+    // 壳死 + 同地址复活（同 hint 重启形态）
+    await srv.close();
+    await new Promise((r) => setTimeout(r, 100));
+    srv = await listenIpc(addr, (payload) => {
+      const env = payload as Envelope;
+      count += 1;
+      return { ack: env.requestId, fresh: true };
+    });
+    const dispatched = await po.dispatch(msg({ to: 'beta', sender: 'user', requestId: 'st-same2', uuid: 'u-same2' }));
+    expect(dispatched[0].ack).not.toBe(null); // 池项已断开 → 弃旧重连
+    expect(count).toBe(2);
+    await srv.close();
+    await po.close();
+  });
+});

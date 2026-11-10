@@ -100,7 +100,11 @@ export class PostOffice {
       return receiver(envelope);
     }
     let client = this.pool.get(hint);
-    if (client === undefined) {
+    if (client === undefined || !client.connected()) {
+      // 陈旧池项拒用（cr-991）：壳 idle 退出/死后连接残留——旧实现照缓存
+      // 直写死 pipe（现场 = outbox 转投每拍「socket ended」W）。可达表摘项
+      // （cr-885）不覆盖连接池这层缓存，断开即弃旧重连。
+      if (client !== undefined) { client.close(); this.pool.delete(hint); }
       client = new IpcClient();
       await client.connect(hint);
       this.pool.set(hint, client);

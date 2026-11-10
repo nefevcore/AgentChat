@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-990**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-991**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1009,4 +1009,5 @@
 - 【cr-988 2026-11-10 goal useGoalTracking 可空守卫补漏（p?.subcall——webui:typecheck 存量红，cr-976/977 引入）】
 - 【cr-989 2026-11-10 placeholder 灰调再降一档（暗 #9aa4a9→#939da2 · 亮 #75797e→#7d8186，四底仍 ≥3.0）】
 - 【cr-990 2026-11-10 placeholder 灰调三连调：暗 #939da2→#adb2b8（用户参考值）；亮 #7d8186→#83868d（3.0 线上沿最浅同族档）】
+- 【cr-991 2026-11-10 IpcClient 感知对端关闭（close 摘 socket + reject 在途 waiter）+ PostOffice 连接池拒陈旧客户端——断宿主侧撞死 pipe 刷屏与在途挂死】
 

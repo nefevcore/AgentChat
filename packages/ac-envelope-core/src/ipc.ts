@@ -94,7 +94,13 @@ export class IpcClient {
   private socket: net.Socket | null = null;
   private decoder = new FrameDecoder();
   private waiter: ((frame: unknown) => boolean) | null = null;
+  private pendingReject: ((err: Error) => void) | null = null;
   private queue: unknown[] = [];
+
+  /** 连接在位判定（cr-991）——连接池拒陈旧客户端用（对端关闭即 false） */
+  connected(): boolean {
+    return this.socket !== null;
+  }
 
   connect(address: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -104,6 +110,17 @@ export class IpcClient {
       socket.once('error', reject);
       socket.on('data', (chunk: Buffer) => {
         for (const frame of this.decoder.push(chunk)) this.offer(frame);
+      });
+      // 对端关闭感知（cr-991）：旧实现无 close 处理——壳死后池内客户端残留
+      // 「半死」socket 引用（下一次 write 才炸，现场 = outbox 转投撞死 pipe
+      // 刷 W）。close 即摘 socket + 拒在途 request（否则 waiter 永挂）。
+      socket.on('close', () => {
+        this.socket = null;
+        if (this.pendingReject !== null) {
+          this.pendingReject(new Error('ipc 连接已关闭——对端退出或断连'));
+          this.pendingReject = null;
+        }
+        this.waiter = null;
       });
       socket.on('error', () => {
         this.socket = null;
@@ -132,15 +149,19 @@ export class IpcClient {
         reject(new Error('ipc request 并发——同连接至多一个在途请求'));
         return;
       }
+      let settled = false;
       const consume = (frame: unknown): boolean => {
         if (this.waiter === null) return true; // 已决——吞帧
         if (!isReply(frame)) return false; // 非回复帧——丢弃继续等
         this.waiter = null;
+        this.pendingReject = null;
+        settled = true;
         resolve(frame);
         return true;
       };
       // 队列内已有帧先行试配（send 间隙到达的）；未消费完则挂 waiter 等后续帧
       this.waiter = consume;
+      this.pendingReject = reject;
       for (const frame of this.queue.splice(0)) {
         if (consume(frame)) break;
       }
@@ -148,7 +169,15 @@ export class IpcClient {
         // named pipe 路径成功回调 err 实测可为 null——判真值（成功 = null/undefined 均放行）
         if (err != null) {
           this.waiter = null;
+          this.pendingReject = null;
           reject(err);
+          return;
+        }
+        // close 抢决即吞（双保险——close 回调先于 write 回调到达的窗口）
+        if (!settled && this.socket === null) {
+          this.waiter = null;
+          this.pendingReject = null;
+          reject(new Error('ipc 连接已关闭——写入后对端断连'));
         }
       });
     });
