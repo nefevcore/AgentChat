@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-978**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-979**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -995,4 +995,5 @@
 - 【cr-976 2026-11-10 直播管线 B 案 Phase 3 实施（cr-975）：事件投影转发 + feed-core 一次性重构】
 - 【cr-977 2026-11-10 cr-976 Phase 3 落地登记：防御机制逐条重论证——cr-106 身份门/空载门保留（stepId 键控即恒等门）；cr-107 探针与 watchdog 保留；after-run +500ms 兜底退役（可达性保险归重连重拉+探针+watchdog，同因同补）；防自激不变；指纹短路保留；补充裁决：context-injected 帧与 tool/started·progress 流帧保留】
 - 【cr-978 2026-11-10 修 projectUserReplay 对缺 message_id 存量行崩溃（startsWith 未守卫——16 会话 runs/snapshot 恒崩+全根扫描挤占宿主致首屏 17s）+ runs/snapshot 按会话指纹 memo 化】
+- 【cr-979 2026-11-10 性能遗留登记：runs/snapshot 冷启动并发重复扫描（5×8s 无 single-flight）+ 首批 RPC 被冷扫描拖 ~2s + stat 全扫 750ms/次待走索引——docs/design/perf-followups-2026-11-10.md】
 
