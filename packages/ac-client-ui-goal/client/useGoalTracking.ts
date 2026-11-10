@@ -54,7 +54,7 @@ export function useGoalTracking(
     if (!c) return;
     if (type === 'tool/result') {
       const [p] = args as Array<{ name?: string; subcall?: boolean; conversationId?: string } | undefined>;
-      if (p.subcall === true && p.name === 'goal' && p.conversationId === c) {
+      if (p?.subcall === true && p?.name === 'goal' && p?.conversationId === c) {
         void refresh();
       }
       return;
