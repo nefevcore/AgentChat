@@ -162,6 +162,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
         { agentId: input.agentId, bootId: lock.bootId, pid: lock.pid, hint: lock.hint },
         {
           agentDir: path.join(options.dataRoot, 'agents', input.agentId),
+          restartMarkerFile: path.join(options.dataRoot, '.runtime', 'restart-shell', input.agentId + '.json'),
           manageCall: (hint, frame, ms) => manageCall(hint, frame, ms),
           manageProbeMs,
           manageFrameMs,

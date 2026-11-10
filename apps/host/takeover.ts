@@ -18,6 +18,7 @@
 //
 // 纯域可测：manage 往返注入；锁面用真实 fs（sandbox）。
 // ============================================================
+import * as fs from 'node:fs';
 import { readActivationLock } from 'ac-envelope-core';
 import type { AdoptedShellFace } from './supervise.ts';
 
@@ -32,6 +33,9 @@ export interface LiveShellLock {
 export interface SocketOnlyDeps {
   /** agents/<agentId> 目录（锁观察面） */
   agentDir: string;
+  /** restart_shell 复活标记文件（cr-994）：壳退出前落盘——锁观察器据此把
+   * 退出映射为 42（有意重启 → warden 快路 respawn），而非 0（done 不重拉） */
+  restartMarkerFile: string;
   /** socket manage 往返（编排面注入——每次独立连接，cr-656） */
   manageCall(hint: string, frame: Record<string, unknown>, ms: number): Promise<unknown>;
   /** 探测/关停帧超时档 */
@@ -70,11 +74,29 @@ export function adoptSocketShell(lock: LiveShellLock, deps: SocketOnlyDeps): Ado
   };
   const waitForExit = (): Promise<void> => (exited ? Promise.resolve() : new Promise((res) => exitWaiters.push(res)));
 
-  // 锁观察器（退出感知——接管壳无进程退出事件，锁 = 生命周期投影）
+  // 锁观察器（退出感知——接管壳无进程退出事件，锁 = 生命周期投影）。
+  // restart 意图识别（cr-994）：锁消失时读 restart marker——在场 = 壳因
+  // restart_shell 退出，映射 42（warden 快路 respawn）并消费 marker；
+  // 缺席才是正常退出/idle 自杀（0 不重拉）。marker 消费放观察器：42 语义
+  // 单点成立（boot 扫描面只管宿主换代场景，同代不扫——marker 滞留是
+  // 既有缺口，此处一并收口）。
+  const consumeRestartMarker = (): boolean => {
+    try {
+      fs.rmSync(deps.restartMarkerFile, { force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  };
   const watch = (): void => {
     if (exited) return;
     const info = readActivationLock(deps.agentDir);
     if (info === null) {
+      if (fs.existsSync(deps.restartMarkerFile)) {
+        consumeRestartMarker();
+        emitExit(42, null); // restart_shell 退出（marker 为证）——有意重启
+        return;
+      }
       emitExit(0, null); // 锁已放——正常退出/idle 自杀（不重拉）
       return;
     }

@@ -178,16 +178,25 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     let tries = 0;
     const tick = (): void => {
       const orch = orchestratorRef.handle;
-      if (orch === null || orch.handles().has(agentId)) return; // 无编排面 / warden 已接管
+      if (orch === null) return; // 无编排面——无可拉起
+      // 句柄在池 ≠ 一定有人重拉（cr-994）：接管壳的锁观察器把 restart 退出
+      // 映射 0 时 warden 判 done 不重拉——继续轮询等句柄消失（壳真退出后
+      // 观察器收面），仍无句柄（warden 未接手）则主动拉起。轮询上限与锁
+      // 等待共用预算（~20×500ms），超时交来件按需拉起。
+      if (orch.handles().has(agentId)) {
+        if (++tries < 30) setTimeout(tick, 500).unref();
+        return;
+      }
       const lock = readActivationLock(path.join(dataRoot, 'agents', agentId));
       if (lock !== null) {
         let alive = false;
         try { process.kill(lock.pid, 0); alive = true; } catch { /* holder 已死 */ }
         if (alive) {
-          if (++tries < 20) setTimeout(tick, 500).unref();
+          if (++tries < 30) setTimeout(tick, 500).unref();
           return; // 超时放弃——交给下次来件按需拉起
         }
       }
+      hostLog('I', 'host', 'restart_shell 重拉执行（' + agentId + '，tries=' + tries + '）');
       void orch.ensureAgent(agentId).catch((err: unknown) => {
         hostLog('E', 'host', 'restart_shell 重拉失败（' + agentId + '）：' + String(err));
       });

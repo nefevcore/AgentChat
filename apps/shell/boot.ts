@@ -1040,11 +1040,22 @@ export async function main(argv: string[]): Promise<number> {
   }
   try {
     let gracefulExit: (code: number) => void = () => {};
+    // 退出意图优先级（cr-994）：42（restart_shell）一旦设立不可被 0 覆盖——
+    // 接管宿主的 system/shutdown 帧（takeover 优雅收面）与 restart-ready 竞态
+    // 时，0 先 resolve 会让 warden 判 done 不重拉，重启退化为等来件（实测
+    // 31 分钟空窗）。首个意图生效（first-wins），restart 排程在 run 收束点
+    // 同步设立，早于任何后续 shutdown 帧。
+    let exitIntent: number | null = null;
+    const decideExit = (code: number): void => {
+      if (exitIntent !== null) return;
+      exitIntent = code;
+      gracefulExit(code);
+    };
     const result = await bootShell(args, {
       onExit: (h) => process.on('exit', h),
       // system/shutdown 帧（换代接管）：与 stdin 'shutdown' 行同语义——延时
       // resolve 让 manage 回执先冲出 socket（宿主侧不依赖回执，丢亦无害）。
-      onShutdown: () => { setTimeout(() => gracefulExit(0), 200); },
+      onShutdown: () => { setTimeout(() => decideExit(0), 200); },
     });
     process.stderr.write('[shell] boot 完成：agent=' + args.agentId + ' rows=' + result.rowsReady + '\n');
     // 常驻（监护下的常命壳）：stdin = 控制通道（拉起方行协议）——
@@ -1104,7 +1115,7 @@ export async function main(argv: string[]): Promise<number> {
     const exitCode = await new Promise<number>((resolve) => {
       gracefulExit = resolve;
       result.ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => {
-        void notifyHostRestartShell(args, p.conversationId).finally(() => resolve(42));
+        void notifyHostRestartShell(args, p.conversationId).finally(() => decideExit(42));
       });
       const heartbeat = setInterval(() => {
         emitBootSignal('guardian.ping', new Date().toISOString());
@@ -1112,7 +1123,7 @@ export async function main(argv: string[]): Promise<number> {
       heartbeat.unref();
       const idleProbe = setInterval(() => {
         if (Date.now() - lastActiveAt < IDLE_EXIT_MS) return;
-        if (shellIsIdle(result.ctx)) resolve(0);
+        if (shellIsIdle(result.ctx)) decideExit(0);
       }, IDLE_PROBE_MS);
       idleProbe.unref();
       let pending = '';
@@ -1124,7 +1135,7 @@ export async function main(argv: string[]): Promise<number> {
           const line = pending.slice(0, idx).trim();
           pending = pending.slice(idx + 1);
           if (line === '') continue;
-          if (line === 'shutdown') { resolve(0); return; }
+          if (line === 'shutdown') { decideExit(0); return; }
           if (!line.startsWith('{')) continue; // 非协议行忽略
           let frame: ControlFrame;
           try { frame = JSON.parse(line) as ControlFrame; } catch { continue; }
@@ -1138,10 +1149,10 @@ export async function main(argv: string[]): Promise<number> {
       // idle-exit 15min 仍是收割兜底），不再自杀；无职责壳维持防孤儿自杀。
       if (args.persist !== true) process.stdin.on('end', () => {
         if (revive !== null) revive.kick();
-        else resolve(0);
+        else decideExit(0);
       });
       process.stdin.resume();
-      process.on('SIGTERM', () => resolve(0));
+      process.on('SIGTERM', () => decideExit(0));
     });
     revive?.stop();
     await result.close();
