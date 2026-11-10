@@ -1,6 +1,6 @@
 {
- "scannedHead": "5062b9b4a0f9b06fba18c70eeeb139aa62ea42b8",
- "generatedAt": "2026-11-10T03:01:16.885Z",
+ "scannedHead": "ae3963e3717ca2940c595ac1778b4d5fdad9f62b",
+ "generatedAt": "2026-11-10T03:01:44.414Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -4168,6 +4168,13 @@
     "sha": "5062b9b4a0f9b06fba18c70eeeb139aa62ea42b8",
     "date": "2026-11-10",
     "subject": "feat(cr): cr-981~984 CR 工具 v2 批1+批2——设计成文（cr-tool-v2.md）+ 结构化尾部块 {status|#scope|→ref}/状态机 set/append 软门+O_EXCL 锁+尾部 O(1) 追加写+全 LF 修形 + sync 增量投影 cr-commits.json + check 六锁守门 + 理卷消 13 逆序 + cr-4 行尾笔误修复 + SKILL 使用引导同步"
+   }
+  ],
+  "985": [
+   {
+    "sha": "ae3963e3717ca2940c595ac1778b4d5fdad9f62b",
+    "date": "2026-11-10",
+    "subject": "fix(cr): cr-985 sync 增量等头分支结转 prev.entries——修无新 commit 时投影写空"
    }
   ]
  }
