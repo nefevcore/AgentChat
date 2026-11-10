@@ -3,8 +3,9 @@
 //
 // 宿主/编排面的手写诊断行统一走本出口：HH:mm:ss LVL [src] msg。
 // 与 cordis logger 行（yyyy-MM-dd hh:mm:ss [I] name msg）视觉协调：
-// 同列时间戳 + 同位置级别位，来源段 [host]/[orchestrator]/[shell:agent]
-// 直读可辨。只管格式——落盘/转发语义仍归各调用方（tee 的 host-*.log
+// 同列时间戳 + 同位置级别位，来源段 [host]/[host.orchestrator]/[host.supervise]/
+// [host.shell:agent] 直读可辨（cr-997：宿主内模块统一 host. 前缀——与独立进程
+// supervisor〔拉起宿主〕一词之差易误读）。只管格式——落盘/转发语义仍归各调用方（tee 的 host-*.log
 // 原样收留这些行，格式化后的时间前缀使日志内同样可读）。
 // ============================================================
 

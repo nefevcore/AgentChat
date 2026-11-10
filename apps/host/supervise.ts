@@ -237,7 +237,7 @@ export async function superviseShell(
       // 壳退出 → warden 判定（respawn / broken / done）；退出现场
       //（cr-662：signal + stderr 尾行）随编排事件面上报宿主
       shell.onExit((code, signal) => {
-        hostLog('I', 'supervise', `壳 ${input.agentId} 退出：code=${code ?? 'null'} signal=${signal ?? ''}——warden 判定中`);
+        hostLog('I', 'host.supervise', `壳 ${input.agentId} 退出：code=${code ?? 'null'} signal=${signal ?? ''}——warden 判定中`);
         events.push({ type: 'shell-exit', agentId: input.agentId, code });
         const tail = shell.stderrTail?.() ?? [];
         pushEvent({ type: 'shell-exit', agentId: input.agentId, code, signal, ...(tail.length > 0 ? { stderrTail: tail } : {}) });
@@ -247,7 +247,7 @@ export async function superviseShell(
         const ruling = warden.shellExited(code, now());
         if (ruling === 'broken') {
           broken = true;
-          hostLog('E', 'supervise', `壳 ${input.agentId} 判定 broken：连续崩溃熔断，不再自动重拉`);
+          hostLog('E', 'host.supervise', `壳 ${input.agentId} 判定 broken：连续崩溃熔断，不再自动重拉`);
           const last = warden.emitted().at(-1);
           const crashes = last !== undefined && last.type === 'circuit-broken'
             ? last.consecutiveCrashes
@@ -264,18 +264,18 @@ export async function superviseShell(
           const streak = livedMs >= bootOkMs ? 0 : backoffStreak;
           const delayMs = backoffDelay(streak);
           backoffStreak = streak + 1;
-          hostLog('I', 'supervise', `壳 ${input.agentId} 判定 respawn：退避 ${delayMs}ms 后重拉（attempt=${attempt + 1}, streak=${streak}, lived=${(livedMs / 1000).toFixed(1)}s）`);
+          hostLog('I', 'host.supervise', `壳 ${input.agentId} 判定 respawn：退避 ${delayMs}ms 后重拉（attempt=${attempt + 1}, streak=${streak}, lived=${(livedMs / 1000).toFixed(1)}s）`);
           pushEvent({ type: 'respawned', agentId: input.agentId, attempt: attempt + 1, delayMs });
           respawnTimer = setTimeout(() => {
             void start().catch(() => { /* 拉起失败保持死态——来件触发按需拉起 */ });
           }, delayMs);
         }
         // done = 正常退出（idle 自杀 / shutdown）——不重拉（来件按需拉起）
-        if (ruling === 'done') hostLog('I', 'supervise', `壳 ${input.agentId} 判定 done：正常退出不重拉（等来件按需拉起）`);
+        if (ruling === 'done') hostLog('I', 'host.supervise', `壳 ${input.agentId} 判定 done：正常退出不重拉（等来件按需拉起）`);
       });
     } catch (err) {
       adoptFailedUntil = now() + backoffDelay(0); // 拉起失败退避门（cr-805）
-      hostLog('E', 'supervise', `壳 ${input.agentId} 拉起失败：${String(err).slice(0, 160)}——退避门打开（死态等来件）`);
+      hostLog('E', 'host.supervise', `壳 ${input.agentId} 拉起失败：${String(err).slice(0, 160)}——退避门打开（死态等来件）`);
       throw err;
     } finally {
       starting = false;

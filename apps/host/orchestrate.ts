@@ -209,7 +209,7 @@ export async function adoptShell(
   const shouldEchoConsole = (line: string): boolean =>
     !(line.startsWith('[shell] boot 完成') || line.startsWith('[shell] boot 失败'));
   const reportStderr = (line: string): void => {
-    if (shouldEchoConsole(line)) hostLog('E', 'shell:' + input.agentId, line);
+    if (shouldEchoConsole(line)) hostLog('E', 'host.shell:' + input.agentId, line);
     stderrTailLines.push(line);
     if (stderrTailLines.length > 50) stderrTailLines.shift();
     appendRollingLine(stderrLog, `${new Date().toISOString()} ${line}`, 512 * 1024);
@@ -247,7 +247,7 @@ export async function adoptShell(
   // 拉起链观测（cr-993）：spawn → 三拍 → adopted 全程落宿主日志——空窗耗时
   // 可拆分（boot.* 节拍行在下方行循环统一计时，此处只记起点）
   const spawnAt = Date.now();
-  hostLog('I', 'orchestrator', `拉起壳 ${input.agentId}：spawn pid=${proc.pid}（cr-993 观测：t0）`);
+  hostLog('I', 'host.orchestrator', `拉起壳 ${input.agentId}：spawn pid=${proc.pid}（cr-993 观测：t0）`);
   // 分级预算（cr-962）：首拍 = 进程启动 + 全量模块装载（源码直载形态
   // 1904 文件/5373 解析——暖态 ~1.3s，待机唤醒冷态实测 40~47s），固定 15s
   // 把一切慢启动判死（11 天 44 次误杀现场）；后续拍（lock → rows.ready →
@@ -337,7 +337,7 @@ export async function adoptShell(
       //（含早退）同步转宿主 stderr——崩溃不再零现场。
       const exitLine = `=== exit code=${code ?? 'null'} signal=${signal ?? ''} at ${new Date().toISOString()} ===`;
       appendRollingLine(stderrLog, exitLine, 512 * 1024);
-      if (code !== 0 && code !== 42) hostLog('E', 'shell:' + input.agentId, exitLine);
+      if (code !== 0 && code !== 42) hostLog('E', 'host.shell:' + input.agentId, exitLine);
       if (!settled) {
         reject(new Error(`壳进程早退（code=${code ?? 'null'} signal=${signal ?? ''}）——未达 boot.ready；尾部 stderr 见 ${stderrLog}`));
         return;
@@ -367,14 +367,14 @@ export async function adoptShell(
         if (line.startsWith('boot.')) {
           stage += 1;
           armWatchdog();
-          appendRollingLine(stderrLog, `${new Date().toISOString()} [orchestrator] 壳 ${input.agentId} 节拍 t+${((Date.now() - spawnAt) / 1000).toFixed(1)}s：${line.slice(0, 80)}`, 512 * 1024);
+          appendRollingLine(stderrLog, `${new Date().toISOString()} [host.orchestrator] 壳 ${input.agentId} 节拍 t+${((Date.now() - spawnAt) / 1000).toFixed(1)}s：${line.slice(0, 80)}`, 512 * 1024);
         }
         warden.feedLine(line, Date.now());
         const evts = warden.emitted();
         const adopted = evts.find((e) => e.type === 'adopted');
         if (adopted !== undefined) {
           // adopted 收口行同走落盘（cr-741 断言面：含 boot 字样不进控制台）
-          appendRollingLine(stderrLog, `${new Date().toISOString()} [orchestrator] 壳 ${input.agentId} adopted：bootId=${adopted.bootId}（spawn→ready 共 ${((Date.now() - spawnAt) / 1000).toFixed(1)}s）`, 512 * 1024);
+          appendRollingLine(stderrLog, `${new Date().toISOString()} [host.orchestrator] 壳 ${input.agentId} adopted：bootId=${adopted.bootId}（spawn→ready 共 ${((Date.now() - spawnAt) / 1000).toFixed(1)}s）`, 512 * 1024);
           input.reach.markReachable(input.agentId, adopted.transportHint);
           // adopted = 通道恢复（协议 D2 节拍 2）：滞留信转投（at-least-once）
           if (input.postOffice !== undefined) {

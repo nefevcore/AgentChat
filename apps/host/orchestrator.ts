@@ -233,7 +233,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
           const msg = err instanceof Error ? err.message : String(err);
           // 只补拉冷启超时族（慢 ≠ 死）；锁拒/熔断/退避重试无意义，原样上抛
           if (attempt < maxAttempts && msg.includes('adopt 超时')) {
-            hostLog('W', 'orchestrator', `ensureAgent(${agentId}) adopt 超时——冷启补拉（第 ${attempt}/${spawnRetries} 次）`);
+            hostLog('W', 'host.orchestrator', `ensureAgent(${agentId}) adopt 超时——冷启补拉（第 ${attempt}/${spawnRetries} 次）`);
             continue;
           }
           spawnCooldownUntil.set(agentId, Date.now() + spawnFailCooldownMs);
@@ -316,7 +316,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
         adopted += 1;
       } catch (err) {
         takeoverLocks.delete(agentId);
-        hostLog('W', 'orchestrator', '活壳接管失败（' + agentId + '）：' + String(err));
+        hostLog('W', 'host.orchestrator', '活壳接管失败（' + agentId + '）：' + String(err));
       }
     }
     return adopted;
@@ -502,7 +502,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
         // 探针通过但帧不应答 / 壳侧拒因 = 壳内现场——原样上抛。不降级拉起：
         // 锁还在时 spawn 必被单例语义拒（cr-675 老壳黑名单/降级路径已退役
         // ——本机已无存量老壳，2026-11-09 确认，换代接管 cr-967/968）。
-        hostLog('W', 'orchestrator', '活壳控制帧失败（' + agentId + '，bootId=' + lock.bootId + '）：' + String(err));
+        hostLog('W', 'host.orchestrator', '活壳控制帧失败（' + agentId + '，bootId=' + lock.bootId + '）：' + String(err));
         throw err;
       }
     }
@@ -523,7 +523,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     // 拒因上 stderr（宿主此前静默吞 = 「deliver ok 但壳永不起」零诊断面）。
     void ensureAgent(target).catch((err: unknown) => {
       const msg = err instanceof Error ? err.message : String(err);
-      hostLog('E', 'orchestrator', `ensureAgent(${target}) 拉起拒绝——信封滞留发件箱待转投：${msg}`);
+      hostLog('E', 'host.orchestrator', `ensureAgent(${target}) 拉起拒绝——信封滞留发件箱待转投：${msg}`);
     });
   };
 
