@@ -10,8 +10,8 @@
 //           闭环的常态；跨会话 WIP 显式 doing/plan）；
 //           描述 >200 字警告（细节迁 docs/design/ 或 CHANGELOG）；
 //           O_EXCL 锁 + 写前重读 + 写后重验；尾部 O(1) 追加写（头行
-//           同步走等长字节补丁，仅位数增长才全文重写）；全 LF 单态自动
-//           修形 CRLF。
+//           同步走等长字节补丁，仅位数增长才全文重写）；全 CRLF 单态
+//           自动修形 LF（cr-1000 行尾统一）。
 //   set     状态流转：set <crN> <plan|doing|done|drop>（就地改写尾部块）。
 //   grep    条目检索——多词 AND（字面量、忽略大小写），最新在前；
 //           --status/--id/--scope 维度过滤；-n N 限量；--oneline 单行。
@@ -25,8 +25,9 @@
 //   stats   计数面：按状态/近 14 活跃日 + plan/doing 欠账清单。
 //   selftest sandbox 临时副本上命令面自测（测试数据根住 sandbox/）。
 //
-// 文件形态约定：CRLF / 结尾单换行 / 无 BOM——原样保留；全 LF 单态（git
-// eol=lf 再物化形态）自动修形。测试隔离：CR_LOG_FILE / CR_PROJ_FILE
+// 文件形态约定：LF / 结尾单换行 / 无 BOM（cr-1000 行尾统一，与
+// .gitattributes eol=lf 对齐）；全 CRLF 单态（历史约定形态）自动修形。
+// 测试隔离：CR_LOG_FILE / CR_PROJ_FILE
 // 环境变量指向副本；sync 的 git 面恒读本仓库（只读）。
 // 用法示例：
 //   node scripts/cr.mjs append '一句话描述' #webui →cr-981 --status plan
@@ -134,14 +135,14 @@ function validDate(s) {
   return d >= 1 && d <= new Date(y, m, 0).getDate();
 }
 
-// EOL 规整：混杂（CRLF 与裸 LF 并存）→ die；全 LF 单态 → 修形 CRLF（通知）
+// EOL 规整：混杂（CRLF 与裸 LF 并存）→ die；全 CRLF 单态 → 修形 LF（通知）
 function normalizeEol(text) {
   const hasCrlf = text.includes('\r\n');
   const hasBareLf = /(?<!\r)\n/.test(text);
   if (hasCrlf && hasBareLf) die('cr-log 存在裸 LF 行（EOL 混杂），先统一再登记');
-  if (!hasCrlf && hasBareLf) {
-    fs.writeFileSync(LOG, text.replace(/\r?\n/g, '\r\n'));
-    console.error('提示：cr-log 为全 LF 单态（git eol=lf 再物化形态），已修形为 CRLF 约定形态');
+  if (hasCrlf && !hasBareLf) {
+    fs.writeFileSync(LOG, text.replace(/\r\n/g, '\n'));
+    console.error('提示：cr-log 为全 CRLF 单态（cr-1000 前旧约定形态），已修形为 LF');
     return fs.readFileSync(LOG, 'utf8');
   }
   return text;
@@ -233,20 +234,20 @@ function cmdAppend(args) {
 // 尾部 O(1) 追加写：新行插在最后一个非空行之后，尾部空白区原样保留。
 // 实现：向前吞掉尾部空白 run → 截断至「末行内容 + 单 EOL」→ 追加新行
 // + EOL + 原 run 尾巴。空白 run 极短（约定 = 一个空行），故恒 O(1)。
+// eol 恒 '\n'：append/set 前置 normalizeEol 已保证 LF 单态（cr-1000）
 function appendLine(text, line) {
-  const eol = text.includes('\r\n') ? '\r\n' : '\n';
   let end = text.length;
   while (end > 0 && /\s/.test(text[end - 1])) end--;
   if (end === text.length) { // 无结尾换行的异常形态：直接补写
-    fs.appendFileSync(LOG, (text.endsWith('\n') ? '' : eol) + line + eol);
+    fs.appendFileSync(LOG, (text.endsWith('\n') ? '' : '\n') + line + '\n');
     return;
   }
-  const keep = text.slice(0, end) + eol;          // 末条目行 + 恢复其行尾
+  const keep = text.slice(0, end) + '\n';          // 末条目行 + 恢复其行尾
   const runTail = text.slice(end).replace(/^\r?\n/, ''); // run 去第一个 EOL
   const fd = fs.openSync(LOG, 'r+');
   try { fs.ftruncateSync(fd, Buffer.byteLength(keep, 'utf8')); }
   finally { fs.closeSync(fd); }
-  fs.appendFileSync(LOG, line + eol + runTail);
+  fs.appendFileSync(LOG, line + '\n' + runTail);
 }
 
 // —— set ————————————————————————————————————————
@@ -257,7 +258,6 @@ function cmdSet(args) {
   if (!STATUSES.has(status)) die('set 取值：' + [...STATUSES].join(' / '));
   withLock(() => {
     const text = normalizeEol(readLog());
-    const eol = text.includes('\r\n') ? '\r\n' : '\n';
     const p = parse(text);
     const e = p.entries.find((x) => x.n === n);
     if (!e) return die('cr-' + n + ' 不存在');
@@ -269,9 +269,9 @@ function cmdSet(args) {
     ];
     const newRaw = e.raw.replace(/】(\{[^}]*\})?$/, '】') + (fields.length ? '{' + fields.join('|') + '}' : '');
     p.lines[e.lineIdx] = newRaw;
-    try { assertInvariant(parse(p.lines.join(eol))); }
+    try { assertInvariant(parse(p.lines.join('\n'))); }
     catch (err) { return die('set 将破坏不变量：' + err.message); }
-    fs.writeFileSync(LOG, p.lines.join(eol));
+    fs.writeFileSync(LOG, p.lines.join('\n'));
     console.log('cr-' + n + ' → ' + status);
   });
 }
@@ -477,7 +477,7 @@ function cmdSelftest() {
     // 尾部 O(1) 追加写：行序正确、结尾形态保留
     const lines1 = copy1.split(/\r?\n/);
     const idx = lines1.findIndex((l) => l.includes('selftest 条目'));
-    if (lines1[idx + 1].trim() !== '' || !copy1.endsWith('\r\n\r\n')) throw new Error('追加位置/尾部形态漂移');
+    if (lines1[idx + 1].trim() !== '' || !copy1.endsWith('\n\n')) throw new Error('追加位置/尾部形态漂移');
     t('尾部追加写形态', () => {});
     // set：状态流转保 scope（done = 缺省，状态词不占位，仅剩 scope）
     run(['set', n, 'done']);
@@ -492,11 +492,12 @@ function cmdSelftest() {
     run(['set', n, 'plan']);
     if (!run(['stats']).includes('cr-' + n)) throw new Error('stats 欠账未列出');
     t('stats 欠账清单', () => {});
-    // 全 LF 单态修形
-    fs.writeFileSync(logCopy, fs.readFileSync(logCopy, 'utf8').replace(/\r\n/g, '\n'));
-    const outFix = run(['grep', 'selftest', '--id', 'cr-' + n, '--oneline']);
-    if (!outFix.includes('cr-' + n)) throw new Error('LF 修形后 grep 失效');
-    t('全 LF 单态自动修形', () => {});
+    // 全 CRLF 单态修形（cr-1000 前旧约定形态 → LF；修形在写路径 set 触发，grep 只读不修）
+    fs.writeFileSync(logCopy, fs.readFileSync(logCopy, 'utf8').replace(/\n/g, '\r\n'));
+    run(['set', n, 'done']);
+    if (fs.readFileSync(logCopy, 'utf8').includes('\r\n')) throw new Error('CRLF 单态未被修形为 LF');
+    if (!run(['grep', 'selftest', '--id', 'cr-' + n, '--oneline']).includes('cr-' + n)) throw new Error('修形后 grep 失效');
+    t('全 CRLF 单态自动修形', () => {});
     // 真实数据面
     if (!run(['grep', '记忆', '--oneline', '-n', '1']).includes('cr-')) throw new Error('grep 真实面空');
     t('grep 真实数据面', () => {});
@@ -504,7 +505,7 @@ function cmdSelftest() {
     fs.rmSync(dir, { recursive: true, force: true });
   }
   if (failures.length) return die('selftest 失败：\n  ' + failures.join('\n  '));
-  console.log('selftest 全绿（append/追加形态/set/grep/stats/LF 修形）');
+  console.log('selftest 全绿（append/追加形态/set/grep/stats/CRLF 修形）');
 }
 
 function usage() {

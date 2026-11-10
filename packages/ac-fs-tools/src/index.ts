@@ -31,6 +31,7 @@ import { effectiveAccessOfCall, widenToolsForGating } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { applyEditBatch, countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 import { estimateTokens, safeClipByTokens } from 'ac-text-budget';
+import { displayEol, writeEol } from './eol.ts';
 
 export type FsToolsRowOptions = SandboxResolverOptions & DenyRowOptions;
 
@@ -204,7 +205,7 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
           });
           return { ok: true, output: { path: p, type: 'directory', items, count: items.length } };
         }
-        const content = fs.readFileSync(file, 'utf-8');
+        const content = displayEol(fs.readFileSync(file, 'utf-8'), file);
         const lines = content.split('\n');
         const total = lines.length;
 
@@ -283,8 +284,9 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
             prev = fs.readFileSync(file, 'utf-8');
             existed = true;
           } catch { /* 新建文件 */ }
-          fs.writeFileSync(file, content, 'utf-8');
-          const { added, removed } = existed ? countLineChanges(prev, content) : { added: content.split('\n').length, removed: 0 };
+          const normalized = writeEol(content, file);
+          fs.writeFileSync(file, normalized, 'utf-8');
+          const { added, removed } = existed ? countLineChanges(prev, normalized) : { added: normalized.split('\n').length, removed: 0 };
           writeDiffStat = { diff_added: added, diff_removed: removed };
         });
         return { ok: true, output: { message: `已写入 ${p}`, path: p, ...(writeDiffStat ?? {}) } };

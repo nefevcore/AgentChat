@@ -23,8 +23,6 @@ export {
   normalizeToLF,
   repairDuplicatedCr,
   restoreLineEndings,
-  restoreLineEndingsPreserving,
-  parseRawLines,
 } from './line-ending.ts';
 export type { LineEnding, RawLine } from './line-ending.ts';
 export { applyEditsToNormalizedContent } from './apply.ts';

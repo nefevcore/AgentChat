@@ -16,7 +16,6 @@ import {
   applyEditBatch,
   detectLineEnding,
   repairDuplicatedCr,
-  restoreLineEndingsPreserving,
   stripBom,
 } from '../src/index.ts';
 
@@ -172,18 +171,12 @@ describe('diff 生成', () => {
 });
 
 describe('行尾与 BOM', () => {
-  it('mixed 检测 + 按行保留行尾（未编辑行字节不变；变更行用主导行尾）', () => {
-    const raw = 'keep1\r\nedit\nkeep2\r\n';
-    expect(detectLineEnding(raw)).toBe('mixed');
-    const out = restoreLineEndingsPreserving(raw, 'keep1\nEDITED\nkeep2\n');
-    // keep1/keep2 文本未变 → 各自保留原行尾；EDITED 是新行 → 主导行尾（CRLF 多数）
-    expect(out).toBe('keep1\r\nEDITED\r\nkeep2\r\n');
-  });
-
-  it('新插入行用主导行尾', () => {
-    const raw = 'a\r\nb\r\n';
-    const out = restoreLineEndingsPreserving(raw, 'a\nNEW\nb\n');
-    expect(out).toBe('a\r\nNEW\r\nb\r\n');
+  it('mixed 检测（写回恒 LF 后仅检测用——cr-1000 收敛器语义）', () => {
+    // 实现事实：hasCrlf 蕴含 hasLf，故含 CRLF 即报 mixed——restoreLineEndings
+    // 只判 lineEnding !== '\n'（是否需要恢复 CRLF），mixed/\r\n 同归一，无害
+    expect(detectLineEnding('keep1\r\nedit\nkeep2\r\n')).toBe('mixed');
+    expect(detectLineEnding('a\r\nb\r\n')).toBe('mixed');
+    expect(detectLineEnding('a\nb')).toBe('\n');
   });
 
   it('BOM 剥离', () => {
@@ -224,13 +217,13 @@ describe('applyEditBatch 统一管线', () => {
     expect(r.fuzzyMatches).toBe(0);
   });
 
-  it('模糊命中计数 + CRLF 写回保持', async () => {
+  it('模糊命中计数 + CRLF 文件编辑后收敛 LF（cr-1000 行尾统一）', async () => {
     const file = tmpFile('“quoted”\r\nplain\r\n');
     const r = await applyEditBatch(file, {
       // smart quotes 归一化后命中（Level 1 模糊）
       textEdits: [{ oldText: '"quoted"', newText: 'replaced' }],
     });
-    expect(fs.readFileSync(file, 'utf-8')).toBe('replaced\r\nplain\r\n');
+    expect(fs.readFileSync(file, 'utf-8')).toBe('replaced\nplain\n');
     expect(r.fuzzyMatches).toBe(1);
   });
 
@@ -272,8 +265,14 @@ describe('Ⓑ：行尾归一化与 CR 双写治理（2026-09-21 画像）', () =
     expect(after).toContain('const y = 8;');
   });
 
-  it('写回行尾保持 CRLF（归一化匹配不破坏文件行尾风格）', async () => {
+  it('写回恒 LF 收敛：CRLF 文件编辑一次即归一（非 bat/cmd）', async () => {
     const file = tmpFile('alpha\r\nbeta\r\n');
+    await applyEditBatch(file, { textEdits: [{ oldText: 'beta', newText: 'BETA' }] });
+    expect(fs.readFileSync(file, 'utf-8')).toBe('alpha\nBETA\n');
+  });
+
+  it('bat/cmd 例外：CRLF 保持（Windows 批处理执行必需）', async () => {
+    const file = tmpFile('alpha\r\nbeta\r\n', 'build.bat');
     await applyEditBatch(file, { textEdits: [{ oldText: 'beta', newText: 'BETA' }] });
     expect(fs.readFileSync(file, 'utf-8')).toBe('alpha\r\nBETA\r\n');
   });
@@ -285,7 +284,7 @@ describe('Ⓑ：行尾归一化与 CR 双写治理（2026-09-21 画像）', () =
     expect(r.repairedCr).toBe(2); // 修复处数回显
     const after = fs.readFileSync(file, 'utf-8');
     expect(after).not.toContain('\r\r\n');
-    expect(after).toBe('line1\r\nLINE2\r\n');
+    expect(after).toBe('line1\nLINE2\n'); // 修复后写回收敛 LF
   });
 
   it('LF 文件保持 LF（双向不误伤）', async () => {

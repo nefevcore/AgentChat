@@ -1,8 +1,9 @@
 // ============================================================
-// ac-edit-core/src/line-ending.ts —— BOM 与行尾处理（src edit 原样继承）
+// ac-edit-core/src/line-ending.ts —— BOM 与行尾处理
 //
-// 混合换行（CRLF+LF）文件编辑必须按行保留原始行尾，
-// 否则未编辑行被强制统一 → 整文件字节污染 → 后续匹配全失效。
+// 行尾政策（cr-1000）：仓库统一 LF；*.bat/*.cmd 例外保持 CRLF
+//（Windows 批处理执行必需——与 .gitattributes/*.editorconfig 同款）。
+// 编辑写回 = 行尾收敛器：非例外文件被编辑一次即归一 LF。
 // ============================================================
 
 export type LineEnding = '\r\n' | '\n' | 'mixed';
@@ -29,37 +30,20 @@ export function normalizeToLF(content: string): string {
   return content.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
-/** 将 LF 恢复为原始行尾风格（非混合文件路径） */
-export function restoreLineEndings(content: string, lineEnding: LineEnding): string {
-  if (lineEnding === '\r\n') {
+/**
+ * 写回行尾：*.bat/*.cmd 保持 CRLF（Windows 批处理执行必需），
+ * 其余恒 LF——编辑即收敛（cr-1000 行尾统一）。
+ */
+export function restoreLineEndings(content: string, lineEnding: LineEnding, filePath?: string): string {
+  if (lineEnding !== '\n' && filePath !== undefined && /\.(bat|cmd)$/i.test(filePath)) {
     return content.replace(/\n/g, '\r\n');
   }
   return content;
 }
 
-// ── 混合换行：按行保留原始行尾 ──
-
 export interface RawLine {
   text: string;
   ending: '\r\n' | '\n' | '';
-}
-
-/** 解析原始内容为「行文本 + 行尾」列表（保留每行原始行尾） */
-export function parseRawLines(raw: string): RawLine[] {
-  const lines: RawLine[] = [];
-  let start = 0;
-  for (let i = 0; i < raw.length; i++) {
-    if (raw[i] === '\n') {
-      const hasCR = raw[i - 1] === '\r';
-      const end = hasCR ? i - 1 : i;
-      lines.push({ text: raw.slice(start, end), ending: hasCR ? '\r\n' : '\n' });
-      start = i + 1;
-    }
-  }
-  if (start < raw.length) {
-    lines.push({ text: raw.slice(start), ending: '' });
-  }
-  return lines;
 }
 
 /**
@@ -79,43 +63,6 @@ export function repairDuplicatedCr(content: string): { fixed: string; count: num
   return { fixed, count };
 }
 
-/**
- * 按行保留原始行尾：newContent（LF 归一化后）的每一行，
- * 若与原始某行文本一致则恢复其原始行尾；新插入行使用文件主导行尾。
- *
- * 解决混合换行文件（CRLF+LF）编辑后被强制统一导致的整文件字节污染。
- */
-export function restoreLineEndingsPreserving(originalRaw: string, newContent: string): string {
-  // BOM 剥离后解析，避免第一行文本带 BOM 匹配不上
-  const raw = originalRaw.charCodeAt(0) === 0xfeff ? originalRaw.slice(1) : originalRaw;
-  const origLines = parseRawLines(raw);
-
-  // 行文本 → 原始行尾（重复文本取首次出现）
-  const endingByText = new Map<string, '\r\n' | '\n' | ''>();
-  for (const l of origLines) {
-    if (!endingByText.has(l.text)) endingByText.set(l.text, l.ending);
-  }
-
-  // 主导行尾：新插入行使用
-  const crlfCount = origLines.filter((l) => l.ending === '\r\n').length;
-  const lfCount = origLines.filter((l) => l.ending === '\n').length;
-  const dominant: '\r\n' | '\n' = crlfCount > lfCount ? '\r\n' : '\n';
-  const origEndsWithNewline = raw.endsWith('\n');
-
-  const newLines = newContent.split('\n');
-  const parts: string[] = [];
-  for (let i = 0; i < newLines.length; i++) {
-    const text = newLines[i];
-    const isLast = i === newLines.length - 1;
-    if (isLast) {
-      // 尾随空串（newContent 以 \n 结尾）→ 无行尾，直接结束
-      if (text !== '') {
-        parts.push(origEndsWithNewline ? text + dominant : text);
-      }
-      break;
-    }
-    const ending = endingByText.get(text) ?? dominant;
-    parts.push(text + ending);
-  }
-  return parts.join('');
-}
+// parseRawLines/restoreLineEndingsPreserving 已删（cr-1000：写回恒 LF 后
+// 混合换行保留分支不可达；按行保留行尾的历史动机——防未编辑行字节污染——
+// 已由「全链 LF」政策消解）

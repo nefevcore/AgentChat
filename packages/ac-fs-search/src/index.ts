@@ -205,7 +205,10 @@ function compileInclude(include: string): RegExp {
 }
 
 function previewOf(line: string): string {
-  return line.length > GREP_MAX_LINE_CHARS ? line.slice(0, GREP_MAX_LINE_CHARS) + '…(line truncated)' : line;
+  // 行尾归一（cr-1000）：CRLF 文件 split('\n') 后行尾残留 \r——显示层剥掉，
+  // 模型复制 grep 预览行不再撞行尾差（与 read 工具同款口径）
+  const l = line.endsWith('\r') ? line.slice(0, -1) : line;
+  return l.length > GREP_MAX_LINE_CHARS ? l.slice(0, GREP_MAX_LINE_CHARS) + '…(line truncated)' : l;
 }
 
 /**

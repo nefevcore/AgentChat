@@ -85,6 +85,14 @@ function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
+/** 行尾归一（cr-1000 统一 LF）：bat/cmd 例外保持 CRLF（批处理执行必需）。
+ *  view 显示层与 create/str_replace/insert 读写均过此门——严格逐字匹配
+ *  空间与写入空间同为 LF，old_str 复制不再撞行尾差。 */
+function eolNormalize(text: string, target: string): string {
+  if (/\.(bat|cmd)$/i.test(target)) return text;
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+}
+
 /** 文件查看：cat -n 风格行号（6 宽右对齐 + 两空格） */
 function formatFileView(displayPath: string, content: string, viewRange?: number[]): string {
   const allLines = content.split('\n');
@@ -307,7 +315,7 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
             };
           }
           const viewRange = args.view_range as number[] | undefined;
-          const content = fs.readFileSync(target, 'utf-8');
+          const content = eolNormalize(fs.readFileSync(target, 'utf-8'), target);
           const totalLines = content.split('\n').length;
           return {
             ok: true,
@@ -327,7 +335,7 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
             if (fs.existsSync(target)) return true;
             snapshotBefore(call, target); // 首见快照（方案 C；幂等）
             fs.mkdirSync(path.dirname(target), { recursive: true });
-            fs.writeFileSync(target, content, 'utf-8');
+            fs.writeFileSync(target, eolNormalize(content, target), 'utf-8');
             return false;
           });
           if (existed) {
@@ -357,8 +365,8 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
           // 队列内写会与并发写交错（lost update：旧读覆盖新写）。校验失败
           // 形态在队列回调内判出，未写盘即直接返回（文件保持原状）。
           const result = await withFileMutationQueue(target, async () => {
-            const before = fs.readFileSync(target, 'utf-8');
-            const offsets = matchOffsets(before, oldValue);
+            const before = eolNormalize(fs.readFileSync(target, 'utf-8'), target);
+            const offsets = matchOffsets(before, eolNormalize(oldValue, target));
             if (offsets.length === 0) {
               return { ok: false as const, error: `未执行替换：old_str 未在 ${pathInput} 中逐字出现。请检查空白/缩进/换行是否与原文完全一致` };
             }
@@ -374,7 +382,7 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
             }
             snapshotBefore(call, target); // 首见快照（方案 C；幂等）
             const offset = offsets[0];
-            const after = before.slice(0, offset) + newValue + before.slice(offset + oldValue.length);
+            const after = before.slice(0, offset) + eolNormalize(newValue, target) + before.slice(offset + eolNormalize(oldValue, target).length);
             fs.writeFileSync(target, after, 'utf-8');
             const { added, removed } = countLineChanges(before, after);
             return {
@@ -395,13 +403,13 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
           // 读改写整段进队列（cr-364，与 str_replace 同因）：行边界校验
           // 基于持锁读的当下内容，杜绝「校验时 100 行、写入时 50 行」漂移。
           const result = await withFileMutationQueue(target, async () => {
-            const before = fs.readFileSync(target, 'utf-8');
+            const before = eolNormalize(fs.readFileSync(target, 'utf-8'), target);
             const lines = before.split('\n');
             if (insertLine < 0 || insertLine > lines.length) {
               return { ok: false as const, error: `无效的 insert_line ${insertLine}：应在文件行边界范围内 [0, ${lines.length}]` };
             }
             snapshotBefore(call, target); // 首见快照（方案 C；幂等）
-            const after = [...lines.slice(0, insertLine), ...value.split('\n'), ...lines.slice(insertLine)].join('\n');
+            const after = [...lines.slice(0, insertLine), ...eolNormalize(value, target).split('\n'), ...lines.slice(insertLine)].join('\n');
             fs.writeFileSync(target, after, 'utf-8');
             // 位置双表述（自校验用；0/尾部分支单独措辞，避免"第 0 行之后"式歧义）
             const where =

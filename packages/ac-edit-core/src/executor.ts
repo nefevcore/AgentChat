@@ -2,7 +2,8 @@
 // ac-edit-core/src/executor.ts —— edit 统一执行管线（src 原样继承，路径外置）
 //
 // 管线：读 → stripBom → 检测行尾 → 归一化 LF → old_string 文本匹配
-//   → diff（增量/兜底全量）→ 写回（混合换行按行保留行尾）。
+//   → diff（增量/兜底全量）→ 写回（恒 LF 收敛；*.bat/*.cmd 保持 CRLF——
+//   cr-1000 行尾统一，与 .gitattributes 同款例外）。
 // 路径解析（沙箱校验）归调用方——本库零策略。
 // ============================================================
 
@@ -14,7 +15,6 @@ import {
   normalizeToLF,
   repairDuplicatedCr,
   restoreLineEndings,
-  restoreLineEndingsPreserving,
   stripBom,
 } from './line-ending.ts';
 import { applyEditsToNormalizedContent } from './apply.ts';
@@ -110,11 +110,8 @@ export async function applyEditBatch(filePath: string, batch: EditBatch): Promis
         ? generateDiffString(normalized, currentContent)
         : generateIncrementalDiff(normalized, currentContent, editPositions);
 
-    // 5. 写回（混合换行按行保留行尾；修复后的原文为基准——行文本不含 CR 尾巴）
-    const finalContent =
-      lineEnding === 'mixed'
-        ? restoreLineEndingsPreserving(repairedContent, currentContent)
-        : restoreLineEndings(currentContent, lineEnding);
+    // 5. 写回（恒 LF 收敛——非 bat/cmd 文件编辑一次即归一；cr-1000）
+    const finalContent = restoreLineEndings(currentContent, lineEnding, filePath);
     // 写回终检：任何路径产出的 CR 双写形态在此归一（防御性保险，零成本）
     const { fixed: safeContent } = repairDuplicatedCr(finalContent);
     await fs.writeFile(filePath, safeContent, 'utf-8');
