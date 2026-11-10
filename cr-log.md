@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-984**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-985**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1003,4 +1003,5 @@
 - 【cr-982 2026-11-10 perf 余量：singles/list 指纹复验走 sessionIndex messages 账面（实测千级条目 ~1.1s/次 → 零盘 IO）；runs 对账补清消失会话目录】
 - 【cr-983 2026-11-10 cr 工具 v2 批1（cr-981 设计实施）：条目尾部结构化元数据块 {status|#scope|→ref}（存量无块视为 done 零迁移）+ 状态机 plan/doing/done/drop + set 子命令 + grep --status/--id/--scope 过滤 + append 长度软门（>200 字警告）+ O_EXCL 锁写前重读写后重验 + 尾部 O(1) 追加写（头行同步等长字节补丁，位数增长才全文重写）+ 全 LF 单态自动修形（cr-981 事故止血）+ cr-log.md 登记格式文档同步】
 - 【cr-984 2026-11-10 cr 工具 v2 批2（cr-981 设计实施）：sync 子命令——git log 全量/增量（投影记 scannedHead，merge-base 验祖代，--rebuild 强制全量）扫 message 引用生成 cr-commits.json 投影（生成物禁手改）+ 悬空引用校验；check 子命令——六锁（头行同步/无重复/目录单调/尾部块语法+引用存在/docs 路径存在/commit 引用存在）fail-loud；理卷——目录区按号重排（消 13 处物理逆序，cr-43 续行随块归属）；selftest 子命令——sandbox 临时副本全命令面自测】
+- 【cr-985 2026-11-10 cr 工具 v2 补修：sync 增量无新 commit 路径（scannedHead === HEAD）漏结转 prev.entries 致投影写空——实锤于 cr-984 提交后首跑 sync 返回 0 键；修复 = 等头分支显式结转，幂等复跑两遍验证 446 键不丢】
 

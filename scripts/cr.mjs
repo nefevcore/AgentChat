@@ -329,7 +329,7 @@ function doSync(rebuild) {
   let entries = {};
   let range = ['HEAD'];
   if (!rebuild && prev?.scannedHead && prev.entries) {
-    if (prev.scannedHead === head) range = [];
+    if (prev.scannedHead === head) { entries = prev.entries; range = []; }
     else if (gitOk(['merge-base', '--is-ancestor', prev.scannedHead, 'HEAD']) != null) {
       entries = prev.entries;
       range = [prev.scannedHead + '..HEAD'];
