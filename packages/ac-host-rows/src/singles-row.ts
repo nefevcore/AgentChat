@@ -70,6 +70,13 @@ interface ConvSettingsFace {
   set(conversationId: string, patch: Record<string, string | null | undefined>): Record<string, string>;
 }
 
+/** 索引行窄接口（ctx.sessionIndex 结构子集——ac-session-index 行提供；
+ *  可选依赖（use-time 软取）：行摘除时 list 回落逐条目 stat 复验，慢但同构） */
+interface SessionIndexFace {
+  /** messages.jsonl 账面（与 ledgerFingerprint 同公式——零盘 IO） */
+  messagesCatalog(): Array<{ conv: string; size: number; mtimeMs: number }>;
+}
+
 interface WebFace {
   registerRpc(method: string, handler: (params: unknown) => unknown): void;
   broadcast(type: string, data?: unknown): void;
@@ -440,15 +447,26 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       // 起指纹 = agent 域 messages.jsonl 聚合 stat）
       //（兜底事件丢失——绕过通知的外部写/删除仍被看见），失配或 stale（追加
       // 事件标记）才读账本重算（cr-870 前是全条目三重 stat + meta 读）。
-      // 分批让出事件循环（重算读账本时不饿死其他 RPC，cr-843 同款教训）。
+      // 让出按 ~12ms 时间片（cr-980 perf #4：批计数 32 → 墙钟切片——千级
+      // 条目的指纹复验 stat 段不再成块独占事件循环）。
       web.registerRpc('singles/list', async () => {
         const out: SingleView[] = [];
         let dirty = false;
+        let sliceAt = Date.now();
+        // 指纹复验源（cr-981）：sessionIndex 在场 → messages 账面一次读
+        //（零盘 IO——逐条目 stat×agents 复验是 list 最后的大头，实测千级
+        // 条目 ~1.1s/次；账面 ~2ms）。账面新鲜度由 runs/snapshot 变更面
+        // 定向入账 + 60s 周期对账维护（running 会话拍内新鲜，其余 ≤ 对账
+        // 周期）；行缺席 → 逐条目 stat 复验回落（同构降级）。
+        const index = ctx.get('sessionIndex') as SessionIndexFace | undefined;
+        const cat = index !== undefined
+          ? new Map(index.messagesCatalog().map((r) => [r.conv, r]))
+          : null;
         const ids = [...registry.keys()];
         for (let i = 0; i < ids.length; i++) {
           const id = ids[i]!;
           const e = registry.get(id)!;
-          const st = ledgerFingerprint(dataRoot, id);
+          const st = cat !== null ? (cat.get(id) ?? null) : ledgerFingerprint(dataRoot, id);
           const gone = st === null && e.size !== 0; // 账本曾存在、现已消失
           if (e.stale === true || gone || (st !== null && (st.size !== e.size || st.mtimeMs !== e.mtimeMs))) {
             const rebuilt = buildEntry(dataRoot, id, conv());
@@ -458,7 +476,10 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
           }
           const cur = registry.get(id);
           if (cur?.view != null && cur.view.status === 'active') out.push(cur.view);
-          if (i % 32 === 31) await new Promise<void>((r) => setImmediate(r));
+          if (Date.now() - sliceAt > 12) {
+            await new Promise<void>((r) => setImmediate(r));
+            sliceAt = Date.now();
+          }
         }
         if (dirty) writeRegistry(dataRoot, registry);
         return { singles: out };

@@ -341,7 +341,17 @@ export class SingleBoardService extends Service {
     if (id) this.own.sessions.trackKnownSingle(id, removed);
   }
 
+  /** 在途共享（cr-980 perf #4）：PrimarySidebarHost / SessionList / resync
+   *  三路并发 refresh 共享同一趟 singles/list——冷启动不再多路齐发各扫一遍。 */
+  private refreshFlight: Promise<void> | null = null;
+
   async refresh(): Promise<void> {
+    if (this.refreshFlight !== null) return this.refreshFlight;
+    this.refreshFlight = this.doRefresh().finally(() => { this.refreshFlight = null; });
+    return this.refreshFlight;
+  }
+
+  private async doRefresh(): Promise<void> {
     try {
       const d = await fetchSingles(this.own.rpc, { track: (id, removed) => this.track(id, removed) });
       this.singles.value = d.singles;

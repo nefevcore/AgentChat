@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '描述'`——自动取号/当日日期/同步下行；查询 `grep` 命令），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-979**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-982**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -996,4 +996,7 @@
 - 【cr-977 2026-11-10 cr-976 Phase 3 落地登记：防御机制逐条重论证——cr-106 身份门/空载门保留（stepId 键控即恒等门）；cr-107 探针与 watchdog 保留；after-run +500ms 兜底退役（可达性保险归重连重拉+探针+watchdog，同因同补）；防自激不变；指纹短路保留；补充裁决：context-injected 帧与 tool/started·progress 流帧保留】
 - 【cr-978 2026-11-10 修 projectUserReplay 对缺 message_id 存量行崩溃（startsWith 未守卫——16 会话 runs/snapshot 恒崩+全根扫描挤占宿主致首屏 17s）+ runs/snapshot 按会话指纹 memo 化】
 - 【cr-979 2026-11-10 性能遗留登记：runs/snapshot 冷启动并发重复扫描（5×8s 无 single-flight）+ 首批 RPC 被冷扫描拖 ~2s + stat 全扫 750ms/次待走索引——docs/design/perf-followups-2026-11-10.md】
+- 【cr-980 2026-11-10 perf-followups #1-#4：runs/snapshot single-flight+boot 预热+时间片让出+session-index 指纹零盘读；singles/list 前端 refresh 单飞+服务端时间片】
+- 【cr-981 2026-11-10 CR 工具 v2 设计立项成文（docs/design/cr-tool-v2.md）：结构化条目/状态机/可追溯索引投影/append 原子化/守门不变量扩展/分卷归档——零依赖与 cr-log.md 单文件事实源不变；顺手修复工作区 cr-log 被 eol=lf 再物化为全 LF 致 append 守门拒绝（恢复 CRLF 约定形态）】
+- 【cr-982 2026-11-10 perf 余量：singles/list 指纹复验走 sessionIndex messages 账面（实测千级条目 ~1.1s/次 → 零盘 IO）；runs 对账补清消失会话目录】
 

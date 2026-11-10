@@ -921,61 +921,32 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
   // 活跃集 = 活壳 run-state 帧（busy 壳才成条——闲壳在跑不等于有 run）。
   // digest 短路：请求带上一轮 digest 且当前一致 → unchanged 轻载荷。
   // cr-978 展开摘要 memo（cid → 指纹关联摘要——见展开阶段注释）
+  // cr-980 性能收口（perf-followups 2026-11-10 #1-#3）：
+  //   · single-flight——冷启动期并发调用共享同一趟扫描（曾 5 路并发各 ~8s
+  //     全量展开在单线程宿主上串行叠加，把 singles/list 与首批轻 RPC 拖住）；
+  //   · boot 即预热一趟——首屏 RPC 到达时 memo / 索引账面已热；
+  //   · 指纹源优先 sessionIndex 行账面（零盘 IO）：变更面（running 集 ∪
+  //     近期 running 余温 ∪ 未入账新会话）定向 stat 入账；行缺席回落全量
+  //     stat 扫；周期空闲对账兜底外部写（crash 壳收束尾部 / 绕过通知的写）。
   const convSummaryMemo = new Map<string, { size: number; mtimeMs: number; messageCount: number; last?: { role: string; text: string; ts: string; agent_id?: string } }>();
   let lastRunsDigest: string | null = null;
-  web.registerRpc('runs/snapshot', async (params) => {
-    // 会话清单与指纹源（cr-973 viewer 停写）：agent 域账本是事实源——
-    // 单趟扫 agents/*/sessions 建 id→目录映射；清单 = meta/sessions（singles
-    // 身份源）∪ pair 会话（id 的 '~' 段含 user）∪ viewer/sessions 存量目录
-    //（兼容窗）。指纹输入 = 该会话全部源文件 stat（append-only 下未变即
-    // 读面输入未变）。
-    const dirsByConv = new Map<string, string[]>();
-    const agentsRoot = path.join(deps.dataRoot, 'agents');
-    try {
-      for (const a of fs.readdirSync(agentsRoot, { withFileTypes: true })) {
-        if (!a.isDirectory()) continue;
-        const sRoot = path.join(agentsRoot, a.name, 'sessions');
-        let sds: fs.Dirent[] = [];
-        try { sds = fs.readdirSync(sRoot, { withFileTypes: true }); } catch { continue; }
-        for (const s of sds) {
-          if (!s.isDirectory()) continue;
-          const list = dirsByConv.get(s.name) ?? [];
-          list.push(path.join(sRoot, s.name));
-          dirsByConv.set(s.name, list);
-        }
-      }
-    } catch { /* 无 agents 域 */ }
-    const ids = new Set<string>(dirsByConv.keys());
-    try {
-      for (const e of fs.readdirSync(path.join(deps.dataRoot, 'meta', 'sessions'), { withFileTypes: true })) {
-        if (e.isFile() && e.name.endsWith('.json')) ids.add(e.name.slice(0, -5));
-      }
-    } catch { /* 无元数据域 */ }
-    try {
-      for (const e of fs.readdirSync(path.join(deps.dataRoot, 'viewer', 'sessions'), { withFileTypes: true })) {
-        if (e.isDirectory()) {
-          ids.add(e.name);
-          const dir = path.join(deps.dataRoot, 'viewer', 'sessions', e.name);
-          dirsByConv.set(e.name, [...(dirsByConv.get(e.name) ?? []), dir]);
-        }
-      }
-    } catch { /* 兼容窗目录缺席 */ }
-    const convsMeta = [...ids].sort()
-      .filter((cid) => dirsByConv.has(cid))
-      .map((cid) => {
-        let size = -1;
-        let mtimeMs = 0;
-        for (const dir of dirsByConv.get(cid) ?? []) {
-          for (const file of ['messages.jsonl', path.join('journal', 'partials.jsonl'), 'subcalls.jsonl']) {
-            try {
-              const st = fs.statSync(path.join(dir, file));
-              size = size < 0 ? st.size : size + st.size;
-              mtimeMs = Math.max(mtimeMs, st.mtimeMs);
-            } catch { /* 缺席文件不参与 */ }
-          }
-        }
-        return { cid, size, mtimeMs };
-      });
+  /** 近期活跃会话余温集（cid → 最近在 running 集的时刻）：run 收束发生在
+   *  两次快照之间时，终稿尾部追加在上次定向刷新之后——余温窗口内的会话
+   *  仍每拍入账，收束尾不丢指纹步进。 */
+  const recentHot = new Map<string, number>();
+
+  const computeSnapshot = async (): Promise<
+    | { unchanged: true; digest: string; generatedAt: number }
+    | {
+      digest: string; generatedAt: number;
+      conversations: Array<{ conversationId: string; messageCount: number; size: number; updatedAt: number; last?: { role: string; text: string; ts: string; agent_id?: string } }>;
+      running: Array<{ agentId: string; conversationId: string; handle: string; startedAt: number }>;
+      groups: Array<{ groupId: string; name: string; memberCount: number; members: string[] }>;
+      usageTotals?: unknown;
+    }
+  > => {
+    // 会话目录单趟枚举（readdir only——指纹 / stat 面共用；目录缺席容错）
+    const dirsByConv = scanConversationDirs(deps.dataRoot);
     // 群面（cr-579）：groups/<gid>/group.json 扫描（主线 ctx.group.list 同源形状）
     const groups = listGroupConfigs(deps.dataRoot);
     // 活跃 run 集（cr-598 共享件；cr-824 批二改 runningOf——poller 镜像
@@ -990,27 +961,77 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       ...r,
       handle: r.conversationId === r.agentId ? r.agentId : r.conversationId + '~' + r.agentId,
     }));
+
+    // ---- 会话清单与指纹源（cr-973 viewer 停写）：agent 域账本是事实源 ----
+    // sessionIndex 行在场 → files 表账面聚合（零盘 IO）+ 变更面定向 stat
+    // 入账；行缺席（摘行/独立形态）→ 全量 stat 扫回落（时间片让出，慢但
+    // 同构——插槽-插头验收：摘行读面降级不空转）。
+    const index = ctx.get('sessionIndex') as SessionIndexStatsFace | undefined;
+    const convsMeta: Array<{ cid: string; size: number; mtimeMs: number }> = [];
+    if (index !== undefined) {
+      // 已消失会话清账（目录被删——catalog 账面与指针行一并回收）
+      const known = new Map(index.catalog().map((r) => [r.conv, r]));
+      for (const conv of known.keys()) {
+        if (!dirsByConv.has(conv)) index.drop(conv);
+      }
+      // 变更面定向 stat 入账：running ∪ 余温（30s 内有 run）∪ 未入账新会话
+      const now = Date.now();
+      const hot = new Set<string>();
+      for (const r of running) {
+        hot.add(r.conversationId);
+        recentHot.set(r.conversationId, now);
+      }
+      for (const [cid, at] of recentHot) {
+        if (now - at > 30_000) recentHot.delete(cid);
+        else hot.add(cid);
+      }
+      for (const cid of dirsByConv.keys()) {
+        if (hot.has(cid) || !known.has(cid)) index.refreshStats(cid);
+      }
+      const fresh = new Map(index.catalog().map((r) => [r.conv, r]));
+      for (const cid of [...dirsByConv.keys()].sort()) {
+        const row = fresh.get(cid);
+        if (row !== undefined) convsMeta.push({ cid, size: row.size, mtimeMs: row.mtimeMs });
+      }
+    } else {
+      let sliceAt = Date.now();
+      for (const cid of [...dirsByConv.keys()].sort()) {
+        let size = -1;
+        let mtimeMs = 0;
+        for (const dir of dirsByConv.get(cid) ?? []) {
+          for (const file of ['messages.jsonl', path.join('journal', 'partials.jsonl'), 'subcalls.jsonl']) {
+            try {
+              const st = fs.statSync(path.join(dir, file));
+              size = size < 0 ? st.size : size + st.size;
+              mtimeMs = Math.max(mtimeMs, st.mtimeMs);
+            } catch { /* 缺席文件不参与 */ }
+          }
+        }
+        if (size >= 0) convsMeta.push({ cid, size, mtimeMs });
+        if (Date.now() - sliceAt > SLICE_MS) {
+          await new Promise<void>((r) => setImmediate(r));
+          sliceAt = Date.now();
+        }
+      }
+    }
+
     const fingerprint = [
       convsMeta.map((c) => c.cid + ':' + c.size + ':' + c.mtimeMs).sort().join('|'),
       running.map((r) => r.agentId + '@' + r.conversationId + '#' + r.startedAt).sort().join('|'),
       groups.map((g) => g.id + ':' + g.members.length + ':' + g.name).sort().join('|'),
     ].join('::');
     const digest = hashFingerprint(fingerprint);
-    const reqDigest = obj(params).digest;
-    if (typeof reqDigest === 'string' && reqDigest === digest && lastRunsDigest === digest) {
-      return { unchanged: true, digest, generatedAt: Date.now() };
-    }
     lastRunsDigest = digest;
     // 展开阶段（digest 变化或首轮）：此刻才读账本（messageCount + 尾部摘要）。
     // cr-978：按会话指纹 memo（size+mtime 未变 = 摘要未变——append-only 下
     // 成立）——digest 变化通常只涉少数会话（后台 run 追加），只重读变化面；
     // 冷首轮全量（一次性）。单会话读失败降级缺席（一颗坏行不再炸整拍快照
-    // ——崩溃曾使 runs/snapshot 恒 500 + 全根扫描风暴拖死宿主）。分批让出
-    // 事件循环（cr-843 同款——冷首轮不饿死并发 RPC）。
+    // ——崩溃曾使 runs/snapshot 恒 500 + 全根扫描风暴拖死宿主）。时间片
+    // 让出（cr-980 #2：批粒度 16 → ~12ms 时间片——冷首轮不饿死并发 RPC）。
     const conversations = [] as Array<{ conversationId: string; messageCount: number; size: number; updatedAt: number; last?: { role: string; text: string; ts: string; agent_id?: string } }>;
-    const meta = convsMeta.filter((c) => c.size >= 0);
-    for (let i = 0; i < meta.length; i++) {
-      const c = meta[i]!;
+    let sliceAt = Date.now();
+    for (let i = 0; i < convsMeta.length; i++) {
+      const c = convsMeta[i]!;
       let e = convSummaryMemo.get(c.cid);
       if (e === undefined || e.size !== c.size || e.mtimeMs !== c.mtimeMs) {
         try {
@@ -1037,7 +1058,10 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
         }
       }
       conversations.push({ conversationId: c.cid, messageCount: e.messageCount, size: c.size, updatedAt: c.mtimeMs, ...(e.last !== undefined ? { last: e.last } : {}) });
-      if (i % 16 === 15) await new Promise<void>((r) => setImmediate(r));
+      if (Date.now() - sliceAt > SLICE_MS) {
+        await new Promise<void>((r) => setImmediate(r));
+        sliceAt = Date.now();
+      }
     }
     const usage = ctx.get('usage') as { totals(): unknown } | undefined;
     return {
@@ -1054,7 +1078,57 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       })),
       ...(usage !== undefined ? { usageTotals: usage.totals() } : {}),
     };
+  };
+
+  // single-flight（cr-980 #1）：在途 Promise 共享——并发调用等同一趟；航班
+  // 落定即释放（下一拍重算指纹——digest 的新鲜度按拍维持，不缓存载荷）。
+  let snapFlight: Promise<Awaited<ReturnType<typeof computeSnapshot>>> | null = null;
+  const snapshotOnce = (): Promise<Awaited<ReturnType<typeof computeSnapshot>>> => {
+    if (snapFlight !== null) return snapFlight;
+    snapFlight = computeSnapshot().finally(() => { snapFlight = null; });
+    return snapFlight;
+  };
+
+  web.registerRpc('runs/snapshot', async (params) => {
+    const result = await snapshotOnce();
+    // digest 短路（逐调用方判——共享航班的结果对各端各自的上一轮 digest
+    // 对账；指纹相等即读面输入未变，unchanged 轻载荷）
+    const reqDigest = obj(params).digest;
+    if (typeof reqDigest === 'string' && reqDigest === result.digest && !('unchanged' in result)) {
+      return { unchanged: true, digest: reqDigest, generatedAt: Date.now() };
+    }
+    return result;
   });
+
+  // boot 预热（cr-980 #1）：注册即发一趟——首屏 RPC 到达前完成 memo / 索引
+  // 账面的冷填充（首调用直接 join 本航班）。不 await：boot 继续走，扫描
+  // 时间片让出不挡装配；预热无观测面，失败静默。
+  void snapshotOnce().catch(() => undefined);
+
+  // 周期空闲对账（cr-980 #3 外部写兜底）：全量 stat 入账一轮——crash 壳
+  // 收束尾部 / 绕过通知的外部写（digest 新鲜度上限 = 对账周期 + 一拍）。
+  // unref：纯后台兜底不续命进程（测试 / 独立形态）。
+  const reconcile = async (): Promise<void> => {
+    const index = ctx.get('sessionIndex') as SessionIndexStatsFace | undefined;
+    if (index === undefined) return;
+    try {
+      const dirs = scanConversationDirs(deps.dataRoot);
+      let sliceAt = Date.now();
+      for (const cid of dirs.keys()) {
+        index.refreshStats(cid);
+        if (Date.now() - sliceAt > SLICE_MS) {
+          await new Promise<void>((r) => setImmediate(r));
+          sliceAt = Date.now();
+        }
+      }
+      // 目录已消失的会话清账（删除检测有界——不依赖 runs/snapshot 被轮询）
+      for (const row of index.catalog()) {
+        if (!dirs.has(row.conv)) index.drop(row.conv);
+      }
+    } catch { /* 数据根暂不可访问（测试清理竞态）——下轮再试 */ }
+  };
+  const reconcileTimer = setInterval(() => { void reconcile(); }, 60_000);
+  (reconcileTimer as { unref?: () => void }).unref?.();
 }
 
 /** 一批注册（web-api 行装配时调用） */
@@ -1070,4 +1144,51 @@ export function registerOpsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): 
   registerPlugin(web, ctx, deps);
   registerLlm(web, ctx, deps);
   registerRunsFace(web, ctx, deps);
+}
+
+// ---- runs/snapshot 支撑件（cr-980）----
+
+/** 时间片让出阈值（~12ms——批粒度计数让出的替代：冷扫描按墙钟切片，
+ *  不独占宿主事件循环，首批轻 RPC 不再排队秒级） */
+const SLICE_MS = 12;
+
+/** 会话目录单趟枚举（conv → 源目录集，readdir only 零 stat）：
+ *  agents 各域 sessions ∪ viewer/sessions 存量目录（兼容窗）。 */
+function scanConversationDirs(dataRoot: string): Map<string, string[]> {
+  const dirsByConv = new Map<string, string[]>();
+  const agentsRoot = path.join(dataRoot, 'agents');
+  try {
+    for (const a of fs.readdirSync(agentsRoot, { withFileTypes: true })) {
+      if (!a.isDirectory()) continue;
+      const sRoot = path.join(agentsRoot, a.name, 'sessions');
+      let sds: fs.Dirent[] = [];
+      try { sds = fs.readdirSync(sRoot, { withFileTypes: true }); } catch { continue; }
+      for (const s of sds) {
+        if (!s.isDirectory()) continue;
+        const list = dirsByConv.get(s.name) ?? [];
+        list.push(path.join(sRoot, s.name));
+        dirsByConv.set(s.name, list);
+      }
+    }
+  } catch { /* 无 agents 域 */ }
+  try {
+    for (const e of fs.readdirSync(path.join(dataRoot, 'viewer', 'sessions'), { withFileTypes: true })) {
+      if (e.isDirectory()) {
+        const dir = path.join(dataRoot, 'viewer', 'sessions', e.name);
+        dirsByConv.set(e.name, [...(dirsByConv.get(e.name) ?? []), dir]);
+      }
+    }
+  } catch { /* 兼容窗目录缺席 */ }
+  return dirsByConv;
+}
+
+/** 指纹面窄接口（ctx.sessionIndex 结构子集——ac-session-index 行提供；
+ *  可选依赖（use-time 软取）：行摘除时 runs/snapshot 回落全量 stat 扫） */
+interface SessionIndexStatsFace {
+  /** 会话源文件 stat 面入账（不读内容——指纹只吃 stat） */
+  refreshStats(convId: string): void;
+  /** files 表按 conv 聚合（零盘 IO——账面新鲜度由 refreshStats 维护） */
+  catalog(): Array<{ conv: string; size: number; mtimeMs: number }>;
+  /** 会话索引行全清（目录已消失） */
+  drop(convId: string): void;
 }

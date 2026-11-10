@@ -217,3 +217,19 @@ describe('单例草稿态（cr-894）', () => {
     expect(storage.getItem('agentchat.drafts')).not.toContain('old-uuid');
   });
 });
+
+describe('refresh 在途共享（cr-980 perf #4）', () => {
+  it('refreshFlight 用例：并发 refresh 只发一趟 singles/list', async () => {
+    const { board } = makeBoard();
+    // 首轮装载（顺带把桩数据源置非空）
+    boardTrueListRef.value = [{ id: 's1', status: 'active', createdAt: '2026-11-10T00:00:00Z', updatedAt: '2026-11-10T00:00:00Z' }];
+    await board.refresh();
+    const callsBefore = rpcCalls.filter((c) => c.method === 'singles/list').length;
+    await Promise.all([board.refresh(), board.refresh(), board.refresh()]);
+    expect(rpcCalls.filter((c) => c.method === 'singles/list').length - callsBefore).toBe(1);
+    // 航班落定后再次 refresh 正常新发
+    await board.refresh();
+    expect(rpcCalls.filter((c) => c.method === 'singles/list').length - callsBefore).toBe(2);
+    expect(board.singles.value.map((s) => s.id)).toEqual(['s1']);
+  });
+});

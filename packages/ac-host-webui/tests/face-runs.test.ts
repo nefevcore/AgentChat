@@ -370,3 +370,43 @@ describe('runs/snapshot（宿主聚合 + digest 短路）', () => {
     }
   });
 });
+
+describe('runs/snapshot single-flight（cr-980 #1）', () => {
+  it('并发调用共享同一趟（慢活跃集探测只发生一次），digest 各自对账', async () => {
+    const root = tmpRoot('flight');
+    writeSession(root, 'a1', 'c1', [
+      { role: 'agent', agent_id: 'user', content: '问', message_id: 'm1', timestamp: '2026-11-10T00:00:00Z' },
+    ]);
+    try {
+      const { web, handlers } = collect();
+      let probes = 0;
+      const port: ShellAdminPort = {
+        async ensureAgent() { throw new Error('不该拉起壳'); },
+        handles() {
+          return new Map([['a1', {
+            control: async (frame: Record<string, unknown>) => {
+              probes += 1;
+              await new Promise((r) => setTimeout(r, 30)); // 慢探测——拉开并发窗口
+              return { busy: false };
+            },
+          }]]);
+        },
+      };
+      registerOpsFace(web, ctx, { dataRoot: root, shellPort: () => port });
+      await new Promise((r) => setTimeout(r, 80)); // 预热航班落定
+      const before = probes;
+      const [a, b] = await Promise.all([
+        handlers.get('runs/snapshot')!({}),
+        handlers.get('runs/snapshot')!({}),
+      ]) as Array<Record<string, unknown>>;
+      expect(probes - before).toBe(1); // 共享一趟：run-state 只探一次
+      expect(a.digest).toBe(b.digest);
+      expect(a.conversations).toEqual(b.conversations);
+      // 共享航班结果对各自 digest 对账：同 digest → unchanged 轻载荷
+      const c = await handlers.get('runs/snapshot')!({ digest: a.digest }) as Record<string, unknown>;
+      expect(c).toMatchObject({ unchanged: true, digest: a.digest });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

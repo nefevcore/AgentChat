@@ -15,33 +15,40 @@
 
 ## 遗留（按优先级）
 
-### 1. runs/snapshot 并发冷启动重复扫描（当前最大余量：~8s）
+### 1. ✅ 已修（cr-980，2026-11-10）：runs/snapshot 并发冷启动重复扫描
 
 实测：页面装载期 5 个并发 runs/snapshot 调用（roster fetchAgents / runview
 轮询 / group 面板 / resync）各自 **~8s**——memo 未预热时并发调用各自全量展开
 （无在途共享），在单线程宿主上串行叠加 ~8s×5 的扫描波，把 singles/list
 （7.8s）与首批轻 RPC（全体 ~2s）一起拖住。
 
-修法：single-flight——在途 Promise 共享（并发调用等同一趟）；可选：宿主 boot
-后空闲预热 memo 一次（首屏前完成冷填充）。
+修法（已落地，face-ops.ts）：single-flight——在途 Promise 共享（并发调用等
+同一趟，逐调用方 digest 对账）＋ boot 注册即预热一趟（首屏 RPC 直接 join
+预热航班，冷填充在页面前完成）。
 
-### 2. 冷首扫的同步段仍拖首批 RPC ~2s
+### 2. ✅ 已修（cr-980）：冷首扫的同步段仍拖首批 RPC ~2s
 
 interaction/list、system/version 等轻 RPC 首批全体 ~1990ms——宿主事件循环被
-冷扫描独占的排队特征。修 #1 后应大幅消解；若仍有，把展开批粒度 16 → 时间片
-（每 ~16ms 让出）并核查 stat 扫描段（见 #3）是否同步。
+冷扫描独占的排队特征。已落地：展开段与回落 stat 扫段全部批粒度计数 →
+**~12ms 墙钟时间片**让出（face-ops.ts SLICE_MS）。
 
-### 3. runs/snapshot 每拍仍有 ~750ms 同步 stat 全扫（1240 会话 × 每目录 3 文件）
+### 3. ✅ 已修（cr-980）：runs/snapshot 每拍 ~750ms 同步 stat 全扫
 
-digest 指纹靠 stat 全扫收集——每拍（digest 变化时）都付。正解 = 走
-ac-session-index 查询（cr-973 已就位的指针索引行：size/mtime/计数入索引，
-快照读索引不触盘；摘行降级回落 stat 扫）。工作量中等，收益：快照读面零盘 IO。
+已落地：sessionIndex 行在场 → 指纹源 = files 表账面聚合（ac-session-index
+新增 refreshStats/catalog/drop——stat 面入账不读内容，零盘 IO 读面）；
+变更面定向入账 = running 集 ∪ 近期 running 余温（30s）∪ 未入账新会话；
+目录消失清账（drop）；60s 周期空闲全量对账兜底外部写（crash 壳收束尾部 /
+绕过通知的写——digest 新鲜度上限 = 对账周期 + 一拍）。行摘除回落全量
+stat 扫（时间片让出，同构降级）。
 
-### 4. singles/list 三路并发 + stat 段无让出
+### 4. ✅ 已修（cr-980 + cr-982）：singles/list 三路并发 + stat 段无让出
 
-前端 PrimarySidebarHost / SessionList / resync 三处并发 refresh（实测 3 路）。
-修法：前端侧 refresh 单飞（board 内在途共享）；服务端 list 的指纹复验段
-（1049 条目 ~751ms 同步）加分批让出（cr-843 同款）。
+前端 PrimarySidebarHost / SessionList / resync 三处并发 refresh。已落地：
+SingleBoardService.refresh 在途共享（三路并发 = 一趟 RPC）；服务端 list
+指纹复验段（cr-982 根修）：sessionIndex 在场 → messages 账面一次读
+（messagesCatalog——与 ledgerFingerprint 同公式，零盘 IO；实测千级条目
+~1.1s/次 → ~2ms；账面新鲜度由 runs/snapshot 变更面定向入账 + 60s 对账
+维护），行缺席回落逐条目 stat 复验（同构降级）。
 
 ### 5. 存量数据清理（可选）
 
@@ -55,6 +62,6 @@ ac-session-index 查询（cr-973 已就位的指针索引行：size/mtime/计数
 rpc-slow（>1s RPC）/ boot-wire / boot-row（>300ms 行）/ singles-boot 均走
 [switch] 轨道（localStorage 开关，零默认噪音）。观察一个版本后决定常驻或回收。
 
-## 验收基线（修 #1/#2 后应达）
+## 验收基线（#1-#4 已修——待 [switch] 打点观察一个版本后回收本清单）
 
 冷启动：singles-boot refresh < 2s、rpc-slow 零出现；温启动（memo 热）：< 1s。

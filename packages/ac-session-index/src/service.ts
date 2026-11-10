@@ -40,6 +40,24 @@ export class SessionIndexService extends Service {
     return this.index.fingerprintOf(this.dataRoot, convId);
   }
 
+  /** stat 面入账 + 账面聚合 + 清账（runs/snapshot 指纹源——cr-980） */
+  refreshStats(convId: string): void {
+    this.index.refreshStats(this.dataRoot, convId);
+  }
+
+  catalog(): Array<{ conv: string; size: number; mtimeMs: number }> {
+    return this.index.catalog();
+  }
+
+  /** messages.jsonl 账面（singles/list 指纹复验源——cr-981） */
+  messagesCatalog(): Array<{ conv: string; size: number; mtimeMs: number }> {
+    return this.index.messagesCatalog();
+  }
+
+  drop(convId: string): void {
+    this.index.drop(convId);
+  }
+
   /** 某 run 的子调用行（缺席 = []; 未入账 = undefined 回落全量读） */
   subcallLines(convId: string, domain: string, run: string): Array<Record<string, unknown>> | undefined {
     return this.index.subcallLines(this.dataRoot, convId, domain, run);

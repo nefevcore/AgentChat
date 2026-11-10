@@ -230,6 +230,67 @@ export class SessionIndex {
     return true;
   }
 
+  /** 会话 stat 面入账（cr-980）：三源文件 statSync 与 files 行对账——不读
+   *  文件内容（指纹面只吃 stat——runs/snapshot 每拍零盘读的基础）。行缺席
+   *  以 consumed=0 落锚（指针面稍后按需增量入账；subcall 定位面因
+   *  consumed=0 < size 自然回落全读，无静默陈旧）；size 增长 / mtime 前移
+   *  只刷 stat 锚（consumed 不动——增量留给指针面）；size 倒退或 mtime
+   *  倒退（compact 重写 / 回灌旧文件）锚与对应指针行一并清——指针面下次
+   *  全量重建，不残双份。 */
+  refreshStats(dataRoot: string, convId: string): void {
+    for (const dir of sessionDirs(dataRoot, convId)) {
+      const domain = domainOf(dir);
+      for (const shape of FILE_SHAPES) {
+        const file = path.join(dir, shape.file);
+        let st: fs.Stats;
+        try { st = fs.statSync(file); } catch { continue; }
+        const row = this.stmt('SELECT consumed, size, mtimeMs FROM files WHERE path = ?').get(file) as
+          | { consumed: number; size: number; mtimeMs: number }
+          | undefined;
+        if (row === undefined) {
+          this.stmt('INSERT INTO files (path, conv, consumed, size, mtimeMs) VALUES (?, ?, 0, ?, ?)').run(file, convId, st.size, st.mtimeMs);
+        } else if (st.size < row.size || st.mtimeMs < row.mtimeMs) {
+          this.stmt('DELETE FROM files WHERE path = ?').run(file);
+          const table = shape.kind === 'records' ? 'records' : shape.kind === 'journal' ? 'journal_lines' : 'subcalls';
+          this.stmt('DELETE FROM ' + table + ' WHERE conv = ? AND domain = ?').run(convId, domain);
+        } else {
+          this.stmt('UPDATE files SET size = ?, mtimeMs = ? WHERE path = ?').run(st.size, st.mtimeMs, file);
+        }
+      }
+    }
+  }
+
+  /** messages.jsonl 账面（cr-981）：files 表 messages 行按 conv 聚合——与
+   *  singles-row ledgerFingerprint 同公式（size 求和、mtime 取最大、跨域
+   *  含 viewer 兼容窗；零盘 IO）。files 行只源于三源文件枚举，LIKE 后缀
+   *  命中面 = messages.jsonl 本身。 */
+  messagesCatalog(): Array<{ conv: string; size: number; mtimeMs: number }> {
+    return this.stmt(
+      "SELECT conv, SUM(size) AS size, MAX(mtimeMs) AS mtimeMs FROM files WHERE path LIKE '%' || ? GROUP BY conv",
+    ).all('messages.jsonl') as Array<{ conv: string; size: number; mtimeMs: number }>;
+  }
+
+  /** 全目录账面聚合（files 表按 conv 聚合——零盘 IO；新鲜度由调用方
+   *  定向 refreshStats + 周期对账维护） */
+  catalog(): Array<{ conv: string; size: number; mtimeMs: number }> {
+    return this.stmt('SELECT conv, SUM(size) AS size, MAX(mtimeMs) AS mtimeMs FROM files GROUP BY conv').all() as Array<{ conv: string; size: number; mtimeMs: number }>;
+  }
+
+  /** 会话索引行全清（目录已消失——账面与指针行一并回收） */
+  drop(convId: string): void {
+    this.db.exec('BEGIN');
+    try {
+      this.stmt('DELETE FROM files WHERE conv = ?').run(convId);
+      this.stmt('DELETE FROM records WHERE conv = ?').run(convId);
+      this.stmt('DELETE FROM journal_lines WHERE conv = ?').run(convId);
+      this.stmt('DELETE FROM subcalls WHERE conv = ?').run(convId);
+      this.db.exec('COMMIT');
+    } catch (err) {
+      this.db.exec('ROLLBACK');
+      throw err;
+    }
+  }
+
   /** 视图指纹（historyView 同公式跨互认）：先 refresh 再按**新鲜 stat**
    *  复合 size:mtimeMs（缺席文件不参与、域序排序归一）。domains 只含
    *  agent 域（viewer 是投影轴不是派生源）。 */

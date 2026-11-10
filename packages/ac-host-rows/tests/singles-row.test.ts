@@ -34,7 +34,9 @@ function seedLedger(id: string, rows: Array<Record<string, unknown>>): void {
   fs.writeFileSync(path.join(dir, 'messages.jsonl'), [...lines, ...body].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
 }
 
-function boot(withInbox: boolean) {
+type SessionIndexFace = { messagesCatalog(): Array<{ conv: string; size: number; mtimeMs: number }> };
+
+function boot(withInbox: boolean, sessionIndex?: SessionIndexFace) {
   const handlers = new Map<string, Handler>();
   const frames: Array<{ type: string; args?: unknown }> = [];
   let receiver: Receiver | null = null;
@@ -46,7 +48,7 @@ function boot(withInbox: boolean) {
   };
   const plugin = makeSinglesHostRow({ dataRoot: ROOT, ...(withInbox ? { inbox } : {}) }) as unknown as { apply(ctx: unknown): void };
   // 桩 ctx：webServer + get + 最小事件面（conv-settings/updated 订阅——cordis on 形状）
-  plugin.apply({ webServer: web, get: () => undefined, on: () => {} });
+  plugin.apply({ webServer: web, get: (k: string) => (k === 'sessionIndex' ? sessionIndex ?? undefined : undefined), on: () => {} });
   const send = (env: Envelope) => {
     if (receiver === null) throw new Error('收信面未注册');
     return receiver(env);
@@ -309,5 +311,67 @@ describe('指定 id 物化（cr-847 延迟落盘链路）', () => {
   it('非法 id（路径分隔）→ fail-loud', async () => {
     const h = boot(false);
     await expect(async () => h.handlers.get('singles/create')!({ id: '../evil' })).rejects.toThrow(/非法/);
+  });
+});
+
+describe('singles/list 指纹复验走 sessionIndex 账面（cr-981）', () => {
+  /** 与 ledgerFingerprint 同公式（测试侧直算——账面值的生产源是 files 表） */
+  const fpOf = (id: string): { size: number; mtimeMs: number } | null => {
+    let size = 0;
+    let mtimeMs = 0;
+    let any = false;
+    for (const dir of [path.join(ROOT, 'viewer', 'sessions', id), path.join(ROOT, 'agents', 'alpha', 'sessions', id)]) {
+      try {
+        const st = fs.statSync(path.join(dir, 'messages.jsonl'));
+        size += st.size;
+        mtimeMs = Math.max(mtimeMs, st.mtimeMs);
+        any = true;
+      } catch { /* 该域无 messages 文件 */ }
+    }
+    return any ? { size, mtimeMs } : null;
+  };
+  /** 账面快照（构造时冻结——模拟 index 未对账的陈旧态；惰性直算会把
+   *  追加后的新 stat 带进账面，测不出「信任账面」语义） */
+  const catOf = (ids: string[]): { messagesCatalog(): Array<{ conv: string; size: number; mtimeMs: number }> } => {
+    const frozen = ids.flatMap((id) => { const f = fpOf(id); return f ? [{ conv: id, ...f }] : []; });
+    return { messagesCatalog: () => frozen.map((r) => ({ ...r })) };
+  };
+
+  it('账面未步进（index 陈旧）→ 条目视为未变，不回源重算（信任账面）', async () => {
+    seedLedger('s1', [{ agent_id: 'alpha', content: '开场' }, { agent_id: 'user', content: '首条' }]);
+    const staleCat = catOf(['s1']); // 追加前冻结——模拟 index 未对账的陈旧账面
+    const h = boot(false, staleCat);
+    const first = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    expect(first.singles.map((x) => x.id)).toContain('s1');
+    // 盘上追加了，但陈旧账面未步进 → list 不触发重算
+    fs.appendFileSync(path.join(ROOT, 'viewer', 'sessions', 's1', 'messages.jsonl'),
+      JSON.stringify({ role: 'agent', agent_id: 'alpha', content: '追加行', message_id: 's1-x', timestamp: '2026-10-24T09:00:00.000Z' }) + '\n');
+    const h2 = boot(false, staleCat); // 重新 boot：registry 落盘复用（装载复验只看 meta mtime）
+    const second = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    const row = second.singles.find((x) => x.id === 's1')!;
+    // 追加未进账面 → 摘要未重算（lastActivity 仍是装载时点）
+    expect(row.lastActivity).toBe(first.singles.find((x) => x.id === 's1')!.lastActivity);
+  });
+
+  it('账面步进（size 变化）→ 条目回源重算（lastActivity 前进）', async () => {
+    seedLedger('s1', [{ agent_id: 'alpha', content: '开场' }]);
+    const h = boot(false, catOf(['s1']));
+    const first = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    fs.appendFileSync(path.join(ROOT, 'viewer', 'sessions', 's1', 'messages.jsonl'),
+      JSON.stringify({ role: 'agent', agent_id: 'alpha', content: '追加行', message_id: 's1-x', timestamp: '2026-10-24T09:00:00.000Z' }) + '\n');
+    // 账面已对账（重新 fpOf = 新 stat）→ list 重算
+    const h2 = boot(false, catOf(['s1']));
+    const second = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    expect(second.singles.find((x) => x.id === 's1')!.lastActivity).toBe('2026-10-24T09:00:00.000Z');
+    expect(first.singles.find((x) => x.id === 's1')!.lastActivity).not.toBe('2026-10-24T09:00:00.000Z');
+  });
+
+  it('行缺席 → 逐条目 stat 复验回落（外部写仍被看见）', async () => {
+    seedLedger('s1', [{ agent_id: 'alpha', content: '开场' }]);
+    const h = boot(false); // 无 sessionIndex
+    fs.appendFileSync(path.join(ROOT, 'viewer', 'sessions', 's1', 'messages.jsonl'),
+      JSON.stringify({ role: 'agent', agent_id: 'alpha', content: '追加行', message_id: 's1-x', timestamp: '2026-10-24T09:00:00.000Z' }) + '\n');
+    const out = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
+    expect(out.singles.find((x) => x.id === 's1')!.lastActivity).toBe('2026-10-24T09:00:00.000Z');
   });
 });
