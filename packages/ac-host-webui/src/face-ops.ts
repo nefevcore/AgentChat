@@ -806,12 +806,11 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
    *  账本 = 完整事实源（入站 user 行 + 自著行含物化段行 steps 轨迹——与
    *  主线 records() 同形状），viewer = 承载 Agent（自著行按注入形状展开
    *  工具调用/结果/reasoning）；概要头计入（与归档阈值同口径，会话占用
-   *  单一估算器）。agent 域无行（账本未建/仅 viewer 投影）= 终稿层直估。 */
+   *  单一估算器）。agent 域无行 = 终稿层直估。 */
   const replayTokensOf = (conversationId: string, agentId: string | undefined): number => {
     let total = 0;
     let agentRows = 0;
     for (const dir of conversationDirs(deps.dataRoot, conversationId, { includeJournalOnly: true })) {
-      if (dir.includes(path.join('viewer', 'sessions'))) continue; // 投影域不计（与 agent 域重复）
       const { rows } = readLedger(dir);
       agentRows += rows.length;
       // cr-974：v2 会话步级事实 = 事件行（无 role——估算器只见 role 行）→
@@ -828,7 +827,7 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       total += estimateReplayTokens([...rows, ...pseudo] as never, agentId, { summary: summaryTextOf(dir) });
     }
     if (agentRows > 0) return total;
-    // 终稿层直估（cr-973 读时投影——agent 域无行的导入前会话走兼容窗）
+    // 终稿层直估（cr-973 读时投影——agent 域无行 = 空会话，0）
     return projectUserReplay(deps.dataRoot, conversationId)
       .reduce((n: number, r: { content: string }) => n + estimateTokens(r.content), 0);
   };
@@ -1153,7 +1152,7 @@ export function registerOpsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): 
 const SLICE_MS = 12;
 
 /** 会话目录单趟枚举（conv → 源目录集，readdir only 零 stat）：
- *  agents 各域 sessions ∪ viewer/sessions 存量目录（兼容窗）。 */
+ *  agents 各域 sessions（cr-998 viewer 兼容窗退役——消息流单源 agent 域）。 */
 function scanConversationDirs(dataRoot: string): Map<string, string[]> {
   const dirsByConv = new Map<string, string[]>();
   const agentsRoot = path.join(dataRoot, 'agents');
@@ -1171,14 +1170,6 @@ function scanConversationDirs(dataRoot: string): Map<string, string[]> {
       }
     }
   } catch { /* 无 agents 域 */ }
-  try {
-    for (const e of fs.readdirSync(path.join(dataRoot, 'viewer', 'sessions'), { withFileTypes: true })) {
-      if (e.isDirectory()) {
-        const dir = path.join(dataRoot, 'viewer', 'sessions', e.name);
-        dirsByConv.set(e.name, [...(dirsByConv.get(e.name) ?? []), dir]);
-      }
-    }
-  } catch { /* 兼容窗目录缺席 */ }
   return dirsByConv;
 }
 

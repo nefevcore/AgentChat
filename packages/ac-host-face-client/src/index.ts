@@ -38,8 +38,10 @@ class SinglesShim extends Service {
   }
   get(conversationId: string): unknown {
     try {
+      // cr-973 迁 meta/sessions/（cr-998 修正：旧 viewer 位是迁移前残留，
+      // 自 cr-973 起恒 miss——壳侧 singles 判定失效）
       const raw = JSON.parse(fs.readFileSync(
-        path.join(this.dataRoot, 'viewer', 'sessions', '.singles-registry.json'), 'utf-8'),
+        path.join(this.dataRoot, 'meta', 'sessions', '.singles-registry.json'), 'utf-8'),
       ) as { entries?: Record<string, unknown> };
       return raw.entries !== undefined && conversationId in raw.entries ? { id: conversationId } : undefined;
     } catch {

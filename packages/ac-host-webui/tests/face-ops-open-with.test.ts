@@ -19,8 +19,8 @@ beforeEach(() => {
   fs.mkdirSync(path.join(WS_DIR, 'src'), { recursive: true });
   fs.writeFileSync(path.join(WS_DIR, 'src', 'app.ts'), 'export {};\n');
   fs.writeFileSync(path.join(ROOT, 'workspaces.json'), JSON.stringify([{ id: 'ws-1', name: 'ws', path: WS_DIR, createdAt: '', updatedAt: '' }]));
-  fs.mkdirSync(path.join(ROOT, 'viewer', 'sessions', 'conv-1'), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', 'conv-1', 'session.json'), JSON.stringify({ id: 'conv-1', agentId: 'neko', workspaceId: 'ws-1', status: 'active', createdAt: '', updatedAt: '' }));
+  fs.mkdirSync(path.join(ROOT, 'meta', 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'meta', 'sessions', 'conv-1.json'), JSON.stringify({ id: 'conv-1', agentId: 'neko', workspaceId: 'ws-1', status: 'active', createdAt: '', updatedAt: '' }));
 });
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 

@@ -18,7 +18,7 @@ afterEach(() => { fs.rmSync(ROOT, { recursive: true, force: true }); });
 describe('压缩回收后的索引对账（cr-974）', () => {
   it('归档重写 → 首刷重建、再刷幂等；指纹随重写翻转', async () => {
     const uuid = 'conv-ci';
-    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', uuid), { participants: ['alpha', 'user'], kind: 'user' }, undefined, { eventsV2: true });
+    const w = new LedgerWriter(sessionDir(ROOT, 'alpha', uuid), { participants: ['alpha', 'user'], kind: 'user' });
     for (let i = 0; i < 6; i++) {
       await w.deliver({ role: 'agent', content: '行' + i, agent_id: i % 2 === 0 ? 'user' : 'alpha', requestId: 'r' + i, uuid });
     }

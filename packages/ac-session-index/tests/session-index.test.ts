@@ -40,7 +40,7 @@ function closeIndex(idx: SessionIndex): void {
 }
 
 function sessionDir(domain: string, convId: string): string {
-  return domain === 'viewer'
+  return domain === 'legacy-viewer'
     ? path.join(root, 'viewer', 'sessions', convId)
     : path.join(root, 'agents', domain, 'sessions', convId);
 }
@@ -64,7 +64,7 @@ function append(domain: string, convId: string, rel: string, text: string): void
 /** stat 口径指纹独立复算（historyView 同公式——跨互认断言） */
 function expectedFingerprint(convId: string): string {
   const parts: string[] = [];
-  for (const dir of [sessionDir('viewer', convId), sessionDir('alpha', convId)]) {
+  for (const dir of [sessionDir('alpha', convId), sessionDir('beta', convId)]) {
     for (const rel of ['messages.jsonl', path.join('journal', 'partials.jsonl'), 'subcalls.jsonl']) {
       const file = path.join(dir, rel);
       try { const st = fs.statSync(file); parts.push(file + ':' + st.size + ':' + st.mtimeMs); } catch { /* 缺席不参与 */ }
@@ -90,14 +90,14 @@ const SC2 = JSON.stringify({ type: 'journal-tool-result', run: 'run-1', toolCall
 
 describe('全量首建', () => {
   it('header 跳过、噪声行忽略、指纹与 stat 公式互认、域枚举正确', () => {
-    writeSession('viewer', CONV, { messages: [HEADER, ROW1, ROW2] });
-    writeSession('alpha', CONV, { messages: [HEADER, ROW1, ROW2], journal: [J_STEP, J_NOISE, J_SETTLED], subcalls: [SC1, SC2] });
+    writeSession('alpha', CONV, { messages: [HEADER, ROW1, ROW2] });
+    writeSession('beta', CONV, { messages: [HEADER, ROW1, ROW2], journal: [J_STEP, J_NOISE, J_SETTLED], subcalls: [SC1, SC2] });
     const idx = newIndex();
     const r = idx.refreshConversation(root, CONV);
     expect(r.appended).toBe(8); // records 2×2 域 + journal 2（noise 未知 type 忽略）+ subcalls 2
     const fp = idx.fingerprintOf(root, CONV);
     expect(fp.fingerprint).toBe(expectedFingerprint(CONV));
-    expect(fp.domains).toEqual(['alpha']);
+    expect(fp.domains).toEqual(['alpha', 'beta']);
     // 内部行：viewer records 跳过头行；身份键带出
     expect(probe('SELECT COUNT(*) AS c FROM records')).toEqual({ c: 4 });
     expect(probe('SELECT role, agent_id, run, request_id, message_id, ts FROM records WHERE conv = ? AND domain = ? ORDER BY seq DESC', CONV, 'alpha'))
@@ -109,11 +109,11 @@ describe('全量首建', () => {
 
 describe('增量追加', () => {
   it('append 一行 → appended 1、records 增长、指纹翻转', () => {
-    writeSession('viewer', CONV, { messages: [HEADER, ROW1] });
+    writeSession('alpha', CONV, { messages: [HEADER, ROW1] });
     const idx = newIndex();
     idx.refreshConversation(root, CONV);
     const fp0 = idx.fingerprintOf(root, CONV).fingerprint;
-    append('viewer', CONV, 'messages.jsonl', ROW2 + '\n');
+    append('alpha', CONV, 'messages.jsonl', ROW2 + '\n');
     const r = idx.refreshConversation(root, CONV);
     expect(r.appended).toBe(1);
     expect(r.rebuilt).toEqual([]);
@@ -142,16 +142,16 @@ describe('截断重写（compact 式 tmp+rename）', () => {
 
 describe('撕裂尾行', () => {
   it('无换行尾段不消费、不前进；补齐换行后增量入账', () => {
-    writeSession('viewer', CONV, { messages: [HEADER, ROW1] });
-    const file = path.join(sessionDir('viewer', CONV), 'messages.jsonl');
+    writeSession('alpha', CONV, { messages: [HEADER, ROW1] });
+    const file = path.join(sessionDir('alpha', CONV), 'messages.jsonl');
     const whole = fs.statSync(file);
     const idx = newIndex();
     idx.refreshConversation(root, CONV);
-    append('viewer', CONV, 'messages.jsonl', '{"role":"agent","content":"撕裂"');
+    append('alpha', CONV, 'messages.jsonl', '{"role":"agent","content":"撕裂"');
     const r1 = idx.refreshConversation(root, CONV);
     expect(r1.appended).toBe(0);
     expect(probe('SELECT consumed FROM files WHERE path = ?', file)).toEqual({ consumed: whole.size });
-    append('viewer', CONV, 'messages.jsonl', ', "message_id": "m3"}\n');
+    append('alpha', CONV, 'messages.jsonl', ', "message_id": "m3"}\n');
     const r2 = idx.refreshConversation(root, CONV);
     expect(r2.appended).toBe(1);
     expect(probe('SELECT COUNT(*) AS c FROM records')).toEqual({ c: 2 });

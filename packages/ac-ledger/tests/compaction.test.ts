@@ -27,7 +27,7 @@ const UUID = 'conv-cmp';
 const AGENT = 'alpha';
 
 function v2Writer(): LedgerWriter {
-  return new LedgerWriter(sessionDir(ROOT, AGENT, UUID), { participants: [AGENT, 'user'], kind: 'user' }, undefined, { eventsV2: true });
+  return new LedgerWriter(sessionDir(ROOT, AGENT, UUID), { participants: [AGENT, 'user'], kind: 'user' });
 }
 
 async function seed(w: LedgerWriter): Promise<void> {

@@ -98,9 +98,9 @@ describe('壳侧会话命名行（cr-672）', () => {
   });
 
   it('盘上已有标题（含用户手改）→ 不生成不投递', async () => {
-    const dir = path.join(ROOT, 'viewer', 'sessions', 'c1');
+    const dir = path.join(ROOT, 'meta', 'sessions');
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'session.json'), JSON.stringify({ id: 'c1', title: '手改标题' }), 'utf-8');
+    fs.writeFileSync(path.join(dir, 'c1.json'), JSON.stringify({ id: 'c1', title: '手改标题' }), 'utf-8');
     const address = socketPathFor(ROOT, 'po-existing');
     const frames: unknown[] = [];
     const server = await listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });

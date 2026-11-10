@@ -89,9 +89,9 @@ async function until(ctx: Context, cond: () => boolean, ms = 3000): Promise<void
 describe('宿主能力面壳侧行（cr-886）', () => {
   it('discover → 代理工具注册 + execute 经宿主 + singles/group Shim 装配', async () => {
     const root = tmpRoot();
-    // singles 注册表盘上形态（facts Shim 直读）
-    fs.mkdirSync(path.join(root, 'viewer', 'sessions'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'viewer', 'sessions', '.singles-registry.json'),
+    // singles 注册表盘上形态（facts Shim 直读——cr-973 迁 meta/sessions/）
+    fs.mkdirSync(path.join(root, 'meta', 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'meta', 'sessions', '.singles-registry.json'),
       JSON.stringify({ version: 2, entries: { 's-1': { id: 's-1' } } }), 'utf-8');
     await fakeHost(root, CONTRACT);
     const ctx = await bootClient(root);

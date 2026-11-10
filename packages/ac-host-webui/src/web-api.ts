@@ -113,12 +113,9 @@ function rosterConfigs(dataRoot: string) {
 }
 
 /** 会话计数（cr-973 viewer 停写）：meta/sessions（singles 身份源）∪
- *  viewer/sessions 存量目录（兼容窗）∪ agent 域 pair 会话（'~' 段含
- *  user）——身份词汇单源改指 agent 域后的去并集。 */
+ *  agent 域 pair 会话（'~' 段含 user）——cr-998 viewer 兼容窗退役。 */
 function countConversations(dataRoot: string): number {
   const ids = new Set<string>();
-  try { (readdirSync(path.join(dataRoot, 'viewer', 'sessions'), { withFileTypes: true }))
-    .filter((e) => e.isDirectory()).forEach((e) => ids.add(e.name)); } catch { /* 兼容窗目录缺席 */ }
   try { readdirSync(path.join(dataRoot, 'meta', 'sessions'), { withFileTypes: true })
     .filter((e) => e.isFile() && e.name.endsWith('.json')).forEach((e) => ids.add(e.name.slice(0, -5))); } catch { /* 无元数据域 */ }
   try {

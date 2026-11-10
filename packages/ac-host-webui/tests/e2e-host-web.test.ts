@@ -429,13 +429,15 @@ describe('8.5a 宿主 web 面接线', () => {
     const conv = 'inj-row-1';
     const ts = 1_700_000_000_500;
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
-    await w.journal({ type: 'journal-step', run: 'run-i', step: 0, content: '前步', reasoning: '想' });
-    await w.journal({
-      type: 'journal-inject', run: 'run-i', content: '[系统通知] …已收到用户回答：…',
-      injectionId: 'inj-e2e', injectSource: 'durable-interaction', label: '已收到用户回答', ts,
-    });
-    await w.journal({ type: 'journal-step', run: 'run-i', step: 1, content: '后步', reasoning: '再想' });
-    await w.settle({ role: 'agent', content: '终稿', agent_id: 'alpha', uuid: conv, requestId: 'rq-inj' }, 'run-i', 'ok');
+    // v1 存量 journal 直写（注入行带身份锚——cr-707 存量形态回归锁）
+    const jf = path.join(sessionDir(ROOT, 'alpha', conv), 'journal', 'partials.jsonl');
+    fs.mkdirSync(path.dirname(jf), { recursive: true });
+    fs.writeFileSync(jf, [
+      JSON.stringify({ type: 'journal-step', run: 'run-i', step: 0, content: '前步', reasoning: '想', ts: ts - 2000 }),
+      JSON.stringify({ type: 'journal-inject', run: 'run-i', content: '[系统通知] …已收到用户回答：…', injectionId: 'inj-e2e', injectSource: 'durable-interaction', label: '已收到用户回答', ts }),
+      JSON.stringify({ type: 'journal-step', run: 'run-i', step: 1, content: '后步', reasoning: '再想', ts: ts + 1000 }),
+    ].join('\n') + '\n', 'utf-8');
+    await w.settle({ role: 'agent', content: '终稿', agent_id: 'alpha', uuid: conv, requestId: 'rq-inj', run: 'run-i' }, 'run-i', 'ok');
 
     const history = await rpc<{
       records: Array<{ role: string; content: string; label?: string; source?: string; message_id?: string; timestamp?: string; steps?: unknown[] }>;
@@ -468,12 +470,14 @@ describe('8.5a 宿主 web 面接线', () => {
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
     // 插队消息的入站落账（壳侧 agent 域 user 行——requestId 同注入行）
     await w.deliver({ role: 'agent', content: '插队消息', agent_id: 'user', requestId: 'send-1', uuid: conv });
-    await w.journal({ type: 'journal-step', run: 'run-x', step: 0, content: '步', reasoning: '想' });
-    // busy-steer 注入（带 requestId——shell driveRun steer 分支形态）
-    await w.journal({ type: 'journal-inject', run: 'run-x', content: '插队消息', requestId: 'send-1', ts: 1_700_000_001_000 });
-    // 机制注入（无 requestId——recordContext 形态）
-    await w.journal({ type: 'journal-inject', run: 'run-x', content: '已收到用户回答', injectionId: 'inj-m', injectSource: 'durable-interaction', label: '已收到用户回答', ts: 1_700_000_002_000 });
-    await w.settle({ role: 'agent', content: '终稿', agent_id: 'alpha', uuid: conv, requestId: 'rq-x' }, 'run-x', 'ok');
+    await w.appendEvents([
+      { type: 'step/content', run: 'run-x', step: 0, text: '步', ts: 1_700_000_000_000 },
+      // busy-steer 注入（带 requestId——shell driveRun steer 分支形态）
+      { type: 'inject', run: 'run-x', content: '插队消息', requestId: 'send-1', ts: 1_700_000_001_000 },
+      // 机制注入（无 requestId——recordContext 形态）
+      { type: 'inject', run: 'run-x', content: '已收到用户回答', injectionId: 'inj-m', injectSource: 'durable-interaction', label: '已收到用户回答', ts: 1_700_000_002_000 },
+    ]);
+    await w.settle({ role: 'agent', content: '终稿', agent_id: 'alpha', uuid: conv, requestId: 'rq-x', run: 'run-x' }, 'run-x', 'ok');
 
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);

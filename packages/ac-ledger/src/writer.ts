@@ -6,20 +6,21 @@
 //（A2 落账即确认——admit 短路先于入队）；inbox durable（投递未消费
 // 消息；activation 消费后清）。
 //
-// cr-974（cr-972 第二刀）事件词汇 v2：eventsV2 模式（service 装配恒开）
-// 下 messages.jsonl 即会话唯一事件日志（头行 version:2；判别行 + 未知
-// type 安全忽略）——相位族 step/* + inject + run-end 逐行落账，终稿 =
-// type:'message' 行；**物化（materialize）与 journal 剔除（prune）退役**
-//（journal/subcalls 停写，存量文件读兼容）。v1 写面（journal/settle 两阶
-// 段）保留为存量会话测试夹具专用——运行时零调用。
+// cr-974（cr-972 第二刀）事件词汇 v2：messages.jsonl 即会话唯一事件日志
+//（头行 version:2；判别行 + 未知 type 安全忽略）——相位族 step/* +
+// inject + run-end 逐行落账，终稿 = type:'message' 行。物化（materialize）
+// 与 journal 剔除（prune）退役（journal/subcalls 停写，存量文件读兼容）。
+// cr-998：v1 写面（journal()/settle 两阶段/settleMechanism 落 journal）
+// 随回滚兼容窗退役——writer 恒 v2 形态（既有 v1 会话文件追加 v2 行合法，
+// 头行永不重写）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
-import type { LedgerRow, LedgerHeader, JournalLine, JournalStep, JournalInject, JournalToolResult, JournalSettled, RunUsage } from './records.ts';
+import type { LedgerRow, LedgerHeader, RunUsage } from './records.ts';
 import { AdmissionGate } from 'ac-envelope-core';
 import { nextSegmentName, writeAnchor, type CompactOptions, type CompactReport } from './archive.ts';
-import { readLedger, readJournal, segmentizeRun } from './reader.ts';
+import { readLedger } from './reader.ts';
 
 /** 会话目录：agents/<agentId>/sessions/<uuid>/ */
 export function sessionDir(dataRoot: string, agentId: string, uuid: string): string {
@@ -71,10 +72,6 @@ export class LedgerWriter {
   private seqSeeded = false;
   private headerWritten = false;
   private readonly admission: AdmissionGate;
-  /** v2 事件日志模式（cr-974）：头行 version:2 + 判别行落账 + 停物化。
-   *  缺省 false = v1 存量写面（测试夹具专用）。既有文件头行永不重写
-   *  （v1 会话追加 v2 行合法——读侧按行判别归一）。 */
-  private readonly eventsV2: boolean;
   /** 落账后通知（cr-976 B 案）：每个 enqueue 切片内追加到 messages.jsonl 的
    *  行（含分配好的 seq）在 fsync 后回调——宿主直播管线据此投影转发
    *  （帧 = 日志 append 事件的视图，D3-2 壳 ipc 事件面的数据源）。 */
@@ -87,12 +84,11 @@ export class LedgerWriter {
     dir: string,
     header: Omit<LedgerHeader, 'type' | 'version' | 'createdAt'>,
     admission: AdmissionGate = new AdmissionGate(),
-    opts: { eventsV2?: boolean; onAppend?: (rows: Array<Record<string, unknown>>) => void } = {},
+    opts: { onAppend?: (rows: Array<Record<string, unknown>>) => void } = {},
   ) {
     this.dir = dir;
     this.header = header;
     this.admission = admission;
-    this.eventsV2 = opts.eventsV2 === true;
     this.onAppend = opts.onAppend;
   }
 
@@ -141,8 +137,9 @@ export class LedgerWriter {
     }
   }
 
-  /** messages.jsonl 首建时写头行（participants/kind 并进首行；v2 模式
-   *  version:2——cr-974 单文件事件日志；既有文件头行永不重写） */
+  /** messages.jsonl 首建时写头行（participants/kind 并进首行；version:2
+   *  ——cr-974 单文件事件日志；既有文件头行永不重写——v1 会话续写
+   *  保持 version:1，行级判别归一） */
   private ensureHeader(): void {
     if (this.headerWritten) return;
     const file = path.join(this.dir, MESSAGES);
@@ -150,7 +147,7 @@ export class LedgerWriter {
     if (fs.statSync(file).size === 0) {
       const header: LedgerHeader = {
         type: 'session-header',
-        version: this.eventsV2 ? 2 : 1,
+        version: 2,
         createdAt: new Date().toISOString(),
         participants: this.header.participants,
         kind: this.header.kind,
@@ -196,15 +193,15 @@ export class LedgerWriter {
       this.ensureHeader();
       const full: LedgerRow = {
         ...rest,
-        // v2 判别行（cr-974）：发言 message / 材料 context；v1 行无 type
+        // v2 判别行（cr-974）：发言 message / 材料 context；存量 v1 行无 type
         //（读侧按行判别归一——同文件混词汇合法）
-        ...(this.eventsV2 ? { type: row.role === 'context' ? 'context' : 'message' } : {}),
+        type: row.role === 'context' ? 'context' : 'message',
         message_id: key ?? cryptoRandomId(),
         timestamp: ts,
         seq: this.allocSeq(),
       };
       this.appendLine(path.join(this.dir, MESSAGES), full);
-      if (this.eventsV2) this.onAppend?.([full as unknown as Record<string, unknown>]);
+      this.onAppend?.([full as unknown as Record<string, unknown>]);
     });
     return true;
   }
@@ -276,36 +273,15 @@ export class LedgerWriter {
     }]);
   }
 
-  // —— journal 面（v1 存量写面——测试夹具专用，运行时零调用） ——
-
-  /** 落盘完成后 resolve 该行分配到的 seq（B2 帧携带：调用方据此补发
-   *  journal 锚事件——seq 的分配就在本串行队列内，返回它零额外成本；
-   *  既有调用方忽略返回值不受影响）。 */
-  async journal(line: JournalStep | JournalInject | JournalToolResult | Omit<JournalSettled, 'seq'>): Promise<number> {
-    return this.enqueue(() => {
-      // ts 盖戳（cr-697）：物化段行/步级时间戳的取源——写入时不可逆，缺席
-      // 即永久缺席（存量行读侧回落收束时刻）。调用方已带 ts（注入行——
-      // cr-707：与直播帧同一时刻，排序同源）时保留。
-      const seq = this.allocSeq();
-      const full = { ...line, ts: (line as { ts?: number }).ts ?? Date.now(), seq } as JournalLine;
-      this.appendLine(path.join(this.dir, JOURNAL), full);
-      return seq;
-    });
-  }
-
-  // —— settlement 两阶段（run 收束：段行物化 + journal 剔除） ——
-
-  // cr-697：恢复主线两阶段语义（推翻 cr-658 的「journal 永源 + 读侧重建」
-  // 裁决——935 行/4MB 的 journal 永不清理致全仓 267MB 膨胀）。收束时把
-  // journal 步行按注入边界切段物化进 messages.jsonl（source='segment'/
-  // 'inject' 行；steps = 补行覆盖 + 子调用平铺后的步序），随 journal 剔除
-  // 该 run 步行（settled 行保留——usage 计量与终态审计面）。读面（steps
-  // 带出 / 轨迹重建）物化行优先、journal 兜底存量与 in-flight。
+  // cr-697 物化两阶段（段行物化 + journal 剔除）与 cr-998 前的 v1 写面
+  //（journal()/settleMechanism v1 分支）已随 cr-974/998 退役——journal
+  // 停写，存量 v1 会话经 events-v2 归一化读。
 
   /**
-   * run 收束：段行物化（注入边界切段）→ 终稿行 → journal-settled 标记
-   * → journal 步行剔除（收束即清——settled 行保留）。
-   * meter（cr-538）：run 级用量聚合随 settlement 落账——journal 计量（R2）。
+   * run 收束（cr-974 v2）：终稿 message 行 +（error 时 context/error 行）
+   * + run-end 标记行——单队列切片内原子追加；无物化、无 journal 写、无
+   * prune（步级事实已在事件流，run-end 即唯一收束信号）。
+   * meter（cr-538）：run 级用量聚合随 run-end 落账。
    */
   async settle(
     finalRow: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'>,
@@ -317,84 +293,48 @@ export class LedgerWriter {
     // v2 收束（cr-974）：终稿 message 行 +（error 时 context/error 行）+
     // run-end 标记行——单队列切片内原子追加；无物化、无 journal 写、无
     // prune（步级事实已在事件流，run-end 即唯一收束信号）
-    if (this.eventsV2) {
-      await this.enqueue(() => {
-        this.ensureHeader();
-        const appended: Array<Record<string, unknown>> = [];
-        const finalLine = {
-          type: 'message',
-          ...finalRow,
-          message_id: finalRow.requestId ?? cryptoRandomId(),
-          timestamp: new Date().toISOString(),
-          seq: this.allocSeq(),
-        };
-        this.appendLine(path.join(this.dir, MESSAGES), finalLine);
-        appended.push(finalLine as unknown as Record<string, unknown>);
-        // cr-807：error 收束错误行（context+source:error——UI 红条）
-        if (finish === 'error') {
-          const errLine = {
-            type: 'context',
-            role: 'context',
-            source: 'error',
-            content: errorMessage ?? 'run 以 error 收束',
-            agent_id: finalRow.agent_id,
-            ...(finalRow.uuid !== undefined ? { uuid: finalRow.uuid } : {}),
-            run: runId,
-            message_id: cryptoRandomId(),
-            timestamp: new Date().toISOString(),
-            seq: this.allocSeq(),
-          };
-          this.appendLine(path.join(this.dir, MESSAGES), errLine);
-          appended.push(errLine);
-        }
-        const endLine = {
-          type: 'run-end',
-          run: runId,
-          finish: finish === 'ok' ? 'completed' : finish,
-          ...(meter !== undefined ? { usage: meter.usage, model: meter.model } : {}),
-          ...(errorMessage !== undefined ? { errorMessage } : {}),
-          ...(finalRow.runMs !== undefined ? { runMs: finalRow.runMs } : {}),
-          ts: Date.now(),
-          seq: this.allocSeq(),
-        };
-        this.appendLine(path.join(this.dir, MESSAGES), endLine);
-        appended.push(endLine);
-        this.onAppend?.(appended);
-      });
-      return;
-    }
     await this.enqueue(() => {
       this.ensureHeader();
-      this.materialize(runId, finalRow.agent_id, finalRow.uuid);
-      const full: LedgerRow = {
+      const appended: Array<Record<string, unknown>> = [];
+      const finalLine = {
+        type: 'message',
         ...finalRow,
         message_id: finalRow.requestId ?? cryptoRandomId(),
         timestamp: new Date().toISOString(),
         seq: this.allocSeq(),
       };
-      this.appendLine(path.join(this.dir, MESSAGES), full);
-      // cr-807：error 收束错误行（session-design §2.5 落盘形态）——终稿
-      // 行后追加 context+source:error（UI 红条 / LLM 回放按 user 喂回），
-      // 文案经 settleRun 从 loop result.error 带入。
+      this.appendLine(path.join(this.dir, MESSAGES), finalLine);
+      appended.push(finalLine as unknown as Record<string, unknown>);
+      // cr-807：error 收束错误行（context+source:error——UI 红条）
       if (finish === 'error') {
-        this.appendLine(path.join(this.dir, MESSAGES), {
+        const errLine = {
+          type: 'context',
           role: 'context',
           source: 'error',
           content: errorMessage ?? 'run 以 error 收束',
           agent_id: finalRow.agent_id,
-          uuid: finalRow.uuid,
+          ...(finalRow.uuid !== undefined ? { uuid: finalRow.uuid } : {}),
           run: runId,
           message_id: cryptoRandomId(),
           timestamp: new Date().toISOString(),
           seq: this.allocSeq(),
-        } satisfies LedgerRow);
+        };
+        this.appendLine(path.join(this.dir, MESSAGES), errLine);
+        appended.push(errLine);
       }
-      this.appendLine(path.join(this.dir, JOURNAL), {
-        type: 'journal-settled', run: runId, finish,
+      const endLine = {
+        type: 'run-end',
+        run: runId,
+        finish: finish === 'ok' ? 'completed' : finish,
         ...(meter !== undefined ? { usage: meter.usage, model: meter.model } : {}),
+        ...(errorMessage !== undefined ? { errorMessage } : {}),
+        ...(finalRow.runMs !== undefined ? { runMs: finalRow.runMs } : {}),
+        ts: Date.now(),
         seq: this.allocSeq(),
-      });
-      this.pruneJournal(runId);
+      };
+      this.appendLine(path.join(this.dir, MESSAGES), endLine);
+      appended.push(endLine);
+      this.onAppend?.(appended);
     });
   }
 
@@ -402,82 +342,12 @@ export class LedgerWriter {
   // 未闭合 run 不回写，读侧（fold）合成 run-end(interrupted) 投影。
 
   /**
-   * 机制 run 收束（归档整理等——settle 机制变体）：journal-settled 落账 +
-   * 步行剔除，messages.jsonl 不落行（机制 run 与会话增长无关——主线
-   * ARCHIVE_REVIEW 三不语义的账本侧）。finish 照常——完成态事实仍在
-   * journal（审计面）。
+   * 机制 run 收束（归档整理等——settle 机制变体，cr-974 v2）：run-end
+   * 单行（步级事实若随行也已落事件流；机制 run 与会话增长无关——主线
+   * ARCHIVE_REVIEW 三不语义的账本侧，无终稿行）。
    */
   async settleMechanism(runId: string, finish: 'ok' | 'interrupted' | 'error'): Promise<void> {
-    // v2（cr-974）：机制 run 收束 = run-end 单行（步级事实若随行也已落
-    // 事件流；机制 run 与会话增长无关，无终稿行）
-    if (this.eventsV2) {
-      await this.runEnd(runId, finish === 'ok' ? 'completed' : finish);
-      return;
-    }
-    await this.enqueue(() => {
-      this.appendLine(path.join(this.dir, JOURNAL), {
-        type: 'journal-settled', run: runId, finish,
-        seq: this.allocSeq(),
-      });
-      this.pruneJournal(runId);
-    });
-  }
-
-  /** journal → 段行/注入行物化（v1 settle 落账面；journal 内调用——
-   *  串行队列内读该 run 全量行，切段落账。时间戳 = 步行落行 ts；存量行
-   *  缺席回落物化时刻）。
-   *  cr-803 子调用档案分流：subcall 补行不内联进段行 steps（重度会话
-   *  98.7% 体积在子调用全文——主文件热扫描路径被拖垮），原样追加独立
-   *  subcalls.jsonl 永久档案（旧轨道三文件裁决语义）；读面 stepsOfLedger
-   *  联查注入复原 UI 平铺卡。 */
-  private materialize(runId: string, agentId: string, uuid?: string): void {
-    const journalLines = readJournal(this.dir);
-    for (const line of journalLines) {
-      if (line.run === runId && line.type === 'journal-tool-result' && line.subcall === true) {
-        this.appendLine(path.join(this.dir, SUBCALLS), line);
-      }
-    }
-    const segments = segmentizeRun(journalLines, runId);
-    let i = 0;
-    for (const seg of segments) {
-      const isInject = seg.kind === 'inj';
-      const lastTs = isInject ? seg.ts : lastStepTs(seg.steps);
-      this.appendLine(path.join(this.dir, MESSAGES), {
-        role: 'agent',
-        content: isInject ? seg.content : '',
-        agent_id: agentId,
-        ...(uuid !== undefined ? { uuid } : {}),
-        run: runId,
-        source: isInject ? 'inject' : 'segment',
-        // 注入行身份（cr-707）：message_id = injectionId——直播行与刷新行同锚
-        //（前端 mergeHistoryPage 双键去重直接命中）；来源/文案随行携带
-        ...(isInject && seg.injectSource !== undefined ? { injectSource: seg.injectSource } : {}),
-        ...(isInject && seg.label !== undefined ? { label: seg.label } : {}),
-      ...(isInject && seg.payload !== undefined ? { payload: seg.payload } : {}),
-        // 注入行信封关联（cr-713）：busy-steer 消息无入站行——本行即其账本
-        // 记录，requestId 随行带出（重放判重 / 读侧与入站行同键归口）
-        ...(isInject && seg.requestId !== undefined ? { requestId: seg.requestId } : {}),
-        ...(isInject ? {} : { steps: seg.steps }),
-        message_id: isInject
-          ? (seg.injectionId ?? 'inj-' + runId + '-' + i++)
-          : 'seg-' + runId + '-' + i++,
-        timestamp: lastTs !== undefined ? new Date(lastTs).toISOString() : new Date().toISOString(),
-        seq: this.allocSeq(),
-      } satisfies LedgerRow);
-    }
-  }
-
-  /** journal 步行剔除（收束即清）：该 run 的 step/inject/tool-result 行
-   *  物化已完成，journal 只留 settled 行（usage 计量 + 终态审计）与其他
-   *  in-flight run 的行。tmp+rename 原子重写。 */
-  private pruneJournal(runId: string): void {
-    const file = path.join(this.dir, JOURNAL);
-    const lines = readJournal(this.dir);
-    const keep = lines.filter((l) => !(l.run === runId && l.type !== 'journal-settled'));
-    if (keep.length === lines.length) return;
-    const tmp = file + '.tmp';
-    fs.writeFileSync(tmp, keep.map((l) => JSON.stringify(l)).join('\n') + (keep.length > 0 ? '\n' : ''), 'utf-8');
-    fs.renameSync(tmp, file);
+    await this.runEnd(runId, finish === 'ok' ? 'completed' : finish);
   }
 
   // —— 归档重写（D11：archive 行编排调用——物理面归账本 writer） ——
@@ -524,9 +394,6 @@ export class LedgerWriter {
       for (const r of keep) lines.push(JSON.stringify(r));
       fs.writeFileSync(tmp, lines.length > 0 ? lines.join('\n') + '\n' : '', 'utf-8');
       fs.renameSync(tmp, file);
-      if (opts.summary !== undefined && !this.eventsV2) {
-        fs.writeFileSync(path.join(this.dir, 'summary.md'), opts.summary, 'utf-8');
-      }
       return { archived: opts.archive.length, kept: keep.length, ...(segment !== undefined ? { segment } : {}) };
     });
   }
@@ -566,13 +433,6 @@ export class LedgerWriter {
 
 function cryptoRandomId(): string {
   return crypto.randomUUID();
-}
-
-/** 段内最后步级 ts（物化段行时间戳取源；全缺席 = undefined → 回落物化时刻） */
-function lastStepTs(steps: Array<{ ts?: number }>): number | undefined {
-  let out: number | undefined;
-  for (const s of steps) if (s.ts !== undefined) out = s.ts;
-  return out;
 }
 
 import * as crypto from 'node:crypto';

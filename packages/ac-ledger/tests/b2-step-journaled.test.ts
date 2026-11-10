@@ -1,6 +1,6 @@
 // ============================================================
 // b2-step-journaled.test.ts —— B2 帧携带 ledger 半边：
-//   · writer.journal() 返回分配的 seq（v1 存量写面——夹具专用）
+//   · writer.appendEvents 返回末行 seq（v2 事件日志——批即语义单元）
 //   · journalStep 落盘完成后补发 ledger/step-journaled 锚事件（刻意晚于
 //     落盘——cr-707「事件先于落盘」不反转，事件语义即「seq 已 durable」；
 //     cr-974 v2：seq = 步内末相位行，落 messages.jsonl 事件日志）
@@ -18,15 +18,17 @@ afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 const uuid = '0192aaaa-bbbb-7ccc-8ddd-eeeeffff1001';
 
 describe('B2 帧携带：journal seq 返回 + 落盘后锚事件', () => {
-  it('writer.journal() 返回该行分配的 seq（与落盘行一致、单调）', async () => {
+  it('writer.appendEvents 返回批末行 seq（与落盘行一致、单调）', async () => {
     const w = new LedgerWriter(sessionDir(ROOT, 'b2a', uuid), { participants: ['b2a', 'user'], kind: 'user' });
-    const s1 = await w.journal({ type: 'journal-step', run: 'run-b', step: 0, content: '第一步' });
-    const s2 = await w.journal({ type: 'journal-inject', run: 'run-b', content: '注入' });
+    const s1 = await w.appendEvents([{ type: 'step/content', run: 'run-b', step: 0, text: '第一步', ts: 1 }]);
+    const s2 = await w.appendEvents([{ type: 'inject', run: 'run-b', content: '注入', ts: 2 }]);
     expect(typeof s1).toBe('number');
     expect(s2).toBeGreaterThan(s1);
-    const j = readJournal(sessionDir(ROOT, 'b2a', uuid));
-    expect(j.find((l) => l.type === 'journal-step')?.seq).toBe(s1);
-    expect(j.find((l) => l.type === 'journal-inject')?.seq).toBe(s2);
+    const rows = readLedger(sessionDir(ROOT, 'b2a', uuid)).rows as unknown as Array<{ seq?: number }>;
+    expect(rows.find((r) => (r as { type?: string }).type === 'step/content')?.seq).toBe(s1);
+    expect(rows.find((r) => (r as { type?: string }).type === 'inject')?.seq).toBe(s2);
+    // v2 单文件事件日志：journal 零写入
+    expect(readJournal(sessionDir(ROOT, 'b2a', uuid)).some((l) => l.run === 'run-b')).toBe(false);
   });
 
   it('journalStep 落盘后 emit ledger/step-journaled（载荷 seq 与落盘行一致）', async () => {

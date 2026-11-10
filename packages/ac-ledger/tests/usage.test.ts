@@ -1,12 +1,12 @@
 // ============================================================
-// usage 自报链单测（cr-538）：writer settle 计量落 journal-settled /
+// usage 自报链单测（cr-538）：writer settle 计量随 run-end 落事件日志 /
 // 事件信 schema 校验与信封形态。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
-import { readJournal } from '../src/reader.ts';
+import { readLedger } from '../src/reader.ts';
 import { makeUsageEnvelope, validateUsagePayload, isUsageReport, usageStreamKey } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-ledger-usage-' + process.pid);
@@ -16,16 +16,16 @@ afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 const uuid = '0192aaaa-bbbb-7ccc-8ddd-eeeeffff0010';
 const meter = { usage: { prompt: 120, completion: 30, promptAccumulated: 200, steps: 2, cacheHit: 50 }, model: 'mock' };
 
-describe('writer settle 计量（journal 计量——R2）', () => {
-  it('meter 随 journal-settled 落盘（usage + model 字段）', async () => {
+describe('writer settle 计量（run-end 事件行——R2）', () => {
+  it('meter 随 run-end 落盘（usage + model 字段）', async () => {
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', uuid), { participants: ['alpha', 'user'], kind: 'user' });
     await w.settle({
       role: 'agent', content: '终稿', agent_id: 'alpha', requestId: 'reply-r1', uuid,
     }, 'run-r1', 'ok', meter);
-    const j = readJournal(sessionDir(ROOT, 'alpha', uuid));
-    const settled = j.find((l) => l.type === 'journal-settled');
-    expect(settled).toMatchObject({ run: 'run-r1', finish: 'ok', model: 'mock' });
-    expect((settled as { usage?: { prompt: number } }).usage).toMatchObject({ prompt: 120, steps: 2 });
+    const rows = readLedger(sessionDir(ROOT, 'alpha', uuid)).rows as unknown as Array<Record<string, unknown>>;
+    const end = rows.find((r) => r.type === 'run-end');
+    expect(end).toMatchObject({ run: 'run-r1', finish: 'completed', model: 'mock' });
+    expect(end!.usage).toMatchObject({ prompt: 120, steps: 2 });
   });
 
   it('meter 缺席 = 旧行为（无 usage/model 键——additive 兼容）', async () => {
@@ -33,10 +33,10 @@ describe('writer settle 计量（journal 计量——R2）', () => {
     await w.settle({
       role: 'agent', content: '终稿', agent_id: 'beta', requestId: 'reply-r2', uuid,
     }, 'run-r2', 'ok');
-    const j = readJournal(sessionDir(ROOT, 'beta', uuid));
-    const settled = j.find((l) => l.type === 'journal-settled') as unknown as Record<string, unknown>;
-    expect('usage' in settled).toBe(false);
-    expect('model' in settled).toBe(false);
+    const rows = readLedger(sessionDir(ROOT, 'beta', uuid)).rows as unknown as Array<Record<string, unknown>>;
+    const end = rows.find((r) => r.type === 'run-end');
+    expect('usage' in end!).toBe(false);
+    expect('model' in end!).toBe(false);
   });
 });
 

@@ -90,9 +90,9 @@ describe('cr-980 · stat 面入账 / 账面聚合 / 清账', () => {
     expect(idx.refreshConversation(root, 'c1').appended).toBe(0);
   });
 
-  it('messagesCatalog 与逐域 messages.jsonl stat 聚合同公式（跨域含 viewer 兼容窗）', () => {
+  it('messagesCatalog 与逐域 messages.jsonl stat 聚合同公式（跨 agent 域）', () => {
     writeSession('a1', 'c1', { messages: [msg(1)] });
-    writeSession('viewer', 'c1', { messages: [msg(2)], subcalls: [] });
+    writeSession('a2', 'c1', { messages: [msg(2)], subcalls: [] });
     writeSession('a1', 'c2', { messages: [msg(3), msg(4)] });
     const idx = newIndex();
     idx.refreshStats(root, 'c1');
@@ -102,16 +102,14 @@ describe('cr-980 · stat 面入账 / 账面聚合 / 清账', () => {
       let size = 0;
       let mtimeMs = 0;
       for (const d of domains) {
-        const dir = d === 'viewer'
-          ? path.join(root, 'viewer', 'sessions', cid)
-          : path.join(root, 'agents', d, 'sessions', cid);
+        const dir = path.join(root, 'agents', d, 'sessions', cid);
         const st = fs.statSync(path.join(dir, 'messages.jsonl'));
         size += st.size;
         mtimeMs = Math.max(mtimeMs, st.mtimeMs);
       }
       expect(cat.get(cid)).toEqual({ conv: cid, size, mtimeMs });
     };
-    expectOf('c1', ['a1', 'viewer']);
+    expectOf('c1', ['a1', 'a2']);
     expectOf('c2', ['a1']);
     // 无 messages 文件的会话不在账面（journal-only 域——与 ledgerFingerprint null 同义）
     expect(cat.has('ghost')).toBe(false);

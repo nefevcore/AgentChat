@@ -76,7 +76,7 @@ pnpm dev                # 启动，http://localhost:3830
 | 桌面版 | 系统用户数据目录：Windows `%APPDATA%\AgentChat`，macOS `~/Library/Application Support/AgentChat`，Linux `~/.config/AgentChat` |
 | 仓库开发（`pnpm dev` 缺省） | `workspace/home`；测试树一律落 `sandbox/`（数据根隔离红线） |
 
-数据根下自动初始化：`agents/`（Agent 档案与会话账本——`agents/<id>/sessions/<uuid>/`）、`meta/sessions/`（独立会话元数据）、`groups/`、`viewer/sessions/`（user 侧投影存量——cr-973 起停写，读面改 agent 域读时投影）、`index/`（会话源文件指针索引，SQLite 纯缓存）、`files/`（工作文件）、`plugins/`（插件库）、`config.json`（全局配置）、`credentials.json`（加密凭据）等。
+数据根下自动初始化：`agents/`（Agent 档案与会话账本——`agents/<id>/sessions/<uuid>/`）、`meta/sessions/`（独立会话元数据）、`groups/`、`index/`（会话源文件指针索引，SQLite 纯缓存）、`files/`（工作文件）、`plugins/`（插件库）、`config.json`（全局配置）、`credentials.json`（加密凭据）等。（`viewer/sessions/` 为历史投影存量树，cr-998 起读面退役、可整删。）
 
 ---
 

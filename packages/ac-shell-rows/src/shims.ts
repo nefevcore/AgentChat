@@ -270,8 +270,7 @@ export class WorkspaceShim extends Service {
     if (conversationId === undefined || conversationId === '') return null;
     if (conversationId.includes('/') || conversationId.includes('\\') || conversationId.includes('..')) return null;
     let wsId: string | undefined;
-    // 元数据已迁第二层（meta/sessions/<id>.json）——读面单源 readUserMetaObject
-    //（新路径优先，兼容窗回落旧位置 viewer/sessions/<id>/session.json）
+    // 元数据在第二层（meta/sessions/<id>.json）——读面单源 readUserMetaObject
     const meta = readUserMetaObject(this.dataRoot, conversationId);
     if (meta !== null) {
       const v = meta.workspaceId;

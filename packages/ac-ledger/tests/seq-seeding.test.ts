@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
-import { readLedger, readJournal } from '../src/reader.ts';
+import { readLedger } from '../src/reader.ts';
 
 const ROOT = path.join('sandbox', 'test-seq-seed-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -20,15 +20,14 @@ function mk(agentId: string): LedgerWriter {
 }
 
 describe('B1：seq 跨 writer 实例续接', () => {
-  it('新实例首分配从既有 max(seq)+1 起（messages + journal 共面续接）', async () => {
+  it('新实例首分配从既有 max(seq)+1 起（messages 单文件共面续接）', async () => {
     const dir = sessionDir(ROOT, 'alpha', uuid);
     const w1 = mk('alpha');
     await w1.deliver({ role: 'agent', content: 'a1', agent_id: 'user', requestId: 'r1', uuid });
     await w1.deliver({ role: 'agent', content: 'a2', agent_id: 'user', requestId: 'r2', uuid });
-    await w1.journal({ type: 'journal-step', run: 'run1', step: 0, content: 's0' });
+    await w1.appendEvents([{ type: 'step/content', run: 'run1', step: 0, text: 's0', ts: 1 }]);
     const maxSeq1 = Math.max(
       ...readLedger(dir).rows.map(r => r.seq ?? 0),
-      ...readJournal(dir).map(l => l.seq ?? 0),
     );
     // 第二实例（新 run 的 writer）同目录续写
     const w2 = mk('alpha');

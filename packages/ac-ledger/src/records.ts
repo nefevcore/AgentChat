@@ -14,6 +14,8 @@ type LedgerRole = 'agent' | 'context';
 /** 账本行（messages.jsonl 每行一 JSON） */
 export interface LedgerRow {
   role: LedgerRole;
+  /** v2 判别键（cr-974：message / context；存量 v1 行缺席——读侧按行判别归一） */
+  type?: 'message' | 'context';
   content: string;
   message_id: string;
   timestamp: string;

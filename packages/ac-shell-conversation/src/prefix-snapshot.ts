@@ -15,13 +15,11 @@
 //
 // 本文件 = 纯 IO/纯函数（编排住 service.ts driveRun）；落点
 // meta/sessions/<sid>.prefix-snapshot.json（singles 元数据旁，cr-973 自
-// viewer 域迁出——viewer 树整体可删；文件级 owning：本文件归
-// ac-shell-conversation，旧路径读兼容一个版本）。
+// viewer 域迁出；cr-998 旧路径读窗退役——数据根已迁移归零）。
 // ============================================================
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { userSessionDir } from 'ac-ledger';
 
 /** 物化段（求值后的静态文本；order = SECTION_ORDER 具名位） */
 export interface SnapshotSection {
@@ -51,23 +49,13 @@ export function snapshotFileOf(dataRoot: string, sid: string): string {
   return path.join(dataRoot, 'meta', 'sessions', sid + '.prefix-snapshot.json');
 }
 
-/** 旧路径（viewer 寄居期形态——读侧兼容窗，写侧恒新路径） */
-function legacySnapshotFileOf(dataRoot: string, sid: string): string {
-  return path.join(userSessionDir(dataRoot, sid), 'prefix-snapshot.json');
-}
-
-/** 读快照（缺席/损坏/形状非法 → null = 按 ① 重新物化，fail-safe；
- *  新路径优先，回落 viewer 旧路径——兼容窗内旧文件不迁移，重算即迁） */
+/** 读快照（缺席/损坏/形状非法 → null = 按 ① 重新物化，fail-safe） */
 export function readPrefixSnapshot(dataRoot: string, sid: string): PrefixSnapshot | null {
   let raw: unknown;
   try {
     raw = JSON.parse(fs.readFileSync(snapshotFileOf(dataRoot, sid), 'utf-8'));
   } catch {
-    try {
-      raw = JSON.parse(fs.readFileSync(legacySnapshotFileOf(dataRoot, sid), 'utf-8'));
-    } catch {
-      return null;
-    }
+    return null;
   }
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const r = raw as { version?: unknown; createdAt?: unknown; sections?: unknown; settingsFingerprint?: unknown };
@@ -182,8 +170,9 @@ export function diffFingerprints(
   // 合成终值——底座/信封/会话覆盖任一变化都体现为 access 键变；降档
   // 附授权提示，升档只报事实）。存量快照读兼容：旧两键（tier/elevation）
   // 取 rank 高者作旧值——旧 tier 含 base 值、旧 elevation 只有两档。
-  const oldAccess = oldFp.access ?? [
-    oldFp.tier, oldFp.elevation,
+  const legacyFp = oldFp as Record<string, string | undefined>;
+  const oldAccess = legacyFp.access ?? [
+    legacyFp.tier, legacyFp.elevation,
   ].filter((v): v is string => v !== undefined && v !== '')
     .reduce((hi, cur) => (ACCESS_RANK_OF[cur] ?? 0) >= (ACCESS_RANK_OF[hi] ?? 0) ? cur : hi, 'base-access');
   if (oldAccess !== nextFp.access) {

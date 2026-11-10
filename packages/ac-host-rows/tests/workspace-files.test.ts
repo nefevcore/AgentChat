@@ -35,7 +35,7 @@ beforeEach(() => {
   writeJson(path.join(ROOT, 'workspaces.json'), [
     { id: 'ws-1', name: '演示', path: path.resolve(WS), createdAt: '', updatedAt: '' },
   ]);
-  writeJson(path.join(ROOT, 'viewer', 'sessions', 'conv-a', 'session.json'), { agentId: 'neko', workspaceId: 'ws-1' });
+  writeJson(path.join(ROOT, 'meta', 'sessions', 'conv-a.json'), { agentId: 'neko', workspaceId: 'ws-1' });
   fs.writeFileSync(path.join(WS, 'src', 'app.ts'), 'export const a = 1;\n');
   fs.writeFileSync(path.join(ROOT, 'note.md'), '# hi\n');
   fs.writeFileSync(path.join(ROOT, '.secret'), 'x');

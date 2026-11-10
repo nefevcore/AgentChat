@@ -17,8 +17,9 @@ const WS_DIR = path.resolve(ROOT, 'proj'); // 模拟外挂工作区目录
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 function seed(conv: string, wsId: string | null): void {
-  fs.mkdirSync(path.join(ROOT, 'viewer', 'sessions', conv), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', conv, 'session.json'), JSON.stringify({ id: conv, workspaceId: wsId }), 'utf-8');
+  // cr-998：会话元数据单源 meta/sessions/<conv>.json（viewer 旧位退役）
+  fs.mkdirSync(path.join(ROOT, 'meta', 'sessions'), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'meta', 'sessions', conv + '.json'), JSON.stringify({ id: conv, workspaceId: wsId }), 'utf-8');
 }
 
 describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
@@ -126,8 +127,8 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
   });
 
   it('workspaces.json / session.json 缺席或损坏 = 未挂载（不抛）', () => {
-    fs.mkdirSync(path.join(ROOT, 'viewer', 'sessions', 'conv-c'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', 'conv-c', 'session.json'), '{oops', 'utf-8');
+    fs.mkdirSync(path.join(ROOT, 'meta', 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'meta', 'sessions', 'conv-c.json'), '{oops', 'utf-8');
     fs.writeFileSync(path.join(ROOT, 'workspaces.json'), '{oops', 'utf-8');
     const ctx = new Context();
     const shim = new WorkspaceShim(ctx, ROOT);

@@ -1,6 +1,6 @@
 # AgentChat Session 设计（域设计事实源）
 
-> **定位**：Session 域的现行设计事实源——设计理念、消息定义（存储词汇 v2 + 事件词汇 v2）、落盘格式（单文件事件日志——cr-974 起；v1 三文件读兼容一个版本）、
+> **定位**：Session 域的现行设计事实源——设计理念、消息定义（存储词汇 v2 + 事件词汇 v2）、落盘格式（单文件事件日志——cr-974 起；v1 三文件存量读兼容，写面 cr-998 退役），
 > 三种会话形态（Agent 对会话 / 独立会话 / 群组会话）、消息链路与收敛协议、Run 生命周期、KV 缓存分析，
 > 以及**裁决链**（被取代的旧方案保留结论与裁决过程，勿按历史文本动手）。
 >
@@ -12,7 +12,7 @@
 >   `ac-session-index` 指针索引（§3.1/§3.6/§7.3 已同步）；Phase 2 = **事件词汇 v2 + fold 单源**：
 >   会话存储 = 单文件事件日志（`messages.jsonl` 头行 `version:2`，`message`/`context`/`step·reasoning·
 >   content·tool-call·tool-call-result`/`inject`/`run-end`/`compaction·start·summary·end` 判别行族）；
->   journal/partials.jsonl 与 subcalls.jsonl **停写**（存量读兼容一个版本——归一化层
+>   journal/partials.jsonl 与 subcalls.jsonl **停写**（存量读兼容——归一化层
 >   `events-v2.ts` 把 v1 三文件与 v2 单文件折成同构事实）；一切投影 = `fold.ts` 单源纯函数
 >   （文本/user 终稿/webui 视图/LLM 轨迹四投影 + 读方配平）；writer 停物化（无段行/无 prune、
 >   `run-end` 落账即 durable、cr-946 textBeforeTools 写面退役——相位序 = 事件行序）；
@@ -223,7 +223,7 @@ role='system'                        → system     （直通，不参与变换�
 ├── meta/sessions/<sid>.json                          独立会话元数据（singles 行 owning；cr-973 自 viewer 树迁出）
 ├── meta/sessions/<sid>.prefix-snapshot.json          singles system 前缀快照（cr-888；cr-973 迁 meta 层）
 ├── meta/sessions/.singles-registry.json              singles 清单注册表（cr-869；cr-973 迁出）
-├── viewer/sessions/<sid>/messages.jsonl              user 侧投影账本（cr-698 物化；**cr-973 停写**——存量读面兼容一个版本）
+├── viewer/sessions/                                  （cr-998 退役——纯投影存量树可整删，读面不再回看）
 ├── groups/<gid>/group.json                           群成员表（原子写）；**无群本体消息流**——读面 = 成员流合并（cr-576）
 ├── agents/<member>/sessions/<gid>~<member>/          群成员私有转录流（cr-4，标准 session 桶）
 ├── index/session-index.db                            会话源文件指针索引（SQLite WAL 纯缓存，cr-973——只指真源零语义，可全量重建）
@@ -237,6 +237,10 @@ role='system'                        → system     （直通，不参与变换�
 > agent 域账本读时投影（`ac-ledger projectUserReplay`）；singles 身份/元数据/注册表/
 > 前缀快照迁 `meta/sessions/`；新增 `index/` 指针索引（`ac-session-index` 行，
 > 读面指纹短路 + subcall 定位 seek；行摘除 = 读面回落全扫，行为等价）。
+> **cr-998（2026-11-10）**：viewer 兼容窗全退役——存量直读窗（projectUserReplay）/
+> meta 旧路径窗（session.json、prefix-snapshot viewer 寄居位）/目录枚举窗
+> （conversationDirs、session-index、singles listIds）删除；数据根已一次性物理
+> 迁移（session.json 5 + prefix-snapshot 29 → meta/）。
 > 存储全面事件化（Phase 2）见 `session-event-log-unification-plan.md`（cr-972）。
 > 旧形态（`<root>/sessions/<convId>/` 全局桶、`sessions/singles/` 上架、
 > `conversation/steer-stash-*`、`prefix-snapshot.json`）均已退役或未见实现——
@@ -244,7 +248,7 @@ role='system'                        → system     （直通，不参与变换�
 
 会话键校验：`conversationId` 禁路径分隔/遍历字符与 `~`（群 id）——文件名即键，无 `chat~lo~hi` 排序魔法、无 `group~` 前缀判别（规约 2）。
 
-### 3.2 单文件事件日志（cr-974 / cr-972 第二刀；v1 三文件形态读兼容一个版本）
+### 3.2 单文件事件日志（cr-974 / cr-972 第二刀；v1 三文件存量读兼容——写面 cr-998 退役）
 
 **v2 现行形态**：`messages.jsonl` 头行 `{type:'session-header', version:2}`，是会话唯一事件日志
 （append-only，零重写；`compact` 归档回收 = S5 白名单唯一重写许可）。事件判别行族：
@@ -365,8 +369,8 @@ collab-tools `send_agent`（委托桶）、timer（自会话桶）、web-api（�
 
 ### 5.1 模型：会话 = 引用 + 覆盖，不是拷贝
 
-`viewer/sessions/<sid>/session.json` = Agent 引用（`agentId`）+ 会话级模型覆盖（`model?`）+ 工作区挂载（`workspaceId?`）+ 标题/状态（ac-host-rows singles 行 owning，cr-566）；
-消息流归 `ac-ledger`（`conversationId = sid`，规约 2 零新写路径；agent 侧 `agents/<id>/sessions/<sid>/`、user 侧 `viewer/sessions/<sid>/`）。规则：**有消息即锁 Agent**（未选 Agent 的空会话经默认预设 `__standard__` 路由）；
+`meta/sessions/<sid>.json` = Agent 引用（`agentId`）+ 会话级模型覆盖（`model?`）+ 工作区挂载（`workspaceId?`）+ 标题/状态（ac-host-rows singles 行 owning，cr-566）；
+消息流归 `ac-ledger`（`conversationId = sid`，规约 2 零新写路径；agent 侧 `agents/<id>/sessions/<sid>/`——cr-998 起唯一域）。规则：**有消息即锁 Agent**（未选 Agent 的空会话经默认预设 `__standard__` 路由）；
 空白会话全局唯一（reuse）；模型覆盖随投递信封透传。自动标题：首 run 后 LLM 一句话标题（失败回落首条消息截断）。
 
 ### 5.2 system + tools 前缀快照（cr-888 物化已落地；旧轨修订键方案由其取代）
@@ -376,7 +380,7 @@ collab-tools `send_agent`（委托桶）、timer（自会话桶）、web-api（�
 > 现行实现：`ac-shell-conversation/src/prefix-snapshot.ts` + driveRun 对账接线。
 
 singles 是最自包含的形态（无对端 Agent、模型覆盖恒定 = 路由/缓存域恒定），是前缀绝对稳定的最佳试点位。
-落点 `viewer/sessions/<sid>/prefix-snapshot.json`（ac-shell-conversation owning），快照 = `{ 求值后段数组, settingsFingerprint }`——存**段数组**而非拼好的文本，组装复用 `assembleSystemPrompt` 纯函数（cr-881 段注册制零改动）。四机制：
+落点 `meta/sessions/<sid>.prefix-snapshot.json`（ac-shell-conversation owning，cr-973 自 viewer 域迁出），快照 = `{ 求值后段数组, settingsFingerprint }`——存**段数组**而非拼好的文本，组装复用 `assembleSystemPrompt` 纯函数（cr-881 段注册制零改动）。四机制：
 
 - **① 物化**（首 run）：全段求值落盘（段数组 + 指纹）；**② diff**（每 run 入口）：指纹对比（§3 键面：provider+model/生效工具名清单/toolMode/browserTier/issueSubmit/workspace/tier/elevation/PTC_SDK hash/技能名清单/扩展键），零缓存代价；
 - **③ 重算**（仅 provider/model 变化）：全量重组装落盘 + 指纹更新——**唯一快照重写通道，只在缓存域必死时动快照**（换缓存域 = 白纸，无代价）。「配置变了就重拍」被否——那会在缓存仍有效时打断前缀，与物化目的自相矛盾；
@@ -430,7 +434,7 @@ L1 写路径   ac-shell-conversation(状态机/串行化门/inbox) → ac-agent-
             ——壳 ledger/event-appended 旁带 → 宿主 ShellStreamBridge 投影（ac-wire-format
             ledger-projection）→ step/journaled · tool/result · run/settled 前端帧；
             llm/delta 流帧不经落盘（D3-1 两时标承认，30ms 微批仍在传输层）
-L2 存储     ac-ledger：messages.jsonl 单文件事件日志（cr-974——v1 三文件读兼容一个版本，§3.2）
+L2 存储     ac-ledger：messages.jsonl 单文件事件日志（cr-974——v1 三文件存量读兼容，§3.2）
             run-end 标记行落账即 durable（唯一收束信号——与 L1 收束帧同一因果）
 L3 读路径   ① LLM history()（每 run 上下文重派生，viewer 投影）
             ② web-api session/history（webui 首屏/分页，fold 活投影 + view 参数化；lite 投影归 ac-ledger）

@@ -4,7 +4,8 @@
 // 裁决簿〈webui 读投影〉三拆之三 + R-2：user 端点无进程，宿主进程内
 // 极薄 user 壳（单进程天然串行）。cr-973（cr-972 第一刀）起 viewer
 // 物化账本退役：终稿层 = project.ts 读时投影（agent 域账本纯函数），
-// 本文件只保留目录词汇、singles 元数据读面与 replay 行形状。
+// 本文件只保留目录词汇、singles 元数据读面与 replay 行形状。cr-998：
+// viewer 旧位元数据兼容窗退役（meta/ 单源）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -31,24 +32,18 @@ export function userMetaFile(dataRoot: string, uuid: string): string {
   return path.join(dataRoot, 'meta', 'sessions', uuid + '.json');
 }
 
-/** 独立会话元数据旧路径（viewer 投影寄居期形态——读侧兼容窗，写侧恒新路径） */
-export function legacyUserMetaFile(dataRoot: string, uuid: string): string {
-  return path.join(userSessionDir(dataRoot, uuid), 'session.json');
-}
-
 /**
- * 独立会话元数据读取（新路径优先，回落旧路径——兼容窗内旧文件不迁移）。
- * 缺席/损坏/非法路径组件 = null。读面单源：singles 行 / workspace 面 /
- * 壳侧垫片共用（防四处各写一份 fallback 走散）。
+ * 独立会话元数据读取（meta/sessions/<uuid>.json 单源——cr-998 起 viewer
+ * 旧位置兼容窗退役，数据根已一次性迁移归零）。缺席/损坏/非法路径组件
+ * = null。读面单源：singles 行 / workspace 面 / 壳侧垫片共用（防四处
+ * 各写一份 fallback 走散）。
  */
 export function readUserMetaObject(dataRoot: string, uuid: string): Record<string, unknown> | null {
   if (uuid.length === 0 || /[/\\]/.test(uuid) || uuid === '.' || uuid === '..') return null;
-  for (const file of [userMetaFile(dataRoot, uuid), legacyUserMetaFile(dataRoot, uuid)]) {
-    try {
-      const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
-    } catch { /* 该路径缺席/损坏 → 试下一处 */ }
-  }
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(userMetaFile(dataRoot, uuid), 'utf-8'));
+    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  } catch { /* 缺席/损坏 = null */ }
   return null;
 }
 

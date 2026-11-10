@@ -53,13 +53,12 @@ function isSafeId(id: string): boolean {
 }
 
 /** 某会话的全部源目录（域目录存在即算——仅 journal 的域也在列；
- *  viewer 在前 + agents/* readdir 序，与 conversationDirs 同形） */
+ *  cr-998 viewer 域退役——枚举只剩 agents/* readdir 序，与
+ *  conversationDirs 同形） */
 function sessionDirs(dataRoot: string, convId: string): string[] {
   if (!isSafeId(convId)) throw new Error('conversationId "' + convId + '" 非法（禁路径分隔 / ..）');
   const out: string[] = [];
   const exists = (dir: string): boolean => fs.existsSync(dir);
-  const viewerDir = path.join(dataRoot, 'viewer', 'sessions', convId);
-  if (exists(viewerDir)) out.push(viewerDir);
   let agents: fs.Dirent[] = [];
   try { agents = fs.readdirSync(path.join(dataRoot, 'agents'), { withFileTypes: true }); } catch { /* 无 agents 域 */ }
   for (const a of agents) {
@@ -262,7 +261,7 @@ export class SessionIndex {
 
   /** messages.jsonl 账面（cr-981）：files 表 messages 行按 conv 聚合——与
    *  singles-row ledgerFingerprint 同公式（size 求和、mtime 取最大、跨域
-   *  含 viewer 兼容窗；零盘 IO）。files 行只源于三源文件枚举，LIKE 后缀
+   *  三源文件枚举；零盘 IO）。files 行只源于三源文件枚举，LIKE 后缀
    *  命中面 = messages.jsonl 本身。 */
   messagesCatalog(): Array<{ conv: string; size: number; mtimeMs: number }> {
     return this.stmt(

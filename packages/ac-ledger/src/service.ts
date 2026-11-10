@@ -146,12 +146,11 @@ export class LedgerService extends Service {
   }
 
   /** writer 注册表（per-conversation 惰性；participants/kind 首建生效。
-   *  cr-974 起恒 eventsV2 模式——v2 事件日志写面（判别行 + 停物化）。 */
+   *  cr-974 起 v2 事件日志写面（判别行 + 停物化；cr-998 起唯一形态）。 */
   private writerFor(uuid: string, participants: string[], kind: string): LedgerWriter {
     let w = this.writers.get(uuid);
     if (w === undefined) {
       w = new LedgerWriter(path.join(this.agentDirOf(), 'sessions', uuid), { participants, kind }, undefined, {
-        eventsV2: true,
         // cr-976 B 案：落账切片 durable 后泛化通知（D3-2——step-journaled 的
         // 泛化形态；载荷 = 切片内追加行全集含 seq，批即语义单元：步相位批 /
         // 工具结果 / 注入 / 收束）。壳 boot 据此旁带转发宿主投影。

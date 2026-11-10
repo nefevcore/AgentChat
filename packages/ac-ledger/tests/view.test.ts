@@ -34,7 +34,7 @@ describe('cr-807 error 收束错误行读面透传', () => {
     const conv = 'err-view-1';
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
     await w.deliver({ role: 'agent', content: '用户问', agent_id: 'user', requestId: 'q1', uuid: conv });
-    await w.journal({ type: 'journal-step', run: 'run-q1', step: 0, content: '半途' });
+    await w.appendEvents([{ type: 'step/content', run: 'run-q1', step: 0, text: '半途', ts: 1 }]);
     await w.settle({ role: 'agent', content: '', agent_id: 'alpha', requestId: 'reply-q1', uuid: conv, run: 'run-q1' }, 'run-q1', 'error', undefined, 'LLM 响应超时');
     const out = assembleSessionView(ROOT, conv, {});
     // 盲区 steps 行（cr-628/698 既有）+ 错误行（cr-807 新增）

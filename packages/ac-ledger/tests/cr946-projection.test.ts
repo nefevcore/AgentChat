@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { assembleSessionView } from '../src/view.ts';
-import { readJournal, readLedger, segmentizeRun, stepsOfRun } from '../src/index.ts';
+import { readJournal, readLedger, stepsOfRun } from '../src/index.ts';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
 
 const ROOT = path.join('sandbox', 'test-ledger-cr946-' + process.pid);

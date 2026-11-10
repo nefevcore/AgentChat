@@ -89,8 +89,8 @@ function usableConversationId(id: string): boolean {
   return id !== '' && !id.includes('/') && !id.includes('\\') && !id.includes('..');
 }
 
-/** 会话元数据（meta/sessions/<sid>.json 第二层——宿主 singles 行单写；读侧
- *  兼容窗回落旧位置 viewer/sessions/<sid>/session.json；缺席/损坏 = 空对象） */
+/** 会话元数据（meta/sessions/<sid>.json 第二层——宿主 singles 行单写，
+ *  cr-998 起单源；缺席/损坏 = 空对象） */
 function sessionMetaOf(
   dataRoot: string,
   conversationId: string | undefined,

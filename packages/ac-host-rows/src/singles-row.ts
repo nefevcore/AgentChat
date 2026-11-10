@@ -2,8 +2,8 @@
 // singles-row.ts —— 宿主独立会话行（cr-566）
 //
 // owns：meta/sessions/<sid>.json（元数据：agentId / title / workspaceId /
-// status / 时间戳——数据分层第二层，自 viewer 投影目录迁出；读侧兼容窗
-// 回落旧位置 viewer/sessions/<sid>/session.json，写侧恒新路径）
+// status / 时间戳——数据分层第二层，自 viewer 投影目录迁出；cr-998 起
+// 单源——viewer 旧位置读窗退役，数据根已一次性迁移归零）
 // + meta/sessions/.singles-registry.json
 //（清单注册表，cr-869：整表视图驻留内存，写点同步维护，list 零读——
 // cr-845 摘要索引的延伸；cr-973 自 viewer 树迁出——viewer 整树可删）。
@@ -29,7 +29,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { isTitleRequest, issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
-import { conversationDirs, forkConversation, projectUserReplay, sessionDir, userSessionDir, userMetaFile, legacyUserMetaFile } from 'ac-ledger';
+import { conversationDirs, forkConversation, projectUserReplay, sessionDir, userMetaFile } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
 import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, fallbackTitle } from 'ac-core-utils';
 import type { HostInbox } from './host-inbox.ts';
@@ -87,17 +87,7 @@ function metaSessionsDir(dataRoot: string): string {
   return path.join(dataRoot, 'meta', 'sessions');
 }
 
-/** viewer 存量目录（cr-973 停写后仅兼容窗用途——清单回退与硬删残留清理） */
-function dirOf(dataRoot: string, id: string): string {
-  return userSessionDir(dataRoot, id); // viewer 投影轴目录词汇单源（ac-ledger 拥有）
-}
 
-/** 元数据落点（数据分层第二层）：meta/sessions/<sid>.json——写侧恒新路径；
- *  读侧兼容窗回落旧位置（viewer/sessions/<sid>/session.json，legacyUserMetaFile），
- *  旧文件不物理迁移（等版本后清理）。 */
-function metaFileOf(dataRoot: string, id: string): string {
-  return userMetaFile(dataRoot, id);
-}
 
 function assertId(id: string): void {
   if (id === '' || id.includes('/') || id.includes('\\') || id.includes('..')) {
@@ -106,14 +96,11 @@ function assertId(id: string): void {
 }
 
 function readMeta(dataRoot: string, id: string): SingleMeta | null {
-  // 兼容窗读面：新路径缺席/损坏 → 回落旧位置（寄居期文件不迁移）
   let m: Partial<SingleMeta> | null = null;
-  for (const file of [metaFileOf(dataRoot, id), legacyUserMetaFile(dataRoot, id)]) {
-    try {
-      const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) { m = raw as Partial<SingleMeta>; break; }
-    } catch { /* 试下一处 */ }
-  }
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(userMetaFile(dataRoot, id), 'utf-8'));
+    if (raw !== null && typeof raw === 'object' && !Array.isArray(raw)) m = raw as Partial<SingleMeta>;
+  } catch { /* 缺席/损坏 = null */ }
   if (m === null) return null;
   return {
     id,
@@ -129,7 +116,7 @@ function readMeta(dataRoot: string, id: string): SingleMeta | null {
 function writeMeta(dataRoot: string, meta: SingleMeta): void {
   // cr-973 viewer 停写：会话身份不再物化 viewer 目录（清单身份源 =
   // meta/sessions，消息流在 agent 域）——元数据本体落第二层 meta/sessions/。
-  const file = metaFileOf(dataRoot, meta.id);
+  const file = userMetaFile(dataRoot, meta.id);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(meta, null, 2) + '\n', 'utf-8');
@@ -191,14 +178,9 @@ function writeRegistry(dataRoot: string, entries: Map<string, RegistryEntry>): v
   fs.renameSync(tmp, file);
 }
 
-/** 元数据指纹（装载复验）：新位置 + 兼容窗旧位置双 mtime 合计——
- *  任一位置被外部手改（新旧写点之外的路径）都会被看见。 */
+/** 元数据指纹（装载复验）：meta 文件 mtime——外部手改都会被看见。 */
 function metaMtimeOf(dataRoot: string, id: string): number {
-  let sum = 0;
-  for (const file of [metaFileOf(dataRoot, id), legacyUserMetaFile(dataRoot, id)]) {
-    try { sum += fs.statSync(file).mtimeMs; } catch { /* 该位置缺席 */ }
-  }
-  return sum;
+  try { return fs.statSync(userMetaFile(dataRoot, id)).mtimeMs; } catch { return 0; }
 }
 
 /** 单会话条目回源重建（盘真值 → 视图 + 摘要指纹；null = 盘上已无此会话） */
@@ -254,7 +236,7 @@ function loadRegistry(dataRoot: string, conv: () => ConvSettingsFace | undefined
 }
 
 /** 账本指纹（cr-973：agent 域 messages.jsonl 聚合——size 求和、mtime 取
- *  最大；viewer 存量文件在兼容窗内仍是读面输入，一并计入）。null = 无账本。 */
+ *  最大）。null = 无账本。 */
 function ledgerFingerprint(dataRoot: string, id: string): { size: number; mtimeMs: number } | null {
   let size = 0;
   let mtimeMs = 0;
@@ -275,8 +257,7 @@ function ledgerFingerprint(dataRoot: string, id: string): { size: number; mtimeM
 }
 
 function computeLedgerSummary(dataRoot: string, id: string): LedgerSummary {
-  // cr-973：终稿层读时投影（agent 域账本——viewer 不再物化；导入前会话
-  // 走 projectUserReplay 兼容窗直读 viewer 存量文件，行形状同构）
+  // cr-973：终稿层读时投影（agent 域账本——viewer 不再物化）
   const rows = projectUserReplay(dataRoot, id);
   let agentId: string | undefined;
   // 标题候选两档：用户自己的首条发言（正解）> 任意首条有内容行（旧会话
@@ -312,7 +293,7 @@ function viewOf(dataRoot: string, id: string, conv: ConvSettingsFace | undefined
   const sum = summary ?? (ledgerFingerprint(dataRoot, id) === null ? { count: 0 } : computeLedgerSummary(dataRoot, id));
   if (meta === null && sum.count === 0) return null;
   let iso = meta?.updatedAt ?? new Date(0).toISOString();
-  try { iso = fs.statSync(path.dirname(metaFileOf(dataRoot, id))).mtime.toISOString(); } catch { /* 元数据目录缺席：用元数据时刻 */ }
+  try { iso = fs.statSync(path.dirname(userMetaFile(dataRoot, id))).mtime.toISOString(); } catch { /* 元数据目录缺席：用元数据时刻 */ }
   const model = conv?.get(id).model;
   const title = meta?.title ?? sum.title;
   const agentId = meta?.agentId ?? sum.agentId;
@@ -332,8 +313,10 @@ function viewOf(dataRoot: string, id: string, conv: ConvSettingsFace | undefined
   };
 }
 
-/** 全部会话 id（cr-973：身份源 = meta/sessions；viewer 存量目录并集
- *  兼容窗——导入前会话/寄居期元数据回退） */
+/** 全部会话 id：meta/sessions（singles 身份源）∪ agent 域会话目录
+ *  （消息先行、meta 未落的会话兜底——buildEntry 对无 meta 会话按账本
+ *  派生标题/agentId；cr-998 viewer 存量目录并集窗退役，身份事实源
+ *  改指 agent 域） */
 function listIds(dataRoot: string): string[] {
   const ids = new Set<string>();
   try {
@@ -342,10 +325,15 @@ function listIds(dataRoot: string): string[] {
     }
   } catch { /* 无元数据域 */ }
   try {
-    for (const e of fs.readdirSync(path.join(dataRoot, 'viewer', 'sessions'), { withFileTypes: true })) {
-      if (e.isDirectory()) ids.add(e.name);
+    for (const a of fs.readdirSync(path.join(dataRoot, 'agents'), { withFileTypes: true })) {
+      if (!a.isDirectory()) continue;
+      try {
+        for (const e of fs.readdirSync(path.join(dataRoot, 'agents', a.name, 'sessions'), { withFileTypes: true })) {
+          if (e.isDirectory()) ids.add(e.name);
+        }
+      } catch { /* 该 agent 无 sessions */ }
     }
-  } catch { /* 兼容窗目录缺席 */ }
+  } catch { /* 无 agents 域 */ }
   return [...ids].sort();
 }
 
@@ -590,12 +578,11 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         if (from === null) throw new Error('会话不存在：' + id);
         const nextId = issueConversationId();
         const anchor = optStr(p.anchorMessageId);
-        // cr-973：消息流在 agent 域——逐域分支拷贝（viewer 存量目录兼容窗
-        // 内一并拷贝；新会话从此只有 agent 域 + meta）
+        // cr-973：消息流在 agent 域——逐域分支拷贝（新会话只有 agent 域 + meta）
         let forked = false;
         for (const dir of conversationDirs(dataRoot, id)) {
           const domain = path.basename(path.dirname(path.dirname(dir)));
-          const to = domain === 'viewer' ? dirOf(dataRoot, nextId) : sessionDir(dataRoot, domain, nextId);
+          const to = sessionDir(dataRoot, domain, nextId);
           try {
             const n = forkConversation(dir, to, anchor);
             forked = forked || n > 0;
@@ -653,10 +640,8 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         for (const dir of conversationDirs(dataRoot, id)) {
           fs.rmSync(dir, { recursive: true, force: true });
         }
-        fs.rmSync(dirOf(dataRoot, id), { recursive: true, force: true });
-        // 元数据在第二层（meta/sessions/）——连带摘除（含兼容窗旧位置残留）
-        fs.rmSync(metaFileOf(dataRoot, id), { force: true });
-        fs.rmSync(legacyUserMetaFile(dataRoot, id), { force: true });
+        // 元数据在第二层（meta/sessions/）——连带摘除
+        fs.rmSync(userMetaFile(dataRoot, id), { force: true });
         conv()?.set(id, { model: null });
         emit(before ?? { id, agentId: '', status: 'archived', createdAt: '', updatedAt: '' }, 'removed');
         upsertEntry(id, null);

@@ -2,7 +2,7 @@
 // e2e-title.test.ts —— 会话标题生成端到端（cr-672）：真宿主 boot（singles 行
 // + HostInbox 收信面）+ 真子进程壳（mock provider 当 LLM）——user 发一句 →
 // 壳内 auto-title 首步后生成 → 标题请求信 → 邮局 → 宿主 singles 行落盘。
-// 断言只取盘上事实（viewer/sessions/<uuid>/session.json）。
+// 断言只取盘上事实（meta/sessions/<uuid>.json——cr-973 迁 meta 层）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';

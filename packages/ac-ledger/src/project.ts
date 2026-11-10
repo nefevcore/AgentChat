@@ -7,30 +7,14 @@
 // 读面的 steps 盲区投影渲染）；user 发言行 = agent 域入站行
 //（agent_id='user'——与 viewer 时代 writeOwn 同一条消息的落账侧）。
 // 排序事实键 = 行时间戳（cr-716 同款；跨域文件序无全序意义）。
-//
-// 存量兼容窗（一个版本）：agent 域全空而 viewer 存量文件在场 → 直读
-// 投影（导入前会话；纯派生物，可重建，读面兼容后弃）。
+// cr-998：viewer 存量直读兼容窗退役（数据根已迁移归零；viewer 树纯投影
+// 可整删，读面不再回看）。
 // ============================================================
 import * as path from 'node:path';
 import { conversationDirs } from './manage.ts';
 import { readLedger } from './reader.ts';
-import { userSessionDir, type UserReplayRow } from './user.ts';
+import type { UserReplayRow } from './user.ts';
 import type { LedgerRow } from './records.ts';
-
-/** viewer 存量文件的 replay 映射（UserLedger.replay 原语义——兼容窗直读） */
-function replayOfLegacyRows(rows: LedgerRow[]): UserReplayRow[] {
-  return rows.map((r) => ({
-    role: r.agent_id === 'user' ? 'user' : 'peer',
-    agentId: r.agent_id,
-    content: r.content,
-    // viewer 行的 run 键住 source（writeThrough 落形 run:<id>）
-    run: typeof r.source === 'string' && r.source.startsWith('run:') ? r.source.slice(4) : undefined,
-    ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
-    ...(r.requestId !== undefined ? { requestId: r.requestId } : {}),
-    timestamp: r.timestamp,
-    ...(r.seq !== undefined ? { seq: r.seq } : {}),
-  }));
-}
 
 /** 终稿行 → replay 行（agent 域形态：run 键住 run 字段、runMs 透传） */
 function replayOfAgentRow(r: LedgerRow, domain: string): UserReplayRow {
@@ -68,10 +52,6 @@ export function projectUserReplay(dataRoot: string, uuid: string): UserReplayRow
     const domain = path.basename(path.dirname(path.dirname(dir)));
     if (domain === 'viewer') continue;
     domainRows.push({ domain, rows: readLedger(dir).rows });
-  }
-  // 兼容窗：agent 域无行（导入前会话）→ viewer 存量文件直读
-  if (domainRows.every(({ rows }) => rows.length === 0)) {
-    return replayOfLegacyRows(readLedger(userSessionDir(dataRoot, uuid)).rows);
   }
   const collected: Array<{ row: UserReplayRow; ord: number }> = [];
   let ord = 0;

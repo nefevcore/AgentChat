@@ -231,7 +231,6 @@ export function readDomainFacts(dir: string, domain: string): DomainFacts {
       continue;
     }
     // v1 role 判别行
-    if (r.type === 'session-header') continue;
     if (r.role === 'context') {
       out.contexts.push({ kind: 'context', agentId: r.agent_id, source: r.source ?? '', content: r.content, ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ...(r.run !== undefined ? { run: r.run } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), messageId: r.message_id, timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}) });
       continue;

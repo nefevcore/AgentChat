@@ -5,10 +5,11 @@
 // 定位 → 原子重写整个 messages.jsonl」——服务 UI 的显式裁断（删消息 / 行内
 // 编辑截断 / 会话分支拷贝）。
 //
-// 物理布局（D4 端点轴）两侧各自持账本：
-//   viewer/sessions/<conversationId>/messages.jsonl   user 终稿投影（cr-609 前名 users/user）
+// 物理布局（D4 端点轴）：
 //   agents/<agentId>/sessions/<conversationId>/messages.jsonl  agent 域账本
 // 一次用户动作对「该会话的全部账本」生效（否则对端仍记得被删的行）。
+// cr-998：viewer 域枚举退役（存量投影树纯派生物可整删；管理面动作
+// 只落 agent 域）。
 //
 // 竞态边界：在途 run 的追加只落尾部新行，重写窗口内到达的行会随重写丢失——
 // 管理面动作本就是用户显式裁断（主线 truncateAfter 同语义），不做锁。
@@ -17,7 +18,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 const MESSAGES_FILE = 'messages.jsonl';
-const USER_SESSIONS = ['viewer', 'sessions'];
 
 /** 某会话在数据根内的全部账本目录（存在的才算；agent 侧按 agents/<agentId>/sessions/<id> 扫描）。
  *  includeJournalOnly = 连仅存 journal（messages.jsonl 缺席）的域也带出——
@@ -30,8 +30,6 @@ export function conversationDirs(dataRoot: string, conversationId: string, opts?
   const has = (dir: string): boolean => journalOnly
     ? fs.existsSync(dir)
     : fs.existsSync(path.join(dir, MESSAGES_FILE));
-  const userDir = path.join(dataRoot, ...USER_SESSIONS, conversationId);
-  if (has(userDir)) out.push(userDir);
   let agents: fs.Dirent[] = [];
   try { agents = fs.readdirSync(path.join(dataRoot, 'agents'), { withFileTypes: true }); } catch { /* 无 agents 域 */ }
   for (const a of agents) {

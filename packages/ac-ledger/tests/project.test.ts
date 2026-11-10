@@ -8,17 +8,14 @@
 //     writeOwn 落账的同一条消息，写权归壳侧）；peer 行 = agent 自著
 //     终稿/通知行（原 derive 谓词：requestId 幂等 / run 键单行 /
 //     空终稿不投 / 段行与注入行不投）；
-//   · 排序事实键 = 行时间戳（同刻 user 行先于 peer 行——稳定排序）；
-//   · 存量兼容窗：agent 域全空而 viewer 存量文件在场 → 直读投影
-//    （导入前会话；纯派生物，读面兼容后弃）。
+//   · 排序事实键 = 行时间戳（同刻 user 行先于 peer 行——稳定排序）。
+// cr-998：viewer 存量直读兼容窗退役（数据根已迁移归零）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { projectUserReplay } from '../src/project.ts';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
-import { userSessionDir } from '../src/user.ts';
-import type { UserReplayRow } from '../src/user.ts';
 
 const ROOT = path.join('sandbox', 'test-project-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -48,14 +45,6 @@ async function agentFinal(agent: string, uuid: string, text: string, requestId: 
     ...(run !== undefined ? { run } : {}), ...(runMs !== undefined ? { runMs } : {}),
     ...(ts !== undefined ? { timestamp: ts } : {}),
   });
-}
-
-/** 手写 viewer 存量文件（旧格式——兼容窗直读输入） */
-function writeViewerLegacy(uuid: string, rows: Array<Record<string, unknown>>): void {
-  const dir = userSessionDir(ROOT, uuid);
-  fs.mkdirSync(dir, { recursive: true });
-  const header = JSON.stringify({ type: 'session-header', version: 1, createdAt: '2026-11-09T00:00:00.000Z', participants: ['user'], kind: 'user' });
-  fs.writeFileSync(path.join(dir, 'messages.jsonl'), [header, ...rows.map((r) => JSON.stringify(r))].join('\n') + '\n', 'utf-8');
 }
 
 describe('projectUserReplay（cr-973 读时投影）', () => {
@@ -147,31 +136,4 @@ describe('projectUserReplay（cr-973 读时投影）', () => {
     ]);
   });
 
-  it('存量兼容窗：agent 域全空而 viewer 文件在场 → 直读投影（run 键从 source run:<id> 还原）', async () => {
-    const uuid = 'p-legacy';
-    writeViewerLegacy(uuid, [
-      { role: 'agent', content: '旧问', agent_id: 'user', requestId: 'lq-1', message_id: 'm1', timestamp: '2026-11-08T10:00:00.000Z', seq: 1 },
-      { role: 'agent', content: '旧终稿', agent_id: 'alpha', source: 'run:r1', requestId: 'lr-1', runMs: 900, message_id: 'm2', timestamp: '2026-11-08T10:00:01.000Z', seq: 2 },
-    ]);
-    const replay = projectUserReplay(ROOT, uuid);
-    expect(replay.map((r) => ({ role: r.role, agentId: r.agentId, content: r.content, run: r.run, runMs: r.runMs, requestId: r.requestId, timestamp: r.timestamp }))).toEqual([
-      { role: 'user', agentId: 'user', content: '旧问', run: undefined, runMs: undefined, requestId: 'lq-1', timestamp: '2026-11-08T10:00:00.000Z' },
-      { role: 'peer', agentId: 'alpha', content: '旧终稿', run: 'r1', runMs: 900, requestId: 'lr-1', timestamp: '2026-11-08T10:00:01.000Z' },
-    ]);
-    // viewer 行自带 seq 原样透传（B1 存量行）
-    expect(replay[1]).toMatchObject({ seq: 2 });
-  });
-
-  it('投影等价：agent 域行投影 == viewer 存量映射（除 seq——域序号空间不同）', async () => {
-    const viewerOnly = 'p-equiv-viewer';
-    writeViewerLegacy(viewerOnly, [
-      { role: 'agent', content: '问', agent_id: 'user', requestId: 'q-1', message_id: 'm1', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
-      { role: 'agent', content: '答', agent_id: 'alpha', source: 'run:run-1', requestId: 'rq-1', runMs: 300, message_id: 'm2', timestamp: '2026-11-09T10:00:01.000Z', seq: 2 },
-    ]);
-    const agentDomain = 'p-equiv-agent';
-    await userSays('alpha', agentDomain, '问', 'q-1', '2026-11-09T10:00:00.000Z');
-    await agentFinal('alpha', agentDomain, '答', 'rq-1', 'run-1', '2026-11-09T10:00:01.000Z', 300);
-    const stripSeq = (rows: UserReplayRow[]): Array<Record<string, unknown>> => rows.map(({ seq: _seq, ...rest }) => { void _seq; return rest as Record<string, unknown>; });
-    expect(stripSeq(projectUserReplay(ROOT, agentDomain))).toEqual(stripSeq(projectUserReplay(ROOT, viewerOnly)));
-  });
 });

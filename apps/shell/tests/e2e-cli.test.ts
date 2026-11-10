@@ -8,8 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootShell, deriveAndAssertRowset } from '../boot.ts';
-import { LedgerWriter, sessionDir } from 'ac-ledger';
-import { readLedger, replayView } from 'ac-ledger';
+import { LedgerWriter, sessionDir, readLedger, projectUserReplay } from 'ac-ledger';
 import { ConversationMachine } from 'ac-shell-conversation';
 import { AdmissionGate } from 'ac-envelope-core';
 
@@ -42,10 +41,10 @@ async function cliTurn(
   if (plan.action === 'run') {
     const runId = 'run-' + envelope.requestId;
     machine.runStarted(runId);
-    await writer.journal({ type: 'journal-step', run: runId, step: 1, content: '思考…' });
+    await writer.appendEvents([{ type: 'step/content', run: runId, step: 0, text: '思考…', ts: Date.now() }]);
     const reply = '[' + agentId + ' 回复 ' + envelope.content + ']';
     await writer.settle(
-      { role: 'agent', content: reply, agent_id: agentId, uuid },
+      { role: 'agent', content: reply, agent_id: agentId, uuid, run: runId },
       runId, 'ok',
     );
     machine.runSettled();
@@ -94,15 +93,14 @@ describe('M3.5 级联验收：CLI 直连多轮会话', () => {
     // —— 账本重读（重开 CLI 续跑——壳死账本在 A5）——
     const { header, rows } = readLedger(sessionDir(ROOT, 'alpha', uuid));
     expect(header?.participants).toEqual(['alpha', 'user']);
-    // cr-697：settlement 物化段行（source 标记，content 恒空）过滤——终稿层口径
-    const finalRows = rows.filter((r) => r.source !== 'segment' && r.source !== 'inject');
     // 逐行核对：req-1 入站 / 回复 / req-2 入站 / 回复（req-1 重发被准入短路，未落行）
+    const finalRows = rows.filter((r) => r.type === 'message');
     expect(finalRows.map((r) => r.content)).toEqual([
       '第一轮', '[alpha 回复 第一轮]', '第二轮', '[alpha 回复 第二轮]',
     ]);
     expect(finalRows).toHaveLength(4);
-    // viewer 投影（user 视角回放）
-    expect(replayView(rows, 'user').map((m) => m.role)).toEqual(['assistant', 'user', 'assistant', 'user']);
+    // user 视角回放（终稿层读时投影）
+    expect(projectUserReplay(ROOT, uuid).map((r) => r.role)).toEqual(['user', 'peer', 'user', 'peer']);
   }, 20_000);
 
   it('行集静态断言拦错：AgentConfig 引用不存在工具 → boot 拒启', async () => {

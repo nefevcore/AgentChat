@@ -2,7 +2,7 @@
 // title-request.ts —— 会话标题请求信 payload schema（cr-672）
 //
 // 形态依据（plugin-request / grant 同族）：标题写权归宿主 singles 行
-//（meta/sessions/<sid>.json 单写者——数据分层第二层，读侧兼容窗回落
+//（meta/sessions/<sid>.json 单写者——数据分层第二层；cr-998 起单源，
 // 旧位置 viewer/sessions/<sid>/session.json），标题生成要 LLM——LLM 只住
 // 壳（llm / llm-pool 行在壳树）。故壳侧 auto-title 行生成后经邮局发本请求：
 // 壳 → 邮局 → 宿主 HostInbox 受理（singles 行 write-if-absent 落盘 +

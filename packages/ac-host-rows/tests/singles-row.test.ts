@@ -17,8 +17,9 @@ afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 type Receiver = (env: Envelope) => Promise<{ ack: string; fresh: boolean }>;
 type Handler = (params: unknown) => unknown;
 
+/** agent 域会话目录（cr-973 起消息流单源——viewer 域退役） */
 function sessionDir(id: string): string {
-  return path.join(ROOT, 'viewer', 'sessions', id);
+  return path.join(ROOT, 'agents', 'alpha', 'sessions', id);
 }
 
 /** 元数据新落点（数据分层第二层：meta/sessions/<sid>.json） */
@@ -81,10 +82,11 @@ describe('标题请求受理（cr-672）', () => {
 
   it('write-if-absent：已有标题（用户手改/fork 继承）不被覆盖', async () => {
     seedLedger('s2', [{ agent_id: 'user', content: '首条用户消息' }]);
-    fs.writeFileSync(path.join(sessionDir('s2'), 'session.json'), JSON.stringify({ id: 's2', title: '手改标题' }), 'utf-8');
+    fs.mkdirSync(path.dirname(metaFile('s2')), { recursive: true });
+    fs.writeFileSync(metaFile('s2'), JSON.stringify({ id: 's2', title: '手改标题' }), 'utf-8');
     const h = boot(true);
     await h.send(titleRequest('s2', '生成标题'));
-    const meta = JSON.parse(fs.readFileSync(path.join(sessionDir('s2'), 'session.json'), 'utf-8')) as Record<string, unknown>;
+    const meta = JSON.parse(fs.readFileSync(metaFile('s2'), 'utf-8')) as Record<string, unknown>;
     expect(meta.title).toBe('手改标题');
     expect(h.frames).toHaveLength(0); // 未变更 = 不广播
   });
@@ -104,7 +106,7 @@ describe('标题请求受理（cr-672）', () => {
 });
 
 describe('session.json 迁居 meta/sessions/（数据分层）', () => {
-  it('写侧只写新位置 meta/sessions/<sid>.json，viewer 目录不再落 session.json', async () => {
+  it('写侧只写 meta/sessions/<sid>.json（agent 域目录无元数据文件）', async () => {
     seedLedger('mv-1', [{ agent_id: 'user', content: '迁居会话' }]);
     const h = boot(true);
     await h.send(titleRequest('mv-1', '迁居标题'));
@@ -112,26 +114,21 @@ describe('session.json 迁居 meta/sessions/（数据分层）', () => {
     expect(fs.existsSync(path.join(sessionDir('mv-1'), 'session.json'))).toBe(false);
   });
 
-  it('兼容窗读旧位置：viewer/sessions/<sid>/session.json 照常生效，写入升级到新位置', async () => {
+  it('cr-998 旧位置退役：viewer 旧位 session.json 不再被读（meta 单源）', async () => {
     seedLedger('mv-2', [{ agent_id: 'user', content: '存量会话' }]);
-    fs.writeFileSync(path.join(sessionDir('mv-2'), 'session.json'), JSON.stringify({ id: 'mv-2', title: '旧位标题', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' }), 'utf-8');
+    fs.mkdirSync(path.join(ROOT, 'viewer', 'sessions', 'mv-2'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'viewer', 'sessions', 'mv-2', 'session.json'), JSON.stringify({ id: 'mv-2', title: '旧位标题', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' }), 'utf-8');
     const h = boot(false);
-    // 读面：旧位置标题可见（list 直吐装载对账结果）
+    // 读面：旧位置不再生效（标题走账本派生）
     const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
-    expect(list.singles.find((s) => s.id === 'mv-2')?.title).toBe('旧位标题');
-    // 写面：update 落新位置（旧文件不动——兼容窗不迁移）
-    await h.handlers.get('singles/update')!({ id: 'mv-2', title: '新位标题' });
-    expect(JSON.parse(fs.readFileSync(metaFile('mv-2'), 'utf-8'))).toMatchObject({ id: 'mv-2', title: '新位标题' });
-    expect(JSON.parse(fs.readFileSync(path.join(sessionDir('mv-2'), 'session.json'), 'utf-8'))).toMatchObject({ title: '旧位标题' });
+    expect(list.singles.find((s) => s.id === 'mv-2')?.title).toBe('存量会话');
   });
 
-  it('delete 摘除双位置（新位置元数据 + 兼容窗旧文件）', async () => {
+  it('delete 摘除 meta 元数据 + agent 域账本', async () => {
     seedLedger('mv-3', [{ agent_id: 'user', content: '待删' }]);
-    fs.writeFileSync(path.join(sessionDir('mv-3'), 'session.json'), JSON.stringify({ id: 'mv-3', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' }), 'utf-8');
     const h = boot(false);
     await h.handlers.get('singles/delete')!({ id: 'mv-3' });
     expect(fs.existsSync(metaFile('mv-3'))).toBe(false);
-    expect(fs.existsSync(path.join(sessionDir('mv-3'), 'session.json'))).toBe(false);
     expect(fs.existsSync(sessionDir('mv-3'))).toBe(false);
   });
 });
@@ -225,8 +222,8 @@ describe('清单注册表落盘（cr-845 摘要索引 → cr-869 全视图清单
 
   it('空会话目录（无账本无 meta）不落索引条目；仅 meta 的会话照常列出', async () => {
     fs.mkdirSync(sessionDir('z-empty'), { recursive: true }); // 空目录：不进列表也不进索引
-    fs.mkdirSync(sessionDir('z-meta'), { recursive: true });
-    fs.writeFileSync(path.join(sessionDir('z-meta'), 'session.json'), JSON.stringify({ id: 'z-meta', title: '仅元数据', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' }), 'utf-8');
+    fs.mkdirSync(path.dirname(metaFile('z-meta')), { recursive: true });
+    fs.writeFileSync(metaFile('z-meta'), JSON.stringify({ id: 'z-meta', title: '仅元数据', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' }), 'utf-8');
     const h = boot(false);
     const list = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string }> };
     expect(list.singles.some((s) => s.id === 'z-empty')).toBe(false);
@@ -261,11 +258,11 @@ describe('清单注册表（cr-869：写点维护 + list 零读）', () => {
     expect(list.singles.find((s) => s.id === 'k1')?.lastActivity).toBe('2026-11-02T00:00:00.000Z');
   });
 
-  it('手工改 session.json（meta 指纹变）→ 装载复验回源重算，标题不驻留旧值', async () => {
+  it('手工改 meta/sessions/<sid>.json（指纹变）→ 装载复验回源重算，标题不驻留旧值', async () => {
     seedLedger('w1', [{ agent_id: 'user', content: '派生标题' }]);
     await boot(false).handlers.get('singles/list')!({});
     // 外部手改（绕过本行写点）
-    fs.writeFileSync(path.join(sessionDir('w1'), 'session.json'), JSON.stringify({ id: 'w1', title: '手改', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }), 'utf-8');
+    fs.writeFileSync(metaFile('w1'), JSON.stringify({ id: 'w1', title: '手改', status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-02T00:00:00.000Z' }), 'utf-8');
     const h2 = boot(false);
     const list = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; title?: string }> };
     expect(list.singles.find((s) => s.id === 'w1')?.title).toBe('手改');
@@ -320,7 +317,7 @@ describe('singles/list 指纹复验走 sessionIndex 账面（cr-981）', () => {
     let size = 0;
     let mtimeMs = 0;
     let any = false;
-    for (const dir of [path.join(ROOT, 'viewer', 'sessions', id), path.join(ROOT, 'agents', 'alpha', 'sessions', id)]) {
+    for (const dir of [path.join(ROOT, 'agents', 'alpha', 'sessions', id)]) {
       try {
         const st = fs.statSync(path.join(dir, 'messages.jsonl'));
         size += st.size;
@@ -344,7 +341,7 @@ describe('singles/list 指纹复验走 sessionIndex 账面（cr-981）', () => {
     const first = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
     expect(first.singles.map((x) => x.id)).toContain('s1');
     // 盘上追加了，但陈旧账面未步进 → list 不触发重算
-    fs.appendFileSync(path.join(ROOT, 'viewer', 'sessions', 's1', 'messages.jsonl'),
+    fs.appendFileSync(path.join(ROOT, 'agents', 'alpha', 'sessions', 's1', 'messages.jsonl'),
       JSON.stringify({ role: 'agent', agent_id: 'alpha', content: '追加行', message_id: 's1-x', timestamp: '2026-10-24T09:00:00.000Z' }) + '\n');
     const h2 = boot(false, staleCat); // 重新 boot：registry 落盘复用（装载复验只看 meta mtime）
     const second = await h2.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
@@ -357,7 +354,7 @@ describe('singles/list 指纹复验走 sessionIndex 账面（cr-981）', () => {
     seedLedger('s1', [{ agent_id: 'alpha', content: '开场' }]);
     const h = boot(false, catOf(['s1']));
     const first = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
-    fs.appendFileSync(path.join(ROOT, 'viewer', 'sessions', 's1', 'messages.jsonl'),
+    fs.appendFileSync(path.join(ROOT, 'agents', 'alpha', 'sessions', 's1', 'messages.jsonl'),
       JSON.stringify({ role: 'agent', agent_id: 'alpha', content: '追加行', message_id: 's1-x', timestamp: '2026-10-24T09:00:00.000Z' }) + '\n');
     // 账面已对账（重新 fpOf = 新 stat）→ list 重算
     const h2 = boot(false, catOf(['s1']));
@@ -369,7 +366,7 @@ describe('singles/list 指纹复验走 sessionIndex 账面（cr-981）', () => {
   it('行缺席 → 逐条目 stat 复验回落（外部写仍被看见）', async () => {
     seedLedger('s1', [{ agent_id: 'alpha', content: '开场' }]);
     const h = boot(false); // 无 sessionIndex
-    fs.appendFileSync(path.join(ROOT, 'viewer', 'sessions', 's1', 'messages.jsonl'),
+    fs.appendFileSync(path.join(ROOT, 'agents', 'alpha', 'sessions', 's1', 'messages.jsonl'),
       JSON.stringify({ role: 'agent', agent_id: 'alpha', content: '追加行', message_id: 's1-x', timestamp: '2026-10-24T09:00:00.000Z' }) + '\n');
     const out = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string; lastActivity?: string }> };
     expect(out.singles.find((x) => x.id === 's1')!.lastActivity).toBe('2026-10-24T09:00:00.000Z');

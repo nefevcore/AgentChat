@@ -25,8 +25,9 @@ class SinglesShim extends Service {
   }
   get(conversationId: string): unknown {
     try {
+      // cr-998 对齐生产 SinglesShim（ac-host-face-client）：注册表住 meta/sessions/
       const raw = JSON.parse(fs.readFileSync(
-        path.join(this.dataRoot, 'viewer', 'sessions', '.singles-registry.json'), 'utf-8'),
+        path.join(this.dataRoot, 'meta', 'sessions', '.singles-registry.json'), 'utf-8'),
       ) as { entries?: Record<string, unknown> };
       return raw.entries !== undefined && conversationId in raw.entries ? { id: conversationId } : undefined;
     } catch {
@@ -68,9 +69,9 @@ function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock-1', ...extra }), 'utf-8');
 }
 
-/** singles 注册表直投（SinglesShim 读面） */
+/** singles 注册表直投（SinglesShim 读面——cr-973 迁 meta/sessions/） */
 function seedSingles(sid: string): void {
-  const dir = path.join(ROOT, 'viewer', 'sessions');
+  const dir = path.join(ROOT, 'meta', 'sessions');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, '.singles-registry.json'), JSON.stringify({ version: 1, entries: { [sid]: {} } }), 'utf-8');
 }

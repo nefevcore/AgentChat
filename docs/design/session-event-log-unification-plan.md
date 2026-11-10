@@ -51,12 +51,16 @@
 
 ### 1.2 viewer 文件退役
 
-- `viewer/sessions/<sid>/messages.jsonl` 停写；存量文件读面兼容一个版本后可弃（纯派生物，可重建）；
+- `viewer/sessions/<sid>/messages.jsonl` 停写；存量文件读面兼容窗已于 cr-998 退役
+  （数据根迁移归零——1050 个 viewer 会话全部有 agent 域对应行；viewer 树纯派生物
+  可整删，读面不再回看）；
 - 消费方迁移清单（2026-11-09 核实）：ac-host-webui 读面（session/history、消息计数、
   `UserLedger.replay()` 三处）、ac-import（projectUserLedger 从物化退化为建索引）、
   ac-host-rows（目录词汇单源改指 agent 域）、ac-shell-conversation（prefix-snapshot 路径
   改住 agent 域 session 目录或 singles 元数据旁）。
 - `session.json`（singles 元数据）**保留**——它是引用/覆盖配置，不是消息派生物。
+  （cr-998：读面恒 meta/sessions/ 单源——viewer 旧位 session.json/prefix-snapshot
+  已一次性物理迁移，旧路径读窗删除。）
 
 ### 1.3 验收与回滚
 
@@ -194,8 +198,9 @@ recoverOrphanRuns 退役 + 压缩事件化（compaction/start·summary·end，�
 **单流 gzip**——Node 24 无 zlib.zstdSync，如实以 gzip 落地；主日志保留压缩事件）+
 性质化测试（parity / v1↔v2 等价 / 前缀稳定 / 配平零回写 / 压缩回放 / 归档两轮）。
 验证：全量 2997 + 集成 89 + check:deps 全绿。**注**：群 500k 轮转在 preview 轨
-未实现（无迁移对象）；v1 写面保留为测试夹具，随读兼容窗退役。session-design.md
-已按 §5.8 改版（D15 总条目）。
+未实现（无迁移对象）；v1 写面（writer journal()/settle 两阶段/eventsV2 旗标）与
+assembleSessionViewLegacy parity 夹具已于 cr-998 退役——测试夹具全部改为手写
+存量文件形态，writer 恒 v2。session-design.md 已按 §5.8 改版（D15 总条目）。
 
 **§2.6 实施细化（cr-974，2026-11-09 设计定稿）**：
 
