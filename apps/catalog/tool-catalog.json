@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-10T01:05:57.981Z",
+  "generatedAt": "2026-11-10T07:52:27.344Z",
   "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
   "tools": [
     {
@@ -2630,6 +2630,12 @@
     {
       "name": "job/settled",
       "listeners": [
+        {
+          "owner": "ac-jobs",
+          "prepend": false,
+          "global": false,
+          "description": "job 完成通知回投：向发起会话投递收束通知（同 owner+会话 5s 窗口内合并）"
+        },
         {
           "owner": "root",
           "prepend": false,

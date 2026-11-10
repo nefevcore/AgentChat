@@ -84,7 +84,7 @@ const WAIT_TIMEOUT_MS = 60_000;
  * 而非 a⇄b 委托桶，否则通知混进双方对话流、用户侧发起会话永远收不到
  * 唤醒）；无会话键（宿主直调 / 子 Agent run——其 run 不带 conversationId）
  * 回退 owner 自会话桶。对桶里已有回复正文（session 落账）——通知只指路
- * 不搬运，防双记录（job-wakeup followup notice 同款形态）。
+ * 不搬运，防双记录（jobs wakeup followup notice 同款形态）。
  */
 function notifyLateReply(
   ctx: Context,
@@ -230,7 +230,7 @@ export function apply(ctx: Context) {
 
         // ---- 子 Agent 直投分支（2026-09-16 news 事故复盘）----
         // to = 已 spawn 的子 Agent id（sub_*）：不经会话状态机，转投其任务
-        // 收件箱（ctx.subagents.send——忙时排队/空闲开跑，回执经 job-wakeup
+        // 收件箱（ctx.subagents.send——忙时排队/空闲开跑，回执经 jobs wakeup
         // 回到发起会话）。父自投走原路径以外的一切 Agent 照旧 deliver。
         // 发信方也是子 Agent（sub → sub）时投递权限按其父判定（归一后
         // fromForPair = 发信子的父）。
@@ -244,7 +244,7 @@ export function apply(ctx: Context) {
               const r = subagents.send(to, {
                 parentId: fromForPair,
                 text: message,
-                // 回执直达发起会话（无会话键则回 owner 自会话桶——job-wakeup 缺省）
+                // 回执直达发起会话（无会话键则回 owner 自会话桶——jobs wakeup 缺省）
                 ...(call.conversationId ? { conversationId: call.conversationId } : {}),
                 ...(call.access === 'sandbox-access' || call.access === 'full-access' ? { access: call.access } : {}),
               });

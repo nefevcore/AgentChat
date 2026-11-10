@@ -21,7 +21,7 @@
 2. ☐ **机制 run steer 拦截全类型覆盖审计**（2026-10-06 复核：设置面已核完，收窄为维护约定，可在下次 review 关闭）
    - 出处：`ac-archive/tests/archive.integration.test.ts` L521（回归锁定）+ `ac-client-ui-conversation/client/feed-core.ts` L187（认知缺口留档）；原 gap 第 4 项。
    - 事实（2026-10-06 逐点核实）：拦截判定单源 = `isArchiveReviewRun(meta)`（`ac-agent-loop/src/service.ts` L171）；设置面全仓仅两处——`ac-archive/src/service.ts` L407-409 与 `ac-bench/src/service.ts` L170-172（均 `meta: { [ARCHIVE_REVIEW_META]: true }`）；两门 = `ac-conversation/src/service.ts` L465（deliver steer 门）与 L649（steerQueued 门）。
-   - 其余 `source: 'event'` 调用点（ac-ask-questions L154/L174、ac-goal L235、ac-job-wakeup L98、ac-collab-tools L98、ac-dev-tools L246）均为「事件触发的普通 run」——回复落盘，steer 不会进黑洞，无需同款拦截。
+   - 其余 `source: 'event'` 调用点（ac-ask-questions L154/L174、ac-goal L235、ac-jobs wakeup（原 ac-job-wakeup，cr-992 随迁入行）、ac-collab-tools L98、ac-dev-tools L246）均为「事件触发的普通 run」——回复落盘，steer 不会进黑洞，无需同款拦截。
    - 动作：无代码缺口；维护约定 = 新增「不落盘机制 run」时必须设 ARCHIVE_REVIEW_META（否则两门失效、用户消息注入即"回复掉黑洞"）。
 
 2a. ☐ **bash-scan 把裸 `/` 误判为 Unix 绝对路径**〔bug，2026-10-27 实测复现〕

@@ -38,9 +38,9 @@ export interface JobStartSpec {
   /** 归属 Agent id（owner 分桶与访问隔离；缺省 = 无主，任何 caller 可读） */
   ownerAgentId?: string;
   /**
-   * 发起会话键（M11 执行身份 conversationId）：完成通知（ac-job-wakeup）
-   * 的回投目标——任务在哪个会话里启动，结果就回到哪个会话。缺省回
-   * owner 自会话桶（宿主任务 / 旧 producer）。
+   * 发起会话键（M11 执行身份 conversationId）：完成通知（行内 wakeup，
+   * ./wakeup.ts）的回投目标——任务在哪个会话里启动，结果就回到哪个
+   * 会话。缺省回 owner 自会话桶（宿主任务 / 旧 producer）。
    */
   conversationId?: string;
   /** producer 私有元数据（bash: pid/logFile/cwd；subagent: subagentId…） */
