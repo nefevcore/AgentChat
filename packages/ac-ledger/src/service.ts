@@ -150,7 +150,15 @@ export class LedgerService extends Service {
   private writerFor(uuid: string, participants: string[], kind: string): LedgerWriter {
     let w = this.writers.get(uuid);
     if (w === undefined) {
-      w = new LedgerWriter(path.join(this.agentDirOf(), 'sessions', uuid), { participants, kind }, undefined, { eventsV2: true });
+      w = new LedgerWriter(path.join(this.agentDirOf(), 'sessions', uuid), { participants, kind }, undefined, {
+        eventsV2: true,
+        // cr-976 B 案：落账切片 durable 后泛化通知（D3-2——step-journaled 的
+        // 泛化形态；载荷 = 切片内追加行全集含 seq，批即语义单元：步相位批 /
+        // 工具结果 / 注入 / 收束）。壳 boot 据此旁带转发宿主投影。
+        onAppend: (rows) => {
+          this.ctx.emit('ledger/event-appended', { agent: this.agentId, conversationId: uuid, rows });
+        },
+      });
       this.writers.set(uuid, w);
     }
     return w;
@@ -547,6 +555,17 @@ declare module '@agentchat/cordis' {
      * @param payload 会话/run/步身份 + 落盘行分配的 seq
      */
     'ledger/step-journaled'(payload: { agent: string; conversationId: string; runId: string; step: number; seq: number; stepId?: string }): void;
+    /**
+     * 事件日志追加 durable（cr-976 B 案，step-journaled 的泛化）：单个串行
+     * 队列切片内追加到 messages.jsonl 的行全集（含分配好的 seq）。语义 =
+     * 「这些 seq 已可引用」——刻意晚于落盘（fsync 后回调）。宿主直播管线
+     * 据此投影转发（帧 = 事件的视图，收敛信号 = type:'run-end' 行——E-2
+     * 根治形态）。
+     *
+     * @mode emit
+     * @param payload 会话身份 + 追加行全集（判别字段 type 在行上）
+     */
+    'ledger/event-appended'(payload: { agent: string; conversationId: string; rows: Array<Record<string, unknown>> }): void;
   }
 }
 

@@ -67,101 +67,105 @@ describe('8.5d ShellStreamBridge（旁带 → 前端帧）', () => {
     expect(ends).toHaveLength(1);
   });
 
-  it('run-settled 帧（cr-591）：→ 主线 loop/after-run 帧形（ok→stop + 终稿 + args 参数序 + flush 在途批保序）', () => {
+  it('ledger-event 收束切片（cr-976）：→ run/settled 帧（completed→stop + 同批终稿 text + seq 锚 + flush 在途批保序）', () => {
     const frames: FrontendFrame[] = [];
     const bridge = new ShellStreamBridge({ send: (f) => frames.push(f), immediateFirst: true });
     bridge.ingest({ stream: 's1', kind: 'delta', text: '半截', meta: { agent: 'alpha', conversationId: 'u~alpha', stepId: 's1' } });
     bridge.ingest({ stream: 's1', kind: 'delta', text: '流' });
     bridge.ingest({
       stream: 'run-r1',
-      kind: 'run-settled',
-      finish: 'ok',
-      text: '终稿全文',
-      meta: { agent: 'alpha', conversationId: 'u~alpha', sender: 'user', source: 'user', runId: 'run-r1' },
+      kind: 'ledger-event',
+      rows: [
+        { type: 'message', role: 'agent', content: '终稿全文', run: 'run-r1', seq: 12 },
+        { type: 'run-end', run: 'run-r1', finish: 'completed', runMs: 4200, ts: 1 },
+      ],
+      meta: { agent: 'alpha', conversationId: 'u~alpha', runId: 'run-r1' },
     });
-    // 在途批已 flush（after-run 前保序）
+    // 在途批已 flush（run/settled 前保序——收敛前零在途）
     const batches = frames.filter((f) => f.type === LLM_DELTA_BATCH);
     expect(batches).toHaveLength(2);
-    const afterRun = frames.filter((f) => f.type === 'loop/after-run');
-    expect(afterRun).toHaveLength(1);
-    expect(afterRun[0].data.args).toEqual([
-      { agent: 'alpha', conversationId: 'u~alpha', sender: 'user', source: 'user' },
-      { finish: 'stop', text: '终稿全文' },
-    ]);
+    const settled = frames.filter((f) => f.type === 'run/settled');
+    expect(settled).toHaveLength(1);
+    expect(settled[0].data.args).toEqual([{
+      agent: 'alpha', conversationId: 'u~alpha', run: 'run-r1', seq: undefined,
+      finish: 'stop', text: '终稿全文', runMs: 4200, ts: 1,
+    }]);
   });
 
-  it('run-settled error：finish 透传 + error 文案（前端红条路径）', () => {
-    const frames: FrontendFrame[] = [];
-    const batcher = new LlmDeltaBatcher((args) => frames.push({ type: LLM_DELTA_BATCH, data: { args: [args] } }));
-    streamFrameToFrontend(
-      { stream: 'r1', kind: 'run-settled', finish: 'error', text: '', message: '连接超时' },
-      batcher,
-      (f) => frames.push(f),
-    );
-    const afterRun = frames.filter((f) => f.type === 'loop/after-run');
-    expect(afterRun).toHaveLength(1);
-    expect(afterRun[0].data.args[1]).toEqual({ finish: 'error', text: '', error: '连接超时' });
+  it('ledger-event 收束 error/interrupted：finish 透传 + errorMessage（前端红条/中断分隔符路径）', () => {
+    for (const [finish, want] of [['error', 'error'], ['interrupted', 'interrupted']] as const) {
+      const frames: FrontendFrame[] = [];
+      const batcher = new LlmDeltaBatcher((args) => frames.push({ type: LLM_DELTA_BATCH, data: { args: [args] } }));
+      streamFrameToFrontend(
+        { stream: 'r1', kind: 'ledger-event', rows: [{ type: 'run-end', run: 'r1', finish, errorMessage: '连接超时', seq: 9, ts: 2 }] },
+        batcher,
+        (f) => frames.push(f),
+      );
+      const settled = frames.filter((f) => f.type === 'run/settled');
+      expect(settled).toHaveLength(1);
+      expect(settled[0].data.args[0]).toMatchObject({ finish: want, error: '连接超时', text: '', seq: 9 });
+    }
   });
 
-  it('run-settled interrupted：同帧形透传 finish（前端已中断分隔符路径）', () => {
-    const frames: FrontendFrame[] = [];
-    const batcher = new LlmDeltaBatcher((args) => frames.push({ type: LLM_DELTA_BATCH, data: { args: [args] } }));
-    streamFrameToFrontend(
-      { stream: 'r1', kind: 'run-settled', finish: 'interrupted', text: '', message: 'run 以 interrupted 收束' },
-      batcher,
-      (f) => frames.push(f),
-    );
-    const afterRun = frames.filter((f) => f.type === 'loop/after-run');
-    expect(afterRun).toHaveLength(1);
-    expect(afterRun[0].data.args[1]).toEqual({ finish: 'interrupted', text: '', error: 'run 以 interrupted 收束' });
-  });
-
-  it('run 生命周期帧（cr-592）：run-started / step-started / after-step → 主线 loop/* 帧形（args 参数序 + envelope 路由键）', () => {
+  it('run 生命周期帧（cr-592/976）：run-started 直转 + ledger-event 步相位批 → step/journaled 帧（行序即步内序 + seq 锚）', () => {
     const frames: FrontendFrame[] = [];
     const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
     bridge.ingest({ stream: 'run-r1', kind: 'run-started', meta: { agent: 'alpha', conversationId: 'u~alpha', sender: 'user', source: 'user', runId: 'run-r1' } });
-    bridge.ingest({ stream: 'run-r1:0', kind: 'step-started', index: 0, meta: { agent: 'alpha', conversationId: 'u~alpha', sender: 'user', source: 'user', runId: 'run-r1', stepId: 'run-r1:0' } });
-    bridge.ingest({ stream: 'run-r1:0', kind: 'after-step', step: { stepId: 'run-r1:0', text: '终值', reasoning: '思考', reasoningMs: 4200 }, meta: { agent: 'alpha', conversationId: 'u~alpha', sender: 'user', source: 'user', runId: 'run-r1', stepId: 'run-r1:0' } });
+    bridge.ingest({
+      stream: 'run-r1:0',
+      kind: 'ledger-event',
+      rows: [
+        { type: 'step/reasoning', run: 'run-r1', step: 0, stepId: 'run-r1:0', text: '思考', reasoningMs: 4200, ts: 1, seq: 3 },
+        { type: 'step/content', run: 'run-r1', step: 0, stepId: 'run-r1:0', text: '终值', ts: 1, seq: 4 },
+      ],
+      meta: { agent: 'alpha', conversationId: 'u~alpha', runId: 'run-r1', stepId: 'run-r1:0' },
+    });
     const runStarted = frames.filter((f) => f.type === 'loop/run-started');
     expect(runStarted).toHaveLength(1);
     expect(runStarted[0].data.args).toEqual([{ agent: 'alpha', conversationId: 'u~alpha', sender: 'user', source: 'user' }]);
-    const stepStarted = frames.filter((f) => f.type === 'loop/step-started');
-    expect(stepStarted).toHaveLength(1);
-    // 前端只消费 agent 与 envelope（messages 空占位）；envelope.stepId = 载体索引键
-    expect(stepStarted[0].data.args).toEqual([
-      'alpha', 0, [],
-      { runId: 'run-r1', stepId: 'run-r1:0', conversationId: 'u~alpha', sender: 'user', source: 'user' },
-    ]);
-    const afterStep = frames.filter((f) => f.type === 'loop/after-step');
-    expect(afterStep).toHaveLength(1);
-    // step 终值透传（text/reasoning/reasoningMs——前端「已思考 · Xs」权威计时源）
-    expect(afterStep[0].data.args).toEqual([
-      'alpha',
-      { stepId: 'run-r1:0', text: '终值', reasoning: '思考', reasoningMs: 4200 },
-      { runId: 'run-r1', stepId: 'run-r1:0', conversationId: 'u~alpha', sender: 'user', source: 'user' },
-    ]);
+    const stepJourn = frames.filter((f) => f.type === 'step/journaled');
+    expect(stepJourn).toHaveLength(1);
+    // 步相位行原样直通（聚合归前端）；seq = 批末行（B2 水位锚）
+    expect(stepJourn[0].data.args).toEqual([{
+      agent: 'alpha', conversationId: 'u~alpha', run: 'run-r1', step: 0,
+      stepId: 'run-r1:0', seq: 4,
+      rows: [
+        { type: 'step/reasoning', run: 'run-r1', step: 0, stepId: 'run-r1:0', text: '思考', reasoningMs: 4200, ts: 1, seq: 3 },
+        { type: 'step/content', run: 'run-r1', step: 0, stepId: 'run-r1:0', text: '终值', ts: 1, seq: 4 },
+      ],
+    }]);
   });
 
-  it('工具执行帧（cr-593）：tool-started / tool-progress / tool-result → 主线 tool/* 帧形（args 参数序，call 透传）', () => {
+  it('工具执行帧（cr-593/976）：tool-started / tool-progress 流帧直转 + tool-call-result 行 → tool/result 帧', () => {
     const frames: FrontendFrame[] = [];
     const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
     const call = { agentId: 'alpha', conversationId: 'u~alpha', toolCallId: 'call-1', runId: 'run-r1', name: 'pwsh' };
     bridge.ingest({ stream: 'call-1', kind: 'tool-started', call, meta: { agent: 'alpha', conversationId: 'u~alpha', runId: 'run-r1' } });
     bridge.ingest({ stream: 'call-1', kind: 'tool-progress', call, chunk: '半截输出', meta: { agent: 'alpha' } });
-    bridge.ingest({ stream: 'call-1', kind: 'tool-result', call, result: { ok: true }, meta: { agent: 'alpha' } });
+    bridge.ingest({
+      stream: 'run-r1',
+      kind: 'ledger-event',
+      rows: [{ type: 'step/tool-call-result', run: 'run-r1', toolCallId: 'call-1', result: { ok: true }, durationMs: 30, ts: 1, seq: 7 }],
+      meta: { agent: 'alpha', conversationId: 'u~alpha', runId: 'run-r1' },
+    });
     expect(frames.filter((f) => f.type === 'tool/started')).toEqual([{ type: 'tool/started', data: { args: [call] } }]);
     expect(frames.filter((f) => f.type === 'tool/progress')).toEqual([{ type: 'tool/progress', data: { args: [call, '半截输出'] } }]);
-    expect(frames.filter((f) => f.type === 'tool/after-execute')).toEqual([{ type: 'tool/after-execute', data: { args: [call, { ok: true }, undefined] } }]);
+    const tr = frames.filter((f) => f.type === 'tool/result');
+    expect(tr).toHaveLength(1);
+    expect(tr[0].data.args[0]).toMatchObject({
+      agent: 'alpha', conversationId: 'u~alpha', run: 'run-r1', toolCallId: 'call-1',
+      seq: 7, result: { ok: true }, durationMs: 30,
+    });
   });
 
-  it('after-step 前 flush 在途批（保序：步收束边界不吞尾批）', () => {
+  it('run/settled 前 flush 在途批（保序：收敛边界不吞尾批——步收束不再强制 flush，流帧自然出窗）', () => {
     const frames: FrontendFrame[] = [];
     const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
     bridge.ingest({ stream: 'run-r1:0', kind: 'delta', text: '尾段', meta: { agent: 'alpha', stepId: 'run-r1:0' } });
     bridge.ingest({ stream: 'run-r1:0', kind: 'delta', text: '流' });
-    bridge.ingest({ stream: 'run-r1:0', kind: 'after-step', step: { stepId: 'run-r1:0' }, meta: { agent: 'alpha', stepId: 'run-r1:0' } });
+    bridge.ingest({ stream: 'run-r1', kind: 'ledger-event', rows: [{ type: 'run-end', run: 'run-r1', finish: 'completed', ts: 1, seq: 9 }], meta: { agent: 'alpha', runId: 'run-r1' } });
     const batches = frames.filter((f) => f.type === LLM_DELTA_BATCH);
-    expect(batches).toHaveLength(2); // 首帧直发 + 收束 flush
+    expect(batches).toHaveLength(2); // 首帧直发 + 收敛 flush
   });
   it('queue-changed 帧（cr-579）：→ 主线 conversation/queue-changed 帧形（四参序快照直套）', () => {
     const frames: FrontendFrame[] = [];

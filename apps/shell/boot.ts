@@ -734,25 +734,33 @@ export async function bootShell(
   ctx.on('llm/delta', (input: { meta?: StreamMeta }, chunk: LlmStreamChunk) => {
     for (const frame of streamFrameFromDelta(input.meta, chunk)) emitStreamFrame(frame);
   });
-  // run 收束旁带（cr-591，run-error 泛化）：conversation/run-settled →
-  // run-settled 帧（宿主 ShellStreamBridge 桥接成主线 loop/after-run——前端
-  // 收束三件套：清 busy / 终稿入列 / 权威行重拉）。meta 全套路由键随帧
-  // 携带（同 llm/delta 8.5d 口径）。发射失败静默（瞬态）。
-  ctx.on('conversation/run-settled', (p: { conversationId: string; runId: string; finish: 'ok' | 'error' | 'interrupted'; text: string; message?: string; sender: string; source: string }) => {
+  // run 收束旁带（cr-591）随 cr-976 B 案退役：前端收敛信号 = run-end 行
+  // durable 落盘（ledger/event-appended 投影出 run/settled 帧——与重拉权威
+  // 同一因果链，E-2 根治）；瞬态 run-settled 旁带帧不再双发。
+  // 事件日志落账旁带（cr-976 B 案，D3-2 壳 ipc 事件面）：ledger/event-appended
+  // → ledger-event 帧（宿主投影转发成 step/journaled · tool/result ·
+  // run/settled——帧 = 事件日志 append 的视图，seq 锚直通）。发射失败静默
+  //（瞬态——帧丢失由重连重拉/探针兜底，事实永不丢：已在日志）。
+  ctx.on('ledger/event-appended', (p: { conversationId: string; rows: Array<Record<string, unknown>> }) => {
+    const withRun = p.rows.find((r) => typeof r.run === 'string' && r.run !== '');
+    const withStep = p.rows.find((r) => typeof r.stepId === 'string' && r.stepId !== '');
     emitStreamFrame({
-      stream: p.runId,
-      kind: 'run-settled',
-      finish: p.finish,
-      text: p.text,
-      ...(p.message !== undefined ? { message: p.message } : {}),
-      meta: { agent: args.agentId, conversationId: p.conversationId, sender: p.sender, source: p.source, runId: p.runId },
+      stream: (withRun?.run as string | undefined) ?? p.conversationId,
+      kind: 'ledger-event',
+      rows: p.rows,
+      meta: {
+        agent: args.agentId,
+        conversationId: p.conversationId,
+        ...(withRun !== undefined ? { runId: withRun.run as string } : {}),
+        ...(withStep !== undefined ? { stepId: withStep.stepId as string } : {}),
+      },
     });
   });
-  // run 生命周期旁带（cr-592）：主线 loop 边界/步级事件 → 对应帧（宿主
-  // ShellStreamBridge 桥接成主线 loop/run-started / loop/step-started /
-  // loop/after-step 前端帧——前端的思考卡载体只在 step-started 帧消费里
-  // 创建，缺席 = reasoning 分片无载体可挂、思考直播零渲染；meta 全套
-  // 路由键随帧携带）。发射失败静默（瞬态）。
+  // run 生命周期旁带（cr-592）：loop/run-started → run-started 帧（宿主桥接
+  // 成主线 loop/run-started 前端帧——run 级忙态点亮 + 计时锚重置；流时序
+  // 帧，D3-1 两时标承认不经落盘。step-started/after-step 旁带随 cr-976 退役
+  // ——durable 步事实走 ledger-event，载体创建改前端惰性（delta 按 stepId
+  // 直达）。发射失败静默（瞬态）。
   ctx.on('loop/run-started', (request: { runId?: string; agent?: string; conversationId?: string; sender?: string; source?: string }) => {
     if (request.runId === undefined) return;
     emitStreamFrame({
@@ -767,52 +775,10 @@ export async function bootShell(
       },
     });
   });
-  ctx.on('loop/step-started', (
-    agent: string | undefined,
-    index: number,
-    _messages: unknown,
-    envelope: { runId?: string; stepId?: string; conversationId?: string; sender?: string; source?: string } | undefined,
-  ) => {
-    const stepId = envelope?.stepId;
-    if (stepId === undefined) return;
-    emitStreamFrame({
-      stream: stepId,
-      kind: 'step-started',
-      index,
-      meta: {
-        agent: agent ?? args.agentId,
-        conversationId: envelope?.conversationId,
-        sender: envelope?.sender,
-        source: envelope?.source,
-        runId: envelope?.runId,
-        stepId,
-      },
-    });
-  });
-  ctx.on('loop/after-step', (
-    agent: string | undefined,
-    step: unknown,
-    envelope: { runId?: string; stepId?: string; conversationId?: string; sender?: string; source?: string } | undefined,
-  ) => {
-    const stepId = envelope?.stepId;
-    if (stepId === undefined) return;
-    emitStreamFrame({
-      stream: stepId,
-      kind: 'after-step',
-      step,
-      meta: {
-        agent: agent ?? args.agentId,
-        conversationId: envelope?.conversationId,
-        sender: envelope?.sender,
-        source: envelope?.source,
-        runId: envelope?.runId,
-        stepId,
-      },
-    });
-  });
-  // 工具执行旁带（cr-593）：主线 tool/started·progress·after-execute →
-  // 对应帧（宿主直转主线同名前端帧——工具卡执行期直播：结果回填/长任务
-  // 进度；缺席 = 工具行直播期恒空 + 收束重拉误判在途 → 终稿双卡）。
+  // 工具执行旁带（cr-593）：tool/started·progress → 对应帧（宿主直转主线
+  // 同名前端帧——run_code 子调用占位 / 长任务进度；流时序帧，D3-1 两时标
+  // 承认不经落盘）。after-execute 前端旁带随 cr-976 退役——工具终值 =
+  // durable 事实（step/tool-call-result 行经 ledger-event 投影 tool/result）。
   // call 透传（路由身份在 call 上）；发射失败静默（瞬态）。
   type ToolCallLike = { agentId?: string; conversationId?: string; toolCallId?: string; runId?: string };
   const toolFrameMeta = (call: ToolCallLike): StreamMeta => ({
@@ -829,18 +795,6 @@ export async function bootShell(
     const stream = call.toolCallId ?? call.runId;
     if (stream === undefined) return;
     emitStreamFrame({ stream, kind: 'tool-progress', call, chunk, meta: toolFrameMeta(call) });
-  });
-  ctx.on('tool/after-execute', (call: ToolCallLike, result: unknown, error?: unknown) => {
-    const stream = call.toolCallId ?? call.runId;
-    if (stream === undefined) return;
-    emitStreamFrame({
-      stream,
-      kind: 'tool-result',
-      call,
-      ...(result !== undefined ? { result } : {}),
-      ...(error !== undefined ? { error } : {}),
-      meta: toolFrameMeta(call),
-    });
   });
   // 队列快照旁带（cr-579）：conversation/queue-changed → queue-changed 帧
   //（stream = conversationId；宿主桥接成主线同名前端帧——权威快照直接套用）。

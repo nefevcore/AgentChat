@@ -8,7 +8,7 @@
 // wireLlmInput 投影同理对齐（前端 feed-core 按 input.meta 路由）。
 // 桥接 = 纯函数 + 注入 broadcast——零 cordis 依赖可单测。
 // ============================================================
-import { LlmDeltaBatcher, wireLlmInput } from 'ac-wire-format';
+import { LlmDeltaBatcher, wireLlmInput, projectLedgerAppend, RUN_SETTLED_FRAME } from 'ac-wire-format';
 import { isStreamFrame, type StreamFrame } from 'ac-envelope-core';
 
 /** 前端帧（webServer.broadcast 帧形：type = 事件名直转，data = { args }） */
@@ -41,26 +41,13 @@ export interface StreamBridgeOptions {
   immediateFirst?: boolean;
 }
 
-/** 主线步级信封形状（loop/step-started / loop/after-step 第末参——前端路由与 stepId 载体索引键） */
-function envelopeOf(frame: StreamFrame): Record<string, string | undefined> {
-  const m = frame.meta;
-  return {
-    runId: m?.runId,
-    stepId: m?.stepId,
-    conversationId: m?.conversationId,
-    sender: m?.sender,
-    source: m?.source,
-  };
-}
-
 /**
  * 旁带帧 → 前端帧映射（纯函数核心，单测面）。
  * · delta 帧 → 批器入队（30ms 窗口合帧——llm/delta-batch）。
  * · end 帧 → flushNow（保序：end 前清空在途 delta）+ llm/delta-end 帧。
- * · run-settled 帧（cr-591，run-error 泛化）→ 主线 loop/after-run 帧形
- *   （args = [request, result] 参数序；finish ok→stop）：前端收束三件套
- *   （清 busy / 终稿入列 / 权威行重拉）+ error 红条 / interrupted 分隔符
- *   ——渲染逻辑零新增（主线 feed-core 既有 case）。
+ * · ledger-event 帧（cr-976 B 案）→ 事件日志 append 投影转发（step/journaled
+ *   · tool/result · run/settled——收敛与 durable 落盘同一因果，E-2 根治；
+ *   旧 step/after-step/tool-result/run-settled 旁带帧族随 D3-3 一步切换退役）。
  */
 export function streamFrameToFrontend(
   frame: StreamFrame,
@@ -99,31 +86,18 @@ export function streamFrameToFrontend(
     });
     return;
   }
-  if (frame.kind === 'step-started') {
-    // 主线 loop/step-started 帧形（args = [agent, index, messages, envelope]）
-    // ——前端只消费 agent 与 envelope（envelope.stepId = 载体索引键）；
-    // messages 壳侧不旁带（载荷大且前端零消费），传空数组占位。
-    send({
-      type: 'loop/step-started',
-      data: {
-        args: [
-          frame.meta?.agent,
-          frame.index,
-          [],
-          envelopeOf(frame),
-        ],
-      },
-    });
-    return;
-  }
-  if (frame.kind === 'after-step') {
-    // 主线 loop/after-step 帧形（args = [agent, step, envelope]）——step 终值
-    // 透传（text/reasoning/reasoningMs/toolCalls/stepId/ts——前端步载体收束
-    // 翻转 + 「已思考 · Xs」后端权威计时 label）。
-    send({
-      type: 'loop/after-step',
-      data: { args: [frame.meta?.agent, frame.step, envelopeOf(frame)] },
-    });
+  if (frame.kind === 'ledger-event') {
+    // cr-976 B 案投影转发：落账行 → 新帧族（step/journaled · tool/result ·
+    // run/settled——seq 锚直通，帧 = 事件日志的视图）。run/settled 前强制
+    // 清空在途 delta 批（收敛前零在途——保序）。帧序 ≡ 事件行序。
+    const projected = projectLedgerAppend(
+      { agent: frame.meta?.agent, conversationId: frame.meta?.conversationId },
+      frame.rows,
+    );
+    for (const f of projected) {
+      if (f.type === RUN_SETTLED_FRAME) batcher.flushNow();
+      send({ type: f.type, data: { args: f.args } });
+    }
     return;
   }
   if (frame.kind === 'tool-started') {
@@ -134,12 +108,6 @@ export function streamFrameToFrontend(
   if (frame.kind === 'tool-progress') {
     // 主线 tool/progress 帧形（args = [call, chunk]）——长任务执行期增量
     send({ type: 'tool/progress', data: { args: [frame.call, frame.chunk] } });
-    return;
-  }
-  if (frame.kind === 'tool-result') {
-    // 主线 tool/after-execute 帧形（args = [call, result, error] 参数序）
-    // ——onToolEnd 结果回填（工具卡直播期收口，不再恒等待）
-    send({ type: 'tool/after-execute', data: { args: [frame.call, frame.result, frame.error] } });
     return;
   }
   if (frame.kind === 'queue-changed') {
@@ -197,31 +165,6 @@ export function streamFrameToFrontend(
     // 主线 subagents/updated 帧形（args = [info, action] 参数序）：前端
     // subagentBoard.onEvent 重拉 subagents/list（帧载荷仅触发器）。
     send({ type: 'subagents/updated', data: { args: [frame.info, frame.action] } });
-    return;
-  }
-  if (frame.kind === 'run-settled') {
-    // 主线 loop/after-run 帧形（args = [request, result] 参数序）：finish 映射
-    // ok→stop（主线词汇）；stop → onChatEnd 终稿入列 + 权威行重拉（收束三件
-    // 件套）；error → 红色错误条；interrupted → 已中断分隔符——渲染逻辑零
-    // 新增（主线 feed-core 既有 case）。
-    send({
-      type: 'loop/after-run',
-      data: {
-        args: [
-          {
-            agent: frame.meta?.agent,
-            conversationId: frame.meta?.conversationId,
-            sender: frame.meta?.sender,
-            source: frame.meta?.source,
-          },
-          {
-            finish: frame.finish === 'ok' ? 'stop' : frame.finish,
-            text: frame.text,
-            ...(frame.message !== undefined ? { error: frame.message } : {}),
-          },
-        ],
-      },
-    });
     return;
   }
   send({ type: 'llm/delta-end', data: { args: [{ model: undefined, meta: frame.meta }, frame.meta] } });

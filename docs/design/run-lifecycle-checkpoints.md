@@ -1,5 +1,11 @@
 # Run 生命周期：临时态与收敛 checkpoint 全景
 
+> **cr-976 注记（2026-11-10）**：直播帧词汇已一步切换（B 案——直播帧 = 事件日志 append 投影转发）：
+> `loop/step-started`·`after-step`·`after-run`、`tool/after-execute`、`session/run-settled` 帧族退役，
+> 收敛 checkpoint-2 = `run/settled` 帧（run-end 行 durable 落盘投影——E-2 疑点随词汇退役根治）。
+> 本文时序图与帧名按 2026-10-06 形态存档；现行消息链路事实源 = session-design.md §7，
+> 防御机制存续状态 = live-pipeline-event-projection-plan.md §5 落地列（门/探针/watchdog 全部保留在役）。
+
 > 背景：cr-106 吸收事故暴露的体系级缺口——前端「临时态等收束拉直」依赖 run 必然收束，
 > 而收敛 checkpoint 只有 after-run / run-settled 两个（外加发送侧 watchdog 一个孤立兜底）。
 > 悬挂 run（进程卡死、无收尾帧）期间切走切回，中间态只能靠 mergeHistory 的对齐猜测消化。

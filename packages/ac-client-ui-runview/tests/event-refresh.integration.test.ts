@@ -47,8 +47,8 @@ describe('runs 事件驱动刷新', () => {
     const fiber = await ctx.plugin(runviewClientPlugin);
     const n0 = stub.calls.length;
     stub.emit('loop/run-started');
-    stub.emit('loop/after-run');
-    stub.emit('loop/after-run');
+    stub.emit('run/settled');
+    stub.emit('run/settled');
     await new Promise((r) => setTimeout(r, 800));
     expect(stub.calls.length).toBeGreaterThanOrEqual(n0 + 1);
     expect(stub.calls.length).toBeLessThanOrEqual(n0 + 2); // 去抖窗口内合并
@@ -62,7 +62,7 @@ describe('runs 事件驱动刷新', () => {
     const fiber = await ctx.plugin(runviewClientPlugin);
     const n0 = stub.calls.length;
     stub.emit('llm/delta-text');
-    stub.emit('tool/after-execute');
+    stub.emit('tool/result');
     await new Promise((r) => setTimeout(r, 800));
     expect(stub.calls.length).toBe(n0);
     await fiber.dispose();

@@ -5,8 +5,9 @@
 // DSH 投影姿势的 Port B 形态：本 composable 不持领域 store——活值经
 // goal/get RPC 拉取，刷新时机全事件化：
 //   · 会话上下文切换（agentId/conversationId watch，immediate）
-//   · tool/after-execute 帧（name=goal 且 conversationId 命中本桶）
-//   · loop/after-run 帧（同桶收束兜底——后台过滤抑制的帧之后仍能对齐）
+//   · tool/result 帧（cr-976 B 案投影帧；name=goal 且会话命中本桶）
+//   · run/settled 帧（同桶收束兜底——durable 落盘驱动，后台过滤抑制的
+//     帧之后仍能对齐）
 // 服务未装载（ac-goal 行摘除）→ fetch 返回 null → 状态收敛为
 // undefined，dock 静默隐藏。
 // ============================================================
@@ -51,16 +52,16 @@ export function useGoalTracking(
   const off = rpc?.onEvent((type, args) => {
     const c = conversationId.value;
     if (!c) return;
-    if (type === 'tool/after-execute') {
-      const [call] = args as Array<{ name?: string; conversationId?: string } | undefined>;
-      if (call?.name === 'goal' && call.conversationId === c) {
+    if (type === 'tool/result') {
+      const [p] = args as Array<{ name?: string; subcall?: boolean; conversationId?: string } | undefined>;
+      if (p.subcall === true && p.name === 'goal' && p.conversationId === c) {
         void refresh();
       }
       return;
     }
-    if (type === 'loop/after-run') {
-      const [request] = args as Array<{ conversationId?: string } | undefined>;
-      if (request?.conversationId === c) void refresh();
+    if (type === 'run/settled') {
+      const [p] = args as Array<{ conversationId?: string } | undefined>;
+      if (p?.conversationId === c) void refresh();
     }
   }) ?? (() => undefined);
   onUnmounted(() => off());

@@ -15,6 +15,10 @@
 // ============================================================
 
 export { createBridgeCatalog, type BridgeEvent, type BridgeCatalog, type CatalogDeps } from './bridge-events.ts';
+export {
+  projectLedgerAppend, RUN_SETTLED_FRAME, STEP_JOURNALED_FRAME, TOOL_RESULT_FRAME,
+  type ProjectedFrame, type ProjectionMeta,
+} from './ledger-projection.ts';
 
 /** llm/delta 线帧的 input 投影（瘦身：剥 messages/tools 等全量上下文） */
 export function wireLlmInput(input: unknown): unknown {

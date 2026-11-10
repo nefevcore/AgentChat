@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-09T11:21:00.390Z",
+  "generatedAt": "2026-11-10T01:05:57.981Z",
   "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
   "tools": [
     {
@@ -2580,16 +2580,6 @@
       ]
     },
     {
-      "name": "conversation/run-settled",
-      "listeners": [
-        {
-          "owner": "root",
-          "prepend": false,
-          "global": false
-        }
-      ]
-    },
-    {
       "name": "durable-interaction/closed",
       "listeners": [
         {
@@ -2649,6 +2639,16 @@
     },
     {
       "name": "job/started",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
+      "name": "ledger/event-appended",
       "listeners": [
         {
           "owner": "root",
@@ -2728,11 +2728,6 @@
         },
         {
           "owner": "shell-ledger-row",
-          "prepend": false,
-          "global": false
-        },
-        {
-          "owner": "root",
           "prepend": false,
           "global": false
         }
@@ -2824,16 +2819,6 @@
       ]
     },
     {
-      "name": "loop/step-started",
-      "listeners": [
-        {
-          "owner": "root",
-          "prepend": false,
-          "global": false
-        }
-      ]
-    },
-    {
       "name": "session/context-injected",
       "listeners": [
         {
@@ -2876,11 +2861,6 @@
         {
           "owner": "SkillsService",
           "row": "ac-skill",
-          "prepend": false,
-          "global": false
-        },
-        {
-          "owner": "root",
           "prepend": false,
           "global": false
         }

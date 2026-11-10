@@ -28,11 +28,13 @@ describe('探针：run_code subcall 运行期的状态', () => {
     feed.ensureById(DIALOG as never).streaming = true;
     feed.ingestFrame('loop/run-started', [meta]);
     // step0：模型调用 run_code
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { ...meta, runId: 'r1', stepId: 'r1:0' }]);
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { delta: '写个程序' }]);
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: '{}' }] }]);
     console.log('host-toolfrag:', st(feed));
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '写个程序', toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: '{}' }] }, { ...meta, runId: 'r1', stepId: 'r1:0' }]);
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', step: 0, stepId: 'r1:0', seq: 100, rows: [
+      { type: 'step/content', text: '写个程序' },
+      { type: 'step/tool-call', toolCallId: 'hostCall', name: 'run_code', arguments: '{}' },
+    ] }]);
     console.log('host-after-step:', st(feed));
     // subcall 开始（run_code 程序内调用工具）
     feed.ingestFrame('tool/started', [{ agentId: 'alpha', conversationId: CONV, toolCallId: 'r1#1', name: 'read', runCodeSubcall: true, runId: 'r1' }]);

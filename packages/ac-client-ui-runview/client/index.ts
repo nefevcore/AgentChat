@@ -217,7 +217,7 @@ export class RunsClientService extends Service {
     // last 面）。WS 帧到达即刷（去抖 500ms——多帧连发合并一次拉取；run 结束
     // 的收束行落盘在 after-run 帧之前，到达时数据已 durable）。rpc.onEvent
     // 可选成员（测试桩可能缺省）——缺席时退化纯兜底轮询。
-    const triggerEvents = ['loop/run-started', 'loop/after-run', 'router/message-received'];
+    const triggerEvents = ['loop/run-started', 'run/settled', 'router/message-received'];
     let refreshDebounce: ReturnType<typeof setTimeout> | null = null;
     const scheduleEventRefresh = (): void => {
       if (refreshDebounce !== null) clearTimeout(refreshDebounce);

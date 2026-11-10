@@ -27,31 +27,19 @@ export type StreamFrame =
   /** run 启动通知（cr-592）：宿主桥接成主线 loop/run-started 前端帧
    * （前端 run 级忙态点亮 + run 计时锚重置）。stream = runId。 */
   | { stream: StreamId; kind: 'run-started'; meta?: StreamMeta }
-  /** 步启动通知（cr-592）：宿主桥接成主线 loop/step-started 前端帧——
-   * 前端思考卡的载体消息只在 step-started 帧消费里创建（carrier 索引），
-   * 缺席 = reasoning/delta 分片无载体可挂、思考直播零渲染。stream = stepId
-   * （主线 envelope.stepId = `${runId}:${index}`）。 */
-  | { stream: StreamId; kind: 'step-started'; index: number; meta?: StreamMeta }
-  /** 步收束通知（cr-592）：宿主桥接成主线 loop/after-step 前端帧（步载体
-   * 收束翻转 + 终值替换 + 「已思考 · Xs」后端权威计时 label）。step =
-   * 主线 LoopStepRecord 终值透传。stream = stepId。 */
-  | { stream: StreamId; kind: 'after-step'; step: unknown; meta?: StreamMeta }
-  /** 工具执行通知（cr-593）：主线 tool/started / tool/progress /
-   * tool/after-execute 直转——前端工具卡的执行期直播（结果回填/长任务
-   * 进度）。call = 主线 ToolCall 透传（agentId/conversationId/toolCallId/
-   * runId 路由身份全在 call 上）；stream = toolCallId ?? runId。
-   * 缺席后果：工具行直播期恒空（feed-core inFlight 判据含空 tool 行）
-   * → 收束重拉被判「run 在途」保留直播尾 → 权威行追加而非替换 =
-   * 终稿双卡（cr-593 症状1 由症状2 派生）。 */
+  /** 工具执行通知（cr-593）：主线 tool/started / tool/progress 直转——
+   * 前端工具卡的执行期直播（run_code 子调用占位 / 长任务进度）。call =
+   * 主线 ToolCall 透传（路由身份全在 call 上）；stream = toolCallId ??
+   * runId。终值不走本族——durable 事实经 ledger-event 的
+   * step/tool-call-result 行投影（tool/result 前端帧）。 */
   | { stream: StreamId; kind: 'tool-started'; call: unknown; meta?: StreamMeta }
   | { stream: StreamId; kind: 'tool-progress'; call: unknown; chunk: string; meta?: StreamMeta }
-  | { stream: StreamId; kind: 'tool-result'; call: unknown; result?: unknown; error?: unknown; meta?: StreamMeta }
-  /** run 收束通知（cr-591，run-error 泛化）：settle 点每 run 发射——宿主
-   * 桥接成主线 loop/after-run 前端帧（前端的收束三件套全挂该帧：清 busy /
-   * 终稿入列 / 权威行重拉；成功收束缺席 = busy 卡「运行中」+ 终稿只能刷新
-   * 可见）。text = 终稿；message = 失败文案（error 时）；meta 携带全套
-   * 路由键（宿主桥接按 agent/conversationId/sender/source 寻址会话）。 */
-  | { stream: StreamId; kind: 'run-settled'; finish: 'ok' | 'error' | 'interrupted'; text: string; message?: string; meta?: StreamMeta }
+  /** 事件日志追加通知（cr-976 B 案，D3-2 壳 ipc 事件面）：rows = 单个
+   * 串行队列切片内追加到 messages.jsonl 的行全集（含 seq，fsync 后发射）。
+   * 宿主投影转发层据此产出步级/工具/收束前端帧（帧 = 事件的视图，
+   * 收敛信号 = type:'run-end' 行——与 durable 落盘同一因果，E-2 根治）。
+   * stream = 首个带 run 键行的 run ?? conversationId（路由用，无语义）。 */
+  | { stream: StreamId; kind: 'ledger-event'; rows: Array<Record<string, unknown>>; meta?: StreamMeta }
   /** 队列快照推送（cr-579）：壳 ConversationMachine 队列变更点发射、宿主
    * 桥接成主线 conversation/queue-changed 前端帧（权威全量快照直接套用）。
    * stream = conversationId（路由键）；handle = 桶句柄；items = 快照行。 */
@@ -146,13 +134,10 @@ export function isStreamFrame(payload: unknown): payload is StreamFrame {
   if (f.kind === 'delta' && typeof (f as { text?: unknown }).text === 'string') return true;
   if (f.kind === 'end' && typeof (f as { finish?: unknown }).finish === 'string') return true;
   if (f.kind === 'run-started') return true;
-  if (f.kind === 'step-started' && typeof (f as { index?: unknown }).index === 'number') return true;
-  if (f.kind === 'after-step' && 'step' in f) return true;
   if (f.kind === 'tool-started' && 'call' in f) return true;
   if (f.kind === 'tool-progress' && typeof (f as { chunk?: unknown }).chunk === 'string') return true;
-  if (f.kind === 'tool-result' && 'call' in f) return true;
-  if (f.kind === 'run-settled' && typeof (f as { finish?: unknown }).finish === 'string'
-    && typeof (f as { text?: unknown }).text === 'string') return true;
+  if (f.kind === 'ledger-event' && Array.isArray((f as { rows?: unknown }).rows)
+    && (f as { rows: unknown[] }).rows.length > 0) return true;
   if (f.kind === 'queue-changed' && typeof (f as { handle?: unknown }).handle === 'string'
     && Array.isArray((f as { items?: unknown }).items)) return true;
   if (f.kind === 'interaction-opened' && 'record' in f) return true;

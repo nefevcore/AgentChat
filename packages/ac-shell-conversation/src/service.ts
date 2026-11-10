@@ -632,20 +632,9 @@ export class ConversationService extends Service {
         // anchorableRuns boot 补投面，不归消息重投面。
         this.ctx.ledger.inboxClear(uuid, env.requestId);
         this.noteSettled(runId, uuid, finish); // cr-748 收束尾巴（对账面）
-        // run 收束通知（cr-591，run-error 泛化）：每用户 run 收束即发——宿主
-        // 旁带桥接成主线 loop/after-run（前端清 busy / 终稿入列 / 权威行重拉
-        // 全挂该帧；成功收束缺席 = busy 卡「运行中」+ 终稿只能刷新可见）。
-        // 账本 settle 行仍是权威收束记录（旁带瞬态，B3 语义）；
-        // reviewRun 机制 run 不发。
-        this.ctx.emit('conversation/run-settled', {
-          conversationId: uuid,
-          runId,
-          finish,
-          text: result.text,
-          ...(finish === 'error' ? { message: result.error ?? `run 以 error 收束` } : {}),
-          sender: env.sender,
-          source: env.sender === 'user' ? 'user' : 'agent',
-        });
+        // run 收束通知（cr-591）随 cr-976 B 案退役：前端收敛信号 = run-end
+        // 行 durable 落盘（ledger/event-appended 投影 run/settled 帧——与
+        // 本 settle 同一因果，E-2 根治）；瞬态通知事件不再双发。
         // 终稿回复投递（R-2：终稿回复 = 一次普通 send——恒投回 sender；
         // user 回信经邮局 local 通道到 user 壳桩，跨壳回信投 sender 端点）。
         // user run 恒投（cr-628）：interrupted/error 收束常无终稿文本，此前

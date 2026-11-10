@@ -51,7 +51,6 @@ describe('光环偶发消失根修（cr-802）', () => {
     // 正常点亮 → 断连清场（onOpen 清 streaming）
     fire(rpc, 'loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
     expect(feed.getDialog(DLG)?.streaming).toBe(true);
-    fire(rpc, 'loop/step-started', ['alpha', 0, [], { runId: 'r1', stepId: 'r1:s1', conversationId: CONV, sender: 'user', source: 'user' }]);
     fire(rpc, ...DELTA('r1:s1'));
     rpc.openHandlers.forEach(fn => fn());
     expect(feed.getDialog(DLG)?.streaming).toBe(false); // 重连清场（复现前提）
@@ -65,10 +64,9 @@ describe('光环偶发消失根修（cr-802）', () => {
     const feed = feedCore.createFeedCore(rpc as never, () => new RosterCore());
     feed.init();
     fire(rpc, 'loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
-    fire(rpc, 'loop/step-started', ['alpha', 0, [], { runId: 'r1', stepId: 'r1:s1', conversationId: CONV, sender: 'user', source: 'user' }]);
     fire(rpc, ...DELTA('r1:s1'));
     // 纯文本步收束（无工具调用）→ streaming 熄灭（边界语义不变）
-    fire(rpc, 'loop/after-step', ['alpha', { index: 0, text: 'done', toolCalls: [] }, { runId: 'r1', stepId: 'r1:s1', conversationId: CONV, sender: 'user', source: 'user' }]);
+    fire(rpc, 'step/journaled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', step: 0, stepId: 'r1:s1', seq: 101, rows: [{ type: 'step/content', text: 'done' }] }]);
     expect(feed.getDialog(DLG)?.streaming).toBe(false);
   });
 
@@ -77,9 +75,8 @@ describe('光环偶发消失根修（cr-802）', () => {
     const feed = feedCore.createFeedCore(rpc as never, () => new RosterCore());
     feed.init();
     fire(rpc, 'loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
-    fire(rpc, 'loop/step-started', ['alpha', 0, [], { runId: 'r1', stepId: 'r1:s1', conversationId: CONV, sender: 'user', source: 'user' }]);
     // 首步带工具调用：收束后 run 仍在途（工具执行窗口）
-    fire(rpc, 'loop/after-step', ['alpha', { index: 0, text: '', toolCalls: [{ id: 't1', name: 'read', arguments: {} }] }, { runId: 'r1', stepId: 'r1:s1', conversationId: CONV, sender: 'user', source: 'user' }]);
+    fire(rpc, 'step/journaled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', step: 0, stepId: 'r1:s1', seq: 102, rows: [{ type: 'step/tool-call', toolCallId: 't1', name: 'read', arguments: '{}' }] }]);
     expect(feed.getDialog(DLG)?.streaming).toBe(true); // 工具执行窗口不熄灭
     // 模拟清场后第二步 delta 到场（重连窗口）→ 重点亮
     rpc.openHandlers.forEach(fn => fn());

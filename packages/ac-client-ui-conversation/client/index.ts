@@ -175,8 +175,8 @@ export const conversationClientPlugin = clientPlugin({
       description: 'composer 上方任务追踪 dock 卡列（★slot-tree chat:composer-docks 收编；M30 D5 自 tracking:dock-widget 改名——第一段 = 宿主件；dock 序重排 2026-09-13：决策(10) → 审批(20) → 排队(30) → 任务(40) → 目标(50)——待办行动卡置顶；cr-744 增状态(5)置顶；store 座位实例轴 scope=session）',
       ownerProps: {
         // 刷新时机契约（slot-tree §… dock 候选注记）：贡献卡自理数据——
-        // 会话切换 + tool/after-execute · loop/after-run 事件模式
-        refreshPattern: 'tool/after-execute · loop/after-run',
+        // 会话切换 + tool/result · run/settled 事件模式（cr-976 B 案帧族）
+        refreshPattern: 'tool/result · run/settled',
         // 三态契约：undefined = 能力不可用静默 / null|空 = 不渲染（不占位）
         triState: true,
       },

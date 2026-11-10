@@ -98,6 +98,20 @@ describe('8.5d ws-bridge 旁带接线（壳 → 宿主 → webui 流式全链）
       // 等流式帧：delta-batch（含 mock 回声增量）+ delta-end（finish ok）
       await waitFor(frames, (f) => f.type === 'llm/delta-batch');
       await waitFor(frames, (f) => f.type === 'llm/delta-end');
+      // cr-976 B 案投影帧族：事件落盘通知 → 投影转发（步终值 + run 收束）
+      // ——run/settled 到达 = run-end 已 durable（E-2 修复实证：收敛信号有发射方）
+      await waitFor(frames, (f) => f.type === 'step/journaled');
+      await waitFor(frames, (f) => f.type === 'run/settled');
+      const journaled = frames.find((f) => f.type === 'step/journaled')!;
+      const jArgs = journaled.data.args[0] as { agent?: string; conversationId?: string; run?: string; rows?: unknown[] };
+      expect(jArgs.agent).toBe('alpha');
+      expect(jArgs.conversationId).toBe(uuid);
+      expect(Array.isArray(jArgs.rows)).toBe(true);
+      const settledFrame = frames.find((f) => f.type === 'run/settled')!;
+      const sArgs = settledFrame.data.args[0] as { agent?: string; conversationId?: string; finish?: string };
+      expect(sArgs.agent).toBe('alpha');
+      expect(sArgs.conversationId).toBe(uuid);
+      expect(sArgs.finish).toBe('stop');
       // 帧形对拍（前端 feed-core 可路由性）：args = [input(投影), chunk, meta]
       const batch = frames.find((f) => f.type === 'llm/delta-batch')!;
       const deltas = (batch.data.args[0] as { deltas: unknown[][] }).deltas;
@@ -115,6 +129,29 @@ describe('8.5d ws-bridge 旁带接线（壳 → 宿主 → webui 流式全链）
       const [endInput] = end.data.args as [{ meta?: Record<string, string> }];
       expect(endInput.meta?.agent).toBe('alpha');
       expect(endInput.meta?.conversationId).toBe(uuid);
+
+      // cr-976 B 案（P3-1 验收 #4——E-2 修复实证半边）：run/settled 帧由
+      // run-end 行 durable 落盘驱动（与重拉权威同一因果链），帧携带 seq
+      // 与日志行一致；旧帧族（loop/after-run / session/run-settled）零出现
+      // ——收敛信号单事实。
+      await waitFor(frames, (f) => f.type === 'run/settled');
+      const settled = frames.filter((f) => f.type === 'run/settled');
+      expect(settled).toHaveLength(1);
+      const sp = settled[0]!.data.args[0] as { agent?: string; conversationId?: string; run?: string; seq?: number; finish?: string; text?: string };
+      expect(sp).toMatchObject({ agent: 'alpha', conversationId: uuid, finish: 'stop' });
+      expect(typeof sp.seq).toBe('number');
+      expect(sp.text).toContain('[mock 回复');
+      // 帧锚 seq ≡ 日志 run-end 行 seq（durable 因果实证：帧 = 事实的视图）
+      const logFile = path.join(ROOT, 'agents', 'alpha', 'sessions', uuid, 'messages.jsonl');
+      const logRows = fs.readFileSync(logFile, 'utf-8').split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as Record<string, unknown>);
+      const runEnd = logRows.find((r) => r.type === 'run-end');
+      expect(runEnd).toBeDefined();
+      expect(runEnd!.seq).toBe(sp.seq);
+      // 旧帧族缺席（D3-3 一步切换——直播帧不再是第二事实源）
+      expect(frames.some((f) => f.type === 'loop/after-run')).toBe(false);
+      expect(frames.some((f) => f.type === 'session/run-settled')).toBe(false);
+      // step/journaled 投影帧在场（帧序 ≡ 事件行序的全链体现）
+      expect(frames.some((f) => f.type === 'step/journaled')).toBe(true);
     } finally {
       ws.close();
       await host.close();

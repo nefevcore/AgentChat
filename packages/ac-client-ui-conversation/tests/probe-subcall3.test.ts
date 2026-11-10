@@ -23,7 +23,6 @@ describe('探针：真实分片形态（无 id 幻影 → 有 id）+ run_code �
     feed.append(DIALOG as never, { id: 'u1', role: 'agent', content: 'hi', timestamp: Date.now(), agent_id: 'user' });
     feed.ensureById(DIALOG as never).streaming = true;
     feed.ingestFrame('loop/run-started', [meta]);
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { ...meta, runId: 'r1', stepId: 'r1:0' }]);
     // 思考流（GLM 先思考）
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { reasoning: '计划' }]);
     console.log('1.reasoning:', st(feed));
@@ -33,8 +32,10 @@ describe('探针：真实分片形态（无 id 幻影 → 有 id）+ run_code �
     // 分片继续（id 出现）
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: 'e":1}' }] }]);
     console.log('3.frag-id:', st(feed));
-    // after-step 收束 → run_code 执行（无 tool/started——宿主是模型直调工具，无 started 帧！）
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '', toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: '{}' }] }, { ...meta, runId: 'r1', stepId: 'r1:0' }]);
+    // step/journaled 收束 → run_code 执行（无 tool/started——宿主是模型直调工具，无 started 帧！）
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', step: 0, stepId: 'r1:0', seq: 100, rows: [
+      { type: 'step/tool-call', toolCallId: 'hostCall', name: 'run_code', arguments: '{}' },
+    ] }]);
     console.log('4.after-step(run_code 执行中):', st(feed));
     // 【run_code 长执行——没有任何帧到达的窗口】
     console.log('5.长执行窗口:', st(feed));

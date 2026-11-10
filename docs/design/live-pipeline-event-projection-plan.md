@@ -2,10 +2,13 @@
 // 独立项目）的设计提案 + 分阶段实施清单（cr-975 登记，2026-11-10 立项）。
 // 前置依赖：cr-973（viewer 读时投影 + 指针索引）/ cr-974（事件词汇 v2 + fold
 // 单源 + run-end durable）已实施（提交 5956ed1b / 4cccc96b / 2c44f738）。
-// 状态：**D3-1~D3-5 已裁**（2026-11-10 用户裁决，见 §4）——D3-1 delta 不走落盘
-// 转发；D3-2 通知走壳 ipc 事件面（step-journaled 泛化）；D3-3 一步切换
-//（不双写——双写清理易遗忘）；D3-4 feed-core 一次性重构（风险集中认赔）；
-// D3-5 remote-link 滞后，留待其重写一并处理。实施清单按裁决定稿（§6）。
+// 状态：**已实施（cr-976，2026-11-10）**——P3-1（ledger/event-appended 泛化 + ledger-event 旁带帧
+// + ac-wire-format ledger-projection 投影层 + 旧帧族一步删除）与 P3-2（feed-core 合流层一次性重构：
+// seq 恒等吸收 + 收敛驱动换源 run/settled + 载体惰性建卡）落地；P3-3 防御重论证逐条登记（§5 落地列）。
+// 实施补充裁决：session/context-injected 帧保留（resume/resume-degraded 路径无 inject 行，帧面未被
+// 事件行全覆盖；journaled inject 与该帧同锚同时发射，新增投影帧反而双渲染）；tool/started·progress
+// 为流时序帧保留（D3-1 两时标承认的推论——subcall 占位与长任务进度无 durable 行）。D3-1~D3-5 原裁决
+// 见 §4（2026-11-10 用户裁决）。
 
 # 直播管线 B 案：事件投影转发（cr-975 / cr-972 Phase 3）
 
@@ -92,44 +95,42 @@ ws-bridge（llm/delta 流帧照旧 30ms 微批；新帧族直转）→ 前端 fe
 | D3-4 | feed-core 合流层重构切分 | **一次性重构**（不做渐进三步） |
 | D3-5 | remote-link 同构时机 | **滞后**——留待 remote-link 重写时一并处理 |
 
-## 5. 防御机制逐条重论证清单（cr-972 §3.2 红线兑现）
+## 5. 防御机制逐条重论证清单（cr-972 §3.2 红线兑现；落地列 = cr-976 实施登记）
 
-| # | 机制 | 事故背景 | B 案下的处置候选 |
-|---|---|---|---|
-| 1 | cr-106 吸收身份门 | 用户落盘行被身份吸收进 Agent 占位（镜像事故） | 帧带 seq 恒等 → 吸收按键恒等；身份门保留为第二道（等价物：恒等门） |
-| 2 | cr-107 悬挂流探针 | 收尾帧缺席 → 占位无限残留 | run-settled 帧由 durable 事实驱动 → 悬挂主因（事件丢失）消除；探针降级为「通知面死亡探测」（后端不可达仍不可区分——保留） |
-| 3 | 发送 watchdog | 投递失败红条 + 流式态回落 | 与帧路径无关（投递面）——**保留原样** |
-| 4 | after-run +500ms 兜底 | run-settled 事件丢失时的收敛保险 | 正确性归 run-end durable 通知；窗口保留为通知可达性保险（可延长/保留） |
-| 5 | 防自激（会话状态机） | 帧回流触发新 run | 不变（宿主→前端单向，帧不写会话态——本方案不动） |
-| 6 | 指纹短路 | 切换重入全读浪费 | **保留**（cr-973/974 已同源：索引指纹 → fold） |
+| # | 机制 | 事故背景 | B 案下的处置候选 | 落地（cr-976） |
+|---|---|---|---|---|
+| 1 | cr-106 吸收身份门 | 用户落盘行被身份吸收进 Agent 占位（镜像事故） | 帧带 seq 恒等 → 吸收按键恒等；身份门保留为第二道（等价物：恒等门） | **保留原样**（mergeHistory 身份门 + 空载门不动）；stepId 键控路径即「恒等门」——step/journaled 帧到达即锚 seq 到载体，键即身份 |
+| 2 | cr-107 悬挂流探针 | 收尾帧缺席 → 占位无限残留 | run-settled 帧由 durable 事实驱动 → 悬挂主因（事件丢失）消除；探针降级为「通知面死亡探测」（后端不可达仍不可区分——保留） | **保留原样**（180s 探针 + conversation/stats 判活 + force 收敛）；durable 驱动消除「事件丢失」主因，探针继续覆盖通知面死亡与盲区 |
+| 3 | 发送 watchdog | 投递失败红条 + 流式态回落 | 与帧路径无关（投递面）——**保留原样** | **保留原样**（30s armSendWatchdog + 权威 stats 判活） |
+| 4 | after-run +500ms 兜底 | run-settled 事件丢失时的收敛保险 | 正确性归 run-end durable 通知；窗口保留为通知可达性保险（可延长/保留） | **退役**：正确性归 run/settled（durable 因果）；可达性保险 = 重连对账重拉（rpc.onOpen 只重拉活跃分区）+ 探针 + watchdog——帧丢失 ⇔ ws 断 ⇔ 重连补偿，同因同补 |
+| 5 | 防自激（会话状态机） | 帧回流触发新 run | 不变（宿主→前端单向，帧不写会话态——本方案不动） | **不变**（投影层只读日志事实，零会话态写入） |
+| 6 | 指纹短路 | 切换重入全读浪费 | **保留**（cr-973/974 已同源：索引指纹 → fold） | **保留原样**（服务端 unchanged 轻载荷；run/settled 落盘已改文件 → 指纹天然失效，无需显式失效面） |
 
 > 每条在实施对应阶段落地时必须写「等价物证明或失效证明」并登记 CR——
 > 本表是承诺清单，不是默认作废清单。
 
 ## 6. 实施清单（阶段化，每阶段独立验收；按 §4 裁决定稿）
 
-### P3-1 通知源与帧词汇（不碰前端）
-1. `ledger/event-appended` 事件（type/seq/run/stepId?/ts——泛化 step-journaled，旧事件保留兼容窗）
-2. wire-format 新帧族：`run/settled`、步级/工具/注入投影帧（seq 锚直通）；**旧帧族同批删除**（D3-3 一步切换）
-3. ws-bridge 投影转发模块 + run-end 强制 flush
-4. 验证：帧序 ≡ 事件行序（golden）；E-2 修复实证（杀宿主/断 ws，重连后零双归/零丢失）
+### P3-1 通知源与帧词汇（不碰前端）——✅ 已实施（cr-976）
+1. `ledger/event-appended` 事件（type/seq/run/stepId?/ts——泛化 step-journaled，旧事件保留兼容窗）：落点 ac-ledger writer onAppend 回调（deliver/appendEvents/settle 各切片 fsync 后发射）
+2. wire-format 新帧族：`run/settled`、`step/journaled`、`tool/result`（ledger-projection.ts 纯函数，seq 锚直通）；旧帧族同批删除（D3-3：loop/step-started·after-step·after-run、tool/after-execute、session/run-settled、ledger/step-journaled、run-settled/step-started/after-step/tool-result 旁带帧族）
+3. ws-bridge 投影转发模块 + run-end 强制 flush：落点 ac-post-office stream-bridge（消费 ledger-event 旁带帧 → projectLedgerAppend；run/settled 前 flushNow）
+4. 验证：帧序 ≡ 事件行序（p3-ledger-projection.test 黄金对拍）；E-2 修复实证（e2e-stream：run/settled 帧 seq ≡ 日志 run-end 行 seq，旧帧族零出现）
 
-### P3-2 feed-core 合流层一次性重构（D3-4）
-1. 单批重构：seq 恒等吸收 + 收敛驱动换源（run/settled 帧；+500ms 降级保险）+
-   双源合流收窄为单管线（历史分页 = fold 增量 + seq 水位；resume 合并同源）
-2. 验证：直播/历史同源断言（帧投影增量 ≡ fold 全量重放的前缀差分）；
-   cr-106/107 回归用例全绿；断连重连幂等
+### P3-2 feed-core 合流层一次性重构（D3-4）——✅ 已实施（cr-976）
+1. 单批重构：seq 恒等吸收（step/journaled 锚定块——水位只进不退 + 载体 seq 锚，锚定在建卡之后：载体缺席窗口首帧不丢 seq）+ 收敛驱动换源（run/settled 帧 delay=0；+500ms 退役归 §5 #4）+ 载体惰性建卡（首个带 stepId 的 delta / step/journaled 兜底——step-started 帧退役的对应物）
+2. 验证：60 文件 / 302 用例全绿（含 cr-106/107 回归族、断连重连幂等 resync-converge、b2-frame-seq 按新语义重写）
 
-### P3-3 防御机制重论证落地（§5 兑现 + 逐条 CR）
+### P3-3 防御机制重论证落地（§5 兑现 + 逐条 CR）——✅ 已登记（cr-976，见 §5 落地列）
 
 ### P3-4 remote-link / lite 面同构（D3-5：滞后——留待 remote-link 重写一并处理；
 本项在此前维持 lite 投影同源现状，帧面不迁）
 
-### P3-5 收尾
+### P3-5 收尾——✅ 已实施（cr-976）
 - 旧帧词汇已在 P3-1 删除（一步切换无清理尾巴）；feed-core 单体切分延续（cr-956 轨）
-- 文档：session-design §7（消息链路）改版 + 本文档状态戳；README 架构面
+- 文档：session-design §7 已按 B 案改版 + 本文档状态戳；README 架构面无直播管线专段（§7 单源）
 - **回滚边界变更**（一步切换的代价认赔）：P3-1+P3-2 合并为一个可回滚单元
-  （git revert 整批；双写窗不存在）——发布前需整批过全量 + e2e
+  （git revert 整批；双写窗不存在）——发布前需整批过全量 + e2e（✅ 417 文件 / 3005 用例 + 集成全绿）
 
 ## 7. 验收与回滚
 

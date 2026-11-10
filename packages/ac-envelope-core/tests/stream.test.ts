@@ -8,23 +8,24 @@ describe('M7.2 B3 流式旁带', () => {
   it('isStreamFrame 判别：delta/end 合法，信封/ack/杂物非法', () => {
     expect(isStreamFrame({ stream: 's1', kind: 'delta', text: 'hi' })).toBe(true);
     expect(isStreamFrame({ stream: 's1', kind: 'end', finish: 'ok' })).toBe(true);
-    expect(isStreamFrame({ stream: 'r1', kind: 'run-settled', finish: 'error', text: '', message: '连接超时' })).toBe(true);
-    expect(isStreamFrame({ stream: 'r1', kind: 'run-settled', finish: 'ok', text: '终稿' })).toBe(true);
-    expect(isStreamFrame({ stream: 'r1', kind: 'run-settled', finish: 'ok' })).toBe(false); // 缺 text
+    // cr-976 B 案（D3-3）：run-settled / step-started / after-step /
+    // tool-result 帧族退役——判别面拒识（旧词汇旁带帧不再合法）
+    expect(isStreamFrame({ stream: 'r1', kind: 'run-settled', finish: 'error', text: '', message: '连接超时' })).toBe(false);
+    expect(isStreamFrame({ stream: 'run-r1:0', kind: 'step-started', index: 0 })).toBe(false);
+    expect(isStreamFrame({ stream: 'run-r1:0', kind: 'after-step', step: { stepId: 'run-r1:0' } })).toBe(false);
+    expect(isStreamFrame({ stream: 'call-1', kind: 'tool-result', call: {}, result: { ok: true } })).toBe(false);
     expect(isStreamFrame({ stream: 'c1', kind: 'queue-changed', handle: 'c1~a', items: [] })).toBe(true);
     expect(isStreamFrame({ stream: 'c1', kind: 'queue-changed', items: [] })).toBe(false); // 缺 handle
-    // cr-592 run 生命周期帧：run-started / step-started / after-step
+    // cr-592 run 生命周期帧：run-started（流时序帧，D3-1 保留）
     expect(isStreamFrame({ stream: 'run-r1', kind: 'run-started' })).toBe(true);
-    expect(isStreamFrame({ stream: 'run-r1:0', kind: 'step-started', index: 0 })).toBe(true);
-    expect(isStreamFrame({ stream: 'run-r1:0', kind: 'step-started' })).toBe(false); // 缺 index
-    expect(isStreamFrame({ stream: 'run-r1:0', kind: 'after-step', step: { stepId: 'run-r1:0' } })).toBe(true);
-    expect(isStreamFrame({ stream: 'run-r1:0', kind: 'after-step' })).toBe(false); // 缺 step
-    // cr-593 工具执行帧
+    // cr-976 事件日志落账帧：rows 非空数组即合法
+    expect(isStreamFrame({ stream: 'run-r1', kind: 'ledger-event', rows: [{ type: 'run-end', run: 'run-r1', seq: 9 }] })).toBe(true);
+    expect(isStreamFrame({ stream: 'run-r1', kind: 'ledger-event', rows: [] })).toBe(false); // 空批
+    expect(isStreamFrame({ stream: 'run-r1', kind: 'ledger-event' })).toBe(false); // 缺 rows
+    // cr-593 工具执行流帧（started/progress 保留；终值走 ledger-event）
     expect(isStreamFrame({ stream: 'call-1', kind: 'tool-started', call: { toolCallId: 'call-1' } })).toBe(true);
     expect(isStreamFrame({ stream: 'call-1', kind: 'tool-progress', call: {}, chunk: '半截输出' })).toBe(true);
     expect(isStreamFrame({ stream: 'call-1', kind: 'tool-progress', call: {} })).toBe(false); // 缺 chunk
-    expect(isStreamFrame({ stream: 'call-1', kind: 'tool-result', call: {}, result: { ok: true } })).toBe(true);
-    expect(isStreamFrame({ stream: 'call-1', kind: 'tool-result' })).toBe(false); // 缺 call
     // cr-625 持久化交互帧
     expect(isStreamFrame({ stream: 'dur-1', kind: 'interaction-opened', record: { id: 'dur-1' } })).toBe(true);
     expect(isStreamFrame({ stream: 'dur-1', kind: 'interaction-replied', record: { id: 'dur-1' } })).toBe(true);

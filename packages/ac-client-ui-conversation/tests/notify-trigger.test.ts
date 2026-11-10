@@ -4,7 +4,7 @@
 //
 // 锁定 feed-core 两触发点 → notifyBridge 队列：
 //   · Agent 私信（router/message-received，页面后台 + 非当前会话）入队；
-//   · run 收束（loop/after-run finish=stop，非活跃会话）入队；
+//   · run 收束（run/settled finish=stop，非活跃会话）入队；
 //   · 正在看的会话/页面可见 → 不打扰（队列空）。
 // 手法：全局 window 桩（hidden 态）先于 feed-core import 注入；
 // roster 注入空名册（标题回落 agent id）。
@@ -22,8 +22,10 @@ let win: Win;
 let feedCore: typeof import('../client/feed-core.ts');
 let agents: typeof import('ac-client-ui-agents/client');
 
+// rpc 桩：session/history 静默成功（run/settled 帧触发 delay=0 收敛重拉——
+// 拒绝形态会走 feed-core 的 logger.warn，node 测试环境无 window 抛二次错）
 const offlineRpc = {
-  call: () => Promise.reject(new Error('offline')),
+  call: () => Promise.resolve({ records: [], hasMore: false }),
   onEvent: () => () => undefined,
 } as const;
 
@@ -56,13 +58,12 @@ describe('私信通知（showInbound 触发点）', () => {
   });
 });
 
-describe('run 收束通知（loop/after-run 触发点）', () => {
+describe('run 收束通知（run/settled 触发点）', () => {
   it('finish=stop + 非活跃会话 + 页面后台 → 入队（标题带「已完成」）', () => {
     win.__agentchatNotifyQueue = [];
     const feed = makeFeed();
-    feed.ingestFrame('loop/after-run', [
-      { agent: 'alpha', conversationId: 'alpha~user', sender: 'user', source: 'user' },
-      { finish: 'stop', text: '任务完成，产物在 x.ts' },
+    feed.ingestFrame('run/settled', [
+      { agent: 'alpha', conversationId: 'alpha~user', run: 'r1', finish: 'stop', text: '任务完成，产物在 x.ts' },
     ]);
     expect(win.__agentchatNotifyQueue).toHaveLength(1);
     expect(win.__agentchatNotifyQueue![0]).toMatchObject({
@@ -75,9 +76,8 @@ describe('run 收束通知（loop/after-run 触发点）', () => {
   it('finish=error 不通知（错误已有红条反馈）', () => {
     win.__agentchatNotifyQueue = [];
     const feed = makeFeed();
-    feed.ingestFrame('loop/after-run', [
-      { agent: 'alpha', conversationId: 'alpha~user', sender: 'user', source: 'user' },
-      { finish: 'error', error: 'boom' },
+    feed.ingestFrame('run/settled', [
+      { agent: 'alpha', conversationId: 'alpha~user', run: 'r1', finish: 'error', text: '', error: 'boom' },
     ]);
     expect(win.__agentchatNotifyQueue).toHaveLength(0);
   });

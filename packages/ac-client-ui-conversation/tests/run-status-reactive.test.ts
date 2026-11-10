@@ -27,7 +27,6 @@ describe('探针：真实组件挂载 + 逐帧 reasoning', () => {
     feed.append('pair:alpha|user' as never, { id: 'u1', role: 'agent', content: 'hi', timestamp: Date.now(), agent_id: 'user' });
     feed.ensureById('pair:alpha|user' as never).streaming = true;
     feed.ingestFrame('loop/run-started', [meta]);
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { ...meta, runId: 'r1', stepId: 'r1:0' }]);
     await nextTick();
     console.log('T1 started:', root.textContent?.trim());
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { reasoning: '思' }]);

@@ -142,31 +142,21 @@ export function createBridgeCatalog(deps: CatalogDeps): BridgeCatalog {
       const c = call as { agentId?: string; conversationId?: string } | undefined;
       return hiddenOf(c?.agentId, c?.conversationId, undefined) ? undefined : [call, chunk];
     } },
-    // ── L2 loop：run 边界广播不过滤（登记/清表）；step 级按 envelope ──
+    // ── L2 loop：run 边界广播不过滤（登记/清表）──
+    // cr-976 B 案（D3-3 一步切换）：loop/step-started · loop/after-step ·
+    // tool/after-execute · ledger/step-journaled · session/run-settled 退役——
+    // durable 事实面改由 ledger-event 投影帧族承载（step/journaled ·
+    // tool/result · run/settled，见 ledger-projection.ts；壳链路经旁带帧，
+    // 宿主链路经 stream-bridge）。tool/started·progress 保留（流时序帧，
+    // 与 delta 同类——D3-1 两时标承认）。
     { name: 'loop/run-started', wire: ([request]) => {
       const r = request as { agent?: string; conversationId?: string; source?: string; meta?: Record<string, unknown> } | undefined;
       registerRun(r?.agent, r?.conversationId, r?.source, r?.meta);
       return [request];
     } },
-    { name: 'loop/step-started', wire: (a) => {
-      const envelope = a[3] as { conversationId?: string; source?: string } | undefined;
-      return hiddenOf(a[0] as string, envelope?.conversationId, envelope?.source) ? undefined : a;
-    } },
-    { name: 'loop/after-step', wire: (a) => {
-      const envelope = a[2] as { conversationId?: string; source?: string } | undefined;
-      return hiddenOf(a[0] as string, envelope?.conversationId, envelope?.source) ? undefined : a;
-    } },
-    { name: 'loop/after-run', wire: ([request, result]) => {
-      const r = request as { agent?: string; conversationId?: string } | undefined;
-      clearRun(r?.agent, r?.conversationId);
-      return [request, result]; // 边界事件：隐藏 run 也广播
-    } },
-    // ── ledger：journal 步行锚（B2 帧携带——落盘后补发，载荷单对象；与
-    // loop/after-step 同款隐藏面判定：机制 run 的步锚不进前端流） ──
-    { name: 'ledger/step-journaled', wire: (a) => {
-      const p = a[0] as { agent?: string; conversationId?: string } | undefined;
-      return hiddenOf(p?.agent, p?.conversationId, undefined) ? undefined : a;
-    } },
+    // loop/after-run 目录项随 cr-976 退役（前端收束帧 = run/settled，durable
+    // 事实驱动——隐藏 run 登记表清表点随之消失；run 级隐藏判定本身低频且
+    // 随目录实例生命周期回收，主线路径不受影响）。
     // ── L3 router / conversation / group ──
     { name: 'router/message-received', wire: ([agentId, message, conversationId, sender, source, meta]) =>
       (deps.isGroupHint(meta as Record<string, unknown> | undefined) ? undefined : [agentId, message, conversationId, sender, source]) },
@@ -175,7 +165,6 @@ export function createBridgeCatalog(deps: CatalogDeps): BridgeCatalog {
       (deps.isGroupHint(meta as Record<string, unknown> | undefined) ? undefined : [agentId, message, conversationId, handle, sender, source]) },
     { name: 'conversation/queue-changed', wire: (a) => a },
     { name: 'session/context-injected', wire: (a) => a },
-    { name: 'session/run-settled', wire: (a) => a },
     { name: 'group/created', wire: (a) => a },
     { name: 'group/deleted', wire: (a) => a },
     { name: 'group/renamed', wire: (a) => a },

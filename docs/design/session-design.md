@@ -417,7 +417,7 @@ singles 是最自包含的形态（无对端 Agent、模型覆盖恒定 = 路由
 
 ---
 
-## 7. 消息链路（四层 + 收敛协议）
+## 7. 消息链路（四层 + 收敛协议，cr-976 B 案改版）
 
 > 本章吸收 `message-pipeline-analysis.md`（cr-87 根因分析）的有效结论——其 D1/D2 两方向已实施（cr-94/95），
 > 原文件 2026-10-06 归档 `docs/design/archive/message-pipeline-analysis.md`；主根因已消解，F/D 的裁决沿革见 §7.5。
@@ -425,53 +425,39 @@ singles 是最自包含的形态（无对端 Agent、模型覆盖恒定 = 路由
 ### 7.1 四层链路
 
 ```
-L1 写路径   ac-shell-conversation(状态机/串行化门/inbox) → ac-agent-loop(事件) → ws-bridge(帧桥)
-            产出：emit 事件流（delta/step/run 边界）——「直播管线」
-L2 存储     ac-ledger：journal/partials.jsonl(台账) → settlement 切段物化 → messages.jsonl(定稿流)
-            subcalls.jsonl 子调用永久档案并行；三文件分工见 §3.2
+L1 写路径   ac-shell-conversation(状态机/串行化门/inbox) → ac-agent-loop(事件) → ac-ledger writer(事件日志)
+            产出：v2 单文件事件日志（cr-974）；直播帧 = 落账事件的投影转发（cr-976 B 案）
+            ——壳 ledger/event-appended 旁带 → 宿主 ShellStreamBridge 投影（ac-wire-format
+            ledger-projection）→ step/journaled · tool/result · run/settled 前端帧；
+            llm/delta 流帧不经落盘（D3-1 两时标承认，30ms 微批仍在传输层）
+L2 存储     ac-ledger：messages.jsonl 单文件事件日志（cr-974——v1 三文件读兼容一个版本，§3.2）
+            run-end 标记行落账即 durable（唯一收束信号——与 L1 收束帧同一因果）
 L3 读路径   ① LLM history()（每 run 上下文重派生，viewer 投影）
-            ② web-api session/history（webui 首屏/分页，records() 活投影；lite 投影归 ac-session）
-            ③ remote-link forwardRpc（手机端：钳页 + lite 投影 + 加密帧）
+            ② web-api session/history（webui 首屏/分页，fold 活投影 + view 参数化；lite 投影归 ac-ledger）
+            ③ remote-link forwardRpc（手机端：钳页 + lite 投影 + 加密帧；帧面未迁——D3-5 滞后）
 L4 前端     ac-client-ui-conversation：feed-core(分区 ingest + 历史分页) + feed.ts(纯函数合流层)
             → buildTurns → 渲染；席位/视图归行包（message:final-view 等）
 ```
 
-- **下行线格式共享纯库 `ac-wire-format`**（cr-85/108/112）：`llm/delta` 瘦身投影（`wireLlmInput`：帧面只留 `{model, meta}`）+ 30ms 微批（`LlmDeltaBatcher`）；
-  `BRIDGE_EVENTS` 目录（cr-108，42 事件全量）为 ws-bridge 与 remote-link 的共用桥接策略源；单批器漏斗 `WireBatcher`（cr-112，全事件 100ms 微批，首帧直发保交互；`durable-interaction/`、`ws/`、`remote/`、`system/` 前缀原生直发）。
-- **关键事实**：直播流（WS 事件）与历史投影（RPC）仍是两条物理独立的管线，最终视图是两者在前端合并的结果——
-  但**替换不再是时序赌注**（§7.2 收敛协议）。
+- **下行线格式共享纯库 `ac-wire-format`**（cr-85/108/112/976）：`llm/delta` 瘦身投影（`wireLlmInput`：帧面只留 `{model, meta}`）+ 30ms 微批（`LlmDeltaBatcher`）；
+  桥接目录（cr-108）+ **事件投影层 `ledger-projection`**（cr-976——落账行 → 帧族纯函数，帧身份 = 事件身份：seq 锚直通）；单批器漏斗 `WireBatcher`（cr-112，全事件 100ms 微批，首帧直发保交互；`durable-interaction/`、`ws/`、`remote/`、`system/` 前缀原生直发）。
+- **关键事实**（cr-976 B 案后）：**直播与历史同源**——身份/步/收束帧 = 事件日志 append 的投影转发，帧不是第二事实而是事实的视图；断连丢帧无损（重连 = 重拉 fold 投影，帧只读日志事实不写会话态）。旧帧族（`loop/step-started`·`after-step`·`after-run`、`tool/after-execute`、`session/run-settled`、`ledger/step-journaled`）已一步切换删除（D3-3）；`tool/started`·`progress` 与 `loop/run-started` 为流时序帧保留（D3-1）。
 
-### 7.2 收敛协议（cr-94 D1，已实施）：显式信号取代赌窗
+### 7.2 收敛协议（cr-94 D1 → cr-976 B 案改版）：收敛单事实 = durable 落盘
 
-**后端**：settlement 物化完成后 emit **`conversation/run-settled`**（壳侧，`ac-shell-conversation/src/service.ts`）——宿主 `ac-post-office/stream-bridge` 把它桥为 **`loop/after-run`** 下发给前端。
+**收敛信号（现行，cr-976）**：run 收束 = `run-end` 标记行 durable 落盘（fsync 后经 `ledger/event-appended` 泛化通知）
+→ 宿主投影转发 **`run/settled`** 帧（finish/usage/runMs + 同批终稿 text + seq 锚）→ 前端 **delay=0 即时重拉**首屏。
+「落盘通知」与「重拉权威」合为一条因果链——帧与日志行 seq 恒等。宿主 poller 对账（cr-748）同形补投 `run/settled`
+（seq 缺席——对账面无行级锚，前端按会话幂等收敛）。
 
-> ⚠️ **疑点（2026-10-27 cr-726 审查）**：原设计的 `session/run-settled` 事件**全树无 emit 调用**
-> （仅剩类型声明与前端消费）——即「delay=0 即时重拉」驱动现行不可达，只剩 `loop/after-run` +500ms 兜底。
-> 可能是 cutover 漏移植，也可能有意只留兜底。详见 Note 归档根 `docs-review-2026-10-27/suspects-总清单.md`。
+> ✅ **E-2 已收口（cr-976，2026-11-10）**：原 cr-726 疑点（`session/run-settled` 全树无 emit——「delay=0 即时重拉」
+> 不可达，只剩 `loop/after-run` +500ms 兜底）由 B 案根治：收敛信号不再是一个独立事件，而是 durable 事实本身的投影；
+> 该词汇整体退役。after-run +500ms 兜底随之退役，通知可达性保险 = 重连对账重拉（`rpc.onOpen`）+ cr-107 探针 +
+> 发送 watchdog（帧丢失 ⇔ ws 断 ⇔ 重连重拉补偿——同因同补）。
 
-**前端两驱动（`feed-core.ts`）**：
-
-| 驱动 | 触发 | 行为 |
-|---|---|---|
-| `session/run-settled` | settlement durable 落盘后端确证 | `delay = 0` 即时重拉首屏——构造保证下无赌窗 |
-| `loop/after-run` +500ms | 事件丢失 / 旧后端 / 无 journal 直落 run | 兜底（原 `TURN_DONE_DELAY` 300ms 路径降级为兜底） |
-
-两驱动均**无条件重拉**（始终开着的会话直播行从未经过历史合并，不重拉永远换不成权威收束行 → 分支/编辑/删除按钮要刷新才出现）；
-期间新 run 开跑无害（合并自带 live-wins 对齐）。收敛写口 = `convergeDialog(id, force)`（群分区早退——群内容源是 post 行，无 run 临时态）。
-
-**两道前线闸门（cr-106 / cr-107 B）**：
-
-1. **指纹短路双门**（`session/history` 首屏带分区指纹，文件未变时服务端回 `unchanged` 轻载荷）：
-   **live 分区**（`streaming` / 占位 / 未闭合工具行）一律禁用短路——切回时点 = 确定性收敛点，服务端真相覆盖本地（对齐合并归 `mergeHistory`）；`force`（判死收敛）必拿权威行；
-2. **吸收双门**（前缀互验吸收，cr-106 2026-10-02 吸收事故根修）：
-   **身份门**——中性格式下用户落盘行同为 `role:'agent'`，`agent_id` 不同的行永非「同一步」（否则用户正文灌进 Agent 占位 = 气泡镜像用户消息）；
-   **空载门**——占位先建、内容后到（`step-started` 先于首 delta），空占位是任何历史行的前缀，两侧任一无内容 = 无对齐证据，不吸收（宁重不丢，收束重拉兜底；`stepId` 键控路径不受此门约束——键即身份）。
-
-**悬挂流探针（cr-107 checkpoint-C）**：`streaming` 分区静默超 `STREAM_STALE_PROBE_MS = 180_000`（3min）→ 查 `conversation/stats` 权威判死活：
-判活（慢 run）刷新基线顺延再探；判死（登记表无此 run）关停全部临时态 + `convergeDialog(id, true)` 强制收敛；**RPC 失败不定罪**（后端不可达与悬挂不可区分，恢复归重连链路）。
-动机：收尾帧永远缺席的悬挂 run 会让占位与忙态无限期残留，而发送看门狗（30s）只救「无占位」形态、有占位恒判活（盲区）。
-
-**遗留纵深防御**：`mergeHistory` 的对齐猜测保留（B 的重拉到达前仍有一屏窗口）；发送侧 watchdog 触发即权威化。
+**前端**（`feed-core.ts`）：`run/settled` 到达 → 无条件重拉（始终开着的会话直播行从未经过历史合并，不重拉永远换不成权威
+收束行 → 分支/编辑/删除按钮要刷新才出现）；期间新 run 开跑无害（合并自带 live-wins 对齐）。收敛写口 = `convergeDialog(id, force)`
+（群分区早退——群内容源是 post 行，无 run 临时态）。
 
 ### 7.3 读路径单源化（cr-95 D2，已实施）
 
@@ -505,7 +491,7 @@ L4 前端     ac-client-ui-conversation：feed-core(分区 ingest + 历史分页
 | D3 | feed-core 按关切拆分（配合 D1 做） | **未实施**（见 §7.4；拆分仍成立但非阻塞项） |
 | D4 | 不建议：重写存储层 / 继续打时序补丁 | **维持否决**（修复史证明打补丁是移动窗口而非消除窗口） |
 
-衔接记录：D1 落地走 after-* 观察通知 + ac-session 事件目录登记（`session/run-settled` 已过事件目录静态锁定）；
+衔接记录：D1 落地走 after-* 观察通知 + ac-session 事件目录登记（`session/run-settled` 词汇随 cr-976 整体退役——其承诺的 delay=0 语义由 run/settled durable 投影兑现）；
 D2 属服务方法演化，不涉新事件；二者均符合插槽-插头可逆性验收（摘掉改动能零改动恢复）。
 
 相关后续：`2026-09-24` 会话流身份贯通根治方案（`feed-identity-overhaul-plan.md`，已归档）为身份维诊断；cr-106 的身份门是其实证补强之一。

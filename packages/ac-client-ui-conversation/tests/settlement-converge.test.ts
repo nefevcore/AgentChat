@@ -1,7 +1,7 @@
 // ============================================================
 // settlement-converge.test.ts —— D1 收敛协议前端面（cr-94）：
-// session/run-settled 事件驱动即时重拉（delay=0）替代 after-run
-// 500ms 赌窗；非用户会话过滤。真时钟断言（避免 fake timer 与 vue/pinia
+// run/settled 帧（run-end 行 durable 落盘投影——cr-976 B 案）驱动即时
+// 重拉（delay=0，E-2 根治：收敛单事实）；非用户会话过滤。真时钟断言（避免 fake timer 与 vue/pinia
 // 响应式调度互扰）。
 // ============================================================
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -38,7 +38,7 @@ describe('run-settled 事件驱动收敛（cr-94）', () => {
     const rpc = spyRpc();
     const feed = newFeed(rpc);
     feed.ingestFrame('loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user', runId: 'r1' }]);
-    feed.ingestFrame('session/run-settled', [CONV, 'alpha', { runId: 'r1' }]);
+    feed.ingestFrame('run/settled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', finish: 'stop', text: '' }]);
     await new Promise((r) => setTimeout(r, 80));
     expect(rpc.calls.length).toBeGreaterThanOrEqual(1);
     expect(rpc.calls[0]).toBeLessThan(50); // 即时档（非 500ms 兜底）
@@ -47,7 +47,7 @@ describe('run-settled 事件驱动收敛（cr-94）', () => {
   it('非用户会话（未知群桶词形）→ 不重拉', async () => {
     const rpc = spyRpc();
     const feed = newFeed(rpc);
-    feed.ingestFrame('session/run-settled', ['beta~gamma', 'beta', { runId: 'r3' }]);
+    feed.ingestFrame('run/settled', [{ agent: 'beta', conversationId: 'beta~gamma', run: 'r3', finish: 'stop', text: '' }]);
     await new Promise((r) => setTimeout(r, 80));
     // beta~gamma 非已知群 → routeDialog 判 pair:beta|gamma（矩阵只读视角）——
     // 该分区无 viewer 写口，重拉对矩阵视角仍是合法读（loadHistory 会被调，

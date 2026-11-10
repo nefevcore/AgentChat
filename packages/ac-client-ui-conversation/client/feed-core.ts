@@ -2228,16 +2228,6 @@ export function createFeedCore(
         d.runAnchorBackendTs = undefined;
         return;
       }
-      case 'loop/step-started': {
-        const [agent, , , envelope] = args as [string | undefined, number, unknown, { runId?: string; stepId?: string; conversationId?: string; sender?: string; source?: string } | undefined];
-        if (!isUserConversation(frameAgentId(agent), envelope?.conversationId)) return;
-        const keys = routeDialog(frameAgentId(agent), envelope?.conversationId, envelope?.sender, envelope?.source);
-        if (keys) {
-          noteStreamAgent(keys);
-          onStepStart(keys.dialogId, isForActiveAgent(keys), stepKeysOf(envelope));
-        }
-        return;
-      }
       case 'llm/delta': {
         const [input, chunk, meta] = args as [any, any, any];
         const agent = frameAgentId(meta?.agent ?? input?.meta?.agent);
@@ -2264,6 +2254,15 @@ export function createFeedCore(
           const seen = st.lastStepSeq.get(stepKeys.stepId);
           if (seen !== undefined && frameSeq < seen) return;
           st.lastStepSeq.set(stepKeys.stepId, frameSeq);
+        }
+        // 步载体惰性创建（cr-976 B 案：step-started 帧退役）：首个携带 stepId
+        // 的 delta 到达即建载体并登记 carrier 索引——流时序帧先行（D3-1），
+        // durable 步事实（step/journaled）随后收束。缺席回落启发式路径不变
+        //（carrierOf 的 lastStreaming 兜底与补登记仍在职）。
+        if (stepKeys?.stepId !== undefined
+          && !st.carrier.get(stepKeys.stepId)
+          && !lastStreaming(dialogs.value[keys.dialogId]?.rawMessages ?? [], 'agent')) {
+          onStepStart(keys.dialogId, isForActiveAgent(keys), stepKeys);
         }
         // run 级流式态重点亮（cr-802 光环偶发消失根修）：delta 到达 = run
         // 确凿在流。断连 onOpen 清场 / 前端刷新撞边界帧丢失 / 发送看门狗
@@ -2414,30 +2413,29 @@ export function createFeedCore(
         }
         return;
       }
-      case 'tool/after-execute': {
-        const [call, result, error] = args as [any, any, unknown];
-        const agent = frameAgentId(call?.agentId);
-        if (!isUserConversation(agent, call?.conversationId)) return;
-        const keys = routeDialog(agent, call?.conversationId);
+      case 'tool/result': {
+        // cr-976 B 案：工具终值 = durable 事实投影（step/tool-call-result 行
+        // → seq 锚直通；帧身份 = 事件身份）。subcall 标记/名/参随行内联
+        //（D-1 全文入主日志，投影随行）；result 已是 {ok,output?,error?} 形
+        //（落账面组装），stringify 与旧 after-execute 同源。
+        const [p] = args as [{ agent?: string; conversationId?: string; run?: string; toolCallId?: string; result?: any; subcall?: boolean; name?: string; arguments?: string; seq?: number } | undefined];
+        const agent = frameAgentId(p?.agent);
+        if (!isUserConversation(agent, p?.conversationId)) return;
+        const keys = routeDialog(agent, p?.conversationId);
         // toolCallId 须非空：空 id 是聚合层的幻影调用（unknown tool 错误），
         // 放行会经位置回退把错误结果写进别的工具占位
-        if (!keys || typeof call?.toolCallId !== 'string' || !call.toolCallId || !isForCurrentUser(keys)) return;
-        // run_code 子调用平铺（2026-09-17 方向 B）：程序内调用无模型占位卡
-        //（toolCallId 形如 <runId>#<seq>，不在任何 assistant.toolCalls 里）——
-        // onToolEnd 的占位匹配必然落空，改走平铺建卡：紧跟当前流式 agent
-        // 步追加独立 tool 消息（subcall 标记 → 缩进样式），fileEdits 等追踪
-        // 层按消息流 toolCalls 天然收录
-        if (call?.runCodeSubcall === true) {
+        if (!keys || typeof p?.toolCallId !== 'string' || !p.toolCallId || !isForCurrentUser(keys)) return;
+        if (p.subcall === true) {
           onSubcallEnd(keys.dialogId, {
-            tool_call_id: call.toolCallId,
-            tool_name: typeof call?.name === 'string' ? call.name : '',
-            arguments: call?.args,
-            result: stringifyToolResult(result, error),
-            ...(typeof call?.runId === 'string' && call.runId ? { runId: call.runId } : {}),
+            tool_call_id: p.toolCallId,
+            tool_name: typeof p.name === 'string' ? p.name : '',
+            arguments: parseArgs(typeof p.arguments === 'string' ? p.arguments : ''),
+            result: stringifyToolResult(p.result, undefined),
+            ...(typeof p.run === 'string' && p.run ? { runId: p.run } : {}),
           });
           return;
         }
-        onToolEnd(keys.dialogId, { tool_call_id: call.toolCallId, result: stringifyToolResult(result, error) });
+        onToolEnd(keys.dialogId, { tool_call_id: p.toolCallId, result: stringifyToolResult(p.result, undefined) });
         return;
       }
       case 'llm/chat-error': {
@@ -2450,14 +2448,73 @@ export function createFeedCore(
         onMessageError(keys.dialogId, { content: errText(error) }, isForActiveAgent(keys));
         return;
       }
-      case 'loop/after-step': {
-        const [agent, step, envelope] = args as [string | undefined, any, { runId?: string; stepId?: string; conversationId?: string; sender?: string; source?: string } | undefined];
-        if (!isUserConversation(frameAgentId(agent), envelope?.conversationId)) return;
-        const keys = routeDialog(frameAgentId(agent), envelope?.conversationId, envelope?.sender, envelope?.source);
+      case 'step/journaled': {
+        // cr-976 B 案：步相位行批（journalStep 落账切片）的投影帧——行序
+        // 即步内序，聚合归前端（reasoning → 正文/工具调用，cr-946 相位序的
+        // 事件承载）；步末计量挂末行。并承载原 ledger/step-journaled 锚帧
+        // 职责：seq 水位补记 + 直播行 seq 身份锚（B3 供料）。
+        const [p] = args as [{ agent?: string; conversationId?: string; run?: string; step?: number; stepId?: string; seq?: number; rows?: Array<Record<string, unknown>> } | undefined];
+        const agent = frameAgentId(p?.agent);
+        if (!isUserConversation(agent, p?.conversationId)) return;
+        const keys = routeDialog(agent, p?.conversationId);
         if (!keys) return;
         noteStreamAgent(keys);
-        // 身份贯通：步终值按键定位（step.stepId = loop 盖章，与 delta meta 同源）
-        const stKeys = stepKeysOf({ runId: envelope?.runId, stepId: step?.stepId ?? envelope?.stepId });
+        const rows = Array.isArray(p?.rows) ? p.rows : [];
+        if (rows.length === 0) return;
+        const stepId = typeof p?.stepId === 'string' && p.stepId ? p.stepId : undefined;
+        const st = streamOf(streams, keys.dialogId);
+        // 相位行聚合 → 步终值记录（原 after-step 帧的 step 终值同形）
+        let text = '';
+        let reasoning = '';
+        let reasoningMs: number | undefined;
+        let elapsedMs: number | undefined;
+        let usage: any;
+        let lastTs: number | undefined;
+        let aborted = false;
+        const toolCalls: any[] = [];
+        for (const r of rows) {
+          const t = r.type;
+          if (t === 'step/reasoning') {
+            reasoning += String(r.text ?? '');
+            if (typeof r.reasoningMs === 'number') reasoningMs = r.reasoningMs;
+          } else if (t === 'step/content') {
+            text += String(r.text ?? '');
+          } else if (t === 'step/tool-call') {
+            toolCalls.push({ id: r.toolCallId, name: r.name, arguments: r.arguments });
+          }
+          if (typeof r.ts === 'number') lastTs = r.ts;
+          if (r.usage !== undefined) usage = r.usage;
+          if (typeof r.elapsedMs === 'number') elapsedMs = r.elapsedMs;
+          if (r.aborted === true) aborted = true;
+        }
+        const step: any = {
+          index: typeof p?.step === 'number' ? p.step : 0,
+          ...(stepId !== undefined ? { stepId } : {}),
+          text, reasoning, toolCalls,
+          ...(aborted ? { aborted: true } : {}),
+          ...(reasoningMs !== undefined ? { reasoningMs } : {}),
+          ...(elapsedMs !== undefined ? { elapsedMs } : {}),
+          ...(usage !== undefined ? { usage } : {}),
+          ...(lastTs !== undefined ? { ts: lastTs } : {}),
+        };
+        // 载体缺席（delta 全丢/重放窗口）→ 惰性建卡后落终值（step-started
+        // 帧退役后的兜底创建面——与 delta 路径同一 onStepStart）
+        if (stepId !== undefined && !st.carrier.get(stepId)
+          && !lastStreaming(dialogs.value[keys.dialogId]?.rawMessages ?? [], 'agent')) {
+          onStepStart(keys.dialogId, isForActiveAgent(keys), { runId: p?.run, stepId });
+        }
+        // B2 seq 水位（只进不退）+ 载体锚（先查索引、再按 stepId 扫消息尾）。
+        // 顺序在建卡之后：载体缺席窗口（delta 全丢/重放）到达的首帧，建卡
+        // 在此同步补锚——seq 不因建卡时序静默丢失。
+        if (typeof p?.seq === 'number' && stepId !== undefined) {
+          if (st.lastStepSeq === undefined) st.lastStepSeq = new Map();
+          const seen = st.lastStepSeq.get(stepId);
+          if (seen === undefined || p.seq > seen) st.lastStepSeq.set(stepId, p.seq);
+          const anchored = st.carrier.get(stepId)
+            ?? [...dialogs.value[keys.dialogId]?.rawMessages ?? []].reverse().find((m: any) => m.stepId === stepId);
+          if (anchored) anchored.seq = p.seq;
+        }
+        const stKeys = stepKeysOf({ runId: p?.run, stepId });
         // 步终值：message.end（全量替换语义）+ step.end（关闭占位；
         // toolCalls 透传 = run 是否继续的判定依据——见 onStepEnd）
         if (isForCurrentUser(keys)) {
@@ -2504,81 +2561,49 @@ export function createFeedCore(
         if (isForActiveAgent(keys)) { lastStepEndAt.value = Date.now(); }
         return;
       }
-      case 'ledger/step-journaled': {
-        // B2 帧携带：journal 步行落盘完成（seq 已 durable）——步级 seq 水位
-        // 补记 + 直播行 seq 身份锚。事件刻意晚于本步全部 delta 与 after-step
-        //（后端落盘后补发），到达时载体多已收束出 carrier 索引——先查索引、
-        // 再按 stepId 扫消息尾定位。仅记水位与锚，不改变任何合并/去重行为
-        //（去重只消费 llm/delta 自带的 meta.seq；本帧缺席时一切照旧）。
-        const [p] = args as [{ agent?: string; conversationId?: string; runId?: string; stepId?: string; seq?: number } | undefined];
+      case 'run/settled': {
+        // cr-976 B 案：run 收束 = run-end 行 durable 落盘的投影（E-2 根治
+        // ——「落盘通知」与「重拉权威」合为一条因果链，无第二触发源）。
+        // finish 词汇 completed→stop 已在投影层映射；text = 同批终稿 message
+        // 行（对账补投形缺席 = ''，终稿以重拉权威行为准）。
+        const [p] = args as [{ agent?: string; conversationId?: string; run?: string; seq?: number; finish?: string; text?: string; error?: string } | undefined];
         const agent = frameAgentId(p?.agent);
         if (!isUserConversation(agent, p?.conversationId)) return;
         const keys = routeDialog(agent, p?.conversationId);
-        if (!keys || !isForCurrentUser(keys) || typeof p?.seq !== 'number' || typeof p.stepId !== 'string' || !p.stepId) return;
-        const st = streamOf(streams, keys.dialogId);
-        // 水位补记（只进不退）：重放的旧锚不得拉低已见 seq
-        if (st.lastStepSeq === undefined) st.lastStepSeq = new Map();
-        const seen = st.lastStepSeq.get(p.stepId);
-        if (seen === undefined || p.seq > seen) st.lastStepSeq.set(p.stepId, p.seq);
-        // seq 锚到本步流式载体（settlement 前直播行即获稳定身份——B3 供料）；
-        // 缺席（载体已收束清除/旧后端无 stepId）回落不变，不新建不报错
-        const anchored = st.carrier.get(p.stepId)
-          ?? [...dialogs.value[keys.dialogId]?.rawMessages ?? []].reverse().find((m: any) => m.stepId === p.stepId);
-        if (anchored) anchored.seq = p.seq;
-        return;
-      }
-      case 'loop/after-run': {
-        const [request, result] = args as [any, any];
-        const agent = frameAgentId(request?.agent);
-        if (!isUserConversation(agent, request?.conversationId)) return;
-        const keys = routeDialog(agent, request?.conversationId, request?.sender, request?.source);
         if (!keys) return;
         noteStreamAgent(keys);
-        // 整理 run 收尾：状态条熄灭（完成反馈另由 archive/completed 驱动）
-        if (request?.meta?.[ARCHIVE_REVIEW_META_KEY] === true) {
-          markArchiveReview(keys.dialogId, false);
-        }
-        const finish = String(result?.finish ?? 'stop');
+        // 整理 run 收尾：状态条熄灭（完成反馈另由 archive/completed 驱动）。
+        // 帧不再携带 meta[archive-review]（run-end 行无此键）——收尾清标记
+        // 无条件化：非整理分区本无标记，等价。
+        markArchiveReview(keys.dialogId, false);
+        const finish = String(p?.finish ?? 'stop');
         if (finish === 'interrupted') {
           onInterrupted(keys.dialogId, isForActiveAgent(keys));
         } else if (finish === 'error') {
-          onMessageError(keys.dialogId, { content: `生成失败：${errText(result?.error)}` }, isForActiveAgent(keys));
+          onMessageError(keys.dialogId, { content: `生成失败：${errText(p?.error)}` }, isForActiveAgent(keys));
         }
         const active = isForActiveAgent(keys);
-        onChatEnd(keys.dialogId, { content: finish === 'stop' ? String(result?.text ?? '') : '' }, active);
+        onChatEnd(keys.dialogId, { content: finish === 'stop' ? String(p?.text ?? '') : '' }, active);
         // run 收束后台唤回（cr-291）：独立会话/直答的长任务在后台跑完——
         // 页面隐藏且不在该会话时弹系统通知（错误/中断已有红条反馈，只在
         // 正常完成时唤回；正在看的会话直播已可见，不打扰）。「正看该会话」
         // 用 activeDialogId 直比——isForActiveAgent 是 UI 信号门控语义，无激活
         // 上下文恒 true，不表达「用户是否在看」
         if (finish === 'stop' && keys.dialogId !== activeDialogId.value && pageHidden()) {
-          const text = String(result?.text ?? '');
+          const text = String(p?.text ?? '');
           notifyUser({
             title: `${agentDisplayName(agent)} · 已完成`,
             body: (text || '（无输出）').slice(0, 80),
             tag: keys.dialogId,
           });
         }
-        // 收束后无条件重拉首屏（gated=false）：权威收束行替换 partial 检查点行
-        // 与直播行，补 persistedMsgId 供分支/编辑/删除定位——不止覆盖「run 中
-        // 做过历史合并」的分区（一直开着的会话同样需要换权威行）
-        scheduleSettlementReload(keys.dialogId, request?.conversationId);
-        return;
-      }
-      case 'session/run-settled': {
-        // D1 收敛信号（cr-94）：settlement 已 durable 落盘（后端确证——
-        // records() 读侧先排空在途 settleChain 再读，事件先于任何后续读
-        // 到达 = 权威行必可见）。即时重拉首屏（delay=0）；gated=false：
-        // 权威信号已确证落盘，未预登记（一直开着未合并）的分区同样需要
-        // 换权威行——与 after-run 兜底同覆盖面；两驱动幂等（fingerprint
-        // 短路 + requestId 守卫防乱序）。
-        const [conversationId, agentId] = args as [string | undefined, string | undefined];
-        if (!conversationId) return;
-        const agent = frameAgentId(agentId);
-        if (!isUserConversation(agent, conversationId)) return;
-        const keys = routeDialog(agent, conversationId);
-        if (!keys) return;
-        scheduleSettlementReload(keys.dialogId, conversationId, 0);
+        // 收束后即时重拉首屏（delay=0，durable 确证——原 session/run-settled
+        // 路径语义并此；+500ms 兜底驱动随 after-run 帧退役，可达性保险改归
+        // 重连对账重拉 + cr-107 探针 + 发送 watchdog——§5 #4 重论证）：权威
+        // 收束行替换 partial 检查点行与直播行，补 persistedMsgId 供分支/编辑/
+        // 删除定位——不止覆盖「run 中做过历史合并」的分区（一直开着的会话
+        // 同样需要换权威行）
+        scheduleSettlementReload(keys.dialogId, p?.conversationId, 0);
         return;
       }
       case 'session/context-injected': {

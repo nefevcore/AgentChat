@@ -241,7 +241,7 @@ recoverOrphanRuns 退役 + 压缩事件化（compaction/start·summary·end，�
 7. 验证：`pnpm test` 全量 + integration；KV 前缀回归（replayTrajectory 两态对拍）
 8. 同步：session-design.md 全面改版（S1–S5 重述、三文件/subcalls 分流裁决链归档）
 
-### Phase 3 = 直播管线 B 案（独立项目，依赖 Phase 2，另立计划文档）
+### Phase 3 = 直播管线 B 案（独立项目，依赖 Phase 2，另立计划文档）——✅ 已实施（cr-976，2026-11-10，计划文档 live-pipeline-event-projection-plan.md）
 1. 事件落盘通知 → 直播帧投影转发层（30ms/100ms 微批语义在投影层重建）
 2. 直播与历史同源后的收敛协议重设计：吸收门 / 悬挂探针 / watchdog 逐条重新论证
    （每条要有新结构下的等价物或失效证明，逐条登记）

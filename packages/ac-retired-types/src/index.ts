@@ -109,6 +109,7 @@ declare module '@agentchat/cordis' {
     /** context 注入行落账（原 ac-session emit）@mode emit @scope run */
     'session/context-injected'(conversationId: string, agentId: string, meta: { source: string; injectionId?: string; label?: string }): void;
     /** run settlement 物化完成（原 ac-session emit）@mode emit @scope run */
-    'session/run-settled'(conversationId: string, agentId: string, meta: { runId: string }): void;
+    // session/run-settled 词汇随 cr-976 退役（E-2 的收敛信号 = run-end 行 durable
+// 落盘投影 run/settled 帧——该事件自始无发射方，类型面一并清除）oid;
   }
 }

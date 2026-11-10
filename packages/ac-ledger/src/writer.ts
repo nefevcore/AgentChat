@@ -75,6 +75,10 @@ export class LedgerWriter {
    *  缺省 false = v1 存量写面（测试夹具专用）。既有文件头行永不重写
    *  （v1 会话追加 v2 行合法——读侧按行判别归一）。 */
   private readonly eventsV2: boolean;
+  /** 落账后通知（cr-976 B 案）：每个 enqueue 切片内追加到 messages.jsonl 的
+   *  行（含分配好的 seq）在 fsync 后回调——宿主直播管线据此投影转发
+   *  （帧 = 日志 append 事件的视图，D3-2 壳 ipc 事件面的数据源）。 */
+  private readonly onAppend?: (rows: Array<Record<string, unknown>>) => void;
 
   private readonly dir: string;
   private readonly header: Omit<LedgerHeader, 'type' | 'version' | 'createdAt'>;
@@ -83,12 +87,13 @@ export class LedgerWriter {
     dir: string,
     header: Omit<LedgerHeader, 'type' | 'version' | 'createdAt'>,
     admission: AdmissionGate = new AdmissionGate(),
-    opts: { eventsV2?: boolean } = {},
+    opts: { eventsV2?: boolean; onAppend?: (rows: Array<Record<string, unknown>>) => void } = {},
   ) {
     this.dir = dir;
     this.header = header;
     this.admission = admission;
     this.eventsV2 = opts.eventsV2 === true;
+    this.onAppend = opts.onAppend;
   }
 
   /** 串行队列（按文件互斥——同 writer 实例内写序恒定） */
@@ -199,6 +204,7 @@ export class LedgerWriter {
         seq: this.allocSeq(),
       };
       this.appendLine(path.join(this.dir, MESSAGES), full);
+      if (this.eventsV2) this.onAppend?.([full as unknown as Record<string, unknown>]);
     });
     return true;
   }
@@ -215,10 +221,14 @@ export class LedgerWriter {
     return this.enqueue(() => {
       this.ensureHeader();
       let last = 0;
+      const appended: Array<Record<string, unknown>> = [];
       for (const line of lines) {
         last = this.allocSeq();
-        this.appendLine(path.join(this.dir, MESSAGES), { ...line, seq: last });
+        const full = { ...line, seq: last };
+        this.appendLine(path.join(this.dir, MESSAGES), full);
+        appended.push(full);
       }
+      if (appended.length > 0) this.onAppend?.(appended);
       return last;
     });
   }
@@ -310,16 +320,19 @@ export class LedgerWriter {
     if (this.eventsV2) {
       await this.enqueue(() => {
         this.ensureHeader();
-        this.appendLine(path.join(this.dir, MESSAGES), {
+        const appended: Array<Record<string, unknown>> = [];
+        const finalLine = {
           type: 'message',
           ...finalRow,
           message_id: finalRow.requestId ?? cryptoRandomId(),
           timestamp: new Date().toISOString(),
           seq: this.allocSeq(),
-        });
+        };
+        this.appendLine(path.join(this.dir, MESSAGES), finalLine);
+        appended.push(finalLine as unknown as Record<string, unknown>);
         // cr-807：error 收束错误行（context+source:error——UI 红条）
         if (finish === 'error') {
-          this.appendLine(path.join(this.dir, MESSAGES), {
+          const errLine = {
             type: 'context',
             role: 'context',
             source: 'error',
@@ -330,9 +343,11 @@ export class LedgerWriter {
             message_id: cryptoRandomId(),
             timestamp: new Date().toISOString(),
             seq: this.allocSeq(),
-          });
+          };
+          this.appendLine(path.join(this.dir, MESSAGES), errLine);
+          appended.push(errLine);
         }
-        this.appendLine(path.join(this.dir, MESSAGES), {
+        const endLine = {
           type: 'run-end',
           run: runId,
           finish: finish === 'ok' ? 'completed' : finish,
@@ -341,7 +356,10 @@ export class LedgerWriter {
           ...(finalRow.runMs !== undefined ? { runMs: finalRow.runMs } : {}),
           ts: Date.now(),
           seq: this.allocSeq(),
-        });
+        };
+        this.appendLine(path.join(this.dir, MESSAGES), endLine);
+        appended.push(endLine);
+        this.onAppend?.(appended);
       });
       return;
     }

@@ -92,9 +92,8 @@ describe('工具卡永转圈根治（cr-763）', () => {
     // 先经一轮完整 run 建立分区 + 落盘消息（resume 快照对齐的锚），收束后
     // streaming 已熄灭，再喂快照（active 进行中）。
     fire(rpc, 'loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
-    fire(rpc, 'loop/step-started', ['alpha', 0, [], { runId: 'r1', stepId: 'r1:s1', conversationId: CONV, sender: 'user', source: 'user' }]);
     fire(rpc, 'llm/delta', [{ model: 'm', meta: { agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user', runId: 'r1', stepId: 'r1:s1' } }, { delta: 'done' }]);
-    fire(rpc, 'loop/after-step', ['alpha', { index: 0, text: 'done', toolCalls: [] }, { runId: 'r1', stepId: 'r1:s1', conversationId: CONV, sender: 'user', source: 'user' }]);
+    fire(rpc, 'step/journaled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', step: 0, stepId: 'r1:s1', seq: 100, rows: [{ type: 'step/content', text: 'done' }] }]);
     const before = feed.getDialog(DLG);
     expect(before?.streaming).toBe(false); // 纯文本步收束已熄灭（复现前提）
     // resume 快照：同 Agent 新一轮进行中（无 session → activeAgentId 路由，
@@ -116,7 +115,6 @@ describe('工具卡永转圈根治（cr-763）', () => {
     const feed = feedCore.createFeedCore(rpc as never, () => new RosterCore());
     feed.init();
     // 正常路径建在途态：step-started 建占位 + 工具分片建 preparing 卡
-    fire(rpc, 'loop/step-started', ['alpha', 0, [], { runId: 'r1', stepId: 'r1:s1', conversationId: CONV, sender: 'user', source: 'user' }]);
     fire(rpc, 'llm/delta', [{ model: 'm', meta: { agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user', runId: 'r1', stepId: 'r1:s1' } }, { toolCalls: [{ index: 0, id: 'call-1', name: 'bash' }] }]);
     const d = feed.getDialog(DLG);
     const carrier = d?.rawMessages.find(m => m.role === 'agent');

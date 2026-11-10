@@ -48,7 +48,7 @@ describe('收敛静默化（cr-793）', () => {
   it('run-settled 收敛重拉不点亮 loadingHistory（静默在途）', async () => {
     const rpc = pendingRpc();
     const feed = newFeed(rpc);
-    feed.ingestFrame('session/run-settled', [CONV, 'alpha', { runId: 'r1' }]);
+    feed.ingestFrame('run/settled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', finish: 'stop', text: '' }]);
     await tick(30); // delay=0 定时器落火，请求在途
     expect(rpc.calls.length).toBe(1); // 收敛请求已发出（对账语义保留）
     expect(feed.loadingHistory.value).toBe(false); // 关键：不点亮加载指示器
@@ -79,7 +79,7 @@ describe('收敛静默化（cr-793）', () => {
     await tick(10);
     expect(feed.getDialog(id)?.status).toBe('ready');
     // 触发收敛（重拉在途）→ 上翻分页应被互斥锁挡下
-    feed.ingestFrame('session/run-settled', [CONV, 'alpha', { runId: 'r2' }]);
+    feed.ingestFrame('run/settled', [{ agent: 'alpha', conversationId: CONV, run: 'r2', finish: 'stop', text: '' }]);
     await tick(30);
     expect(rpc.calls.length).toBe(2);
     feed.loadMoreHistory(id);

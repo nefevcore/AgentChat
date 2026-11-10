@@ -2,22 +2,29 @@
 // identity-throughput.test.ts —— 身份贯通键控链路验证（2026-09-24 根治批）
 // 后端 runId/stepId 发证 → 流式帧按键路由 → subcall 宿主精确匹配 →
 // mergeHistory 键控对齐 → turn 前缀身份复用。含缺键回落启发式的兼容面。
+// cr-976 B 案帧词汇：步收束 = step/journaled（相位行批 + seq 锚）、
+// 工具终值 = tool/result、run 收束 = run/settled。
 // ============================================================
 import { describe, it, expect, beforeAll } from 'vitest';
 import { RosterCore } from 'ac-client-ui-agents/client';
 
 let feedCore: typeof import('../client/feed-core.ts');
-let offlineRpc: typeof import('../client/feedStore.ts').offlineRpc;
 
 beforeAll(async () => {
   feedCore = await import('../client/feed-core.ts');
-  offlineRpc = (await import('../client/feedStore.ts')).offlineRpc;
 });
+
+// rpc 桩：session/history 静默成功（run/settled 帧触发 delay=0 收敛重拉——
+// 拒绝形态会走 feed-core 的 logger.warn，node 测试环境无 window 抛二次错）
+const rpcStub = {
+  call: (method: string) => Promise.resolve(method === 'session/history' ? { records: [], hasMore: false } : {}),
+  onEvent: () => () => undefined,
+};
 
 const CONV = 'alpha~user';
 
 function newFeed() {
-  return feedCore.createFeedCore(offlineRpc as never, () => new RosterCore());
+  return feedCore.createFeedCore(rpcStub as never, () => new RosterCore());
 }
 
 describe('身份贯通：流式帧按 stepId 键控路由', () => {
@@ -26,15 +33,13 @@ describe('身份贯通：流式帧按 stepId 键控路由', () => {
     const runId = 'run-x1';
     // run-started（sender=user 的直答会话）
     feed.ingestFrame('loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
-    // step 0
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { runId, stepId: `${runId}:0`, conversationId: CONV, sender: 'user', source: 'user' }]);
+    // step 0（首个带 stepId 的 delta 惰性建卡——step-started 退役）
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user', runId, stepId: `${runId}:0` } }, { delta: '第一步' }]);
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '第一步', toolCalls: [{ id: 'tc1', name: 'read', arguments: '{}' }] }, { runId, stepId: `${runId}:0`, conversationId: CONV, sender: 'user', source: 'user' }]);
-    // step 1（工具执行窗口后）
-    feed.ingestFrame('loop/step-started', ['alpha', 1, [], { runId, stepId: `${runId}:1`, conversationId: CONV, sender: 'user', source: 'user' }]);
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: runId, step: 0, stepId: `${runId}:0`, seq: 10, rows: [{ type: 'step/content', text: '第一步', ts: 1 }, { type: 'step/tool-call', toolCallId: 'tc1', name: 'read', arguments: '{}', ts: 1 }] }]);
+    // step 1（工具执行窗口后——新步 delta 惰性建新载体）
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user', runId, stepId: `${runId}:1` } }, { delta: '第二步' }]);
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 1, text: '第二步', toolCalls: [] }, { runId, stepId: `${runId}:1`, conversationId: CONV, sender: 'user', source: 'user' }]);
-    feed.ingestFrame('loop/after-run', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }, { finish: 'stop', text: '第二步' }]);
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: runId, step: 1, stepId: `${runId}:1`, seq: 11, rows: [{ type: 'step/content', text: '第二步', ts: 2 }] }]);
+    feed.ingestFrame('run/settled', [{ agent: 'alpha', conversationId: CONV, run: runId, finish: 'stop', text: '第二步' }]);
 
     const raw = feed.getRaw(`pair:${['alpha', 'user'].sort().join('|')}` as never);
     const agents = raw.filter((m: any) => m.role === 'agent' && m.stepId);
@@ -51,12 +56,11 @@ describe('身份贯通：流式帧按 stepId 键控路由', () => {
     const runId = 'run-x2';
     const dialogId = `pair:${['alpha', 'user'].sort().join('|')}` as never;
     feed.ingestFrame('loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { runId, stepId: `${runId}:0`, conversationId: CONV, sender: 'user', source: 'user' }]);
-    // 步收束（带 run_code 调用）→ 宿主步 isStreaming=false
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '', toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: '{}' }] }, { runId, stepId: `${runId}:0`, conversationId: CONV, sender: 'user', source: 'user' }]);
+    // 步收束（带 run_code 调用；载体缺席 → step/journaled 惰性建卡）→ 宿主步 isStreaming=false
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: runId, step: 0, stepId: `${runId}:0`, seq: 10, rows: [{ type: 'step/tool-call', toolCallId: 'hostCall', name: 'run_code', arguments: '{}', ts: 1 }] }]);
     // run_code 子调用开始 + 结束（call.runId = 宿主 runId）
     feed.ingestFrame('tool/started', [{ agentId: 'alpha', conversationId: CONV, toolCallId: `${runId}#1`, name: 'read', runCodeSubcall: true, runId }]);
-    feed.ingestFrame('tool/after-execute', [{ agentId: 'alpha', conversationId: CONV, toolCallId: `${runId}#1`, name: 'read', runCodeSubcall: true, runId }, { ok: true, output: '文件内容' }]);
+    feed.ingestFrame('tool/result', [{ agent: 'alpha', conversationId: CONV, run: runId, toolCallId: `${runId}#1`, result: { ok: true, output: '文件内容' }, subcall: true, name: 'read', arguments: '{}' }]);
     const raw = feed.getRaw(dialogId);
     const host = raw.find((m: any) => m.role === 'agent' && m.stepId === `${runId}:0`);
     expect(host).toBeTruthy();
@@ -67,13 +71,15 @@ describe('身份贯通：流式帧按 stepId 键控路由', () => {
     expect(String(tc.result)).toContain('文件内容');
   });
 
-  it('缺键回落：旧后端帧（无 runId/stepId）走 lastStreaming 路径不回归', () => {
+  it('缺键回落：无 stepId 的流式帧走 lastStreaming 路径不回归', () => {
     const feed = newFeed();
     feed.ingestFrame('loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { conversationId: CONV, sender: 'user', source: 'user' }]);
-    feed.ingestFrame('llm/delta', [{ model: 'm', meta: { agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' } }, { delta: '旧式流' }]);
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '旧式流', toolCalls: [] }, { conversationId: CONV, sender: 'user', source: 'user' }]);
-    feed.ingestFrame('loop/after-run', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }, { finish: 'stop', text: '旧式流' }]);
+    // 键控 delta 建载体，随后 keyless delta（旧式帧）回落 lastStreaming 追加
+    feed.ingestFrame('llm/delta', [{ model: 'm', meta: { agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user', runId: 'run-x4', stepId: 'run-x4:0' } }, { delta: '旧式' }]);
+    feed.ingestFrame('llm/delta', [{ model: 'm', meta: { agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' } }, { delta: '流' }]);
+    // keyless 步收束（step/journaled 无 stepId → lastStreaming 回落关闭）
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: 'run-x4', rows: [{ type: 'step/content', text: '旧式流', ts: 1 }] }]);
+    feed.ingestFrame('run/settled', [{ agent: 'alpha', conversationId: CONV, run: 'run-x4', finish: 'stop', text: '旧式流' }]);
     const raw = feed.getRaw(`pair:${['alpha', 'user'].sort().join('|')}` as never);
     const asst = raw.find((m: any) => m.role === 'agent' && m.content === '旧式流');
     expect(asst).toBeTruthy();
@@ -88,9 +94,8 @@ describe('mergeHistory 键控对齐', () => {
     const dialogId = `pair:${['alpha', 'user'].sort().join('|')}` as never;
     // 直播：run 进行中，step0 已收口（驻留 stepId）
     feed.ingestFrame('loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { runId, stepId: `${runId}:0`, conversationId: CONV, sender: 'user', source: 'user' }]);
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user', runId, stepId: `${runId}:0` } }, { delta: '部分' }]);
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '部分', toolCalls: [{ id: 'tc9', name: 'read', arguments: '{}' }] }, { runId, stepId: `${runId}:0`, conversationId: CONV, sender: 'user', source: 'user' }]);
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: runId, step: 0, stepId: `${runId}:0`, seq: 10, rows: [{ type: 'step/content', text: '部分', ts: 1 }, { type: 'step/tool-call', toolCallId: 'tc9', name: 'read', arguments: '{}', ts: 1 }] }]);
     // 历史首屏：同 stepId 的 journal 行（更完整）+ viewer 消息
     const merged = feed.mergeHistory(dialogId, [
       { id: 'h-u', role: 'agent', content: '问题', agent_id: 'user', timestamp: 1000, persistedMsgId: 'mu1' },

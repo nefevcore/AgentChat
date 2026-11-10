@@ -23,14 +23,16 @@ describe('探针：真实帧还原（tool_calls snake_case 终值替换）', () 
     feed.append(DIALOG as never, { id: 'u1', role: 'agent', content: 'hi', timestamp: Date.now(), agent_id: 'user' });
     feed.ensureById(DIALOG as never).streaming = true;
     feed.ingestFrame('loop/run-started', [meta]);
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { ...meta, runId: 'r1', stepId: 'r1:0' }]);
     // 思考 + 正文 + 工具分片
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { reasoning: '计划' }]);
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { delta: '写程序' }]);
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: '{}' }] }]);
     console.log('1.frag:', st(feed));
-    // after-step：真实形状——step 对象 toolCalls 数组（loop 盖章）
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, stepId: 'r1:0', text: '写程序', toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: '{}' }] }, { ...meta, runId: 'r1', stepId: 'r1:0' }]);
+    // step/journaled：相位行批（cr-976 B 案——工具调用行为 step/tool-call 相位）
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', step: 0, stepId: 'r1:0', seq: 100, rows: [
+      { type: 'step/content', text: '写程序' },
+      { type: 'step/tool-call', toolCallId: 'hostCall', name: 'run_code', arguments: '{}' },
+    ] }]);
     console.log('2.after-step:', st(feed));
     // run_code 执行（子调用逐个跑）——先看无 subcall 帧的纯执行窗口
     console.log('3.执行窗口(无subcall帧):', st(feed));

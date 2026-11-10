@@ -535,29 +535,25 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
     }
   }, 15_000);
 
-  // cr-591（run-error 泛化）：每用户 run 收束 → conversation/run-settled
-  // 事件（boot 旁带发射的数据源——前端收束三件套唯一驱动）；reviewRun 机制 run 不发。
-  it('run 收束发 conversation/run-settled（失败带 message；reviewRun 不发）', async () => {    seedAgent('alpha');
-    const events: Array<{ conversationId: string; runId: string; finish: string; text: string; message?: string; sender: string; source: string }> = [];
+  // cr-591 → cr-976：run 收束通知退役（conversation/run-settled 词汇删除——
+  // 前端收敛信号 = run-end 行 durable 落盘投影 run/settled 帧）。本用例改锁
+  // durable 因果链：settle 点 ledger/event-appended 携带 run-end 行（E-2 的
+  // 壳侧数据源）；机制 run（reviewRun）走 settleMechanism（run-end 单行）。
+  it('run 收束经 ledger/event-appended 携带 run-end 行（失败终稿/error 行/run-end 同批；reviewRun 同理单行）', async () => {    seedAgent('alpha');
+    const events: Array<{ conversationId: string; rows: Array<Record<string, unknown>> }> = [];
     const { ctx, fibers, conv } = await bootTree('alpha', undefined, undefined, new Error('连接超时'));
     try {
-      ctx.on('conversation/run-settled', (p) => events.push(p));
+      ctx.on('ledger/event-appended', (p) => events.push(p));
       const out = await conv.receiveEnvelope(msg(UUID, 'f1', '必败一问'), { fresh: true });
       expect(out).toBe('settled'); // run 收束（finish=error）——失败如实入账
-      expect(events).toEqual([{
-        conversationId: UUID,
-        runId: 'run-f1',
-        finish: 'error',
-        text: '',
-        message: expect.stringContaining('连接超时'),
-        sender: 'user',
-        source: 'user',
-      }]);
-      // 机制 run（reviewRun）：同样失败但不发——机制 run 不面向用户
-      const before = events.length;
-      const review = await conv.reviewRun(UUID, '整理提示', { runId: 'review-1' });
-      expect(review.finish).toBe('error');
-      expect(events.length).toBe(before);
+      const settledBatch = events.find((p) => p.conversationId === UUID && p.rows.some((r) => r.type === 'run-end' && r.run === 'run-f1'));
+      expect(settledBatch).toBeDefined();
+      // 收束切片原子：终稿 message + error context 行 + run-end 同批（E-2 壳侧数据源）
+      expect(settledBatch!.rows.map((r) => r.type)).toEqual(['message', 'context', 'run-end']);
+      expect(settledBatch!.rows[2]).toMatchObject({ run: 'run-f1', finish: 'error' });
+      // 机制 run（reviewRun）：同样收束——settleMechanism = run-end 单行批
+      await conv.reviewRun(UUID, '整理提示', { runId: 'review-1' });
+      expect(events.some((p) => p.rows.some((r) => r.type === 'run-end' && r.run === 'review-1'))).toBe(true);
       // 终稿行如实落账（空文本 + finish error——账本仍是权威收束记录）；
       // cr-807：error 文案落 context+source:error 行（终稿行后）——刷新后
       // 前端红条仍可见（此前只活瞬态帧）
@@ -571,15 +567,16 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       await dispose(fibers);
     }
 
-    // 成功收束同发（干净树）：text = 终稿——前端终稿入列面
-    const okEvents: Array<{ finish: string; text: string; message?: string }> = [];
+    // 成功收束同链（干净树）：run-end 行 finish=completed，终稿行同批
+    const okEvents: Array<{ rows: Array<Record<string, unknown>> }> = [];
     const ok = await bootTree('alpha');
     try {
-      ok.ctx.on('conversation/run-settled', (p) => okEvents.push(p));
+      ok.ctx.on('ledger/event-appended', (p) => okEvents.push(p));
       await ok.conv.receiveEnvelope(msg(UUID, 'f2', '成功一问'), { fresh: true });
-      const settled = okEvents.find((e) => e.finish === 'ok');
-      expect(settled).toMatchObject({ text: '[回复 成功一问]' });
-      expect('message' in settled!).toBe(false); // 成功收束无失败文案
+      const batch = okEvents.find((p) => p.rows.some((r) => r.type === 'run-end' && (r as { finish?: string }).finish === 'completed'));
+      expect(batch).toBeDefined();
+      const finalMsg = batch!.rows.find((r) => r.type === 'message');
+      expect(finalMsg).toMatchObject({ content: '[回复 成功一问]' });
     } finally {
       await dispose(ok.fibers);
     }

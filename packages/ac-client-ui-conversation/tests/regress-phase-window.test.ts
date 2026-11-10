@@ -30,15 +30,13 @@ describe('A) StreamState 相位标志按步重置', () => {
     const runId = 'run-p1';
     const env = { runId, conversationId: CONV, sender: 'user', source: 'user' };
     feed.ingestFrame('loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
-    // step 0：有 reasoning + 工具调用（sawToolCall 置位）
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { ...env, stepId: runId + ':0' }]);
+    // step 0：有 reasoning + 工具调用（sawToolCall 置位；载体由 delta 惰性建卡）
     feed.ingestFrame('llm/delta', [{ meta: { agent: 'alpha', ...env, stepId: runId + ':0' } }, { reasoning: '思考一' }]);
     feed.ingestFrame('llm/delta', [{ meta: { agent: 'alpha', ...env, stepId: runId + ':0' } }, { toolCalls: [{ index: 0, id: 'tcA', name: 'read' }] }]);
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '', toolCalls: [{ id: 'tcA', name: 'read', arguments: '{}' }] }, { ...env, stepId: runId + ':0' }]);
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: runId, step: 0, stepId: runId + ':0', seq: 100, rows: [{ type: 'step/tool-call', toolCallId: 'tcA', name: 'read', arguments: '{}', ts: 1 }] }]);
     // step 1：正文先行（无工具分片）→ textBeforeTools 应自判为 true
-    feed.ingestFrame('loop/step-started', ['alpha', 1, [], { ...env, stepId: runId + ':1' }]);
     feed.ingestFrame('llm/delta', [{ meta: { agent: 'alpha', ...env, stepId: runId + ':1' } }, { delta: '第二步正文' }]);
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 1, text: '第二步正文', toolCalls: [] }, { ...env, stepId: runId + ':1' }]);
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: runId, step: 1, stepId: runId + ':1', seq: 101, rows: [{ type: 'step/content', text: '第二步正文', ts: 2 }] }]);
     const raw = feed.getRaw(DIALOG);
     const step1 = raw.find((m: any) => m.role === 'agent' && m.stepId === runId + ':1');
     expect(step1).toBeTruthy();
@@ -52,12 +50,10 @@ describe('A) StreamState 相位标志按步重置', () => {
     const env = { runId, conversationId: CONV, sender: 'user', source: 'user' };
     feed.ingestFrame('loop/run-started', [{ agent: 'alpha', conversationId: CONV, sender: 'user', source: 'user' }]);
     // step 0：带 reasoning（sawReasoning 置位、closeThinking 走过）
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { ...env, stepId: runId + ':0' }]);
     feed.ingestFrame('llm/delta', [{ meta: { agent: 'alpha', ...env, stepId: runId + ':0' } }, { reasoning: '思考零' }]);
     feed.ingestFrame('llm/delta', [{ meta: { agent: 'alpha', ...env, stepId: runId + ':0' } }, { delta: '正文零' }]);
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '正文零', toolCalls: [] }, { ...env, stepId: runId + ':0' }]);
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: runId, step: 0, stepId: runId + ':0', seq: 100, rows: [{ type: 'step/content', text: '正文零', ts: 1 }] }]);
     // step 1：也有 reasoning → onThinkingStart 应再次进入（!sawReasoning）
-    feed.ingestFrame('loop/step-started', ['alpha', 1, [], { ...env, stepId: runId + ':1' }]);
     feed.ingestFrame('llm/delta', [{ meta: { agent: 'alpha', ...env, stepId: runId + ':1' } }, { reasoning: '思考一' }]);
     const raw = feed.getRaw(DIALOG);
     const step1 = raw.find((m: any) => m.role === 'agent' && m.stepId === runId + ':1');

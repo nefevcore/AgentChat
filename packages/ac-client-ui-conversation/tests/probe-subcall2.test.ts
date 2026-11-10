@@ -23,16 +23,17 @@ describe('探针：run_code 完整真实序列（subcall 连续 + 间隙）', ()
     feed.append(DIALOG as never, { id: 'u1', role: 'agent', content: 'hi', timestamp: Date.now(), agent_id: 'user' });
     feed.ensureById(DIALOG as never).streaming = true;
     feed.ingestFrame('loop/run-started', [meta]);
-    feed.ingestFrame('loop/step-started', ['alpha', 0, [], { ...meta, runId: 'r1', stepId: 'r1:0' }]);
     // 模型只出工具调用（无正文——最典型 run_code 场景）
     feed.ingestFrame('llm/delta', [{ model: 'm', meta: { ...meta, runId: 'r1', stepId: 'r1:0' } }, { toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: '{code}' }] }]);
     console.log('1.toolfrag:', st(feed));
-    feed.ingestFrame('loop/after-step', ['alpha', { index: 0, text: '', toolCalls: [{ id: 'hostCall', name: 'run_code', arguments: '{code}' }] }, { ...meta, runId: 'r1', stepId: 'r1:0' }]);
+    feed.ingestFrame('step/journaled', [{ agent: 'alpha', conversationId: CONV, run: 'r1', step: 0, stepId: 'r1:0', seq: 100, rows: [
+      { type: 'step/tool-call', toolCallId: 'hostCall', name: 'run_code', arguments: '{code}' },
+    ] }]);
     console.log('2.after-step:', st(feed));
     // subcall 1（read）
     feed.ingestFrame('tool/started', [{ agentId: 'alpha', conversationId: CONV, toolCallId: 'r1#1', name: 'read', runCodeSubcall: true, runId: 'r1' }]);
     console.log('3.sub1-start:', st(feed));
-    feed.ingestFrame('tool/after-execute', [{ agentId: 'alpha', conversationId: CONV, toolCallId: 'r1#1', name: 'read', runCodeSubcall: true, runId: 'r1' }, { ok: true, output: '内容' }]);
+    feed.ingestFrame('tool/result', [{ agent: 'alpha', conversationId: CONV, run: 'r1', toolCallId: 'r1#1', result: { ok: true, output: '内容' }, subcall: true, name: 'read', arguments: '{}' }]);
     console.log('4.sub1-end:', st(feed));
     // 【间隙】subcall 2 未开始——run_code 还在跑（宿主工具未返回）
     console.log('5.gap:', st(feed));

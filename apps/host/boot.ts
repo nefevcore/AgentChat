@@ -365,9 +365,10 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     // 证据——新宿主监护全链就位后，活壳的 host-revive 复活职责免除。
     supervisionReadyAt = new Date().toISOString();
     // cr-748 状态对账：poller 挂编排面（订阅驱动起停）。对账 run-settled →
-    // loop/after-run 前端帧（ShellStreamBridge 同形映射——丢帧的 run 经对账
-    // 面补投收束三件套：清 busy + 权威行重拉；text 缺席，终稿以重拉的权威行
-    // 为准）；广播无连接时帧丢弃（B3 瞬态语义同款——对账面不承诺持久）。
+    // run/settled 前端帧（cr-976 B 案帧形——与 ledger-event 投影同形：丢帧的
+    // run 经对账面补投收束三件套：清 busy + 权威行重拉；text 缺席，终稿以
+    // 重拉的权威行为准；seq 缺席——对账面无行级锚，前端按会话幂等收敛）；
+    // 广播无连接时帧丢弃（B3 瞬态语义同款——对账面不承诺持久）。
     poller = createShellStatePoller(supervisors);
     pollerRef.snap = () => poller?.snapshot() ?? null; // cr-824 批二：镜像端口回填
     // cr-885 周期兜底：poller 惰性节拍顺带冲刷 outbox（非空即 flush——重投由
@@ -379,11 +380,14 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     poller.onEvent((event) => {
       if (event.type !== 'run-settled') return;
       hostLog('I', 'poller', 'run-settled 对账（' + event.agentId + '，' + event.runId + '，finish=' + event.finish + '）');
-      ctx.webServer.broadcast('loop/after-run', {
-        args: [
-          { agent: event.agentId, conversationId: event.conversationId, sender: 'user', source: 'user' },
-          { finish: event.finish === 'ok' ? 'stop' : event.finish, text: '' },
-        ],
+      ctx.webServer.broadcast('run/settled', {
+        args: [{
+          agent: event.agentId,
+          conversationId: event.conversationId,
+          run: event.runId,
+          finish: event.finish === 'ok' ? 'stop' : event.finish,
+          text: '',
+        }],
       });
     }); // 退订面丢弃——订阅随宿主生命周期，dispose 统一收
   }

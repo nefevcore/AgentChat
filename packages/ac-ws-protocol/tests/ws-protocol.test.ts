@@ -10,10 +10,10 @@ import {
 
 describe('ac-ws-protocol 帧编解码', () => {
   it('build → parse 往返', () => {
-    const raw = buildFrame('loop/after-step', { agent: 'a', step: { index: 0 } });
+    const raw = buildFrame('tool/result', { agent: 'a', toolCallId: 'c1' });
     expect(parseFrame(raw)).toEqual({
-      type: 'loop/after-step',
-      data: { agent: 'a', step: { index: 0 } },
+      type: 'tool/result',
+      data: { agent: 'a', toolCallId: 'c1' },
     });
   });
 
