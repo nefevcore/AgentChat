@@ -76,15 +76,22 @@ export function projectUserReplay(dataRoot: string, uuid: string): UserReplayRow
   const collected: Array<{ row: UserReplayRow; ord: number }> = [];
   let ord = 0;
   const seen = new Set<string>();
+  // 行身份键（cr-978）：message_id 缺席/空 = v1 裸行无身份——不参与判重
+  //（旧形态 seen.add(undefined) 会把全部无身份行塌缩成一条 = 静默丢消息）。
+  const idKeyOf = (r: LedgerRow): string | undefined => {
+    const k = r.requestId ?? r.message_id;
+    return typeof k === 'string' && k !== '' ? k : undefined;
+  };
   // user 发言行：入站行 agent_id='user'。restarted-* 前缀 = cr-946 前机制
   // 通知的存量落形（viewer 时代即不投影——读面按 event 行另投）。
   for (const { rows } of domainRows) {
     for (const r of rows) {
       if (r.role !== 'agent' || r.agent_id !== 'user') continue;
       if (typeof r.requestId === 'string' && r.requestId.startsWith('restarted-')) continue;
-      if (seen.has(r.requestId ?? r.message_id)) continue;
+      const key = idKeyOf(r);
+      if (key !== undefined && seen.has(key)) continue;
       if (r.requestId !== undefined) seen.add(r.requestId);
-      seen.add(r.message_id);
+      if (key !== undefined) seen.add(key);
       collected.push({ row: replayOfUserRow(r), ord: ord++ });
     }
   }
@@ -94,13 +101,14 @@ export function projectUserReplay(dataRoot: string, uuid: string): UserReplayRow
   for (const { domain, rows } of domainRows) {
     for (const r of rows) {
       if (r.role !== 'agent' || r.agent_id !== domain) continue;
-      if (r.source === 'segment' || r.source === 'inject' || r.message_id.startsWith('seg-')) continue;
-      if (r.content.trim() === '') continue;
-      if (seen.has(r.requestId ?? r.message_id)) continue;
+      if (r.source === 'segment' || r.source === 'inject' || (r.message_id as string | undefined)?.startsWith('seg-') === true) continue;
+      if (String(r.content).trim() === '') continue;
+      const key = idKeyOf(r);
+      if (key !== undefined && seen.has(key)) continue;
       const run = typeof r.run === 'string' && r.run !== '' ? r.run : undefined;
       if (run !== undefined && runsWithFinal.has(run)) continue;
       if (r.requestId !== undefined) seen.add(r.requestId);
-      seen.add(r.message_id);
+      if (key !== undefined) seen.add(key);
       if (run !== undefined) runsWithFinal.add(run);
       collected.push({ row: replayOfAgentRow(r, domain), ord: ord++ });
     }

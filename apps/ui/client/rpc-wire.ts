@@ -14,6 +14,7 @@
 // client/ 半边（cutover 收编本文件——ui-tree §4）。
 // ============================================================
 import { unpackWireFrames } from 'ac-wire-format';
+import { traceSwitch } from 'ac-client-runtime';
 import { hostUrl } from './host-endpoint.ts';
 import { RPC_CALL, RPC_RESULT, WS_ACK } from 'ac-ws-protocol';
 
@@ -232,13 +233,18 @@ class WireRpcClient {
   }
 
   call<T>(method: string, params?: unknown, requestId?: string, timeoutMs?: number): Promise<T> {
+    const t0 = Date.now();
     return new Promise<T>((resolve, reject) => {
       const id = requestId ?? ('w-' + (++this.seq) + '-' + Date.now().toString(36));
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error('rpc 超时：' + method));
       }, timeoutMs ?? RPC_TIMEOUT_MS);
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer });
+      this.pending.set(id, {
+        resolve: (v: unknown) => { if (Date.now() - t0 > 1000) traceSwitch('rpc-slow', `${method} ${Date.now() - t0}ms`); resolve(v as T); },
+        reject: (e: Error) => { if (Date.now() - t0 > 1000) traceSwitch('rpc-slow', `${method} 失败 ${Date.now() - t0}ms`); reject(e); },
+        timer,
+      });
       void this.socket().then((ws) => {
         ws.send(JSON.stringify({ type: RPC_CALL, data: { method, requestId: id, params } }));
       }).catch(reject);

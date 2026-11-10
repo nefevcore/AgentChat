@@ -13,7 +13,7 @@
 //（裁决八：sandbox iframe 独立模块表 + 自含产物——不进主文档物化面）。
 // ============================================================
 import type { ClientContext, ClientPluginObject } from 'ac-client-runtime';
-import { createClient } from 'ac-client-runtime';
+import { createClient, traceSwitch } from 'ac-client-runtime';
 import type { Wire, WireRow } from 'ac-webui-core';
 import { makeRpcHostPlugin, type RpcWire } from './rpc-host.ts';
 import { skeletonPlugins, loadChannelCss } from './boot.ts';
@@ -62,7 +62,9 @@ async function defaultFetchWire(): Promise<Wire> {
  */
 export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV3Result> {
   const fetchWire = options.fetchWire ?? defaultFetchWire;
+  const tWire = Date.now();
   const wire = await fetchWire();
+  traceSwitch('boot-wire', `wire 拉取 ${Date.now() - tWire}ms（${wire.rows.length} 行）`);
   const rowsById = new Map<string, WireRow>(wire.rows.map((r) => [r.id, r]));
   // 深路径归一（<pkg>/client... → <pkg> 行）：仅命中 wire 行 id 的前缀词
   const rowsOf = (spec: string): string | undefined => {
@@ -124,9 +126,14 @@ export async function bootUiClientV3(options: BootV3Options = {}): Promise<BootV
   for (const row of loadable) {
     if (channel.get(row.id) === 'err') continue;
     try {
+      const t0 = Date.now();
       const mod = await modules.import(row.id) as { default?: unknown };
       const plugin = (mod as Record<string, unknown>)['default'] ?? mod;
       await ctx.plugin(plugin as ClientPluginObject);
+      const ms = Date.now() - t0;
+      // 装载耗时打点（诊断面：>300ms 的行进 [switch] 轨道——冷启慢时
+      // 定位到具体行；traceSwitch 开关纪律同源，不新增日志面）
+      if (ms > 300) traceSwitch('boot-row', `${row.id} 物化 ${ms}ms`);
       channel.set(row.id, 'ok');
     } catch (error) {
       console.error(`[boot-v3] 行装载失败（跳过）"${row.id}"：`, error);

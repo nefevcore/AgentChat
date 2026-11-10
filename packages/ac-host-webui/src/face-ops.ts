@@ -920,6 +920,8 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
   // 运行矩阵快照（主线 runs/snapshot 同构）：指纹阶段只 stat（零文件读）；
   // 活跃集 = 活壳 run-state 帧（busy 壳才成条——闲壳在跑不等于有 run）。
   // digest 短路：请求带上一轮 digest 且当前一致 → unchanged 轻载荷。
+  // cr-978 展开摘要 memo（cid → 指纹关联摘要——见展开阶段注释）
+  const convSummaryMemo = new Map<string, { size: number; mtimeMs: number; messageCount: number; last?: { role: string; text: string; ts: string; agent_id?: string } }>();
   let lastRunsDigest: string | null = null;
   web.registerRpc('runs/snapshot', async (params) => {
     // 会话清单与指纹源（cr-973 viewer 停写）：agent 域账本是事实源——
@@ -999,30 +1001,44 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       return { unchanged: true, digest, generatedAt: Date.now() };
     }
     lastRunsDigest = digest;
-    // 展开阶段（digest 变化或首轮）：此刻才读账本（messageCount + 尾部摘要）
-    const conversations = convsMeta
-      .filter((c) => c.size >= 0)
-      .map((c) => {
-        // cr-973：终稿层读时投影（agent 域账本——viewer 不再物化）
-        const rows = projectUserReplay(deps.dataRoot, c.cid);
-        const last = rows.at(-1);
-        return {
-          conversationId: c.cid,
-          messageCount: rows.length,
-          size: c.size,
-          updatedAt: c.mtimeMs,
-          ...(last !== undefined
-            ? {
-              last: {
-                role: last.role === 'user' ? 'user' : 'assistant',
-                text: last.content.slice(0, 120),
-                ts: last.timestamp,
-                ...(last.role !== 'user' ? { agent_id: last.agentId } : {}),
-              },
-            }
-            : {}),
-        };
-      });
+    // 展开阶段（digest 变化或首轮）：此刻才读账本（messageCount + 尾部摘要）。
+    // cr-978：按会话指纹 memo（size+mtime 未变 = 摘要未变——append-only 下
+    // 成立）——digest 变化通常只涉少数会话（后台 run 追加），只重读变化面；
+    // 冷首轮全量（一次性）。单会话读失败降级缺席（一颗坏行不再炸整拍快照
+    // ——崩溃曾使 runs/snapshot 恒 500 + 全根扫描风暴拖死宿主）。分批让出
+    // 事件循环（cr-843 同款——冷首轮不饿死并发 RPC）。
+    const conversations = [] as Array<{ conversationId: string; messageCount: number; size: number; updatedAt: number; last?: { role: string; text: string; ts: string; agent_id?: string } }>;
+    const meta = convsMeta.filter((c) => c.size >= 0);
+    for (let i = 0; i < meta.length; i++) {
+      const c = meta[i]!;
+      let e = convSummaryMemo.get(c.cid);
+      if (e === undefined || e.size !== c.size || e.mtimeMs !== c.mtimeMs) {
+        try {
+          const rows = projectUserReplay(deps.dataRoot, c.cid);
+          const last = rows.at(-1);
+          e = {
+            size: c.size,
+            mtimeMs: c.mtimeMs,
+            messageCount: rows.length,
+            ...(last !== undefined
+              ? {
+                last: {
+                  role: last.role === 'user' ? 'user' : 'assistant',
+                  text: last.content.slice(0, 120),
+                  ts: last.timestamp,
+                  ...(last.role !== 'user' ? { agent_id: last.agentId } : {}),
+                },
+              }
+              : {}),
+          };
+          convSummaryMemo.set(c.cid, e);
+        } catch {
+          e = { size: c.size, mtimeMs: c.mtimeMs, messageCount: 0 };
+        }
+      }
+      conversations.push({ conversationId: c.cid, messageCount: e.messageCount, size: c.size, updatedAt: c.mtimeMs, ...(e.last !== undefined ? { last: e.last } : {}) });
+      if (i % 16 === 15) await new Promise<void>((r) => setImmediate(r));
+    }
     const usage = ctx.get('usage') as { totals(): unknown } | undefined;
     return {
       digest,

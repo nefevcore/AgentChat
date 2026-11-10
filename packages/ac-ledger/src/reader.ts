@@ -37,6 +37,9 @@ export function readLedger(dir: string): ReadResult {
       header = parsed as LedgerHeader;
       continue;
     }
+    // cr-978 注记：早期子 Agent 会话写面落过缺 message_id/timestamp 的裸行
+    //（role/content/agent_id/uuid）——读侧不突变行形状（所有读面共用），
+    // 消费容错归 projectUserReplay 判别面（idKeyOf / 可选链守卫）。
     rows.push(parsed as LedgerRow);
   }
   return { header, rows };

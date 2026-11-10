@@ -15,6 +15,7 @@ import { computed, onMounted, ref, onBeforeUnmount } from 'vue';
 import { useClientContext } from 'ac-client-runtime';
 import type { SlotEntry } from 'ac-client-slots';
 import { useUiStore } from './uiStore.ts';
+import { traceSwitch } from 'ac-client-runtime';
 
 const ui = useUiStore();
 const clientCtx = useClientContext();
@@ -44,7 +45,15 @@ onMounted(() => {
   // 首启无记录 → 最近会话或新建空白会话；历史由 ConversationView 的
   // single watch 加载）
   const board = singlesBoard;
-  if (board) void board.refresh().then(() => { void board.openDefaultSingle(); });
+  if (board) {
+    const t0 = Date.now();
+    void board.refresh().then(() => {
+      traceSwitch('singles-boot', `refresh ${Date.now() - t0}ms → 恢复选中`);
+      void board.openDefaultSingle();
+    });
+  } else {
+    traceSwitch('singles-boot', 'singleBoard 缺席（骨架挂载早于 ui-singles 行——恢复链未启动）');
+  }
 });
 </script>
 
