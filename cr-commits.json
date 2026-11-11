@@ -1,6 +1,6 @@
 {
- "scannedHead": "d65201f350fdd2c338249f2ef430b006d956d4b3",
- "generatedAt": "2026-11-11T12:21:13.807Z",
+ "scannedHead": "02fbd0ff7fe7b65f43c9980ff06019e6ec31b629",
+ "generatedAt": "2026-11-11T14:03:18.545Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -3798,6 +3798,13 @@
     "subject": "fix(conversation): cr-946 会话投影顺序修复——机制行轮边界 / 跨 run 拆轮 / 相位序落盘 / seq 单写者"
    }
   ],
+  "821": [
+   {
+    "sha": "02fbd0ff7fe7b65f43c9980ff06019e6ec31b629",
+    "date": "2026-11-11",
+    "subject": "fix(assembly): cr-1021 tc-programmatic 空面陷阱修复（news~news 71 run 静默零工具执行事故）——run-code 行去 bundle:infra 进壳基础集（升 ac-base-version 3：mode 工具恒在场，未点名 Agent 不再空面植物人）+ narrowToolsByMode 无 mode 工具回退常规面（推翻旧「空面不回落」裁决——静默植物人危害大于悄悄变常规档，llmToolFace/staticToolDefs 双调用方 warn 留痕）+ cr-821 形态合成信号修正（spawnChildConfigOf：程序化 = 父形态 ∧ 子行集含 run-code——基础集化后行集信号对缺省继承恒真，防常规父 spawn 子被翻转程序化）；测试断言对齐（差量瘦身滤基础集行点名/infra 捆绑缩围/回退面）+ 全量 424 文件 3041 用例绿"
+   }
+  ],
   "824": [
    {
     "sha": "d65201f350fdd2c338249f2ef430b006d956d4b3",
@@ -4332,6 +4339,18 @@
     "sha": "8b5287f08dadb5625e938f2f94beb3379970f12e",
     "date": "2026-11-11",
     "subject": "refactor(assembly): cr-1004/1007 装配代数统一落地——两段式求值引擎（ac-rowset-core evaluate.ts：存在合成=基座∪installed face 反向适配〔scope 投影退役、host 面 fail-closed〕+ 差量合成=用户层→实例层；席位六件特判消解、护栏经 seatIds 策略注入、诊断分级 warnings/notices/errors）+ 文件族改名（「patch」中缀专属差量：<proc>.yml 基座 / installed.yml 登记〔旧名只读兼容 + 版本戳判据的存量副本 reconcile——撞名误删用户差量层边界收口〕/ <proc>.patch.yml 用户差量层）+ agent.patch.yml v2 差量化（纯 cordis 条目数组 + # ac-base 基线戳：写面保真、boot 漂移 fail-loud 触发 rebase；档案与 origin 迁 agent.json；levels 归位条目 config.level〔dev-tools 死词退役〕；migrate v2 档幂等/--rebase/--revert）+ cr-1007 写侧精简（expansion 全落基础集的 no-op 加法不落盘 §六；组合读重建白名单保工具面热更新、{include} 统一 B−T 转换；基础集行停用改静默良定义降级）+ 基座去预设并集化（sap-adt→bundle:abap / plugin-dev→bundle:creator / harness-tools·bench→bundle:dev，升 ac-base-version 2——空白 Agent 不再恒装预设并集）；消费面接线 shell/host boot、subagent 继承改父行集快照、webui 三处求值、会话工具面滤除无工具行 id；全量 424 文件/3040 用例绿"
+   },
+   {
+    "sha": "08426ba86e9bb790a709d950b218041968fecb6b",
+    "date": "2026-11-11",
+    "subject": "fix(webui): cr-1020 subagents/list 盘读面补随 cr-1004 批2迁移——name 读 agent.json（owning 包档案读面单源，config.json 存量回落），此前只读 config.json 致新物化子整条目静默丢弃（帧链路正常、list 查不到，前端新建子不可见）；档案缺席/损坏不再丢条目（name 空串保留行）；回归锁三形态（仅 agent.json / 仅 config.json / 双缺席）"
+   }
+  ],
+  "1005": [
+   {
+    "sha": "161d520e765c8f6b4b786e31353a081bb5194621",
+    "date": "2026-11-11",
+    "subject": "feat(renderer): cr-1005 Agent 回复 markdown 本地图片渲染——image src workspace 路径重写为 /api/workspace/raw 直链（安全门 LOCAL_IMAGE_SRC_RE：files/ 前缀 + 盘符/UNC/POSIX 绝对路径；RAW_LINK_SKIP_RE 防端点形二次包裹；解码后判定〔markdown-it 解析层已百分号编码〕+ 交回默认规则〔保 alt children 渲染〕；与 UserMessage 缩略图 filePreviewUrl 同端点单源——多模态下行表达力最小补齐）；定向 10 用例 + 全量 412 文件 2945 用例绿"
    }
   ],
   "1007": [
@@ -4353,6 +4372,25 @@
     "sha": "d65201f350fdd2c338249f2ef430b006d956d4b3",
     "date": "2026-11-11",
     "subject": "docs: cr-1008 整理批——docs 全域重组八域目录 + 20 篇归档 + 文档规范成文"
+   },
+   {
+    "sha": "8c4d311f478b7a7da50d5939fbe9e599efee2907",
+    "date": "2026-11-11",
+    "subject": "chore(cr): cr-commits.json 投影同步（cr-1009~1019 整理批台账）"
+   }
+  ],
+  "1020": [
+   {
+    "sha": "08426ba86e9bb790a709d950b218041968fecb6b",
+    "date": "2026-11-11",
+    "subject": "fix(webui): cr-1020 subagents/list 盘读面补随 cr-1004 批2迁移——name 读 agent.json（owning 包档案读面单源，config.json 存量回落），此前只读 config.json 致新物化子整条目静默丢弃（帧链路正常、list 查不到，前端新建子不可见）；档案缺席/损坏不再丢条目（name 空串保留行）；回归锁三形态（仅 agent.json / 仅 config.json / 双缺席）"
+   }
+  ],
+  "1021": [
+   {
+    "sha": "02fbd0ff7fe7b65f43c9980ff06019e6ec31b629",
+    "date": "2026-11-11",
+    "subject": "fix(assembly): cr-1021 tc-programmatic 空面陷阱修复（news~news 71 run 静默零工具执行事故）——run-code 行去 bundle:infra 进壳基础集（升 ac-base-version 3：mode 工具恒在场，未点名 Agent 不再空面植物人）+ narrowToolsByMode 无 mode 工具回退常规面（推翻旧「空面不回落」裁决——静默植物人危害大于悄悄变常规档，llmToolFace/staticToolDefs 双调用方 warn 留痕）+ cr-821 形态合成信号修正（spawnChildConfigOf：程序化 = 父形态 ∧ 子行集含 run-code——基础集化后行集信号对缺省继承恒真，防常规父 spawn 子被翻转程序化）；测试断言对齐（差量瘦身滤基础集行点名/infra 捆绑缩围/回退面）+ 全量 424 文件 3041 用例绿"
    }
   ]
  }
