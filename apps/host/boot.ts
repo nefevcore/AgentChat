@@ -306,10 +306,10 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     throw err;
   }
 
-  // ---- 数据根分层 doctor（契约 = docs/design/data-root-layers.md）：顶层
+  // ---- 数据根分层 doctor（契约 = docs/design/assembly/data-root-layers.md）：顶层
   // 未知项 warn——「清投影连源数据一起清」类事故的前置哨兵。只 warn 不拒启。
   for (const name of auditDataRootLayers(dataRoot)) {
-    hostLog('W', 'host', '数据根顶层未知项「' + name + '」——不在分层契约内（docs/design/data-root-layers.md）');
+    hostLog('W', 'host', '数据根顶层未知项「' + name + '」——不在分层契约内（docs/design/assembly/data-root-layers.md）');
   }
 
   // ---- viewer 投影对账自愈（cr-973 退役）：终稿层 = agent 域账本读时

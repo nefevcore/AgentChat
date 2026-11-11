@@ -672,7 +672,7 @@ export class RemoteLinkService extends Service {
       // 桌面 user~agent 分裂（流式门控拦帧、历史读不回、conv-settings 错桶）。
       // 手机 = viewer 的另一块表面，端点身份不变；设备溯源留在链路层（deviceId
       // 在手），不进信封。强制改写保留——防配对设备伪造 sender 注入 agent⇄agent
-      // 桶（裁决：docs/design/remote-deliver-sender-ruling.md）。
+      // 桶（裁决：docs/design/archive/session/remote-deliver-sender-ruling.md）。
       p.sender = 'user';
       p.source = 'user';
       // access 放行（cr-112，cr-105「配对即信任」补全；cr-947 前名 elevation）：

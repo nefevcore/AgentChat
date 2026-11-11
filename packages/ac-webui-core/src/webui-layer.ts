@@ -1,6 +1,6 @@
 // ============================================================
 // webui-layer.ts —— webui 装配文档分层合成（cr-905 / cr-901 v2.1
-// 批3 切片三，docs/design/ui-plugin-form.md §四 / cr-1004 文件族改名）
+// 批3 切片三，docs/design/webui/ui-plugin-form.md §四 / cr-1004 文件族改名）
 //
 // 分层（前端侧求值——boot graph 端点内做）：
 //   基座(profile/webui.yml——工厂通道出厂清单)

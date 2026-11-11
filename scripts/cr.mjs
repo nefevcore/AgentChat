@@ -405,15 +405,20 @@ function cmdCheck() {
   for (const e of p.entries) {
     if (e.tail?.bad !== undefined) errs.push('锁4：cr-' + e.n + ' 尾部块非法字段「' + e.tail.bad + '」');
     for (const r of e.tail?.refs || []) if (!known.has(r)) errs.push('锁4：cr-' + e.n + ' 引用不存在的 →cr-' + r);
-    // 锁5（劝告锁）：docs 路径存在性——三级回退链
-    // 原位 → docs/design/<名>（cr-262 布局迁移前旧路径）→ docs/design/archive/<名>（归档）。
+    // 锁5（劝告锁）：docs 路径存在性——回退链
+    // 原位 → docs/design/<名>（cr-262 布局迁移前旧路径）→ docs/design/archive/<名>（归档）
+    // → docs/design/<域>/<名> 与 docs/design/archive/<域>/<名>（cr-1008 起域子目录 + 00-ToRevise 整理队列，目录枚举）。
     // 未命中仅提示不红：登记先于写文档（append 期硬校验会挡正常流程），历史
     // 消亡是正常态；实锤先例 cr-964（登记的文档从未提交）属台账脏数据，软示即可
     for (const path of e.desc.match(/docs\/[\w\-./]+\.md/g) || []) {
       const base = dirname(LOG);
       const name = path.split('/').pop();
-      const hit = [join(base, path), join(base, 'docs', 'design', name), join(base, 'docs', 'design', 'archive', name)]
-        .some((c) => fs.existsSync(c));
+      const designDir = join(base, 'docs', 'design');
+      const domainHit = [designDir, join(designDir, 'archive')].some((root) => fs.existsSync(root)
+        && fs.readdirSync(root, { withFileTypes: true })
+          .some((d) => d.isDirectory() && fs.existsSync(join(root, d.name, name))));
+      const hit = [join(base, path), join(designDir, name), join(designDir, 'archive', name)]
+        .some((c) => fs.existsSync(c)) || domainHit;
       if (!hit) softWarns.push('cr-' + e.n + ' 文档路径未命中（回退链全 miss）：' + path);
     }
   }

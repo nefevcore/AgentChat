@@ -1,6 +1,6 @@
 // ============================================================
 // module-system.ts —— 浏览器模块运行时 ClientModuleSystem（cr-929 切片①；
-// docs/design/webui-v3.md §4.4）
+// docs/design/webui/webui-v3.md §4.4）
 //
 // lazy CJS 模块表，Node 内部 ESM loader 的浏览器对位物：
 //   import 'X' / require('X')

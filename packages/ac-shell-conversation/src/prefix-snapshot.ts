@@ -5,7 +5,7 @@
 // PromptSection 注册面的求值结果（段数组 + 指纹）冻结落盘；此后 run 不再
 // 现场求值，直接喂快照段给 assembleSystemPrompt（段序由 order 承载）。
 //
-// 四机制（docs/design/single-system-prompt-materialization-plan.md）：
+// 四机制（docs/design/platform/single-system-prompt-materialization-plan.md）：
 //   ① 物化（首 run）/ ② diff（每 run 指纹对比）/ ③ 重算（仅 provider+
 //   model 变化——唯一快照重写通道，缓存域必死时重建基线）/ ④ 注入（变化
 //   清单变化 → ledger context 通知行 + 指纹更新）。

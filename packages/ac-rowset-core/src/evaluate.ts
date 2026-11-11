@@ -1,5 +1,5 @@
 // ============================================================
-// evaluate.ts —— 装配合成求值引擎（cr-1004 / docs/design/agent-assembly.md）
+// evaluate.ts —— 装配合成求值引擎（cr-1004 / docs/design/assembly/agent-assembly.md）
 //
 // 两段式、一个引擎（每进程种类同形）：
 //   存在合成（无差量语义——并集）：

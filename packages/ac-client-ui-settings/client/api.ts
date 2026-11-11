@@ -133,7 +133,7 @@ export const LLM_PROVIDER_TEMPLATES: LlmProviderTemplate[] = [
   // 物化亦有清单回落）。
   { id: 'ant-ling', label: '蚂蚁 Ling 开放平台', baseUrl: 'https://api.ant-ling.com/v1', defaultModel: 'Ling-2.6-flash' },
   { id: 'anthropic', label: 'Anthropic Claude（OpenAI 兼容端点）', baseUrl: 'https://api.anthropic.com/v1', defaultModel: 'claude-sonnet-4-5' },
-  // ↓ 云部署型 API key 化端点（cr-98，裁决见 docs/design/cloud-provider-api-key-adoption.md）：
+  // ↓ 云部署型 API key 化端点（cr-98，裁决见 docs/design/archive/llm/cloud-provider-api-key-adoption.md）：
   // Azure v1 统一路由（免 deployment 拼路径）+ api-key 头（authHeader 池
   // 字段）；Bedrock /openai/v1 兼容面 + Bearer（控制台生成的短期 API
   // key）。Vertex Express 缓收录（AI Studio 模板已覆盖 key 化面）。

@@ -1,5 +1,5 @@
 // ============================================================
-// webui-graph.ts —— webui-v3 wire 注册面（cr-926 切片①；设计源 docs/design/webui-v3.md §4.2/§4.3.2）
+// webui-graph.ts —— webui-v3 wire 注册面（cr-926 切片①；设计源 docs/design/webui/webui-v3.md §4.2/§4.3.2）
 //
 // graph 锚 = 宿主活装配态（裁决一）：cordis internal/plugin 事件（fiber
 // 构造/销毁）把 entry name 打进脏集，microtask flush 对账该名字在

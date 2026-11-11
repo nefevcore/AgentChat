@@ -1,6 +1,6 @@
 // ============================================================
 // build-channel.mjs —— 通道模块唯一构建器（cr-927 webui-v3 切片① v3 形态；
-// docs/design/webui-v3.md §4.5 产物与构建）
+// docs/design/webui/webui-v3.md §4.5 产物与构建）
 //
 // 两种形态（同一脚本，cutover 收敛为一）：
 //   v3（缺省，本档产物位）：<pkg>/client/dist/ —— factory 注册 bundle

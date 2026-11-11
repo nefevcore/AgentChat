@@ -1234,7 +1234,7 @@ export class ConversationService extends Service {
     return call.request.system ?? '';
   }
 
-  // —— cr-888 singles 前缀快照四机制（docs/design/single-system-prompt-materialization-plan.md）——
+  // —— cr-888 singles 前缀快照四机制（docs/design/platform/single-system-prompt-materialization-plan.md）——
 
   /** singles 判定（ctx.get('singles') 消费口——壳内 SinglesShim，ac-host-face-client 提供；行缺席 = 恒 false） */
   private isSingles(conversationId: string): boolean {

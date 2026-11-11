@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ============================================================
 // scripts/gen-webui-base.mjs —— webui 基座源文档生成器（cr-905 /
-// cr-901 v2.1 批3 切片一，docs/design/ui-plugin-form.md §四；
+// cr-901 v2.1 批3 切片一，docs/design/webui/ui-plugin-form.md §四；
 // cr-920 事实源迁 packages/ac-client-ui-*（ac.faces.web））
 //
 // 事实源 = packages/ac-client-ui-* 包的 ac.faces.web 声明（增删包/改
@@ -52,7 +52,7 @@ const header =
   '# ac-base-version: ' + version + '\n' +
   '# webui 进程基座源文档（cr-905 / cr-901 v2.1 批3）——生成物：事实源 = packages/ac-client-ui-* / ac-client-theme-*（ac.faces.web），\n' +
   '# 由 scripts/gen-webui-base.mjs 生成，禁止手改（漂移由 ac-rowset-core\n' +
-  '# tests/webui-base.test.ts 锁定）。分层合成与前端侧求值见 docs/design/ui-plugin-form.md。\n';
+  '# tests/webui-base.test.ts 锁定）。分层合成与前端侧求值见 docs/design/webui/ui-plugin-form.md。\n';
 const next = header + body;
 if (next === prev) {
   console.log('webui.yml 已同步（' + rows.length + ' 行，v' + version + '）');

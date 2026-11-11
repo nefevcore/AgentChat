@@ -1,7 +1,7 @@
 // ============================================================
 // wire.ts —— webui-v3 wire schema 与合成纯函数（cr-924/925 切片①）
 //
-// 设计源 docs/design/webui-v3.md §4.3：wire = 活 fiber 集的投影，
+// 设计源 docs/design/webui/webui-v3.md §4.3：wire = 活 fiber 集的投影，
 // 一致性由构造保证。本文件只承担纯合成面（声明校验门 / 撞名防御 /
 // 种子版本对拍 / inject 拓扑序 / 图级 rev 哈希）；打脏/flush 与
 // wire/graph·rebuilt WS 帧推送住宿主行（apps/ui/src/webui-row.ts v3）。

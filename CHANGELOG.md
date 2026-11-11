@@ -32,7 +32,7 @@ All notable changes to AgentChat are documented in this file.
 - 活包全部迁入 `packages/`（src 71 + preview 49），四个应用（host/shell/ui/catalog）迁入 `apps/`；旧 `src/` 与 `preview/` 目录删除，双轨叙事终结。
 - 测试套件合并：unit/integration 同一 vitest 配置（`VITEST_PROFILE` 分档），preview:* 脚本退役。
 - 发布产物三入口（`dist/agentchat.mjs` 宿主 / `dist/shell.mjs` 壳 / `dist/worker.mjs` run_code worker）+ `AGENTCHAT_HOME` 资产锚（`apps/host/anchors.ts` 单源解析）。
-- 遗留清单与裁决见 `docs/design/cr-703-followups.md`（P0/P1/P2 与验收）。
+- 遗留清单与裁决见 `docs/design/platform/cr-703-followups.md`（P0/P1/P2 与验收）。
 
 ### Fixed（连续跑测试 EPERM 根修 + 宿主 close 壳收割，cr-705）
 - host e2e 数据根从相对路径 `sandbox/`（chdir 后落入 `workspace/test/w<N>/`——global setup 清理面撞 detached 壳句柄必 EPERM）改为 `mkdtemp` 绝对路径（`apps/host/tests/e2e-admin-preview.test.ts`、`e2e-title.test.ts`）。
@@ -74,7 +74,7 @@ All notable changes to AgentChat are documented in this file.
 - **根因**：子壳终稿走 R-2「终稿回复 = 一次普通 send」，信封 `uuid = parent~child`、`sender = 子`；父壳只认 `env.uuid` 当会话键，于是唤醒对桶并再回信。发起会话键从未被捕获（subagent 工具 `execute` 只取 `args`，丢弃 `call.conversationId`），也没有完成通知通道（对照 `notifyLateReply`/旧 job-wakeup 的正确形态）。
 - **修复**：① 任务信封 `payload.replyConversation` 携带工具调用所在会话键，子壳 `postReply` 原样回带；② 父壳收信识别「本壳在管子 Agent」= **完成回执**，不进会话机（对桶只落账），把终稿作为一条来自子 Agent 的消息转投发起会话（`replyTo=user`，本壳终稿面向用户、不回投子 Agent；通知 requestId 幂等防重启重放）；③ 通知 `entry` 加 `budget`/`notice` 入参，`makeEnvelope` 补 `replyTo` 初始化缺口；④ 工具提示语改为「完成后结果会自动回到本会话」。
 - **验证**：新增回归锁——完成回执对桶零 run + 发起会话一轮 + 重放幂等 + sync/waitMs 不重复通知 + 任务信封 replyConversation 往返；真父壳/子壳/邮局 e2e（`sandbox/repro-subagent-completion.ts`）PASS（子 1 轮 / 对桶父 0 轮 / 发起会话父 1 轮 / 无幽灵身份）。
-- **附带报告**：`docs/design/collab-delivery-gaps.md`——`send_agent`（`agents.has` / `session.history` / deliver 不看 `to` 三处断点）与 `send_group`（壳内无 group 服务 + 成员流串键/回声链）现状与待裁决方案；本轮未改。
+- **附带报告**：`docs/design/archive/session/collab-delivery-gaps.md`——`send_agent`（`agents.has` / `session.history` / deliver 不看 `to` 三处断点）与 `send_group`（壳内无 group 服务 + 成员流串键/回声链）现状与待裁决方案；本轮未改。
 
 ## [0.8.16] - 2026-10-08
 

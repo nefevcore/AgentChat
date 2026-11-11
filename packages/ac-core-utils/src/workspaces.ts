@@ -8,7 +8,7 @@
 // 「读旧写新」兼容窗必走散（web-api 写 meta/、服务读根级旧位 → 新登记
 // 在服务面失踪），故下沉纯库单源（readGroupConfig 先例）。
 //
-// 落点：meta/workspaces.json（数据分层第二层——docs/design/data-root-layers.md
+// 落点：meta/workspaces.json（数据分层第二层——docs/design/assembly/data-root-layers.md
 // §二）；读侧兼容窗回落旧位置根级 workspaces.json（寄居期文件不迁移）。
 // ============================================================
 import * as fs from 'node:fs';

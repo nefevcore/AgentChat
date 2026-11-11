@@ -1,6 +1,6 @@
 // ============================================================
 // host-module-table.mjs —— 宿主模块表（构建面单源，cr-905 / cr-901 v2.1
-// 批3 切片二，docs/design/ui-plugin-form.md §三）
+// 批3 切片二，docs/design/webui/ui-plugin-form.md §三）
 //
 // 键集 = skeletonModuleHost()（boot.ts——骨架 9 键）∪ sharedModules()
 //（shared-modules.ts——深路径共享面）∪ '@agentchat/protocol'。构建面

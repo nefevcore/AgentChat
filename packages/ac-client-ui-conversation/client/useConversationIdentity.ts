@@ -6,7 +6,7 @@
 //  事实；消费方 = ConversationView（接线/透传）与 useConversationHistory。）
 //
 // 踩坑注释自 ConversationView 逐字随迁——它们约束派生式本身，属行为
-// 规约（见 docs/design/archive/conversation-view-split-plan.md §四）。
+// 规约（见 docs/design/archive/session/conversation-view-split-plan.md §四）。
 // ============================================================
 
 import { computed } from 'vue';

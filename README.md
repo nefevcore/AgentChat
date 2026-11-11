@@ -174,7 +174,7 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
 横切   fs/shell/web/collab 工具族 · memory · timer · archive · plugin-registry …
 ```
 
-**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以基座源文档为单源（cr-902 / cr-901 v2.1 批1；cr-1004 文件族改名）：`apps/catalog/profile/{host,shell}.yml`（cordis-plugin-loader 官方方言 + 版本戳，tree 由文档隐含；「patch」中缀专属差量文档），host boot 物化到数据根 `profile/` 并对账 fail-loud；旧 `row-catalog.json` 是它的生成投影（`scripts/gen-row-catalog.mjs`，双读窗口内兼容读）。装配求值统一走两段式引擎（`ac-rowset-core` `evaluate`：存在合成 = 基座 ∪ installed 反向适配；差量合成 = `<base>.patch.yml` 用户层 → `agent.patch.yml` 实例层，见 `docs/design/agent-assembly.md`）。宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
+**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以基座源文档为单源（cr-902 / cr-901 v2.1 批1；cr-1004 文件族改名）：`apps/catalog/profile/{host,shell}.yml`（cordis-plugin-loader 官方方言 + 版本戳，tree 由文档隐含；「patch」中缀专属差量文档），host boot 物化到数据根 `profile/` 并对账 fail-loud；旧 `row-catalog.json` 是它的生成投影（`scripts/gen-row-catalog.mjs`，双读窗口内兼容读）。装配求值统一走两段式引擎（`ac-rowset-core` `evaluate`：存在合成 = 基座 ∪ installed 反向适配；差量合成 = `<base>.patch.yml` 用户层 → `agent.patch.yml` 实例层，见 `docs/design/assembly/agent-assembly.md`）。宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
 
 ### 三层架构
 
@@ -247,7 +247,7 @@ pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，
 
 ## 🧩 插件开发
 
-- **写一个插件**（v2.1 包即插件——`package.json` `ac` 字段单源）：`ac plugin init <name>` 脚手架（零占位符 + owner 私有工具模板）→ `ac plugin dev` watch 热试跑（装载冒烟；壳内试跑用 `register_plugin`）→ `ac plugin publish`（TS 直发 npm 无构建步，keywords `agentchat-plugin` 自标进市场）→ `ac plugin finalize`（定型物化 = 统一安装器代写 installed 登记 + owner 锚）。门禁（engines 自求值 / 权限 / 保留字）与两轴回执（install-result × effective-state）贯穿安装链；Agent 对话内亦可 `install_plugin`（回执带生效轴）。详见 `docs/design/plugin-architecture-v2.md` 与 `docs/design/ui-plugin-form.md`；webui 独立部署（断连降级、宿主连接协议）见 `docs/design/webui-standalone-protocol.md`。
+- **写一个插件**（v2.1 包即插件——`package.json` `ac` 字段单源）：`ac plugin init <name>` 脚手架（零占位符 + owner 私有工具模板）→ `ac plugin dev` watch 热试跑（装载冒烟；壳内试跑用 `register_plugin`）→ `ac plugin publish`（TS 直发 npm 无构建步，keywords `agentchat-plugin` 自标进市场）→ `ac plugin finalize`（定型物化 = 统一安装器代写 installed 登记 + owner 锚）。门禁（engines 自求值 / 权限 / 保留字）与两轴回执（install-result × effective-state）贯穿安装链；Agent 对话内亦可 `install_plugin`（回执带生效轴）。详见 `docs/design/archive/plugin/plugin-architecture-v2.md` 与 `docs/design/webui/ui-plugin-form.md`；webui 独立部署（断连降级、宿主连接协议）见 `docs/design/webui/webui-standalone-protocol.md`。
 - **扩展框架能力域**（新增服务、契约与事件目录、注册中心）：看 `.dsh/skills/agentchat-dev`。
 - **新增一行**：包内 `apply` + `agentchat.plugin` 清单，基座源文档 `apps/catalog/profile/<proc>.yml` 登记 `id/name`（编辑须升 `# ac-base-version` 戳）并跑 `node scripts/gen-row-catalog.mjs` 同步投影；宿主/壳按 `inject` 自动装配，不手写激活顺序。
 
@@ -280,11 +280,13 @@ node scripts/migrate-agent-patch.mjs <dataRoot> --revert
 
 | 文档 | 说明 |
 |------|------|
-| [文档中心](docs/README.md) | 仓库级文档索引与归属规则 |
-| [设计档案](docs/design/) | 域深设计、行册/Slot 树、标签系统、活跃方案与裁决链 |
+| [文档中心](docs/README.md) | 仓库级文档索引、归属规则、域目录与批次进度板 |
+| [文档规范](docs/doc-conventions.md) | 命名、格式（头部三行）、归档纪律——写文档前必读 |
+| [设计档案](docs/design/) | 按域组织（cr-1008）：`assembly/` `session/` `webui/` `plugin/` `llm/` `ops/` `platform/` `meta/` |
+| [归档档案](docs/design/archive/README.md) | 收官过程档案（内容冻结，按域分目录） |
 | [preview 归档](docs/cutover/) | 已退役 preview 轨的立项/交接/计划（只读历史） |
 | [发布手册](docs/release.md) | npm 发版流程（tag 驱动 CI + OIDC） |
-| [架构史料](docs/design/archive/track-readme-src-era.md) | cr-703 前的 `src/` 轨道事实源快照（已冻结） |
+| [架构史料](docs/design/archive/platform/track-readme-src-era.md) | cr-703 前的 `src/` 轨道事实源快照（已冻结） |
 | [更新日志](CHANGELOG.md) | 版本历史 |
 
 ## 📄 License

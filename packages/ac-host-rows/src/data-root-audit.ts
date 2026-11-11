@@ -1,7 +1,7 @@
 // ============================================================
 // data-root-audit.ts —— 数据根分层契约的 boot doctor（数据分层 cr）
 //
-// 契约文档 = docs/design/data-root-layers.md（分类表 + 三条操作规则）。
+// 契约文档 = docs/design/assembly/data-root-layers.md（分类表 + 三条操作规则）。
 // 本模块是它的机器面：boot 扫数据根顶层，未知目录/文件 warn——
 // 「清投影连源数据一起清」类事故的前置哨兵（新顶层名要么进契约，
 // 要么是误建）。
@@ -12,7 +12,7 @@
 import * as fs from 'node:fs';
 
 /**
- * 顶层已知项（契约口径，见 docs/design/data-root-layers.md）。
+ * 顶层已知项（契约口径，见 docs/design/assembly/data-root-layers.md）。
  * 兼容窗项（groups / timer / remote / conv-settings / workspaces.json
  * ——迁居 meta/ 前的旧位置）收录但不新增：读侧回落认它们，全部迁出
 //  版本后移除并改 warn。
@@ -57,7 +57,7 @@ export function auditDataRootLayers(dataRoot: string, warn: (message: string) =>
     if (!known) unknown.push(e.name);
   }
   for (const name of unknown) {
-    warn('数据根顶层未知项「' + name + '」——不在分层契约内（docs/design/data-root-layers.md）：' +
+    warn('数据根顶层未知项「' + name + '」——不在分层契约内（docs/design/assembly/data-root-layers.md）：' +
       '若为新数据域请入契约/迁 meta/；若是误建请清理。可整树删的只有 viewer/ 与 .runtime/。');
   }
   return unknown;

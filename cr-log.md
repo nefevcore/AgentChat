@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-1007**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-1019**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1026,4 +1026,16 @@
 - 【cr-1005 2026-11-11 Agent 回复 markdown 本地图片渲染：img src workspace 路径重写为 /api/workspace/raw 直链（files/ 前缀与数据根内绝对路径）——多模态下行表达力最小补齐】
 - 【cr-1006 2026-11-11 插件体系规范重写为纯设计稿：去过度设计——origin.known 与钉住式 rebase 换基座行 adopt 分级领养；except 换「显式胜默认」、replace 归 dev；presets 层不设；台账迁 cr-log；新稿 docs/design/plugin-architecture.md】{plan}
 - 【cr-1007 2026-11-11 装配差量精简与基座去预设并集化（→cr-1004）：写侧滤除命中基础集的 no-op 加法条目（§六 只记离差；migrate --rebase 同步瘦身）+ 预设专属行移出基础集（sap-adt→bundle:abap / plugin-dev→bundle:creator / harness-tools·bench→bundle:dev，升 ac-base-version）——空白 Agent 不再恒装预设并集】
+- 【cr-1008 2026-11-11 docs 整理批启动（批0）：文档规范 doc-conventions.md 成文（命名/格式/归档纪律）+ docs/README 目录划分与批次进度板（00-ToRevise 队列 65 篇分 6 批清空）+ 全仓 docs/design 旧路径 interim 重指 00-ToRevise】
+- 【cr-1009 2026-11-11 assembly 域 14 篇落位检阅：状态漂移 5/失效机制路 5/行数账目 2 共 12 处事实修正 + 头部三行全篇规约化；归档建议 5 篇（handoff/face-plan/takeover/read-face-audit/orphan-postmortem）待批 6 裁决】
+- 【cr-1010 2026-11-11 session 域 10 篇落位检阅：14 处事实修正（wrapGroupMsg 退役/waking 两态/router 行数/per-agent 账本换代等）+ 22 处引用修正 + 头部三行 10/10；归档建议 3 篇（session-cache/frame-ordering、event-log-unification、live-pipeline）】
+- 【cr-1011 2026-11-11 docs 整理批补台账：run-status-state-machine.md 入档（原仅存于队列无 CR）——waking 状态细分 connecting/spawning 两态，实作史实在 cr-744~801 各条】
+- 【cr-1012 2026-11-11 docs 整理批补台账：webui-mobile-render-perf-plan.md 入档（原仅存于队列无 CR）】
+- 【cr-1013 2026-11-11 docs 整理批补台账：mic-integrity-sandbox-incident-2026-10-27.md 入档（原仅存于队列无 CR）】
+- 【cr-1014 2026-11-11 docs 整理批补台账：cloud-provider-api-key-adoption.md 入档（原仅存于队列无 CR，cr-98 裁决期成文）】
+- 【cr-1015 2026-11-11 subagent 恢复面 S1 缝隙待修（docs 整理批 2 发现）：apps/shell/boot.ts L986 的 R4 replayAnsweredInteractions 为 void 直调并行、未挂 .then(inboxRecovery) 串行，且上方注释宣称「兜在 inbox 恢复之后」与实现不符——修复= R4 串行化 + 注释对齐；证据见 docs/design/session/subagent-recovery-matrix.md S1 复核注记】{plan|#session|#fix|→cr-1008}
+- 【cr-1016 2026-11-11 plugin 域 7 篇 + llm 域 2 篇落位检阅：子代理撞 5 小时限额断于 6/9，父会话收尾补 3 篇（plugin-dev-skill-plan/plugin-face-unification-plan/preset-identity-convergence-plan）头部三行与引用；9/9 头部合规 + 修全仓 4 处指向 design 根的裸旧路径】{#docs|→cr-1008}
+- 【cr-1017 2026-11-11 webui 域 11 篇落位检阅（子代理撞限额仅完成路径确认，父会话收尾）：11/11 头部三行补齐 + 4 处事实漂移修正（ui-rows-and-slots 行数 61 改 65 与 channel 名册退役与装载链路升 v3；ui-descriptive-text-inventory 范围改 33 前端行包；ui-tree tool 行改包名）——全 63 篇头部合规】{#docs|#webui|→cr-1008}
+- 【cr-1018 2026-11-11 ops 域 3 篇 + platform 域 15 篇 + 2 个移动端图件落位检阅：头部三行全篇规约化、事实源与失效路径按现行代码修正、出向引用终指八域目录】{#docs|→cr-1008}
+- 【cr-1019 2026-11-11 cr-1008 独立复核问题全修（P0×2+P1×10+P2×3）：plugin 两篇漏归档补迁 archive/plugin（v2 与 paradigm-plan）+ 反引号死引用 39 处修正（archive 相对路径按域重写）+ archive 索引篇数按实测刷新（assembly8/session16/webui19/plugin5/llm3/ops5/platform29）+ gap-backlog 补状态行与 E2 三批核销 + 裸日期 7 处改真实日历日 + R1/R2 节标题行数 25/40 对齐实测 + webui-standalone 补「部分被取代」注记 + 归档豁免口径入规范；终态 43 篇头部 43/43、md 链接 0 断、代码注释 0 死路径、archive 索引与实测一致】{#docs|#fix|→cr-1008}
 

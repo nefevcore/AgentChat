@@ -1,6 +1,6 @@
 // ============================================================
 // webui-v3 wire 合成单测（cr-925 切片①）：校验门 / 撞名防御 /
-// 种子对拍 / 拓扑排与降级 / rev 稳定性——docs/design/webui-v3.md §4.3
+// 种子对拍 / 拓扑排与降级 / rev 稳定性——docs/design/webui/webui-v3.md §4.3
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { checkWebFace, seedCompatible, synthesizeWire, assetUrl, type WireRowInput } from '../src/wire.ts';

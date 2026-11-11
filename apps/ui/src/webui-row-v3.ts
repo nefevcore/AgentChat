@@ -1,5 +1,5 @@
 // ============================================================
-// webui-row-v3.ts —— webui 本体行 v3（cr-928 切片①；docs/design/webui-v3.md §4.1-4.3）
+// webui-row-v3.ts —— webui 本体行 v3（cr-928 切片①；docs/design/webui/webui-v3.md §4.1-4.3）
 //
 // 职责（v3 装载链宿主半边）：
 //   · webui 基座 fiber 域：直构 Loader（in-memory 树——write 无持久面），

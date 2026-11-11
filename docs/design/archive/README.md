@@ -1,121 +1,35 @@
-# docs/archive —— 收官里程碑过程档案
+# docs/design/archive —— 收官过程档案
 
-> **归档策略（2026-09-18 · M30 收官后整理；2026-09-18 扩容至仓库外归档根；2026-10-01 cr-79 根目录完结批次收编）**：里程碑
-> 过程文档（计划/评审/交接/复审/审计/清点）在其实施收口后移入本目录或仓库外归档根
-> `C:\Users\xiaofeng\Documents\Dev\Note\AgentChat\docs-stale-2026-09-18\src-docs\`
-> （M7-M25 终稿、对账套件、WebUI 适配器系列、程序化模式三件套、审计双档），
-> **内容原样冻结**——它们是决策轨迹与踩坑实录（含被后续里程碑取代的裁决），
-> 不随代码演进更新。动手前要查的是**现行事实源**，不是本目录：
+> 性质：归档目录索引（内容冻结原样，只读——决策轨迹与踩坑实录，含被后续里程碑取代的裁决）。
+> 状态：现行 · cr-1008 2026-11-11 按域分子目录重组（原扁平布局）；归档三去向与命名规约见 [../../doc-conventions.md](../../doc-conventions.md) §三。
+> 读者：动手前查**现行事实源**（docs/design/<域>/）而非本目录；只有追溯「当初为什么这么定」时才进这里。
 
-| 现行事实源（在 `src/docs/` 根） | 职责 |
-|---|---|
-| `../ui-rows-and-slots.md` | 行/席对照册（域行 ↔ 席位 ↔ 贡献，随代码同步） |
-| `../webui-slot-tree.md` | 调研树 + 实施状态注记（头部对照块随里程碑更新） |
-| `../m30-slot-semantics-refinement-plan.md` | 席位语义收口裁决（elect/data 轴、D6 装饰批次容器裁决、D8 不做项与翻盘条件——P2 批次开工前必读） |
-| `../webui-plugin-ownership.md` | 资产归属原案（物理落点已被 D19 改裁为行包 client/ 半边） |
-| `../session-design.md` | Session 域目标设计（消息定义/落盘/三种会话形态） |
-| `../run-lifecycle-checkpoints.md` | Run 生命周期临时态与收敛 checkpoint 全景（cr-107 评估基准） |
+## 归档纪律
 
-## 本目录索引
+1. **内容冻结**——归档档不随代码演进更新，不改原文、不按档案行号对拍当前代码。
+2. **按域分目录**（cr-1008 起）：`assembly/` `session/` `webui/` `plugin/` `llm/` `ops/` `platform/` `meta/`——与 `docs/design/` 现行域同构。
+3. **归档判据**：计划/评审/交接/对账类文档，实施已完成且验收全绿 → 移入本目录；域深设计与裁决簿永不归档。
+4. **三去向**：有复用价值 → 本目录；整体过时无价值 → 仓库外归档根（`Note\AgentChat\docs-archived-<日期>\`）；内容已被他档吸收 → 删除并在吸收档记来源。
+5. `scripts/` 存归档期验证脚本（与对应里程碑档案同批退役），保留供追溯，不纳入构建。
 
-| 文档 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
+## 索引
 
-### WebUI 域（M27-M30）
+| 域 | 篇数 | 代表档案 |
+|---|---|---|
+| [assembly/](assembly/) | 8 | `per-agent-instance-architecture.html`（per-Agent 实例架构终稿图）、`host-generation-takeover.md`（宿主换代接管）、`host-shell-read-face-audit.md`（读面审计）、`shell-orphan-process-postmortem.md`（孤儿进程复盘） |
+| [session/](session/) | 16 | `message-pipeline-analysis.md` + `message-pipeline-graph.html`（消息管线全景）、`session-event-log-unification-plan.md`（事件日志统一）、`live-pipeline-event-projection-plan.md`（直播管线 B 案）、`security-access-tier-plan.md`（安全档位） |
+| [webui/](webui/) | 19 | `m27-webui-slot-refactor-plan.md`（槽位重构）、`webui-v3` 前身系列、`ui-plugin-selfhost.md`（自持产物，已被 v3 取代）、`open-with-app-plan.md`（打开方式） |
+| [plugin/](plugin/) | 5 | **`plugin-architecture-v2.md`（v2.1 实施规范，已被 cr-1006 新稿取代——查现行规范请到 `../plugin/plugin-architecture.md`）**、`plugin-face-unification-plan.md`、`plugin-dev-skill-plan.md`、`preset-identity-convergence-plan.md`、`plugin-dev-paradigm-plan.md` |
+| [llm/](llm/) | 3 | `llm-protocol-extensibility.md`（协议扩展性）、`llm-provider-model-plan.md`（提供商模型）、`cloud-provider-api-key-adoption.md`（云部署 key 化） |
+| [ops/](ops/) | 5 | `edit-tool-incident-report.md`（编辑工具 P0 事故）、`release-ci-postmortem-0814.md`（首发翻车）、`run-code-hardening-backlog.md` |
+| [platform/](platform/) | 29 | `m31`–`m35` 移动端系列、`prompt-adjustment-plan.md` + `dsh-system-prompt-analysis.md` + `harness-prompts-survey.md`（提示词四轮调研与实施）、`browser-cdp-plan.md`、`memory-timeline-plan.md`、`relay-security-audit-*`、`track-readme-src-era.md` |
+| [meta/](meta/) | 0 | （无归档档；现行规约全在 `../meta/`） |
+| [scripts/](scripts/) | 20 | m31/m32/m35 验证脚本、relay-e2e、迁移脚本（`migrate-*`） |
 
-| 文档 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
-| `m27-webui-slot-refactor-plan.md` | 计划（v2.3 终版） | M27 S0-S4 + M27.1/M27.2 全部收口 | hostLedger → M27.2-1 owning 件自声明；BUILTIN_SLOTS → M30 D7 退役；keyed/数据席位 → M30 D1/D2 elect/data 轴 |
-| `m27-webui-slot-refactor-plan-review.md` | 首轮评审实录 | 修订已折叠进计划 v2 | — |
-| `m27-webui-slot-refactor-plan-review2.md` | 二轮评审实录（对 v2.1） | 修订已折叠进计划 v2.2/v2.3 | — |
-| `m27-handoff.md` | M27.1/M27.2 交接实录 | M27 关闭 | §4 后置清单已被 M28 计划 §9 收编 |
-| `m28-ui-plugin-tree-plan.md` | 计划 + §10 进度实录 | M28 P0-P3 + §4.2 深批全部落地（2026-11-08） | 席位/行现状以 `../ui-rows-and-slots.md` 为准 |
-| `m28-handoff.md` | §4.2 深批交接 | 同日收口，本文全程只读存档 | — |
-| `m29-row-dep-hygiene-plan.md` | 计划（复审 F1-F5 收编） | 已全部实施（M29 关闭） | 守卫现况见 `scripts/check-deps.mjs` + `scripts/dep-cycles.yml` |
-| `ui-rows-and-slots-review.md` | M28 后架构复审实录 | F1-F5 已被 M29 全部消化 | 行号级证据对拍基准 = 2026-11-08 快照，勿按本文直接对拍当前代码 |
-| `conversation-view-split-plan.md` | 计划 | 已实施（2026-09-24 同日四动作落地） | ConversationView 762→258 行组合壳 |
-| `webui-koishi-console-research.md` | 调研 | 已收官（root 即 slot 生态实证） | M27 参照系增补 |
-| `m24-m25-ui-prototype.html` | 原型稿 | 目录 IA 已落地 | — |
-| `ask-questions-suspension-plan.md` | 计划 | 挂起形态已实施 | ask_questions 发起即返 + 事件驱动恢复 |
+> 逐个文件的完整清单见各域目录（本表只列代表档，不维护逐档说明——那是各域 README 的职责，当前按需检索用 `git log --follow <路径>`）。
 
-### 远程接入与移动端（M1/M3 批次）
+## 历史沿革
 
-| 文档 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
-| `m1-remote-link-implementation-plan.md` | 计划 | M1/P0/P1 已实施（含已修复缺陷清单） | 总方案见根 `remote-client-relay-plan.md` |
-| `m3-handoff-20260929.md` | 交接实录 | cr-43~54 移动端批收口于 2026-09-30 | — |
-| `m3-realdevice-handoff-20260928.md` | 交接单（2026-09-28 真机轮） | 同轮收口 | 自 `.dsh/tmp` 收编（cr-79） |
-| `m3-realdevice-checklist.md` | 验证实况 | Redmi K20 轮收口 | 模拟器掩盖的三处致命缺陷当轮修复（cr-13/14/15） |
-| `m31-android-transport-implementation.md` | 实施实况 | M3.1 收口 | Kotlin Noise 模块 + relay 全链路 |
-| `m32-android-loopback-bridge.md` | 实施实况 | M3.2 收口 | 回环桥 + WebView 面（4 处链路根因修复） |
-| `m33-android-pairing-implementation.md` | 实施实况 | M3.3 收口 | 真机配对 + Keystore 身份（7 处真机缺陷） |
-| `m34-http-proxy-and-reconnect.md` | 实施实况 | M3.4 收口 | 通用 HTTP 代理 + 断线自动重连 |
-| `m35-self-hosted-distribution.md` | 实施实况 | M3.5 收口 | APK 自托管分发 + 版本更新提醒 |
-
-### 安全审计
-
-| 文档 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
-| `relay-security-audit-2026-10-01.md` | 审计报告（第一轮·代码面） | F-1~F-8 已修（cr-77） | F-5/F-7 维持现状裁决留档 |
-| `relay-security-audit-round2-2026-10-01.md` | 审计报告（第二轮·PC 入侵链路） | R-1/R-2 已修（cr-77） | HTTPS/代码签名为部署成本项 |
-| `relay-security-poc-2026-10-17.md` | 实战 PoC 审计（7 个 PoC 审计验证） | P0 KK 降级已修（cr-64 真 KK + responder 公钥校验）；P1/P2 与 cr-77 修复面重叠 | 自 `.dsh/tmp` 收编（cr-79） |
-
-### LLM 与系统提示词域
-
-| 文档 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
-| `llm-protocol-extensibility.md` | 设计备忘 | 已实施（cr-39） | 目标形态按原文落地 |
-| `llm-provider-model-plan.md` | 调研与变更方案 | 已实施（P1-P7，2026-09-01） | 池 v2 + name@model |
-| `multimodal-vision-input.md` | 实施档案 | M1-M4 已实施 | attachments 引用旁挂 + provider 边界物化 |
-| `system-prompt-optimization-plan.md` | 优化方案 | 已实施（v3，P1-P4） | 三源融合 |
-| `system-prompt-assembled-example.md` | 装配示例 | 已实施（v3 实装形态） | — |
-
-### 记忆与治理
-
-| 文档 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
-| `memory-timeline-plan.md` | 设计与裁决 | 已实施（cr-4，2026-09-27） | 两处落地偏差已在头部标注 |
-| `memory-timeline-handover.md` | 施工交接 | 已收口 | 实施汇总/验证/生产迁移实况 |
-| `security-access-tier-plan.md` | 重设计方案 | 已实施（2026-09-13） | 访问档位 + 双轴门禁 |
-| `session-audit-backlog-2026-09-22.md` | 审查报告 | 三轮处置收口 | ac-session/subagent 精简轮 |
-| `edit-tool-incident-report.md` | 事故分析报告 | 护栏已落地 | P0 匹配语义收口 |
-| `patch-layer-hardening-plan.md` | 加固计划 | 已实施（cr-11） | Patch 层三面加固 |
-| `sap-adt-config-layer-bug.md` | Bug 分析 | 已修复（2026-09-04） | 方向 A：对齐 mcp 语义 |
-
-### 工程规范
-
-| 文档 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
-| `epoch-inventory-2026-09-27.md` | 日期清点底册 | cr-1 整改配套，一次性产物 | 历史批次标记的事实底册 |
-| `message-pipeline-d1-convergence-plan.md` | 实施计划 | 已实施（cr-94，session/run-settled 事件驱动重拉） | 自 src/docs 根冻结（cr-261） |
-| `release-ci-postmortem-0814.md` | 发版实操录 | 0.8.14 已发布，教训已固化 | 主档 `../release-ci-postmortem.md` 留活（cr-261） |
-
-### 会话前端与迁移脚本（cr-261 整理批）
-
-| 条目 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
-| `feed-identity-overhaul-plan.md` | 根治方案 | 2026-09-24 诊断档；cr-107 以收敛 checkpoint B/C 收口另路 | 自 src/docs 根冻结（cr-261） |
-| `webui-refactor-guide.md` | 迁移指南 | cr-124 立项，五批路线已执行完毕 | 自 src/docs 根冻结（cr-261） |
-| `scripts/`（20 个） | 一次性验证/迁移脚本 | 各自里程碑收官 | m31/m32/m35 验证、relay-e2e、migrate-workspace/migrate-subcalls-split/unify-group-storage、verify-*portb ×7、bench-singles-scan；自 scripts/ 与 src/scripts/ 冻结（cr-261）。注：migrate-hooks-to-settings / migrate-llm-pool-v2 / migrate-session-neutral 有恒等门测试 import，留在 src/scripts/ |
-
-### cr-726 文档审查批收编（2026-10-27）
-
-| 条目 | 类型 | 收官状态 | 备注 |
-|---|---|---|---|
-| `per-agent-instance-architecture.html` | 配图（2026-10-13 版） | 已过时 | 未随六次修订更新：图 1「承重 = stub → RPC 回宿主」已被 D3 激进化推翻；图 4/5 的「缺/待裁」与实现相反。如需配图应重绘（现行文字版 `../per-agent-instance-architecture.md` 留活） |
-| `message-pipeline-graph.html` | 可视化图谱 | 已收官 | 核心结论 F1「双管线无收敛协议」已由 cr-94 `session/run-settled` 关闭（该事件现无发射方，见疑点）；与同批 `message-pipeline-analysis.md` 同处 |
-| `m30-slot-semantics-refinement-plan.md` | 计划 | 已收官 | T1–T9 全部 ✅；D2「唯一 data 席」已过时（`activity-bar:more-menu` 亦为 data 席）；席位现态以 `../ui-rows-and-slots.md` 为准 |
-| `first-run-onboarding-plan.md` | 计划 | 已收官 | 五步、localStorage 键、跳过确认均可核；`AgentCreateForm` 未抽取（未标债） |
-| `subagent-session-view-plan.md` | 计划 | 已收官 | P0 全落地、P1 部分；未实施 P1（live 流式 / 步级 partial / 嵌套导航）已移交 `../gap-backlog.md` F 节 |
-| `kv-prefix-cache-fix-plan.md` | 结案报告 | 已收官 | 主修复 cr-294 已落地（实际落点 = `ac-openai-completions`，非文中所述）；`pnpm wire-diff` / 探针已不可用 |
-| `tag-system-report.md` | 调研报告 | 已整体过时 | tag 目录/词表机制已随 cr-484 全链退役（`ac-tag-registry` 不存在、`tags/catalog` 恒空桩）；`requiredTags` 迁移已于 cr-691 完成 |
-| `collab-delivery-gaps.md` | 缺口报告 | 已收口 | 代码落点（has/history/sendEnvelope/GroupShim）全在；修复批缺 CR 登记（疑点 C-A） |
-
-## 阅读须知
-
-- 本目录文档中的行号、包体量、席位清单、路径均为**快照时点值**；其中相互
-  引用（同目录文件名）仍可解析，指向根目录文档的相对位置已变为 `../`。
-- 「勿\"顺手恢复\"显式接受的缩水」的纪律对本目录同样适用——被取代的
-  裁决（如 hostLedger、BUILTIN_SLOTS）**不是**待办。
-- 日期在文件名中的文档（如 `relay-security-audit-2026-10-01.md`）保持原名，
-  归档不改名（epoch 规约：文件名日期是标识符）。
+- 2026-09-18（M30 收官）：归档策略建立，里程碑过程文档移入本目录。
+- 2026-10-01（cr-79）：根目录完结批次收编。
+- 2026-11-11（cr-1008）：全档按域分子目录重组（扁平 65 篇 → 8 域）；索引表精简为代表档指针。
