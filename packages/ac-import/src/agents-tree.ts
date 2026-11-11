@@ -84,8 +84,8 @@ export function convertConfig(agentId: string, old: Record<string, unknown>): Re
     if (MODE_TAGS.has(t)) { if (toolMode !== 'tc-none') toolMode = MODE_TAGS.get(t); continue; }
     const levelKey = ROW_LEVEL_TAGS.get(t);
     if (levelKey !== undefined) {
+      // dev-tools 键随行退役（cr-520/cr-1004 批2b——'dev' 能力词无消费面）
       if (levelKey === 'browser') levels.browser = t;
-      else if (levelKey === 'dev-tools') levels['dev-tools'] = true;
       else if (levelKey === 'collab') levels.collab = 'admin';
       continue;
     }

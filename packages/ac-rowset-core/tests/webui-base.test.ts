@@ -9,7 +9,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
-const OUT = path.join(REPO, 'apps/catalog/profile/webui.patch.yml');
+const OUT = path.join(REPO, 'apps/catalog/profile/webui.yml');
 
 describe('webui 基座源文档（生成物漂移锁定）', () => {
   it('通道目录与基座文档同步（重生成零差异）', () => {

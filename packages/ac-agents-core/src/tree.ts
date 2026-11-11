@@ -13,8 +13,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentConfig } from './config.ts';
-import { normalizeLegacyTags } from './config.ts';
-import { readAgentPatch, patchToConfig, configToPatch, writeAgentPatch, agentPatchFile, readPluginConfigs, writePluginConfig } from './patch-doc.ts';
+import { normalizeLegacyTags, accessOf, toolModeOf } from './config.ts';
+import { readCatalog, defaultCatalogFile, assemblyBaseStamp, type AssemblyEntry } from 'ac-rowset-core';
+import { readAgentPatch, patchToConfig, readPluginConfigs, readPluginConfigsAt, writePluginConfig, readAgentPatchV2At, readAgentProfileAt, writeAgentProfileAt, writeAgentPatchV2At, rowsToPatchEntries, levelsOfEntries, mergeLevelsIntoEntries, writePluginConfigAt as writePluginConfigAt2, PATCH_FILE, type AgentProfile } from './patch-doc.ts';
 
 /** 树内文件名常量（读写双面共用单源） */
 export const CONFIG_FILE = 'config.json';
@@ -52,13 +53,57 @@ export function isAgentIdentity(id: string): boolean {
   return id !== '' && !id.includes('~');
 }
 
+/** v2 组合（cr-1004 批2 / cr-1007）：agent.json 档案 + agent.patch.yml 数组差量 →
+ * AgentConfig 投影（rows 不投影——face = 行集面，cr-1007 终态） */
+function profileToConfig(agentId: string, profile: AgentProfile, entries: AssemblyEntry[] | null, baseRowIds: readonly string[] = []): AgentConfig {
+  const additions: string[] = [];
+  const excludes: string[] = [];
+  for (const e of entries ?? []) {
+    if (e.disabled === true) excludes.push(e.id);
+    else additions.push(e.id);
+  }
+  // rows 投影 = 承重白名单（工具面每 run 重读——热更新语义保持）：face =
+  // 基础集 − disabled + 加法。差量文档只记离差（§六），白名单在组合读
+  // 重建（无工具行 id 由会话面 toolFaceOf 滤除——conversation allRowIds）
+  const excludeSet = new Set(excludes);
+  const include = [...new Set([...baseRowIds.filter((id) => !excludeSet.has(id)), ...additions])];
+  return normalizeLegacyTags({
+    id: agentId,
+    ...(profile.model !== undefined ? { model: profile.model } : {}),
+    ...(profile.provider !== undefined ? { provider: profile.provider } : {}),
+    ...(profile['llm-params'] !== undefined ? { llmParams: profile['llm-params'] } : {}),
+    ...(profile['max-steps'] !== undefined ? { maxSteps: profile['max-steps'] } : {}),
+    ...(profile.tier !== undefined ? { access: profile.tier } : {}),
+    ...(profile['tool-mode'] !== undefined ? { toolMode: profile['tool-mode'] } : {}),
+    ...(profile.name !== undefined ? { name: profile.name } : {}),
+    ...(profile.description !== undefined ? { description: profile.description } : {}),
+    ...(profile.virtual === true ? { virtual: true } : {}),
+    // levels 归位装配条目 config（cr-1004 批2b——档案 levels 存量窗口）
+    ...(() => { const lv = levelsOfEntries(entries, profile.levels); return lv !== undefined ? { levels: lv } : {}; })(),
+    ...((additions.length > 0 || excludes.length > 0)
+      ? { rows: { include, ...(excludes.length > 0 ? { exclude: excludes } : {}) } }
+      : {}),
+  });
+}
+
 /**
- * 直读 Agent 定义（cr-906 批4 双读：agent.patch.yml 在场即赢——投影回
- * AgentConfig 形状；缺席走 config.json 旧路径，窗口兼容未迁移存量）。
- * ◐b cr-691 键归一：盘上旧键 tools → rows（读时兼容已迁数据；写恒 rows
- * ——writeAgentConfig 落盘的恒为归一后形态，旧键只在读时出现一次）。
+ * 直读 Agent 定义（cr-906 批4 双读 + cr-1004 批2 三读：v2 差量〔数组
+ * agent.patch.yml + agent.json〕赢 → 旧映射 patch → config.json 存量窗口）。
+ * ◐b cr-691 键归一：盘上旧键 tools → rows（读时兼容已迁数据；写恒 rows）。
  */
-export function readAgentConfig(dataRoot: string, agentId: string): AgentConfig | null {
+export function readAgentConfig(dataRoot: string, agentId: string, opts: { catalogFile?: string } = {}): AgentConfig | null {
+  const dir = agentDir(dataRoot, agentId);
+  const v2 = readAgentPatchV2At(dir);
+  if (v2 !== null) {
+    const profile = readAgentProfileAt(dir) ?? {};
+    // 白名单重建面：显式 catalogFile 赢 ∨ 数据根自动解析（宿主 boot 物化后恒在场）
+    const baseRowIds = readCatalog(opts.catalogFile ?? defaultCatalogFile(dataRoot)).rows
+      .filter((r) => r.tree === 'shell' && r.bundle === undefined).map((r) => r.id);
+    const config = profileToConfig(agentId, profile, v2.entries, baseRowIds);
+    const unitFiles = readPluginConfigs(dataRoot, agentId);
+    if (Object.keys(unitFiles).length === 0) return config;
+    return { ...config, settings: { ...(config.settings ?? {}), ...unitFiles } };
+  }
   const patch = readAgentPatch(dataRoot, agentId);
   if (patch !== null) {
     // 插件配置合成（cr-906 切片二）：单元文件赢——拆分后 patch 不再随行
@@ -83,21 +128,56 @@ export function readAgentConfig(dataRoot: string, agentId: string): AgentConfig 
   }
 }
 
-/** 写 Agent 定义（cr-906 批4 patch 主写；cr-918 镜像双落退役——读路径
- * 存量窗口保留：仅 config.json 的旧根仍可读） */
-export function writeAgentConfig(dataRoot: string, config: AgentConfig): void {
+/** 写 Agent 定义（cr-1004 批2：档案 → agent.json；装配差量 → agent.patch.yml
+ * v2 数组形态〔含 `# ac-base` 基线戳保真〕；settings 拆单元文件）。
+ * 数组白名单 rows 需 shell 行目录（B−T 确定性转换）——opts.shellRows 注入。 */
+export function writeAgentConfig(
+  dataRoot: string,
+  config: AgentConfig,
+  opts: { shellRows?: import('ac-rowset-core').RowDescriptor[]; baseStamp?: string } = {},
+): void {
   assertAgentId(config.id);
   const dir = agentDir(dataRoot, config.id);
   fs.mkdirSync(dir, { recursive: true });
-  const prevPatch = fs.existsSync(agentPatchFile(dataRoot, config.id))
-    ? readAgentPatch(dataRoot, config.id) : null;
-  // 插件配置拆分（cr-906 切片二）：settings → agents/<id>/<unit>.json（各插件
-  // 自定自读）；patch 不随行 settings；config.json 镜像仍含（旧读者窗口）
+  // origin 保真：档案在读（agent.json）→ 旧映射 patch → 丢弃（身份层主写面在
+ // preset-origin reconcile，本函数不产 origin）
+  let prevOrigin: import('./patch-doc.ts').PatchOrigin | undefined;
+  const profile0 = readAgentProfileAt(dir);
+  if (profile0?.origin !== undefined) prevOrigin = profile0.origin;
+  else {
+    try { prevOrigin = readAgentPatch(dataRoot, config.id)?.origin; } catch { /* 损坏 = 无可保真 */ }
+  }
+  // 插件配置拆分（cr-906 切片二）：settings → agents/<id>/<unit>.json
   for (const [unit, value] of Object.entries(config.settings ?? {})) {
     writePluginConfig(dataRoot, config.id, unit, value);
   }
-  const { settings: _split, ...withoutSettings } = configToPatch(config, prevPatch?.origin);
-  writeAgentPatch(dataRoot, config.id, withoutSettings);
+  const access = accessOf(config);
+  const toolMode = toolModeOf(config);
+  const profile: import('./patch-doc.ts').AgentProfile = {
+    ...(config.model !== undefined ? { model: config.model } : {}),
+    ...(config.provider !== undefined ? { provider: config.provider } : {}),
+    ...(config.llmParams !== undefined ? { 'llm-params': config.llmParams } : {}),
+    ...(config.maxSteps !== undefined ? { 'max-steps': config.maxSteps } : {}),
+    ...(access !== 'base-access' ? { tier: access } : {}),
+    ...(toolMode !== 'tc-base' ? { 'tool-mode': toolMode } : {}),
+    ...(config.name !== undefined ? { name: config.name } : {}),
+    ...(config.description !== undefined ? { description: config.description } : {}),
+    ...(config.virtual === true ? { virtual: true } : {}),
+    ...(prevOrigin !== undefined ? { origin: prevOrigin } : {}),
+  };
+  writeAgentProfileAt(dir, profile);
+  // shell 行目录（B−T 确定性转换面）：显式注入赢；缺省自动解析数据根目录
+  //（profile/shell.yml 基座 ∨ row-catalog.json——宿主 boot 物化后恒在场）
+  const shellRows = opts.shellRows !== undefined
+    ? opts.shellRows
+    : readCatalog(defaultCatalogFile(dataRoot)).rows.filter((r) => r.tree === 'shell');
+  // levels → 行内条目 config（cr-1004 批2b 归位——档位词随行走，档案不再携带）
+  const entries = mergeLevelsIntoEntries(rowsToPatchEntries(config.rows, shellRows), config.levels);
+  // 基线戳（§五：写面随差量重写时负责保留——既有戳赢，新写才现算；
+  // 基座演化的追新 = rebase，归身份层显式触发，编辑写不静默传导）
+  const existingStamp = readAgentPatchV2At(dir)?.base;
+  writeAgentPatchV2At(dir, entries,
+    opts.baseStamp ?? existingStamp ?? assemblyBaseStamp(dataRoot, 'shell'));
 }
 
 /** 列 agents/ 下全部 agent id（缺席 = 空数组） */
@@ -117,10 +197,22 @@ export function listAgentIds(dataRoot: string): string[] {
  * config.json——子身份直接从物化目录解析，不回溯父目录（父此后改配置
  * 不传播）。跨层引用（孙辈及更深）由调用方递归本函数。
  */
-export function readChildConfig(parentDataRoot: string, parentId: string, childId: string): AgentConfig | null {
+export function readChildConfig(parentDataRoot: string, parentId: string, childId: string, opts: { catalogFile?: string } = {}): AgentConfig | null {
   assertAgentId(parentId);
   assertAgentId(childId);
-  const file = path.join(agentDir(parentDataRoot, parentId), 'children', childId, CONFIG_FILE);
+  const dir = path.join(agentDir(parentDataRoot, parentId), 'children', childId);
+  // v2 差量（cr-1004 批2：children 随 migrate 同形迁移）→ 组合读；
+  // 缺席走 config.json 旧路径（物化即快照——readAgentPatchV2At 缺席 = null）
+  const v2 = readAgentPatchV2At(dir);
+  if (v2 !== null) {
+    const baseRowIds = readCatalog(opts.catalogFile ?? defaultCatalogFile(parentDataRoot)).rows
+      .filter((r) => r.tree === 'shell' && r.bundle === undefined).map((r) => r.id);
+    const config = profileToConfig(childId, readAgentProfileAt(dir) ?? {}, v2.entries, baseRowIds);
+    const unitFiles = readPluginConfigsAt(dir);
+    if (Object.keys(unitFiles).length === 0) return config;
+    return { ...config, settings: { ...(config.settings ?? {}), ...unitFiles } };
+  }
+  const file = path.join(dir, CONFIG_FILE);
   try {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AgentConfig>;
     if (typeof parsed.id !== 'string' || parsed.id !== childId) return null;
@@ -169,24 +261,47 @@ export function deriveChildConfig(parent: AgentConfig, childId: string): AgentCo
 }
 
 /** 物化子身份到 agents/<parentId>/children/<childId>/（物化即快照——
- * 身份一次性落盘，父此后改配置不传播）。已存在 = fail-loud（不静默覆盖）。 */
+ * 身份一次性落盘，父此后改配置不传播）。cr-1004 批2：写 v2 形态
+ * （agent.json 档案 + agent.patch.yml 差量〔白名单 rows 经 B−T 转换——
+ * shellRows 注入；基线戳取当前存在合成〕）；config.json 旧读窗口保留。
+ * 已存在 = fail-loud（不静默覆盖）。 */
 export function materializeChild(
   dataRoot: string,
   parentId: string,
   childId: string,
   parent: AgentConfig,
+  opts: { shellRows?: import('ac-rowset-core').RowDescriptor[] } = {},
 ): string {
   assertAgentId(parentId);
   assertAgentId(childId);
   const dir = path.join(agentDir(dataRoot, parentId), 'children', childId);
-  if (fs.existsSync(path.join(dir, CONFIG_FILE))) {
+  if (fs.existsSync(path.join(dir, PATCH_FILE)) || fs.existsSync(path.join(dir, CONFIG_FILE))) {
     throw new Error('child 已物化：' + dir + '——不静默覆盖（重 spawn 用新 id）');
   }
   fs.mkdirSync(dir, { recursive: true });
   const child = deriveChildConfig(parent, childId);
-  const file = path.join(dir, CONFIG_FILE);
-  const tmp = file + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(child, null, 2), 'utf-8');
-  fs.renameSync(tmp, file);
+  // 插件配置拆单元（快照语义——与主身份写面同形）
+  for (const [unit, value] of Object.entries(child.settings ?? {})) {
+    writePluginConfigAt2(dir, unit, value);
+  }
+  const shellRows = opts.shellRows !== undefined
+    ? opts.shellRows
+    : readCatalog(defaultCatalogFile(dataRoot)).rows.filter((r) => r.tree === 'shell');
+  const access = accessOf(child);
+  const toolMode = toolModeOf(child);
+  writeAgentProfileAt(dir, {
+    ...(child.model !== undefined ? { model: child.model } : {}),
+    ...(child.provider !== undefined ? { provider: child.provider } : {}),
+    ...(child.llmParams !== undefined ? { 'llm-params': child.llmParams } : {}),
+    ...(child.maxSteps !== undefined ? { 'max-steps': child.maxSteps } : {}),
+    ...(access !== 'base-access' ? { tier: access } : {}),
+    ...(toolMode !== 'tc-base' ? { 'tool-mode': toolMode } : {}),
+    ...(child.name !== undefined ? { name: child.name } : {}),
+    ...(child.description !== undefined ? { description: child.description } : {}),
+    ...(child.virtual === true ? { virtual: true } : {}),
+    ...(child.levels !== undefined ? { levels: child.levels } : {}),
+  });
+  const entries = mergeLevelsIntoEntries(rowsToPatchEntries(child.rows, shellRows), child.levels);
+  writeAgentPatchV2At(dir, entries, assemblyBaseStamp(dataRoot, 'shell'));
   return dir;
 }

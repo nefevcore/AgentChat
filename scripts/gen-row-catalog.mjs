@@ -3,13 +3,14 @@
 // scripts/gen-row-catalog.mjs —— row-catalog.json 生成器（cr-902 / cr-901
 // v2.1 批1）
 //
-// 单一事实源 = apps/catalog/profile/{host,shell}.patch.yml（基座源文档，
-// cordis-plugin-loader 官方方言）；本脚本把它们投影回旧消费面仍在读的
+// 单一事实源 = apps/catalog/profile/{host,shell}.yml（基座源文档，
+// cordis-plugin-loader 官方方言；cr-1004 文件族改名：「patch」中缀专属
+// 差量文档——基座不是差量）；本脚本把它们投影回旧消费面仍在读的
 // apps/catalog/row-catalog.json（生成物，禁止手改——漂移由
 // ac-rowset-core/tests/base-docs.test.ts 的投影等价测试锁定）。
 //
 // 投影规则（与 ac-rowset-core/src/base-docs.ts 同源）：
-//   tree    ← 所在文档（host.patch.yml → host；shell.patch.yml → shell）
+//   tree    ← 所在文档（host.yml → host；shell.yml → shell）
 //   path    ← packs（多包行）∨ name 去 link: 前缀（单包行）
 //   其余词汇（description / tools / bundle / requires）原样透传。
 //
@@ -25,9 +26,9 @@ const OUT = new URL('../apps/catalog/row-catalog.json', import.meta.url);
 
 const rows = [];
 for (const proc of ['host', 'shell']) {
-  const file = new URL(proc + '.patch.yml', PROFILE_DIR);
+  const file = new URL(proc + '.yml', PROFILE_DIR);
   const entries = yaml.load(fs.readFileSync(file, 'utf-8'));
-  if (!Array.isArray(entries)) throw new Error(proc + '.patch.yml 顶层必须是条目数组');
+  if (!Array.isArray(entries)) throw new Error(proc + '.yml 顶层必须是条目数组');
   for (const e of entries) {
     const packs = e.packs ?? (e.name !== undefined ? [e.name.replace(/^link:/, '')] : undefined);
     rows.push({

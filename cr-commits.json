@@ -1,6 +1,6 @@
 {
- "scannedHead": "72937e2c8f91b9c0c483dae3ea53ada68d20e091",
- "generatedAt": "2026-11-10T15:18:10.465Z",
+ "scannedHead": "3e9272123152770bd0195d510cd553754e59dbb7",
+ "generatedAt": "2026-11-11T01:09:41.172Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -4224,6 +4224,11 @@
     "sha": "a773ef7049a3376fdf5d0cfd07eab6013a8e3709",
     "date": "2026-11-10",
     "subject": "chore(cr): 投影全量重建对齐（cr-986 refs 入账；顺带验证：探针伪引用被锁6 悬空校验捕获后清除）"
+   },
+   {
+    "sha": "3e9272123152770bd0195d510cd553754e59dbb7",
+    "date": "2026-11-10",
+    "subject": "fix(cr): cr-1002 sync 增量永不落盘根修——cr-986 回归：L334 entries = prev.entries 引用赋值致增量扫描同体变异 prev.entries，「无变化」判定比较两侧变为同一内容恒相等，sync 自 cr-986 起恒走 unchanged 分支不写盘（投影停在 cr-986 提交，cr-987~1000 缺席）。修复 = 深拷贝隔离比较基准；投影重建 460 键"
    }
   ],
   "987": [
@@ -4231,6 +4236,11 @@
     "sha": "45bc3f7b83263a4946df95d7b8c0dd6df0c76e2b",
     "date": "2026-11-10",
     "subject": "feat(webui): cr-987/989/990 placeholder 灰调独立档 + 三连调——tokens.css 立 --placeholder 专令牌（暗 #adb2b8 / 亮 #83868d）+ ::placeholder 全局唯一源；消费面收口（删 6 处散装声明；PromptEditor 仿占位与 Select/DatePicker 空态切令牌）；TOKEN_VOCAB +midnight 主题包同步；contrast ②c 四底 ≥3.0 测试锁"
+   },
+   {
+    "sha": "3e9272123152770bd0195d510cd553754e59dbb7",
+    "date": "2026-11-10",
+    "subject": "fix(cr): cr-1002 sync 增量永不落盘根修——cr-986 回归：L334 entries = prev.entries 引用赋值致增量扫描同体变异 prev.entries，「无变化」判定比较两侧变为同一内容恒相等，sync 自 cr-986 起恒走 unchanged 分支不写盘（投影停在 cr-986 提交，cr-987~1000 缺席）。修复 = 深拷贝隔离比较基准；投影重建 460 键"
    }
   ],
   "988": [
@@ -4301,6 +4311,13 @@
     "sha": "72937e2c8f91b9c0c483dae3ea53ada68d20e091",
     "date": "2026-11-10",
     "subject": "chore(eol): cr-1000 行尾统一 LF 单一真相——工具集读写面全归一（read 显示层剥 \\\\r / write·edit 写回恒 LF 收敛器 / str_replace_editor 匹配与写入同 LF 空间 / grep preview 剥 \\\\r，bat/cmd 例外保持 CRLF）+ cr-log 约定迁 LF（normalizeEol 修形翻转，cr-981 两事实源顶牛消解）+ 存量 19 化石 byte 级归一（17 包源码/fold-out/mixed 测试文件）+ line-ending 死码清理（restoreLineEndingsPreserving/parseRawLines 不可达删除）"
+   }
+  ],
+  "1002": [
+   {
+    "sha": "3e9272123152770bd0195d510cd553754e59dbb7",
+    "date": "2026-11-10",
+    "subject": "fix(cr): cr-1002 sync 增量永不落盘根修——cr-986 回归：L334 entries = prev.entries 引用赋值致增量扫描同体变异 prev.entries，「无变化」判定比较两侧变为同一内容恒相等，sync 自 cr-986 起恒走 unchanged 分支不写盘（投影停在 cr-986 提交，cr-987~1000 缺席）。修复 = 深拷贝隔离比较基准；投影重建 460 键"
    }
   ]
  }

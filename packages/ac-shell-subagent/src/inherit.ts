@@ -12,7 +12,7 @@
 // ============================================================
 import type { AgentConfig } from 'ac-agents-core';
 import { ACCESS_RANK, accessOf, type AccessLevel } from 'ac-agents-core';
-import { deriveShellRowset, type RowsetCatalog } from 'ac-rowset-core';
+import { expandAssemblyTokens, evaluateLegacyShellRows, SEAT_ROW_IDS, type RowsetCatalog } from 'ac-rowset-core';
 import { splitModelRef } from 'ac-llm';
 
 /**
@@ -24,10 +24,11 @@ import { splitModelRef } from 'ac-llm';
  * 三者皆拒（filtered 回报）；过滤后空集 = 纯推理子 Agent。
  */
 export function filterSpawnTools(tokens: string[], parentRowIds: Set<string>, catalog: RowsetCatalog): { granted: string[]; rejected: string[] } {
+  const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
   const granted: string[] = [];
   const rejected: string[] = [];
   for (const token of tokens) {
-    const derived = deriveShellRowset({ rows: [token] }, catalog);
+    const derived = expandAssemblyTokens([token], shellRows);
     if (derived.rowIds.includes('subagent') || derived.rowIds.includes('run-code')
       || derived.warnings.length > 0 || !derived.rowIds.every((id) => parentRowIds.has(id))) {
       rejected.push(token);
@@ -67,8 +68,11 @@ export function convInheritOf(
 /** 会话继承面输入（spawnOp 解析 ctx 服务后的产物——本文件零 cordis） */
 export interface SpawnInheritInput {
   parent: AgentConfig;
-  /** 过滤后的工具词（undefined = 缺省继承父 rows） */
+  /** 过滤后的工具词（undefined = 缺省继承父行集） */
   tools?: string[];
+  /** 父行集快照（cr-1007：v2 差量下 config.rows 不投影——缺省继承与
+   * 形态合成的行集事实源；tools 在场时忽略） */
+  effectiveRows?: string[];
   name?: string;
   system?: string;
   /** convInheritOf 产物（结构化继承面） */
@@ -86,10 +90,11 @@ export interface SpawnInheritInput {
  * id/preset）。cr-953：tags 轴删除——授权继承 = access 字段与 levels。
  */
 export function spawnChildConfigOf(input: SpawnInheritInput, catalog: RowsetCatalog): AgentConfig {
-  const { parent, tools, name, system, inherit, workdirAnchor, modelOverride } = input;
-  // 形态合成（cr-821）：子的 toolMode 由子 rows 是否含 run-code 行结构化
-  // 决定——父级 tc-* 不继承，缺省继承（父 rows）或显式点名命中才合成。
-  const childRowIds = new Set(deriveShellRowset({ rows: tools ?? parent.rows ?? [] }, catalog).rowIds);
+  const { parent, tools, name, system, inherit, workdirAnchor, modelOverride, effectiveRows } = input;
+  // 形态合成（cr-821）：子的 toolMode 由子行集是否含 run-code 行结构化
+  // 决定——父级 tc-* 不继承，缺省继承（父行集快照）或显式点名命中才合成。
+  const childTokens = tools ?? effectiveRows ?? parent.rows ?? [];
+  const childRowIds = new Set(evaluateLegacyShellRows(childTokens, catalog.rows.filter((r) => r.tree === 'shell'), [], SEAT_ROW_IDS).rowIds);
   // 档位继承：会话覆盖与父 access 取高（只升不降）
   const parentAccess = accessOf(parent);
   const inheritedAccess = inherit?.access !== undefined && ACCESS_RANK[inherit.access] > ACCESS_RANK[parentAccess]
@@ -121,7 +126,7 @@ export function spawnChildConfigOf(input: SpawnInheritInput, catalog: RowsetCata
     ...(modelRef !== undefined ? { model: modelRef.model, ...(modelRef.provider !== undefined ? { provider: modelRef.provider } : {}) } : {}),
     ...(name !== undefined ? { name } : {}),
     ...(system !== undefined ? { system } : {}),
-    ...(tools !== undefined ? { rows: tools } : {}),
+    ...(tools !== undefined ? { rows: tools } : effectiveRows !== undefined ? { rows: effectiveRows } : {}),
     ...(inheritedAccess !== undefined ? { access: inheritedAccess } : {}),
     // 形态跟随装配（cr-821/cr-953）：父 toolMode 不继承——恒按子 rows 重算
     ...(childRowIds.has('run-code') ? { toolMode: 'tc-programmatic' as const } : {}),

@@ -1,19 +1,20 @@
 // ============================================================
-// 壳侧插件行集测试（cr-543）：安装 = 授权动作 → 壳行集条目
-// （<dataRoot>/plugin-rows.json 合并进目录）+ 插件行动态装载。
+// 壳侧插件行集测试（cr-543；cr-1001 镜像退役后装载输入 =
+// profile/installed.yml〔cr-1004 改名〕）：安装 = 授权动作 →
+// 壳行集条目（fit 反向适配并入存在合成）+ 插件行动态装载。
 // 数据根恒 sandbox（红线）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Context, FiberStates } from '@agentchat/cordis';
-import { writePluginRows, pluginRowsOf, type RowDescriptor } from 'ac-rowset-core';
+import type { RowDescriptor } from 'ac-rowset-core';
 import { assemblePluginRow, deriveAndAssertRowset } from '../boot.ts';
 
 const ROOT = path.join('sandbox', 'test-shell-plugin-rows-' + process.pid);
 const CATALOG = path.join('sandbox', 'test-shell-plugin-catalog-' + process.pid + '.json');
 
-/** 出厂目录（只含一行壳行——插件行由 plugin-rows.json 注入） */
+/** 出厂目录（只含一行壳行——插件行由 installed 菜单注入） */
 function writeCatalog(): void {
   fs.writeFileSync(CATALOG, JSON.stringify({
     version: 1,
@@ -63,13 +64,18 @@ afterEach(() => {
 
 describe('壳行集 × 插件行（install = 授权动作）', () => {
   it('未安装时点名插件行 = 行集静态断言 fail-loud（目录不可见即不可点名）', () => {
-    expect(() => deriveAndAssertRowset(ROOT, 'demo-agent', CATALOG)).toThrow(/tools 条目未命中目录：demo-tools/);
+    expect(() => deriveAndAssertRowset(ROOT, 'demo-agent', CATALOG)).toThrow(/条目未命中目录：demo-tools/);
   });
 
   it('插件行集合并后点名命中：行集含插件行 + 树归属 shell', () => {
-    const installDir = makeInstallDir();
-    const parsed = pluginRowsOf('demo', installDir, JSON.parse(fs.readFileSync(path.join(installDir, 'manifest.json'), 'utf-8')));
-    writePluginRows(ROOT, parsed.rows);
+    const installDir = makeInstallDir().replace(/\\/g, '/');
+    // installed.yml 登记（link: 目录词形——安装器代写面的同款投影；
+    // cr-1004：无 scope 字段，face 反向适配在求值器；
+    // JSON 流映射 = js-yaml 合法子集）
+    fs.mkdirSync(path.join(ROOT, 'profile'), { recursive: true });
+    const entry = { id: 'demo', name: 'link:' + installDir };
+    fs.writeFileSync(path.join(ROOT, 'profile', 'installed.yml'),
+      '- ' + JSON.stringify(entry) + '\n', 'utf-8');
     const rowset = deriveAndAssertRowset(ROOT, 'demo-agent', CATALOG);
     expect(rowset.rowIds).toEqual(['demo-tools', 'ledger']);
     expect(rowset.toolNames).toEqual(['demo_hello']);

@@ -4,8 +4,8 @@
 // 三入口（市场一键 / 对话安装 / CLI——批 5 接线）共享同一安装器：
 //   门禁（包描述符 + engines 自求值 + 保留字护栏 + 权限边界）
 //   → 事务（withRootLock + stage→approve 补偿链复用 v1 store）
-//   → 登记（installed.patch.yml 代写；registry.json/plugin-rows.json
-//     双写窗口兼容——旧读路径退役随批 6）
+//   → 登记（installed.yml 代写——cr-1001 后唯一装载输入，
+//     plugin-rows.json 镜像窗口已退役）
 //   → 回执两轴（receipt.ts）。
 //
 // 免审 ≠ 无门禁（§4.5）：门禁失败不 throw——回执 failed 携带明细
@@ -175,9 +175,10 @@ export async function installPackage(input: {
         uiIsolatedDefault: true,
       });
       const approved = await approveStaging(input.root, staged.id, input.grants);
-      // 登记：installed.patch.yml upsert（词形分轨 cr-904：目录形态 =
-      // link:<物化目录>；npm 形态〔npm-form.ts〕= 裸包名——name 即解析规则）
-      registerInstalled(input.root, { id: pkg.name, name: 'link:' + path.join(pluginsRoot(input.root), pkg.name), owner: input.owner, scope: 'shell' });
+      // 登记：installed.yml upsert（词形分轨 cr-904：目录形态 =
+      // link:<物化目录>；npm 形态〔npm-form.ts〕= 裸包名——name 即解析规则；
+      // cr-1004 scope 退役——适配分析在基座求值器）
+      registerInstalled(input.root, { id: pkg.name, name: 'link:' + path.join(pluginsRoot(input.root), pkg.name), owner: input.owner });
       return {
         name: pkg.name,
         version: pkg.version,
@@ -207,7 +208,7 @@ export async function installPackage(input: {
     }
 }
 
-/** installed.patch.yml upsert（按 name 定位替换；保序追加；导出 = 宿主行
+/** installed.yml upsert（按 name 定位替换；保序追加；导出 = 宿主行
  * approve 流〔市场人审路径〕复用同一登记面） */
 export function registerInstalled(root: string, entry: InstalledEntry): void {
   const entries = readInstalledDoc(root).filter((e) => e.name !== entry.name);

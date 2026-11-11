@@ -1,4 +1,4 @@
-# ac-base-version: 1
+# ac-base-version: 2
 # shell 进程基座源文档（cr-902 / cr-901 v2.1 批1）——行→包映射单一事实源。
 # 顶层 = cordis-plugin-loader 官方方言条目数组（DSH 同款顶层数组约束）；
 # tree 字段由所在文档隐含（id 仅基座内唯一，跨基座同名合法）；
@@ -175,14 +175,16 @@
     - submit_issue
 - id: harness-tools
   name: link:packages/ac-harness-tools
-  description: 链路验证/子代理工具
+  description: 链路验证/子代理工具（开发域——cr-1007 移出基础集，经 bundle:dev 点名）
+  bundle: dev
   requires:
     - tools
   tools:
     - run_harness
 - id: sap-adt
   name: link:packages/ac-sap-adt
-  description: SAP ADT 工具（吸收 preset 子行）
+  description: SAP ADT 工具（ABAP 预设专属——cr-1007 移出基础集，经 bundle:abap 点名装载）
+  bundle: abap
   requires:
     - tools
   tools:
@@ -270,13 +272,15 @@
   description: 后台任务基座（worker = 壳子进程）
 - id: bench
   name: link:packages/ac-bench
-  description: 评测域（影子壳跑 bench 门）
+  description: 评测域（开发域——cr-1007 移出基础集；影子壳跑 bench 门）
+  bundle: dev
   requires:
     - tools
     - agent-loop
 - id: plugin-dev
   name: link:packages/ac-shell-rows
-  description: 插件开发三件套（register 会话级壳内装载 / install·uninstall 永久档信封请求宿主——cr-553）
+  description: 插件开发三件套（创造预设专属——cr-1007 移出基础集；register 会话级壳内装载 / install·uninstall 永久档信封请求宿主——cr-553）
+  bundle: creator
   requires:
     - tools
     - conversation

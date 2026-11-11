@@ -72,10 +72,18 @@ describe('agents/<id>/ 树直读', () => {
   beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
   afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-  it('写读往返：agent.patch.yml 原样还原（id 一致性校验）', () => {
+  it('写读往返：v2 差量 + agent.json 档案还原（cr-1004 批2；id 一致性校验）', () => {
     const cfg: AgentConfig = { id: 'alpha', model: 'gpt-x', access: 'sandbox-access', settings: { memory: { depth: 2 } } };
     writeAgentConfig(ROOT, cfg);
+    // 落盘形态：agent.patch.yml = 顶层数组（差量）；档案在 agent.json
+    const patchText = fs.readFileSync(path.join(agentDir(ROOT, 'alpha'), 'agent.patch.yml'), 'utf-8');
+    expect(patchText).toMatch(/# ac-base: /);
     expect(readAgentConfig(ROOT, 'alpha')).toEqual(cfg);
+  });
+
+  it('v2 差量词形：include/exclude 投影回 rows；档案字段经 agent.json', () => {
+    writeAgentConfig(ROOT, { id: 'delta', model: 'gpt-x', rows: { include: ['fs'], exclude: ['math'] } });
+    expect(readAgentConfig(ROOT, 'delta')).toEqual({ id: 'delta', model: 'gpt-x', rows: { include: ['fs'], exclude: ['math'] } });
   });
 
   it('存量 config.json 带 tags：读侧归一（档位词结构化、能力词丢弃）', () => {
@@ -85,12 +93,12 @@ describe('agents/<id>/ 树直读', () => {
     expect(readAgentConfig(ROOT, 'legacy')).toEqual({ id: 'legacy', model: 'm', access: 'full-access', levels: { collab: 'admin' } });
   });
 
-  it('id 不符 / 缺席 / 损坏 → null（未注册语义；cr-906 批4：patch 在场即赢）', () => {
+  it('id 不符 / 缺席 / 损坏 → null（未注册语义；cr-1004 批2：v2 在场即赢）', () => {
     const cfg: AgentConfig = { id: 'beta' };
     fs.mkdirSync(agentDir(ROOT, 'beta'), { recursive: true });
     fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
     expect(readAgentConfig(ROOT, 'beta')).toBeNull(); // 旧路径：id 不符
-    // 双读窗口：patch 在场即赢（config.json 镜像坏不拖累 patch 读面）
+    // v2 在场即赢（config.json 镜像坏不拖累 patch 读面）
     writeAgentConfig(ROOT, cfg);
     fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
     expect(readAgentConfig(ROOT, 'beta')).toEqual(cfg);

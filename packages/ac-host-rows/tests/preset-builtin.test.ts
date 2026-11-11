@@ -8,7 +8,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { listTemplates, readTemplate, TEMPLATE_DIR, materializeTemplateSkills, readAgentSkills } from '../src/preset-builtin.ts';
 import { isPresetId } from 'ac-agents-core';
-import { readCatalog, deriveShellRowset } from 'ac-rowset-core';
+import { readCatalog, evaluateLegacyShellRows, SEAT_ROW_IDS } from 'ac-rowset-core';
 
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
 
@@ -29,8 +29,9 @@ describe('内置模板静态配置集（preset-builtin 行数据面）', () => {
 
   it('模板词形全部命中行集目录：壳行集派生零 warnings（模板↔目录同源）', () => {
     const catalog = readCatalog(CATALOG);
+    const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
     for (const template of listTemplates()) {
-      const derived = deriveShellRowset(template.config, catalog);
+      const derived = evaluateLegacyShellRows(template.config.rows, shellRows, [], SEAT_ROW_IDS);
       expect(derived.warnings, `模板 ${template.id} 有死引用：${derived.warnings.join('; ')}`).toEqual([]);
       expect(derived.rowIds.length).toBeGreaterThan(0);
       // 会话基座不剪：外壳 boot 的账本/会话行恒在（R-5 完整实例组成件）

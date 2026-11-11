@@ -61,11 +61,11 @@ export function effectiveAccessOfCall(
 }
 
 /**
- * 有效能力集（cr-953 缩减：能力词门禁退役——tags 轴整段删除；合成 =
- * {'base', 'agent:<id>'} ∪ levels 行内档位合成词（browser 层级 / collab
- * admin / dev-tools）∪ settings 行内档位回滚兼容线。无身份（宿主直调）
- * = {'base'}。工具可见性门禁随 requiredTags 退役——本函数仅剩 browser
- * 分层门禁（web-tools 行内）与 UI 诊断面消费）。
+ * 有效能力集（cr-953 缩减 + cr-1004 批2b：能力词门禁退役——tags 轴整段
+ * 删除；合成 = {'base', 'agent:<id>'} ∪ levels 行内档位合成词（browser
+ * 层级 / collab admin）∪ settings 行内档位回滚兼容线。dev-tools 键随行
+ * 退役。无身份（宿主直调）= {'base'}。工具可见性门禁随 requiredTags
+ * 退役——本函数仅剩 browser 分层门禁（web-tools 行内）与 UI 诊断面消费）。
  */
 export function capabilitySetOf(
   ctx: Pick<Context, 'agents'>,
@@ -108,9 +108,7 @@ export function capabilitySetOf(
   const collabLevel = levels.collab;
   if (collabLevel === 'admin' || collabLevel === true) caps.add('admin');
   else if (settingsOf('collab')?.admin === true) caps.add('admin');
-  const devLevel = levels['dev-tools'];
-  if (devLevel === true || devLevel === 'dev') caps.add('dev');
-  else if (settingsOf('dev-tools')?.enabled === true) caps.add('dev');
+  // dev-tools 键随行退役（cr-520 行已撤、'dev' 能力词无消费面——cr-1004 批2b）
   return caps;
 }
 

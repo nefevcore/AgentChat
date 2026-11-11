@@ -35,14 +35,14 @@ describe('ac plugin 作者工具链（cr-907 批5 切片一）', () => {
     expect(src).not.toContain('PLACEHOLDER');
   });
 
-  it('finalize：定型物化 = 统一安装器 + installed 行 owner 锚', () => {
+  it('finalize：定型物化 = 统一安装器 + installed 行 owner 锚（cr-1004：scope 退役）', () => {
     cli('init', 'fin-me', '--owner', 'dev-agent', '--dir', path.join(ROOT, 'fin-me'));
     const out = cli('finalize', path.join(ROOT, 'fin-me'), '--data-root', path.join(ROOT, 'root'), '--owner', 'dev-agent');
     expect(out).toContain('applied');
     const doc = readInstalledDoc(path.join(ROOT, 'root'));
     expect(doc).toHaveLength(1);
     expect(doc[0].owner).toBe('dev-agent');
-    expect(doc[0].scope).toBe('shell');
+    expect('scope' in doc[0]).toBe(false);
   });
 
   it('publish 门禁：engines/keywords 违规 → 拒绝且不触 npm', () => {

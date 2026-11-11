@@ -19,11 +19,10 @@ interface DocEntry {
   [key: string]: unknown;
 }
 
-/** installed.patch.yml 条目词形子集 */
+/** installed.yml 条目词形子集（cr-1004：scope 退役——face 反向适配） */
 interface InstalledEntry {
   id: string;
   name?: string;
-  scope?: string;
   disabled?: boolean;
 }
 
@@ -72,18 +71,28 @@ export function specOfDocName(name: string): string {
 /** webui 分层求值（纯函数 + fs）：文档意志 → loader 行名单 */
 export function deriveWebuiRows(profileDir: string): WebuiDocResult {
   const warnings: string[] = [];
-  const base = readDoc(path.join(profileDir, 'webui.patch.yml'));
+  // 基座新名 webui.yml（cr-1004 改名——旧名兼容读）；用户差量层 =
+  // webui.patch.yml（基座走旧名回退时不得重复消费同文件），旧 custom 名兼容
+  const baseNew = readDoc(path.join(profileDir, 'webui.yml'));
+  const baseOld = baseNew === null ? readDoc(path.join(profileDir, 'webui.patch.yml')) : null;
+  const base = baseNew ?? baseOld;
   if (base === null) return { rows: [], warnings: ['webui 基座文档缺席（部署链未跑？）'] };
-  const custom = readDoc(path.join(profileDir, 'webui-custom.patch.yml')) ?? [];
+  const custom = baseOld === null
+    ? readDoc(path.join(profileDir, 'webui.patch.yml'))
+    : null;
+  const customAll = [...(custom ?? []), ...(readDoc(path.join(profileDir, 'webui-custom.patch.yml')) ?? [])];
   let installed: InstalledEntry[] = [];
   try {
-    const raw = yaml.load(fs.readFileSync(path.join(profileDir, 'installed.patch.yml'), 'utf-8')) as unknown;
+    const installedFile = fs.existsSync(path.join(profileDir, 'installed.yml'))
+      ? path.join(profileDir, 'installed.yml')
+      : path.join(profileDir, 'installed.patch.yml');
+    const raw = yaml.load(fs.readFileSync(installedFile, 'utf-8')) as unknown;
     if (Array.isArray(raw)) installed = raw as InstalledEntry[];
   } catch {
     // installed 缺席 = 无第三方 web 面（坏文件在安装器读路径 fail-loud）
   }
   const disabled = new Set([
-    ...custom.filter((e) => e.disabled === true).map((e) => e.id),
+    ...customAll.filter((e) => e.disabled === true).map((e) => e.id),
     ...installed.filter((e) => e.disabled === true).map((e) => e.id),
   ]);
   const rows: WebuiDocRow[] = [];
@@ -93,7 +102,9 @@ export function deriveWebuiRows(profileDir: string): WebuiDocResult {
   }
   const seen = new Set(rows.map((r) => r.id));
   for (const e of installed) {
-    if (e.scope !== 'webui' || disabled.has(e.id) || seen.has(e.id)) continue;
+    // cr-1004：scope 退役——已安装条目按 face 声明在装载入口判定；此处
+    // 文档求值只看登记事实（disabled/撞名），face 过滤归 loader 装载面
+    if (disabled.has(e.id) || seen.has(e.id)) continue;
     rows.push({ id: e.id, spec: specOfDocName(e.name ?? e.id), factory: false });
   }
   return { rows, warnings };

@@ -36,12 +36,14 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
       spawnFn: fakeSpawn,
       timeoutMs: 5_000,
     });
-    const cfg = readAgentConfig(dataRoot, '__standard__') as { id: string; rows: string[]; levels?: Record<string, string>; description?: string };
+    const cfg = readAgentConfig(dataRoot, '__standard__') as { id: string; rows: string[] | { include?: string[] }; levels?: Record<string, string>; description?: string };
     expect(cfg.id).toBe('__standard__');
     expect('preset' in cfg).toBe(false); // cr-880：字段退役——预设类属由 id 词形承载
-    expect(cfg.rows).toContain('browser');
-    expect(cfg.rows).toContain('goal'); // 模板 15 行（cr-790：协作面/历史回放移出标准预设）
-    expect(cfg.rows).not.toContain('memory');
+    // cr-1004 批2：rows 投影为差量 {include}（白名单 = 加法面）
+    const rows = Array.isArray(cfg.rows) ? cfg.rows : cfg.rows.include ?? [];
+    expect(rows).toContain('browser');
+    expect(rows).toContain('goal'); // 模板 15 行（cr-790：协作面/历史回放移出标准预设）
+    expect(rows).not.toContain('memory');
     // browser 层级随模板物化（cr-953：能力 tags 退役——levels.browser 单源）
     expect(cfg.levels?.browser).toBe('observe');
     expect(cfg.description).toBeTruthy();
@@ -58,10 +60,11 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
       spawnFn: fakeSpawn,
       timeoutMs: 5_000,
     });
-    const cfg = readAgentConfig(dataRoot, '__creator__') as { system?: string; rows: string[]; settings?: Record<string, unknown> };
+    const cfg = readAgentConfig(dataRoot, '__creator__') as { system?: string; rows: string[] | { include?: string[] }; settings?: Record<string, unknown> };
     expect(cfg.system).toBeUndefined();
-    expect(cfg.rows).toContain('persona'); // persona 行入集——settings.persona 才有消费方
-    expect(cfg.rows).toContain('skill'); // skill 行入集——own 技能目录才有消费方
+    const rows = Array.isArray(cfg.rows) ? cfg.rows : cfg.rows.include ?? [];
+    expect(rows).toContain('persona'); // persona 行入集——settings.persona 才有消费方
+    expect(rows).toContain('skill'); // skill 行入集——own 技能目录才有消费方
     expect(cfg.settings?.['persona']).toEqual({ file: 'AGENTS.md' });
     // 人设收缩为指路残句（cr-879：知识本体迁技能面）
     const doc = fs.readFileSync(path.join(dataRoot, 'agents/__creator__/AGENTS.md'), 'utf-8');

@@ -302,7 +302,7 @@ describe('boot viewer 投影对账自愈（cr-973 退役：读时投影固有属
   }, 60000);
 });
 
-describe('host-custom 偏好层（cr-909 批6 切片三）', () => {
+describe('host.patch.yml 用户差量层（cr-909 批6 切片三 / cr-1004 改名）', () => {
   it('custom 停用一行 = 派生行集少一行（∪ host-rows 镜像窗口）', async () => {
     const dataRoot = path.join('sandbox', 'test-host-custom-' + process.pid);
     try {
@@ -310,7 +310,7 @@ describe('host-custom 偏好层（cr-909 批6 切片三）', () => {
       const base = all.rowIds.length;
       await all.close();
       fs.mkdirSync(path.join(dataRoot + '-b', 'profile'), { recursive: true });
-      fs.writeFileSync(path.join(dataRoot + '-b', 'profile', 'host-custom.patch.yml'),
+      fs.writeFileSync(path.join(dataRoot + '-b', 'profile', 'host.patch.yml'),
         '- id: plugin-market' + String.fromCharCode(10) + '  disabled: true' + String.fromCharCode(10));
       const cut = await bootHost({ dataRoot: dataRoot + '-b', catalogFile: CATALOG, orchestrate: false });
       expect(cut.rowIds).toHaveLength(base - 1);

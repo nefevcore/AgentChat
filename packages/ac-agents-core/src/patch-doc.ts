@@ -1,6 +1,9 @@
 // ============================================================
-// patch-doc.ts —— agent.patch.yml 装配 overlay 读写（cr-906 / cr-901
-// v2.1 批4 §4.4）
+// patch-doc.ts —— agent.patch.yml 装配差量 + agent.json 档案读写
+//（cr-906 / cr-918 / cr-1004 批2：装配差量化——patch 顶层 = 纯 cordis
+// 条目数组〔加法/disabled/config + `# ac-base` 基线戳〕；档案字段与
+// origin 块迁 agent.json〔agent-data.md §三〕。旧映射形态读侧迁移窗口
+// 〔migrate 脚本收口后退役〕，写恒新形态。）
 //
 // Agent 定义 = 装配（装了什么 × 什么档位）+ 插件配置（各插件自定
 // 自读）+ 人格（persona 插件消费的数据）。agent.patch.yml = 装配
@@ -19,12 +22,16 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import yaml from 'js-yaml';
+import { legacyRowsToAgentPatch, SEAT_ROW_IDS, type AssemblyEntry, type RowDescriptor } from 'ac-rowset-core';
 import type { AgentConfig } from './config.ts';
 import { accessOf, normalizeLegacyTags, toolModeOf } from './config.ts';
 import { agentDir, assertAgentId } from './tree.ts';
 
 /** agent.patch.yml 文件名（agents/<id>/ 内） */
 export const PATCH_FILE = 'agent.patch.yml';
+
+/** agent.json 文件名（档案数据——cr-1004 批2：装配之外的 everything else） */
+export const PROFILE_FILE = 'agent.json';
 
 /** origin 块（cr-812 PresetOrigin 形状平移——模板升级 copy-on-write 判定面；
  * 批4 切片三起并入 agent.patch.yml，preset-origin.json 转镜像窗口） */
@@ -79,7 +86,8 @@ export function readAgentPatchAt(dir: string): AgentPatchDoc | null {
     return null;
   }
   const data = yaml.load(text) as unknown;
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+  if (Array.isArray(data)) return null; // v2 差量形态——非映射
+  if (data === null || typeof data !== 'object') {
     throw new Error('agent.patch.yml 顶层必须是映射：' + dir);
   }
   return data as AgentPatchDoc;
@@ -109,7 +117,7 @@ export function agentPatchFile(dataRoot: string, agentId: string): string {
   return path.join(agentDir(dataRoot, agentId), PATCH_FILE);
 }
 
-/** 读 patch 文档（缺席 = null；损坏 = throw fail-loud——编辑面/迁移脚本代写文档） */
+/** 读 patch 文档（缺席/v2 数组形态 = null；损坏 = throw fail-loud——编辑面/迁移脚本代写文档） */
 export function readAgentPatch(dataRoot: string, agentId: string): AgentPatchDoc | null {
   let text: string;
   try {
@@ -118,7 +126,8 @@ export function readAgentPatch(dataRoot: string, agentId: string): AgentPatchDoc
     return null;
   }
   const data = yaml.load(text) as unknown;
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+  if (Array.isArray(data)) return null; // v2 差量形态（cr-1004 批2）——档案/origin 在 agent.json
+  if (data === null || typeof data !== 'object') {
     throw new Error('agent.patch.yml 顶层必须是映射：' + agentPatchFile(dataRoot, agentId));
   }
   return data as AgentPatchDoc;
@@ -180,6 +189,7 @@ export function configToPatch(config: AgentConfig, origin?: PatchOrigin): AgentP
  * memory 单元写 memory.json 合法——保留字只锁文件占位名） */
 export const RESERVED_UNIT_NAMES: ReadonlySet<string> = new Set([
   'config', 'auth', // config.json / auth.json
+  'agent', // agent.json（cr-1004 批2：档案数据——非插件单元）
   'agent.patch', // agent.patch.yml
   'preset-origin', // preset-origin.json（cr-812 模板升级通路——切片三并入 origin 块）
 ]);
@@ -219,9 +229,9 @@ export function writePluginConfig(dataRoot: string, agentId: string, unit: strin
   fs.renameSync(tmp, file);
 }
 
-/** 读全部插件配置（扫 <unit>.json——非保留字、可解析；合成 settings 形状） */
-export function readPluginConfigs(dataRoot: string, agentId: string): Record<string, unknown> {
-  const dir = agentDir(dataRoot, agentId);
+/** 读全部插件配置（扫 <unit>.json——非保留字、可解析；合成 settings 形状）。
+ * 目录实体寻址版（children 域共用——主身份 readPluginConfigs 的内核） */
+export function readPluginConfigsAt(dir: string): Record<string, unknown> {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -241,6 +251,161 @@ export function readPluginConfigs(dataRoot: string, agentId: string): Record<str
   }
   return out;
 }
+
+/** 读全部插件配置（数据根寻址——readPluginConfigsAt 的主身份包装） */
+export function readPluginConfigs(dataRoot: string, agentId: string): Record<string, unknown> {
+  return readPluginConfigsAt(agentDir(dataRoot, agentId));
+}
+
+
+// —— cr-1004 批2：agent.json 档案 + agent.patch.yml v2 差量形态 ——
+
+/** 档案数据（agent.json——agent-data.md §三：装配之外的一切：模型路由 /
+ * 授权档 / 展示 / levels（批2b 归位装配条目 config 前的窗口位）/ origin 模板溯源） */
+export interface AgentProfile {
+  model?: string;
+  provider?: string;
+  'llm-params'?: Record<string, unknown>;
+  'max-steps'?: number;
+  /** 访问档位（AgentConfig.access 的盘上键——cr-947 词面） */
+  tier?: 'base-access' | 'sandbox-access' | 'full-access';
+  'tool-mode'?: 'tc-none' | 'tc-base' | 'tc-programmatic';
+  name?: string;
+  description?: string;
+  virtual?: boolean;
+  /** 行内插件档位（批2b 迁装配条目 config——窗口位随档案） */
+  levels?: Record<string, string | boolean>;
+  /** 模板溯源（从 agent.patch.yml origin 块迁入全量——agent-data §三） */
+  origin?: PatchOrigin;
+}
+
+/** v2 装配差量文档（顶层 = 纯 cordis 条目数组 + `# ac-base` 基线戳注释） */
+export interface AgentPatchV2 {
+  /** 基线戳（存在合成指纹——求值恒对戳对应快照执行，漂移 = rebase） */
+  base?: string;
+  entries: AssemblyEntry[];
+}
+
+const BASE_STAMP_RE = /^#\s*ac-base:\s*(\S+)\s*$/m;
+
+/** 读 agent.json（缺席 = null；损坏 = throw——档案代写文档） */
+export function readAgentProfileAt(dir: string): AgentProfile | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(dir, PROFILE_FILE), 'utf-8');
+  } catch {
+    return null;
+  }
+  const data = yaml.load(text) as unknown;
+  if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('agent.json 顶层必须是映射：' + dir);
+  }
+  return data as AgentProfile;
+}
+
+/** 写 agent.json（原子写） */
+export function writeAgentProfileAt(dir: string, profile: AgentProfile): void {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, PROFILE_FILE);
+  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(profile, null, 2) + String.fromCharCode(10), 'utf-8');
+  fs.renameSync(tmp, file);
+}
+
+/** 读 v2 装配差量（顶层数组形态；映射/缺席 = null——迁移窗口走旧读面） */
+export function readAgentPatchV2At(dir: string): AgentPatchV2 | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(dir, PATCH_FILE), 'utf-8');
+  } catch {
+    return null;
+  }
+  const data = yaml.load(text) as unknown;
+  if (!Array.isArray(data)) return null;
+  const entries = data.filter((e): e is AssemblyEntry =>
+    e !== null && typeof e === 'object' && typeof (e as AssemblyEntry).id === 'string');
+  const stamped = BASE_STAMP_RE.exec(text);
+  return { ...(stamped !== null ? { base: stamped[1] } : {}), entries };
+}
+
+/** 写 v2 装配差量（原子写；基线戳 = 传入值 ∨ 既有戳保真〔写侧归一：与
+ * 基线一致 = 删条目——文档只记离差，§六〕） */
+export function writeAgentPatchV2At(dir: string, entries: AssemblyEntry[], base?: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, PATCH_FILE);
+  let stamp = base;
+  if (stamp === undefined) {
+    try {
+      const prev = BASE_STAMP_RE.exec(fs.readFileSync(file, 'utf-8'));
+      if (prev !== null) stamp = prev[1];
+    } catch { /* 首写无戳可保 */ }
+  }
+  const header = '# agent.patch —— 装配差量（cr-1004 批2）：纯 cordis 条目数组（加法/disabled/config）；档案与 origin 在 agent.json。' + String.fromCharCode(10)
+    + (stamp !== undefined ? '# ac-base: ' + stamp + String.fromCharCode(10) : '');
+  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
+  fs.writeFileSync(tmp, header + yaml.dump(entries, { lineWidth: 120, noRefs: true }), 'utf-8');
+  fs.renameSync(tmp, file);
+}
+
+
+
+// —— levels → 装配条目 config 归位（cr-1004 批2b / agent-assembly §四） ——
+
+/** 行内档位单元 → 行 id（存储归位映射单源：levels.<unit> 落差量条目
+ * config.level；dev-tools 行已退役〔cr-520〕且 'dev' 能力词无消费面——键退役） */
+export const LEVELS_ROW_OF: Record<string, string | undefined> = {
+  browser: 'browser',
+  collab: 'collab-tools',
+};
+/** 反向映射（组合读面：条目 config.level → AgentConfig.levels） */
+export const LEVELS_UNIT_OF: Record<string, string | undefined> = Object.fromEntries(
+  Object.entries(LEVELS_ROW_OF).map(([unit, row]) => [row, unit]),
+);
+
+/** levels 并入差量条目（写侧单源：同 id 条目 config 合并；停用条目不挂） */
+export function mergeLevelsIntoEntries(entries: AssemblyEntry[], levels: Record<string, string | boolean> | undefined): AssemblyEntry[] {
+  if (levels === undefined) return entries;
+  for (const [unit, value] of Object.entries(levels)) {
+    const row = LEVELS_ROW_OF[unit];
+    if (row === undefined) continue; // 退役词（dev-tools 等）——消费面已亡
+    const hit = entries.find((e) => e.id === row);
+    if (hit !== undefined && hit.disabled !== true) {
+      hit.config = { ...(hit.config ?? {}), level: value };
+    } else if (hit === undefined) {
+      entries.push({ id: row, config: { level: value } });
+    }
+  }
+  return entries;
+}
+
+/** 差量条目 config.level → levels（组合读面；档案 levels 为批2b 前存量窗口） */
+export function levelsOfEntries(entries: AssemblyEntry[] | null, profileLevels: Record<string, string | boolean> | undefined): Record<string, string | boolean> | undefined {
+  const levels: Partial<Record<string, string | boolean>> = {};
+  for (const e of entries ?? []) {
+    const unit = LEVELS_UNIT_OF[e.id];
+    const level = e.config?.level;
+    if (unit !== undefined && (typeof level === 'string' || typeof level === 'boolean') && e.disabled !== true) levels[unit] = level;
+  }
+  for (const [k, v] of Object.entries(profileLevels ?? {})) {
+    if (levels[k] === undefined && LEVELS_ROW_OF[k] !== undefined) levels[k] = v; // 存量窗口
+  }
+  return Object.keys(levels).length > 0 ? levels as Record<string, string | boolean> : undefined;
+}
+
+/** AgentConfig.rows → v2 差量条目（写侧单源）：两种形态统一走 §七
+ * 确定性转换（白名单意图 = B−T 减法条目承载；{exclude} 缺 include =
+ * 全集减法——只落 exclude 条目）。需要 shell 行目录算 B−T——缺席 fail-loud */
+export function rowsToPatchEntries(
+  rows: AgentConfig['rows'],
+  shellRows?: RowDescriptor[],
+): AssemblyEntry[] {
+  if (rows === undefined) return [];
+  if (shellRows === undefined) {
+    throw new Error('rows 白名单转差量需要 shell 行目录（B−T 减法）——调用方注入 shellRows');
+  }
+  return legacyRowsToAgentPatch(rows, shellRows, [], SEAT_ROW_IDS);
+}
+
 /** 写 agent.patch.yml（原子写；header 注释 = 形态说明） */
 export function writeAgentPatch(dataRoot: string, agentId: string, doc: AgentPatchDoc): void {
   assertAgentId(agentId);

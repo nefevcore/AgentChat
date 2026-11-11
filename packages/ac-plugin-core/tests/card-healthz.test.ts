@@ -112,10 +112,10 @@ describe('pluginHealthz', () => {
     h = pluginHealthz(ROOT);
     expect(h.entries[0].needsReinstall).toBe(true);
     expect(h.entries[0].issues.join()).toContain('物化目录缺席');
-    // 登记断裂：手工撤 installed.patch.yml 条目
+    // 登记断裂：手工撤 installed.yml 条目
     writeInstalledDoc(ROOT, []);
     h = pluginHealthz(ROOT);
     expect(h.entries[0].documented).toBe(false);
-    expect(h.entries[0].issues.join()).toContain('installed.patch.yml 未登记');
+    expect(h.entries[0].issues.join()).toContain('installed.yml 未登记');
   });
 });

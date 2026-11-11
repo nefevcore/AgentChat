@@ -21,9 +21,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
-import { materializeChild, listChildIds, readAgentConfig, childIsArchived, ARCHIVED_FILE } from 'ac-agents-core';
+import { materializeChild, listChildIds, readAgentConfig, readPluginConfigsAt, childIsArchived, ARCHIVED_FILE, writePluginConfigAt } from 'ac-agents-core';
 import { readGlobalAuth, readAgentAuth, deriveChildAuth } from 'ac-auth-core';
-import { deriveShellRowset, readCatalog } from 'ac-rowset-core';
+import { evaluateLegacyShellRows, fitInstalledRows, readCatalog, SEAT_ROW_IDS } from 'ac-rowset-core';
 import { filterSpawnTools, convInheritOf, spawnChildConfigOf } from './inherit.ts';
 import { makeEnvelope, deliver, readActivationLock, IpcClient, type DeliverResult, type RendezvousPaths, type Envelope } from 'ac-envelope-core';
 import { runAddress } from 'ac-core-utils';
@@ -288,10 +288,12 @@ export class ShellSubagentService extends Service {
     tools?: string[]; waitMs?: number; replyConversation?: string; signal?: AbortSignal; access?: 'sandbox-access' | 'full-access';
   }): Promise<{ childId: string; reply?: SubagentReply; filtered?: string[] }> {
     const childId = this.newChildId();
-    const parent = readAgentConfig(this.dataRoot, this.agentId);
+    const parent = readAgentConfig(this.dataRoot, this.agentId, { catalogFile: this.catalogFile });
     if (parent === null) throw new Error('父 agent 配置缺席：' + this.agentId);
     const catalog = readCatalog(this.catalogFile);
-    const parentRowset = deriveShellRowset({ rows: parent.rows }, catalog);
+    const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
+    const installed = fitInstalledRows(this.dataRoot, 'shell', this.agentId).rows;
+    const parentRowset = evaluateLegacyShellRows(parent.rows, shellRows, installed, SEAT_ROW_IDS);
     // spawn ⊆ 授权投影：过滤词表单源（inherit.ts——cr-616/762/763 判据收拢）
     let tools: string[] | undefined;
     let filtered: string[] | undefined;
@@ -324,13 +326,14 @@ export class ShellSubagentService extends Service {
     const childConfig = spawnChildConfigOf({
       parent,
       ...(tools !== undefined ? { tools } : {}),
+      ...(tools === undefined ? { effectiveRows: parentRowset.rowIds } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.system !== undefined ? { system: input.system } : {}),
       inherit,
       ...(typeof anchor === 'string' && anchor !== '' ? { workdirAnchor: anchor } : {}),
       ...(modelOverride !== undefined ? { modelOverride } : {}),
     }, catalog);
-    materializeChild(this.dataRoot, this.agentId, childId, childConfig);
+    materializeChild(this.dataRoot, this.agentId, childId, childConfig, { shellRows });
     // 子授权层物化（R-5 物化即快照 + spawn ⊆ 投影）：父投影快照内联 grants，
     // 此后父授权变更不传播（M6.5 deriveChildAuth 接线——cr-527）。子壳门读
     // 自己域 auth.json（children 不做运行时投影）。
@@ -346,14 +349,13 @@ export class ShellSubagentService extends Service {
     });
     const authFile = path.join(this.dataRoot, 'agents', this.agentId, 'children', childId, 'auth.json');
     fs.writeFileSync(authFile, JSON.stringify(childAuth, null, 2) + '\n', 'utf-8');
-    // 发起会话键物化（cr-731）：重启后提问通知的注入目标从盘恢复——
-    // convOf 是内存态，父壳换代即蒸发。
+    // 发起会话键物化（cr-731；cr-1004 批2 迁单元文件 origin.json——会话恢复
+    // 键非装配面）：重启后提问通知的注入目标从盘恢复——convOf 是内存态，
+    // 父壳换代即蒸发。
     if (input.replyConversation !== undefined) {
-      const cfgFile = path.join(this.dataRoot, 'agents', this.agentId, 'children', childId, 'config.json');
+      const childDir = path.join(this.dataRoot, 'agents', this.agentId, 'children', childId);
       try {
-        const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf-8')) as Record<string, unknown>;
-        cfg.originConversation = input.replyConversation;
-        fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n', 'utf-8');
+        writePluginConfigAt(childDir, 'origin', { originConversation: input.replyConversation });
       } catch { /* 物化失败——盘读面自然缺席，注入回落 convOf */ }
     }
     this.spawnProcess(childId, input.name); // 拉起单源（cr-862——与 owner 重拉同构）
@@ -712,15 +714,15 @@ export class ShellSubagentService extends Service {
   private noteOrigin(childId: string, conversationId: string): void {
     this.convOf.set(childId, conversationId);
     if (this.originCache.get(childId) === conversationId) return;
-    const cfgFile = path.join(this.dataRoot, 'agents', this.agentId, 'children', childId, 'config.json');
+    const childDir = path.join(this.dataRoot, 'agents', this.agentId, 'children', childId);
     try {
-      const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf-8')) as { originConversation?: unknown };
-      if (typeof cfg.originConversation === 'string' && cfg.originConversation !== '') {
-        this.originCache.set(childId, cfg.originConversation);
+      const existing = this.readOriginConversation(childId);
+      if (existing !== undefined) {
+        this.originCache.set(childId, existing);
         return;
       }
-      cfg.originConversation = conversationId;
-      fs.writeFileSync(cfgFile, JSON.stringify(cfg, null, 2) + '\n', 'utf-8');
+      // cr-1004 批2：会话恢复键住单元文件 origin.json（config.json 存量回落在读面）
+      writePluginConfigAt(childDir, 'origin', { originConversation: conversationId });
       this.originCache.set(childId, conversationId);
     } catch { /* 盘面缺席（未物化/损坏）——内存键仍生效 */ }
   }
@@ -737,8 +739,17 @@ export class ShellSubagentService extends Service {
     return found;
   }
 
+  /** 子域发起会话键（spawn 物化——重启后注入目标盘读恢复）。读序：单元
+   * 文件 origin.json〔cr-1004 批2 主写面〕→ config.json 存量窗口 → 回落
+   * （cr-732）：originConversation 是 cr-731 新物化字段，此前 spawn 的
+   * 历史子缺席——读子域各会话 inbox 任务信封的 payload.replyConversation
+   * （cr-711 起随任务信封持久化，历史子全有），零迁移覆盖。 */
   private readOriginConversation(childId: string): string | undefined {
     const childDir = path.join(this.dataRoot, 'agents', this.agentId, 'children', childId);
+    const unit = readPluginConfigsAt(childDir).origin as { originConversation?: unknown } | undefined;
+    if (unit !== undefined && typeof unit.originConversation === 'string' && unit.originConversation !== '') {
+      return unit.originConversation;
+    }
     try {
       const cfg = JSON.parse(fs.readFileSync(path.join(childDir, 'config.json'), 'utf-8')) as { originConversation?: unknown };
       if (typeof cfg.originConversation === 'string' && cfg.originConversation !== '') return cfg.originConversation;

@@ -103,13 +103,9 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
       expect(names).toContain('web_search'); // web-tools 行
       expect(names).toContain('browser'); // browser 行（同包去重后仍双工具在册）
       expect(names).toContain('submit_issue'); // issue-tools 行
-      // sap-adt apply 尾部 await init()（demo 引擎拉起）晚于行 ACTIVE——轮询有界等待
-      const deadline = Date.now() + 10_000;
-      while (!names.some((n) => n.startsWith('adt_')) && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 100));
-        names.splice(0, names.length, ...tools.list().map((t) => t.name));
-      }
-      expect(names.some((n) => n.startsWith('adt_'))).toBe(true); // sap-adt 行（32 工具）
+      // cr-1007 基座去预设并集化：sap-adt（bundle:abap）移出基础集——空白
+      // Agent 不再恒装 32 个 ADT 工具（经 bundle:abap / 点名装载，见 catalog.test）
+      expect(names.some((n) => n.startsWith('adt_'))).toBe(false);
       // fs-tools/run-code 属 bundle（fs/infra）——不在缺省基础集，点名面下一用例验证
       // ③ credentials 垫片：resolve 链（Agent 级缺席 → 全局级回落）
       const creds = boot.ctx.get('credentials') as { resolve(id: string, p: string): string };

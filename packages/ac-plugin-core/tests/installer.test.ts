@@ -59,14 +59,14 @@ describe('admissionOf 门禁', () => {
 });
 
 describe('installPackage 事务 + 登记 + 回执', () => {
-  it('applied：物化 + installed.patch.yml 登记 + registry 落账；无活进程 → live', async () => {
+  it('applied：物化 + installed.yml 登记 + registry 落账；无活进程 → live', async () => {
     writePlugin();
     const r = await installPackage({ root: ROOT, sourceDir: SRC, owner: 'agent-1', grants: ['fs', 'shell'] });
     expect(r.result).toBe('applied');
     expect(r.effective).toBe('live');
     expect(r.installedDir).toContain(path.join(ROOT, 'plugins', 'ac-plugin-demo'));
     expect(readInstalledDoc(ROOT)).toEqual([
-      { id: 'ac-plugin-demo', name: 'link:' + path.join(ROOT, 'plugins', 'ac-plugin-demo'), owner: 'agent-1', scope: 'shell' },
+      { id: 'ac-plugin-demo', name: 'link:' + path.join(ROOT, 'plugins', 'ac-plugin-demo'), owner: 'agent-1' },
     ]);
     expect(listInstalled(ROOT).map((p) => p.manifest.name)).toContain('ac-plugin-demo');
   });

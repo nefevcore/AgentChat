@@ -29,8 +29,8 @@ import {
 import * as net from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis';
-import { deriveShellRowset, mergeRowsetCatalog, readCatalog, installedRowDescriptors, readCustomLayer, type DerivedRowset, type RowDescriptor } from 'ac-rowset-core';
-import { readAgentConfig, readChildConfig } from 'ac-agents-core';
+import { readCatalog, fitInstalledRows, readAssemblyPatch, resolveReplacements, evaluateAssembly, legacyRowsToAgentPatch, assemblyBaseStamp, SEAT_ROW_IDS, type RowDescriptor, type Evaluation, type AssemblyEntry } from 'ac-rowset-core';
+import { readAgentConfig, readChildConfig, readAgentPatchV2At } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { IMPORTED_ROWS, COMPANION_ROWS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow } from 'ac-shell-rows';
 import { makeHostFaceClientRow } from 'ac-host-face-client';
@@ -142,7 +142,7 @@ function writeBootGraphSnapshot(
   dataRoot: string,
   agentId: string,
   parentId: string | undefined,
-  rowset: DerivedRowset & { catalogRows: RowDescriptor[] },
+  rowset: Evaluation & { catalogRows: RowDescriptor[] },
 ): void {
   try {
     const dir = parentId !== undefined
@@ -173,29 +173,26 @@ export function deriveAndAssertRowset(
   agentId: string,
   catalogFile: string | undefined,
   parentId?: string,
-): DerivedRowset & { catalogRows: RowDescriptor[] } {
-  // 目录 = 出厂目录 ∪ installed.patch.yml 菜单（cr-908 批6 装配菜单合流；
-  // cr-1001 plugin-rows.json 镜像窗口退役——installed 菜单为唯一装载输入，
-  // owner 锚过滤 + 点名缺席降级语义）。
-  // 撞名出厂行在合并层丢弃——保留字护栏
+): Evaluation & { catalogRows: RowDescriptor[]; replacedIds: Set<string> } {
+  // cr-1004 统一求值引擎（两段式）：存在合成 = shell 基座 ∪ fit(installed ×
+  // node face——反向适配，scope 投影退役)；差量合成 = shell.patch.yml 用户
+  // 全局层（replace 先行换向）→ agent.patch.yml 实例层（存量 rows 绝对
+  // 清单经 legacyRowsToAgentPatch 确定性转换——批2 差量化迁移后退役）。
+  const dataRootAbs = path.resolve(dataRoot);
   const catalogBase = readCatalog(catalogFile ?? path.join(dataRoot, 'row-catalog.json'));
-  const installed = installedRowDescriptors(path.resolve(dataRoot), agentId);
-  const merged = mergeRowsetCatalog(catalogBase, installed.rows);
+  const baseRows = catalogBase.rows.filter((r) => r.tree === 'shell');
+  const installed = fitInstalledRows(dataRootAbs, 'shell', agentId);
   if (installed.warnings.length > 0) {
-    process.stderr.write('[shell] installed 菜单对账警告：' + installed.warnings.join('；') + '\n');
+    process.stderr.write('[shell] installed 登记对账警告：' + installed.warnings.join('；') + '\n');
   }
-  // shell-custom 偏好层（cr-909 批6 切片三）：基座壳行停用（用户减法——
-  // 点名不在菜单 = 警告 + 跳过，非基座行〔installed/镜像〕不动）
-  const shellCustom = readCustomLayer(path.join(path.resolve(dataRoot), 'profile'), 'shell');
-  if (shellCustom.disabled.size > 0) {
-    const known = new Set(merged.catalog.rows.filter((row) => row.tree === 'shell').map((row) => row.id));
-    const filtered = merged.catalog.rows.filter((row) => row.tree !== 'shell' || !shellCustom.disabled.has(row.id));
-    for (const id of shellCustom.disabled) {
-      if (!known.has(id)) process.stderr.write('[shell] shell-custom 点名不在菜单（跳过）：' + id + '\n');
-    }
-    merged.catalog.rows = filtered;
+  // 用户全局差量层（shell.patch.yml——cr-909 停用 / cr-1003 except 豁免 +
+  // replace 替换）：用户手写文档，全程警告降级不阻断 boot
+  const layer = readAssemblyPatch(path.join(dataRootAbs, 'profile'), 'shell');
+  const replaced = resolveReplacements(baseRows, layer.replace, dataRootAbs);
+  if (layer.warnings.length > 0 || replaced.warnings.length > 0) {
+    process.stderr.write('[shell] shell.patch.yml 用户差量层：'
+      + [...layer.warnings, ...replaced.warnings].join('；') + '\n');
   }
-  const catalog = merged.catalog;
   const config = parentId !== undefined
     ? readChildConfig(dataRoot, parentId, agentId)
     : readAgentConfig(dataRoot, agentId);
@@ -204,24 +201,57 @@ export function deriveAndAssertRowset(
       ? path.join(dataRoot, 'agents', parentId, 'children', agentId, 'config.json')
       : path.join(dataRoot, 'agents', agentId, 'config.json')));
   }
-  const derived = deriveShellRowset({ rows: config.rows }, catalog);
-  if (derived.warnings.length > 0) {
-    throw new Error('行集静态断言失败：\n  ' + derived.warnings.join('\n  '));
+  // 实例差量（cr-1004 批2）：agent.patch.yml v2 数组形态赢（含 `# ac-base`
+  // 基线戳对账——存在合成漂移 = fail-loud 触发 rebase，不静默传导）；
+  // 旧形态（映射 patch / config.json）经 §七 确定性读侧桥（migrate 收口后退役）
+  const agentDirAbs = parentId !== undefined
+    ? path.join(dataRootAbs, 'agents', parentId, 'children', agentId)
+    : path.join(dataRootAbs, 'agents', agentId);
+  const v2 = readAgentPatchV2At(agentDirAbs);
+  let agentPatch: AssemblyEntry[];
+  if (v2 !== null) {
+    const currentStamp = assemblyBaseStamp(dataRootAbs, 'shell');
+    if (v2.base !== undefined && v2.base !== currentStamp) {
+      throw new Error(
+        'agent.patch.yml 基线戳漂移（ac-base: ' + v2.base + ' → 现算 ' + currentStamp + '）——'
+        + '基座/安装态已演化，需 rebase（node scripts/migrate-agent-patch.mjs ' + dataRootAbs + '）',
+      );
+    }
+    if (v2.base === undefined) {
+      process.stderr.write('[shell] agent.patch.yml 缺 ac-base 基线戳——按当前存在合成求值（写面会补戳）' + String.fromCharCode(10));
+    }
+    agentPatch = v2.entries;
+  } else {
+    agentPatch = legacyRowsToAgentPatch(config.rows, replaced.rows, installed.rows, SEAT_ROW_IDS);
+  }
+  const evaluation = evaluateAssembly({
+    base: replaced.rows,
+    installed: installed.rows,
+    userPatch: layer.entries,
+    agentPatch,
+    agentId,
+    seatIds: SEAT_ROW_IDS,
+  });
+  if (evaluation.warnings.length > 0 || evaluation.errors.length > 0) {
+    throw new Error('行集静态断言失败：\n  ' + [...evaluation.errors, ...evaluation.warnings].join('\n  '));
+  }
+  if (evaluation.notices.length > 0) {
+    process.stderr.write('[shell] 装配求值降级面：' + evaluation.notices.join('；') + '\n');
   }
   // cr-762：子壳行集恒剔 subagent 行（防子孙无限增长）——子壳没有 spawn 面
   //（孙辈授权语义未定义；缺省继承/显式点名/存量子 config 三路同断）。子壳仍可
   // 经 list 查父面板等读面，但永不能再 spawn。恒并基座行不受影响（subagent
   // 非 require 目标，无行会因闭包缺它而 fail-loud）。
   const rowIds = parentId !== undefined
-    ? derived.rowIds.filter((id) => id !== 'subagent')
-    : derived.rowIds;
-  return { ...derived, rowIds, catalogRows: catalog.rows };
+    ? evaluation.rowIds.filter((id) => id !== 'subagent')
+    : evaluation.rowIds;
+  return { ...evaluation, rowIds, catalogRows: evaluation.rows, replacedIds: replaced.replacedIds };
 }
 
 /**
  * 插件行装配器（cr-543）：安装目录 manifest.entry 动态 import → ctx.plugin。
  * 装载 = 授权动作（A7/A10）——第三方代码只在壳进程内进进程，宿主进程不装载；
- * 行 id / 工具面来自 installed.patch.yml 菜单投影（安装器登记，熔断/撞名
+ * 行 id / 工具面来自 installed.yml 反向适配投影（安装器登记，熔断/撞名
  * 已在宿主侧剔除）。装载失败由宿主 plugin/load-failure RPC 回报熔断（壳接线
  * 归 cutover/8.9 产品面收敛批）。
  */
@@ -274,13 +304,16 @@ export async function assembleRows(
     onRowReady?: (id: string) => void;
     /** 数据根行 options（IMPORTED_ROWS 的构造参数——config/memory/skill root） */
     rowOptions?: Record<string, unknown>;
+    /** 替换行（shell-custom replace——id 命中 = 绕过 IMPORTED_ROWS 出厂实现，
+     * 走 rowAssemblers 的替换件动态装载） */
+    customImplIds?: ReadonlySet<string>;
   } = {},
 ): Promise<{ ready: number; fibers: Fiber[] }> {
   let ready = 0;
   const fibers: Fiber[] = [];
   const assembled = new Set<Plugin>();
   for (const id of rowIds) {
-    if (id in IMPORTED_ROWS && ctx !== null) {
+    if (id in IMPORTED_ROWS && ctx !== null && !opts.customImplIds?.has(id)) {
       const imported = IMPORTED_ROWS[id];
       if (!assembled.has(imported)) {
         assembled.add(imported);
@@ -326,7 +359,7 @@ export async function assembleRows(
 
 export interface ShellBootResult {
   lockInfo: ActivationLockInfo;
-  rowset: DerivedRowset & { catalogRows: RowDescriptor[] };
+  rowset: Evaluation & { catalogRows: RowDescriptor[]; replacedIds: Set<string> };
   rowsReady: number;
   /** 装配树（M8.1 cordis 通道——服务观测面；close() 即收割） */
   ctx: Context;
@@ -423,7 +456,7 @@ export async function bootShell(
   // 归宿主裁决（阈值 3 → 行集条目剔除），壳自身 boot 不被第三方插件拖死
   //（fail-closed 对插件：该行缺席即其工具面缺席；宿主回报面由常驻监护
   // supervise 消费本节拍转发 pluginRegistry.reportLoadFailure）。
-  const menuRows = installedRowDescriptors(path.resolve(args.dataRoot), args.agentId).rows;
+  const menuRows = fitInstalledRows(path.resolve(args.dataRoot), 'shell', args.agentId).rows;
   for (const pluginRow of menuRows) {
     if (!rowset.rowIds.includes(pluginRow.id)) continue;
     registerRowAssembler(pluginRow.id, async (c) => {
@@ -436,6 +469,20 @@ export async function bootShell(
       }
     });
   }
+  // 替换行装配器（cr-1003 shell-custom replace）：被替换的基座行绕过
+  // IMPORTED_ROWS 出厂实现，按换向后的 path 动态装载替换件（装载失败
+  // 同款跳行 + plugin.load-failed 回报——替换件按插件同fail-closed口径）
+  for (const row of rowset.catalogRows) {
+    if (!rowset.replacedIds.has(row.id) || !rowset.rowIds.includes(row.id)) continue;
+    registerRowAssembler(row.id, async (c) => {
+      try {
+        return await assemblePluginRow(row, c as Context);
+      } catch (err) {
+        emit('plugin.load-failed', row.id, String(err).slice(0, 200));
+        return undefined;
+      }
+    });
+  }
   // M8.1：cordis 装配通道——垫片行（agents/agentStore 数据根直读）先装，
   // 沿用行（IMPORTED_ROWS）按行集清单逐行 ctx.plugin；数据根行 options 显式
   // 注入（preview 数据根隔离红线——不走环境变量缺省）。
@@ -445,7 +492,9 @@ export async function bootShell(
   // list_tools 等按 config.tools 过滤注册名）都要工具名；词汇 owning = 本
   // 目录，装配期投影。
   const rowTools: Record<string, string[]> = {};
+  const allRowIds: string[] = [];
   for (const row of rowset.catalogRows) {
+    if (row.tree === 'shell') allRowIds.push(row.id);
     if (row.tree === 'shell' && row.tools !== undefined) rowTools[row.id] = row.tools;
   }
   const shimFiber = ctx.plugin(makeShimsRow(path.resolve(args.dataRoot), rowTools, args.postOffice, args.parentId));
@@ -466,7 +515,9 @@ export async function bootShell(
     dataRoot: path.resolve(args.dataRoot), agentId: args.agentId,
     ...(args.parentId !== undefined ? { parentId: args.parentId } : {}),
     ...(args.postOffice !== undefined ? { postOfficeAddress: args.postOffice } : {}),
+    catalogFile: args.catalogFile ?? path.join(path.resolve(args.dataRoot), 'row-catalog.json'),
     rowTools,
+    allRowIds,
   })));
   // 会话查询行（cr-544）：D10 收敛为 agent 只搜自己——读面单源 = 本 agent
   // 账本域（agents/<id>/ 或影子物化域），不越域读其他 agent / user 账本
@@ -516,6 +567,7 @@ export async function bootShell(
     // 沙箱基准单源 = WorkspaceShim（files/<agentId> 懒建——cr-754 退役
     // 行 options 注入面）
     rowOptions: rowOptionsFor(path.resolve(args.dataRoot), agentDir),
+    customImplIds: rowset.replacedIds,
   });
   // tools 授权门（M8.6 cr-527，manifest R2 tools 行「授权门」半边）：行集
   // 含 tools 行即挂（无门禁壳非合法降级）——loop/before-run 每 run 前重读

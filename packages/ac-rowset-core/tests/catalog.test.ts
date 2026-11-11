@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { deriveShellRowset, deriveHostRowset, type RowsetCatalog } from '../src/rowset.ts';
+import { deriveHostRowset, evaluateAssembly, evaluateLegacyShellRows, SEAT_ROW_IDS, type RowsetCatalog } from '../src/rowset.ts';
 
 const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../../apps/catalog/row-catalog.json', import.meta.url)), 'utf-8'),
@@ -38,14 +38,24 @@ describe('行集目录对账（manifest R8 恒等式）', () => {
   });
 
   it('目录可派生：壳基础行集与宿主全集均非空', () => {
-    expect(deriveShellRowset({}, catalog).rowIds.length).toBeGreaterThan(0);
-    expect(deriveShellRowset({}, catalog).rowIds).not.toContain('dev-tools'); // 勘误剔除行不在目录
+    const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
+    const base = () => evaluateAssembly({ base: shellRows });
+    expect(base().rowIds.length).toBeGreaterThan(0);
+    expect(base().rowIds).not.toContain('dev-tools'); // 勘误剔除行不在目录
     expect(deriveHostRowset([], catalog).rowIds).toHaveLength(25); // cr-973：session-index 新增
-    expect(deriveShellRowset({}, catalog).rowIds).toContain('plugin-dev'); // 装卸三件套行在壳基础集
-    expect(deriveShellRowset({ rows: [] }, catalog).rowIds).toContain('auto-title'); // cr-672 命名行恒并基座（点名形态也在）
-    expect(deriveShellRowset({}, catalog).rowIds).not.toContain('restart'); // bundle 化离开基础集（cr-635 创造预设专属）
-    expect(deriveShellRowset({ rows: ['restart'] }, catalog).rowIds).toContain('restart'); // 点名引入
-    expect(deriveShellRowset({ rows: ['creator'] }, catalog).rowIds).toContain('restart'); // creator 捆绑词命中
+    // cr-1007 基座去预设并集化：plugin-dev（creator）/sap-adt（abap）/
+    // harness-tools·bench（dev）移出基础集——点名可入、空白 Agent 不恒装
+    expect(base().rowIds).not.toContain('plugin-dev');
+    expect(base().rowIds).not.toContain('sap-adt');
+    expect(base().rowIds).not.toContain('harness-tools');
+    expect(base().rowIds).not.toContain('bench');
+    // cr-672 命名行恒并席位（点名形态也在——legacy 桥 target 恒含席位）
+    expect(evaluateLegacyShellRows([], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('auto-title');
+    expect(base().rowIds).not.toContain('restart'); // bundle 化离开基础集（cr-635 创造预设专属）
+    expect(evaluateLegacyShellRows(['restart'], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('restart'); // 点名引入
+    expect(evaluateLegacyShellRows(['creator'], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('restart'); // creator 捆绑词命中
+    expect(evaluateLegacyShellRows(['creator'], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('plugin-dev'); // cr-1007：plugin-dev 随 creator 捆绑词
+    expect(evaluateLegacyShellRows(['abap'], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('sap-adt'); // cr-1007：sap-adt 随 abap 捆绑词
   });
 
   it('requires 词表自洽（cr-521；cr-551 宿主行首用）：引用 id 均为同树内行（垫片服务不标注）', () => {

@@ -109,17 +109,23 @@ describe('reconcilePresetOrigin 四态', () => {
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('patch 在场 = origin 块主写（cr-918 镜像退役）；读面 patch 赢过存量 json', () => {
+  it('cr-1004 批2：origin 主写 agent.json 档案块；读面档案赢 → 旧映射 patch → 存量 json', () => {
     const root = mkDir();
     try {
       writeAgentPatch(root, '__creator__', { rows: ['fs-tools'] });
       // 存量镜像在场 + patch 无 origin 块 → 读回落 json
       fs.writeFileSync(path.join(root, 'agents/__creator__/preset-origin.json'), JSON.stringify({ template: 'creator', hash: 'old' }));
       expect(readOrigin(root, '__creator__')?.hash).toBe('old');
+      // 旧映射 patch 带 origin 块 → 档案缺席时读面赢过 json
+      writeAgentPatch(root, '__creator__', { rows: ['fs-tools'], origin: { template: 'creator', hash: 'patch-block' } });
+      expect(readOrigin(root, '__creator__')?.hash).toBe('patch-block');
+      // 档案在场 = 主写（writeOrigin RMW）——赢过一切旧面
+      const dir = path.join(root, 'agents/__creator__');
+      fs.writeFileSync(path.join(dir, 'agent.json'), JSON.stringify({ model: 'mock' }));
       const origin = originOf('creator', 'deadbeef', materializeConfigOf(tplConfig, '__creator__'), tplDocs);
       writeOrigin(root, '__creator__', origin);
-      expect(readAgentPatch(root, '__creator__')?.origin).toEqual(origin); // 块主写
-      expect(readOrigin(root, '__creator__')).toEqual(origin); // patch 赢过陈旧 json
+      expect(JSON.parse(fs.readFileSync(path.join(dir, 'agent.json'), 'utf-8')).origin).toEqual(origin);
+      expect(readOrigin(root, '__creator__')).toEqual(origin);
     } finally { fs.rmSync(root, { recursive: true, force: true }); }
   });
 });

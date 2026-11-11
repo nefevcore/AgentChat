@@ -13,6 +13,7 @@ import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readLedger } from 'ac-ledger';
+import { readChildConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-sub-e2e-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
@@ -144,12 +145,10 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
       const childId = spawnOut.output!.subagent_id!;
       // 子 config：无 tc-* 词（形态跟随装配——子 rows 缺省继承父 rows 含
       // run-code 行 → 合成 tc-programmatic；这里验证缺省继承分支）
-      const childCfg = JSON.parse(fs.readFileSync(
-        path.join(ROOT, 'agents', 'coder', 'children', childId, 'config.json'), 'utf-8'),
-      ) as { toolMode?: string; access?: string; rows?: string[] };
-      expect(childCfg.rows).toContain('run-code');
-      expect(childCfg.toolMode).toBe('tc-programmatic'); // 形态来自装配
-      expect(childCfg.access).toBe('full-access'); // 会话 access 继承（水位取高）
+      const childCfg = readChildConfig(ROOT, 'coder', childId);
+      expect((childCfg?.rows as { include?: string[] }).include).toContain('run-code');
+      expect(childCfg?.toolMode).toBe('tc-programmatic'); // 形态来自装配
+      expect(childCfg?.access).toBe('full-access'); // 会话 access 继承（水位取高）
       // 子壳 LLM 工具面（toolDefs —— 与真实 run 单源）：mode 集 = ['run_code']，
       // 非空且不再把授予工具全丢
       const defs = await childToolDefs(childId);
@@ -165,10 +164,8 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
       // 工具名点名透传语义（resolveToolNames）：授予词原样生效（保点名序），
       // edit 未点名不在面。修复前此形态 = 空集（tc-* 继承把面收窄没了）。
       expect(subsetDefs.names).toEqual(['web_search', 'read', 'write']);
-      const subsetCfg = JSON.parse(fs.readFileSync(
-        path.join(ROOT, 'agents', 'coder', 'children', subsetId, 'config.json'), 'utf-8'),
-      ) as { toolMode?: string };
-      expect(subsetCfg.toolMode).toBeUndefined();
+      const subsetCfg = readChildConfig(ROOT, 'coder', subsetId);
+      expect(subsetCfg?.toolMode).toBeUndefined();
       await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'delete', subagent_id: subsetId } });
     } finally { await parent.shutdown(); }
   }, 120_000);

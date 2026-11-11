@@ -6,7 +6,7 @@
 //   主线：装载 = 把第三方代码 dynamic import 进**宿主进程**（ctx.plugin），
 //         行因此住宿主，熔断/健康记录围绕宿主内装载。
 //   本行：装载 = 授权动作（A7/A10）——批准安装后插件登记进
-//         installed.patch.yml（安装器代写），装载发生在**壳进程**（壳 boot
+//         installed.yml（安装器代写），装载发生在**壳进程**（壳 boot
 //         读目录 + installed 菜单合并 → 行集派生 → 动态装配）。第三方代码
 //         零宿主驻留（R0a 判据 1）——宿主进程不 import 任何插件代码。
 //
@@ -14,7 +14,8 @@
 //   ① 安装态与 staging 人审（哈希 / 只读代理 / 权限快照 / 来源锚定）——
 //      算法全复用 ac-plugin-core 纯库（主线原样 import，零改动）；
 //   ② 装载裁决与熔断闸门：壳侧装载失败经 plugin/load-failure 回报 →
-//      阈值熔断 → 该插件行集条目从 installed 登记剔除（fail-closed）；
+//      阈值熔断 → 现算视图剔除该插件行（fail-closed；熔断态住
+//      .load-health，installed 登记不动）；
 //   ③ 行集偏好急救 RPC（rows/*）：写 <dataRoot>/host-rows.json，恒冷
 //      生效（restartRequired——〈patch 机制退役〉：无热通道无 patch 文件）；
 //   ④ client manifest 注入：安装目录即 boot graph 源
@@ -170,13 +171,13 @@ export class PluginRegistryHostService extends Service {
   /** 人审批准：安装落盘 → 清熔断记录 → 刷新插件行集 → 审计入账 */
   async approve(id: string, grants?: unknown): Promise<{ approved: ApproveResult; rows: RowDescriptor[]; warnings: string[] }> {
     const approved = await approveStaging(this.dataRoot, id, grants);
-    // installed.patch.yml 登记（cr-903 批2：市场人审路径与免审路径同登记面）
+    // installed.yml 登记（cr-903 批2：市场人审路径与免审路径同登记面；
+    // cr-1004 scope 退役——适配分析在基座求值器）
     registerInstalled(this.dataRoot, {
       id: approved.manifest.name,
       name: 'link:' + path.join(this.root(), approved.manifest.name),
       // 人签安装（webui 审批）= 全体候选——owner 锚留空（§4.3：owner 行
       // 仅进 owner Agent 候选集；市场公共插件不设锚）
-      scope: 'shell',
     });
     const installedDir = path.join(this.root(), approved.manifest.name);
     const rows = this.pluginRows();
@@ -248,7 +249,7 @@ export class PluginRegistryHostService extends Service {
       };
     }
     // v2 统一安装器（cr-903 批2 切片四）：门禁（engines 自求值/保留字/
-    // 权限边界）→ stage→approve 补偿事务 → installed.patch.yml 登记 →
+    // 权限边界）→ stage→approve 补偿事务 → installed.yml 登记 →
     // 两轴回执。免审快照 = manifest permissions 全集（主线 F14/L5）。
     const receipt = await installPackage({
       root: this.dataRoot,
@@ -275,7 +276,7 @@ export class PluginRegistryHostService extends Service {
     };
   }
 
-  /** 永久卸载：移出安装态 + 旧版本进 .backup + installed.patch.yml 撤销 + 刷新插件行集 */
+  /** 永久卸载：移出安装态 + 旧版本进 .backup + installed.yml 撤销 + 刷新插件行集 */
   async uninstall(name: string): Promise<{ name: string; backupDir?: string; rows: RowDescriptor[]; warnings: string[] }> {
     // v2 统一安装器卸载面（cr-903 切片四）：事务 + 登记撤销 + 两轴回执
     const receipt = await uninstallPackage({
@@ -323,7 +324,7 @@ export class PluginRegistryHostService extends Service {
   /**
    * 插件行集现算：已安装插件的 manifest.rows → 壳行集条目。
    * 熔断（.load-health disabled）与撞名（保留字护栏）在此剔除
-   *（cr-1001 镜像退役后纯现算视图——壳 boot 经 installed.patch.yml 单源）。
+   *（cr-1001 镜像退役后纯现算视图——壳 boot 经 installed.yml 单源）。
    */
   pluginRows(): PluginRowsView {
     const warnings: string[] = [];
@@ -497,7 +498,7 @@ async function applyPluginRequest(
         effective: result.effective,
         ...(result.backupDir !== undefined ? { backupDir: result.backupDir } : {}),
       },
-      nextPrompt: '[plugin] 你安装的 ' + result.name + '@' + result.version + ' 已写入安装态（宿主零代码装载——installed.patch.yml 已登记，本壳重启或新壳 boot 时装载'
+      nextPrompt: '[plugin] 你安装的 ' + result.name + '@' + result.version + ' 已写入安装态（宿主零代码装载——installed.yml 已登记，本壳重启或新壳 boot 时装载'
         + (result.effective === 'restart-required' ? '；当前有活壳在场，生效轴 = restart-required' : '')
         + '）。要立即测试请用 register_plugin（会话级装载）。',
     };

@@ -8,7 +8,7 @@ import * as path from 'node:path';
 import { buildDataRoot } from '../src/fixture.ts';
 import { readAgentConfig, listAgentIds } from '../src/tree.ts';
 import { readGlobalAuth, readAgentAuth } from 'ac-auth-core';
-import { readCatalog, readHostPreferences, deriveShellRowset, deriveHostRowset } from 'ac-rowset-core';
+import { readCatalog, readHostPreferences, evaluateLegacyShellRows, SEAT_ROW_IDS, deriveHostRowset } from 'ac-rowset-core';
 import { listCredentialNames, readCredential } from 'ac-credentials-core';
 
 const ROOT = path.join('sandbox', 'test-dataroot-' + process.pid);
@@ -60,7 +60,7 @@ it('骨架全形态 → 四纯库直读互证', () => {
   const cat = readCatalog(path.join(ROOT, 'row-catalog.json'));
   expect(cat.rows).toHaveLength(6);
   expect(deriveHostRowset(readHostPreferences(ROOT), cat).rowIds).toEqual(['ac-post-office']);
-  const shell = deriveShellRowset({ rows: ['fs_read'] }, cat);
+  const shell = evaluateLegacyShellRows(['fs_read'], cat.rows.filter((r) => r.tree === 'shell'), [], SEAT_ROW_IDS);
   expect(shell.rowIds).toEqual(['ac-fs-tools']);
   // credentials
   expect(listCredentialNames(ROOT)).toEqual(['github-token']);

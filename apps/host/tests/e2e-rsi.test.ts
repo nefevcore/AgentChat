@@ -12,7 +12,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { materializeChild, readAgentConfig } from 'ac-agents-core';
-import { deriveShellRowset, type RowsetCatalog } from 'ac-rowset-core';
+import { evaluateLegacyShellRows, SEAT_ROW_IDS, type RowsetCatalog } from 'ac-rowset-core';
 import { evolveShell, defaultCollectProtectedFiles } from '../evolve.ts';
 import { takeSnapshot } from 'ac-snapshot-core';
 import { validateReceiptPayload } from 'ac-envelope-core';
@@ -73,7 +73,7 @@ function hostSideRoot(dataRoot: string, agentId: string): string {
   const config = JSON.parse(fs.readFileSync(path.join(dataRoot, 'agents', agentId, 'config.json'), 'utf-8')) as { tools?: unknown };
   // 行集派生走真函数（缺省 = 基础壳行集 = 非 bundle 行）——与 boot.ts 同口径，
   // 不再用「全部有 path 行」极简面（M8.1 第二批起 bundle 行也有 path，口径必须含 rowIds 过滤）
-  const derived = deriveShellRowset({ rows: config.tools as string[] | undefined }, catalog);
+  const derived = evaluateLegacyShellRows(config.tools as string[] | undefined, catalog.rows.filter((r) => r.tree === 'shell'), [], SEAT_ROW_IDS);
   const rows = catalog.rows
     .filter((r) => r.tree === 'shell' && derived.rowIds.includes(r.id) && r.path !== undefined);
   const fp = subjectFingerprint({

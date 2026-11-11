@@ -14,3 +14,4 @@ export * from './base-docs.ts';
 export * from './installed-rows.ts';
 export * from './custom-layer.ts';
 export * from './plugin-rows.ts';
+export * from './evaluate.ts';

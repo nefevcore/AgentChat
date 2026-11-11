@@ -184,7 +184,8 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const out = await svc.spawnOp({ task: 't', tools: ['read', 'healthz', 'fs-search'] });
       expect(out.filtered).toEqual(['healthz']);
       const cfg = readChildConfig(ROOT, 'papa', out.childId);
-      expect(cfg?.rows).toEqual(['read', 'fs-search']); // healthz 不再击穿子壳行集静态断言
+      // cr-1004 批2：子物化 v2 差量——rows 投影 {include}（B−T 减法面在 exclude）
+      expect((cfg?.rows as { include?: string[] })?.include).toEqual(['read', 'fs-search']); // healthz 不再击穿子壳行集静态断言
     } finally { await dispose(); }
   });
 
@@ -197,7 +198,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const out = await svc.spawnOp({ task: 't', tools: ['read', 'subagent'] });
       expect(out.filtered).toEqual(['subagent']);
       const cfg = readChildConfig(ROOT, 'papa', out.childId);
-      expect(cfg?.rows).toEqual(['read']);
+      expect((cfg?.rows as { include?: string[] })?.include).toEqual(['read']);
     } finally { await dispose(); }
   });
 
@@ -441,16 +442,12 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       };
       const out = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '继承任务' }, conversationId: 'user~papa', access: 'full-access' });
       const childId = (out.output as { subagent_id: string }).subagent_id;
-      const cfg = JSON.parse(fs.readFileSync(
-        path.join(ROOT, 'agents', 'papa', 'children', childId, 'config.json'), 'utf-8'),
-      ) as { access?: string };
-      expect(cfg.access).toBe('full-access'); // per-call 兜底并入（无 convSettings 面）
+      const cfg = readChildConfig(ROOT, 'papa', childId);
+      expect(cfg?.access).toBe('full-access'); // per-call 兜底并入（无 convSettings 面）
       const plain = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '无设置' }, conversationId: 'user~papa' });
       const plainId = ((plain.output as { subagent_id: string })).subagent_id;
-      const plainCfg = JSON.parse(fs.readFileSync(
-        path.join(ROOT, 'agents', 'papa', 'children', plainId, 'config.json'), 'utf-8'),
-      ) as { access?: string };
-      expect(plainCfg.access ?? 'base-access').toBe('base-access'); // 无任何来源不产生键（父 base 时键缺席）
+      const plainCfg = readChildConfig(ROOT, 'papa', plainId);
+      expect(plainCfg?.access ?? 'base-access').toBe('base-access'); // 无任何来源不产生键（父 base 时键缺席）
     } finally { await dispose(); }
   });
 
@@ -473,16 +470,14 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
         spawnOp(i: { task: string; replyConversation?: string; access?: string }): Promise<{ childId: string }>;
       };
       const out = await svc.spawnOp({ task: '全设置继承', replyConversation: 'user~papa', access: 'sandbox-access' });
-      const cfg = JSON.parse(fs.readFileSync(
-        path.join(ROOT, 'agents', 'papa', 'children', out.childId, 'config.json'), 'utf-8'),
-      ) as { access?: string; levels?: Record<string, string>; toolMode?: string };
+      const cfg = readChildConfig(ROOT, 'papa', out.childId);
       // 水位 full > per-call sandbox（取高）+ browserTier → levels.browser
-      expect(cfg.access).toBe('full-access');
-      expect(cfg.levels?.browser).toBe('inject');
+      expect(cfg?.access).toBe('full-access');
+      expect(cfg?.levels?.browser).toBe('inject');
       // tc-* 是交互形态非授权（cr-763）：会话 toolMode 不快照——
       // 子 rows 由 spawn tools 决定，父会话形态快照过来而子无 run-code 行
       // 时收窄出空面（工具全丢、子变纯聊天单步收束）。
-      expect(cfg.toolMode).toBeUndefined();
+      expect(cfg?.toolMode).toBeUndefined();
     } finally { await dispose(); }
   });
 
@@ -502,19 +497,15 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // ① 缺省继承（不传 tools）：子 rows = 父 rows（含 run-code 行）→ 合成 tc-programmatic；父 full-access 授权词保留
       const inherit = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '缺省继承' } });
       const inheritId = (inherit.output as { subagent_id: string }).subagent_id;
-      const inheritCfg = JSON.parse(fs.readFileSync(
-        path.join(ROOT, 'agents', 'papa', 'children', inheritId, 'config.json'), 'utf-8'),
-      ) as { access?: string; rows?: string[]; toolMode?: string };
-      expect(inheritCfg.rows).toContain('run-code');
-      expect(inheritCfg.toolMode).toBe('tc-programmatic'); // 形态来自装配而非继承
-      expect(inheritCfg.access).toBe('full-access'); // 档位继承面不受影响
+      const inheritCfg = readChildConfig(ROOT, 'papa', inheritId);
+      expect((inheritCfg?.rows as { include?: string[] })?.include).toContain('run-code');
+      expect(inheritCfg?.toolMode).toBe('tc-programmatic'); // 形态来自装配而非继承
+      expect(inheritCfg?.access).toBe('full-access'); // 档位继承面不受影响
       // ② 显式点名子集（不含 run-code）：无模式词——工具面照常（tc-base）
       const subset = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '子集', tools: ['read', 'write'] } });
       const subsetId = ((subset.output as { subagent_id: string })).subagent_id;
-      const subsetCfg = JSON.parse(fs.readFileSync(
-        path.join(ROOT, 'agents', 'papa', 'children', subsetId, 'config.json'), 'utf-8'),
-      ) as { toolMode?: string };
-      expect(subsetCfg.toolMode).toBeUndefined();
+      const subsetCfg = readChildConfig(ROOT, 'papa', subsetId);
+      expect(subsetCfg?.toolMode).toBeUndefined();
       // ③ 点名 run_code 词显式拒绝（cr-763：防子域程序化形态自废 spawn 授予面）
       const rejected = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '拒 run_code', tools: ['run_code', 'read'] } });
       expect(((rejected.output as { note?: string }).note ?? '')).toContain('run_code');
@@ -907,9 +898,10 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // all = 全量
       const all = await tools.execute({ name: 'subagent', args: { action: 'list', all: true }, conversationId: 'conv-a' });
       expect((all.output?.agents ?? []).map((e) => e.childId)).toContain('sub-fromb');
-      // 触达无键子（await 会 fail-loud 不在管理面——用 stop 无害触达）→ config 补键
+      // 触达无键子（await 会 fail-loud 不在管理面——用 stop 无害触达）→ 单元文件补键
+      //（cr-1004 批2：会话恢复键住 origin.json；config.json 存量读窗口）
       await tools.execute({ name: 'subagent', args: { action: 'stop', subagent_id: 'sub-nokey' }, conversationId: 'conv-a' });
-      const backfilled = JSON.parse(fs.readFileSync(path.join(uRoot, 'config.json'), 'utf-8')) as { originConversation?: string };
+      const backfilled = JSON.parse(fs.readFileSync(path.join(uRoot, 'origin.json'), 'utf-8')) as { originConversation?: string };
       expect(backfilled.originConversation).toBe('conv-a');
       void svc;
     } finally { await dispose(); }

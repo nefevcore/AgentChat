@@ -16,7 +16,7 @@ import {
   materializeBaseDocs, projectBaseEntry,
 } from '../src/base-docs.ts';
 import { readCatalog } from '../src/disk.ts';
-import { deriveShellRowset, deriveHostRowset, type RowsetCatalog } from '../src/rowset.ts';
+import { evaluateAssembly, deriveHostRowset, type RowsetCatalog } from '../src/rowset.ts';
 
 const PROFILE_DIR = fileURLToPath(new URL('../../../apps/catalog/profile/', import.meta.url));
 const REPO_CATALOG = fileURLToPath(new URL('../../../apps/catalog/row-catalog.json', import.meta.url));
@@ -31,7 +31,8 @@ describe('投影等价（基座 = 单一事实源）', () => {
 
   it('派生等价：壳/宿主行集派生与生成物侧一致', () => {
     const base = readBaseCatalog(PROFILE_DIR)!;
-    expect(deriveShellRowset({}, base)).toEqual(deriveShellRowset({}, GENERATED));
+    const shells = (c: RowsetCatalog) => evaluateAssembly({ base: c.rows.filter((r) => r.tree === 'shell') });
+    expect(shells(base)).toEqual(shells(GENERATED));
     expect(deriveHostRowset([], base)).toEqual(deriveHostRowset([], GENERATED));
   });
 
@@ -135,5 +136,21 @@ describe('版本戳部署链', () => {
 
   it('profileDirOf：catalogFile 同目录 profile/', () => {
     expect(profileDirOf(path.join('a', 'b', 'row-catalog.json'))).toBe(path.join('a', 'b', 'profile'));
+  });
+
+  it('cr-1004 改名 reconcile：旧名物化副本部署后清除；旧名源只读兼容', () => {
+    materializeBaseDocs(PROFILE_DIR, DATA);
+    // 旧名残留（cr-1004 前数据根形态）：下次部署清除——双源歧义消灭
+    fs.copyFileSync(baseDocFile(path.join(DATA, 'profile'), 'host'),
+      path.join(DATA, 'profile', 'host.patch.yml'));
+    materializeBaseDocs(PROFILE_DIR, DATA);
+    expect(fs.existsSync(path.join(DATA, 'profile', 'host.patch.yml'))).toBe(false);
+    // 旧名源（repo 未换轨形态）：readBaseCatalog 兼容读
+    const OLD = path.join(ROOT, 'old-profile');
+    fs.mkdirSync(OLD, { recursive: true });
+    for (const proc of ['host', 'shell'] as const) {
+      fs.copyFileSync(baseDocFile(PROFILE_DIR, proc), path.join(OLD, proc + '.patch.yml'));
+    }
+    expect(readBaseCatalog(OLD)).not.toBeNull();
   });
 });

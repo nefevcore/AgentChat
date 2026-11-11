@@ -174,7 +174,7 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
 横切   fs/shell/web/collab 工具族 · memory · timer · archive · plugin-registry …
 ```
 
-**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以基座源文档为单源（cr-902 / cr-901 v2.1 批1）：`apps/catalog/profile/{host,shell}.patch.yml`（cordis-plugin-loader 官方方言 + 版本戳，tree 由文档隐含），host boot 物化到数据根 `profile/` 并对账 fail-loud；旧 `row-catalog.json` 是它的生成投影（`scripts/gen-row-catalog.mjs`，双读窗口内兼容读）。宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
+**一切皆插件**：横切能力全部是可独立摘除的插件行，挂一行得一个能力，摘掉由 cordis 自动回滚重载。组装以基座源文档为单源（cr-902 / cr-901 v2.1 批1；cr-1004 文件族改名）：`apps/catalog/profile/{host,shell}.yml`（cordis-plugin-loader 官方方言 + 版本戳，tree 由文档隐含；「patch」中缀专属差量文档），host boot 物化到数据根 `profile/` 并对账 fail-loud；旧 `row-catalog.json` 是它的生成投影（`scripts/gen-row-catalog.mjs`，双读窗口内兼容读）。装配求值统一走两段式引擎（`ac-rowset-core` `evaluate`：存在合成 = 基座 ∪ installed 反向适配；差量合成 = `<base>.patch.yml` 用户层 → `agent.patch.yml` 实例层，见 `docs/design/agent-assembly.md`）。宿主与壳按 `inject` 声明自动推导激活顺序，不靠行序。能力域 = 服务包（`ctx.<key>`）+ 生态薄行；注册即归属，卸载即回收。
 
 ### 三层架构
 
@@ -207,7 +207,7 @@ apps/
 ├── system/                system 层入口 supervisor.mjs（宿主监护 + 心跳面 + 配方盘面）
 ├── host/                  宿主 boot（行集装配 + web 面 + 编排面 + 出厂通道播种）
 ├── shell/                 壳 boot（per-Agent 进程入口）
-├── catalog/               基座源文档 profile/{host,shell,webui}.patch.yml + 生成投影 row-catalog.json + 插件模板 templates/
+├── catalog/               基座源文档 profile/{host,shell,webui}.yml + 生成投影 row-catalog.json + 插件模板 templates/
 └── ui/                    WebUI（Vue 3 SPA + 29 域通道 + 主题包）
 
 docs/
@@ -249,18 +249,18 @@ pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，
 
 - **写一个插件**（v2.1 包即插件——`package.json` `ac` 字段单源）：`ac plugin init <name>` 脚手架（零占位符 + owner 私有工具模板）→ `ac plugin dev` watch 热试跑（装载冒烟；壳内试跑用 `register_plugin`）→ `ac plugin publish`（TS 直发 npm 无构建步，keywords `agentchat-plugin` 自标进市场）→ `ac plugin finalize`（定型物化 = 统一安装器代写 installed 登记 + owner 锚）。门禁（engines 自求值 / 权限 / 保留字）与两轴回执（install-result × effective-state）贯穿安装链；Agent 对话内亦可 `install_plugin`（回执带生效轴）。详见 `docs/design/plugin-architecture-v2.md` 与 `docs/design/ui-plugin-form.md`；webui 独立部署（断连降级、宿主连接协议）见 `docs/design/webui-standalone-protocol.md`。
 - **扩展框架能力域**（新增服务、契约与事件目录、注册中心）：看 `.dsh/skills/agentchat-dev`。
-- **新增一行**：包内 `apply` + `agentchat.plugin` 清单，基座源文档 `apps/catalog/profile/<proc>.patch.yml` 登记 `id/name`（编辑须升 `# ac-base-version` 戳）并跑 `node scripts/gen-row-catalog.mjs` 同步投影；宿主/壳按 `inject` 自动装配，不手写激活顺序。
+- **新增一行**：包内 `apply` + `agentchat.plugin` 清单，基座源文档 `apps/catalog/profile/<proc>.yml` 登记 `id/name`（编辑须升 `# ac-base-version` 戳）并跑 `node scripts/gen-row-catalog.mjs` 同步投影；宿主/壳按 `inject` 自动装配，不手写激活顺序。
 
 ### 存量数据根迁移（v2.1 升级部署步）
 
 ```bash
-# 全量身份迁移（config.json 三合体 → agent.patch.yml + <unit>.json 插件配置；幂等、可逆）
+# 全量身份迁移（任何旧形态 → agent.json 档案 + agent.patch.yml v2 差量〔含 # ac-base 基线戳〕+ <unit>.json 插件配置；幂等、--rebase 重算戳）
 node scripts/migrate-agent-patch.mjs <dataRoot>
-# 出问题回滚（逐字节还原旧形态）：
+# 出问题回退（config.json 旧读窗口还原）：
 node scripts/migrate-agent-patch.mjs <dataRoot> --revert
 ```
 
-双读窗口内新旧形态并存（agent.patch 在场即赢）——迁移可在服务运行期外任意时点执行；基座部署与 installed 登记由宿主 boot 自动完成（版本戳对账 fail-loud）。
+读序三窗口（v2 差量赢 → 旧映射 patch → config.json）——迁移可在服务运行期外任意时点执行；基座部署与 installed 登记由宿主 boot 自动完成（版本戳对账 fail-loud）。基线戳漂移（基座/安装态演化）= 壳 boot fail-loud 触发 rebase（重跑 migrate 或 `--rebase`）。
 ---
 
 ## 🖥️ WebUI

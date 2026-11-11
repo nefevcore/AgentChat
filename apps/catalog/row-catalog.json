@@ -465,10 +465,11 @@
     {
       "id": "harness-tools",
       "tree": "shell",
-      "description": "链路验证/子代理工具",
+      "description": "链路验证/子代理工具（开发域——cr-1007 移出基础集，经 bundle:dev 点名）",
       "tools": [
         "run_harness"
       ],
+      "bundle": "dev",
       "requires": [
         "tools"
       ],
@@ -477,7 +478,7 @@
     {
       "id": "sap-adt",
       "tree": "shell",
-      "description": "SAP ADT 工具（吸收 preset 子行）",
+      "description": "SAP ADT 工具（ABAP 预设专属——cr-1007 移出基础集，经 bundle:abap 点名装载）",
       "tools": [
         "adt_activate",
         "adt_atc_runs",
@@ -512,6 +513,7 @@
         "adt_version_diff",
         "adt_where_used"
       ],
+      "bundle": "abap",
       "requires": [
         "tools"
       ],
@@ -603,7 +605,8 @@
     {
       "id": "bench",
       "tree": "shell",
-      "description": "评测域（影子壳跑 bench 门）",
+      "description": "评测域（开发域——cr-1007 移出基础集；影子壳跑 bench 门）",
+      "bundle": "dev",
       "requires": [
         "tools",
         "agent-loop"
@@ -613,12 +616,13 @@
     {
       "id": "plugin-dev",
       "tree": "shell",
-      "description": "插件开发三件套（register 会话级壳内装载 / install·uninstall 永久档信封请求宿主——cr-553）",
+      "description": "插件开发三件套（创造预设专属——cr-1007 移出基础集；register 会话级壳内装载 / install·uninstall 永久档信封请求宿主——cr-553）",
       "tools": [
         "register_plugin",
         "install_plugin",
         "unregister_plugin"
       ],
+      "bundle": "creator",
       "requires": [
         "tools",
         "conversation"

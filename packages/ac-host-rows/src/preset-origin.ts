@@ -16,7 +16,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { agentDir, readAgentPatch, writeAgentPatch, type AgentConfig } from 'ac-agents-core';
+import { agentDir, readAgentPatch, readAgentProfileAt, writeAgentProfileAt, type AgentConfig } from 'ac-agents-core';
 import { readTemplate, materializeConfigOf } from './preset-builtin.ts';
 
 /** 模板文集统一形状（config + docs + skills——reconcile 输入面） */
@@ -70,9 +70,13 @@ export function originOf(templateKey: string, hash: string, config: AgentConfig,
   };
 }
 
-/** 读 origin（patch origin 块赢；patch 缺席/无块回落存量 preset-origin.json；
- * 损坏/缺席 = undefined） */
+/** 读 origin（cr-1004 批2：agent.json 档案块赢 → 旧映射 patch origin 块 →
+ * 存量 preset-origin.json；损坏/缺席 = undefined） */
 export function readOrigin(dataRoot: string, agentId: string): PresetOrigin | undefined {
+  try {
+    const origin = readAgentProfileAt(agentDir(dataRoot, agentId))?.origin as PresetOrigin | undefined;
+    if (origin !== undefined && typeof origin.template === 'string' && typeof origin.hash === 'string') return origin;
+  } catch { /* 档案损坏 = 落下一读窗口 */ }
   try {
     const origin = readAgentPatch(dataRoot, agentId)?.origin as PresetOrigin | undefined;
     if (origin !== undefined && typeof origin.template === 'string' && typeof origin.hash === 'string') return origin;
@@ -85,18 +89,19 @@ export function readOrigin(dataRoot: string, agentId: string): PresetOrigin | un
   }
 }
 
-/** 写 origin（原子写）：patch 在场 = origin 块 read-modify-write 主写
- * （cr-918 起唯一主写面）；patch 缺席/损坏（未迁移存量根）=
- * preset-origin.json 镜像兜底 */
+/** 写 origin（原子写）：agent.json 档案块 read-modify-write 主写（cr-1004
+ * 批2 起唯一主写面——origin 全量块住档案，agent-data.md §三）；档案缺席
+ * （未迁移存量根）= preset-origin.json 镜像兜底 */
 export function writeOrigin(dataRoot: string, agentId: string, origin: PresetOrigin): void {
   try {
-    const patch = readAgentPatch(dataRoot, agentId);
-    if (patch !== null) {
-      writeAgentPatch(dataRoot, agentId, { ...patch, origin });
+    const dir = agentDir(dataRoot, agentId);
+    const profile = readAgentProfileAt(dir);
+    if (profile !== null) {
+      writeAgentProfileAt(dir, { ...profile, origin });
       return;
     }
   } catch {
-    // patch 损坏 = 落镜像兜底（fail 语义归 readAgentPatch 调用方）
+    // 档案损坏 = 落镜像兜底（fail 语义归读方）
   }
   const file = originFile(dataRoot, agentId);
   fs.mkdirSync(path.dirname(file), { recursive: true });

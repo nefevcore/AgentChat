@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readAgentConfig, writeAgentConfig, agentDir } from '../src/tree.ts';
-import { readAgentPatch, patchToConfig, configToPatch, writeAgentPatch, PATCH_FILE, readPluginConfig, writePluginConfig, readPluginConfigs, pluginConfigFile } from '../src/patch-doc.ts';
+import { readAgentPatch, patchToConfig, configToPatch, writeAgentPatch, readAgentPatchV2At, readAgentProfileAt, PATCH_FILE, readPluginConfig, writePluginConfig, readPluginConfigs, pluginConfigFile } from '../src/patch-doc.ts';
 import type { AgentConfig } from '../src/config.ts';
 
 const ROOT = path.join('sandbox', 'test-agent-patch-' + process.pid);
@@ -21,14 +21,21 @@ const cfg: AgentConfig = {
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-describe('agent.patch.yml 读写（cr-906 批4；cr-918 镜像退役）', () => {
-  it('写单落：仅 patch（config.json 镜像 cr-918 退役）；读面投影回 AgentConfig（结构化档位）', () => {
+describe('agent.patch.yml v2 + agent.json（cr-1004 批2）', () => {
+  it('写拆落：差量〔数组+基线戳〕+ 档案 agent.json；读面投影回 AgentConfig（结构化档位）', () => {
     writeAgentConfig(ROOT, cfg);
     const dir = agentDir(ROOT, ID);
-    expect(fs.existsSync(path.join(dir, PATCH_FILE))).toBe(true);
+    const v2 = readAgentPatchV2At(dir);
+    expect(v2).not.toBeNull();
+    expect(v2!.base).toMatch(/^[0-9a-f]{16}$/);
+    expect(v2!.entries).toContainEqual({ id: 'fs' });
+    expect(v2!.entries).toContainEqual({ id: 'sap-adt', disabled: true });
+    const profile = readAgentProfileAt(dir)!;
+    expect(profile.tier).toBe('full-access');
+    expect(profile['tool-mode']).toBe('tc-programmatic');
     expect(fs.existsSync(path.join(dir, 'config.json'))).toBe(false); // 镜像退役
     const reread = readAgentConfig(ROOT, ID);
-    expect(reread).toEqual(cfg); // patch 赢 + 投影等价（system 除外——退役面）
+    expect(reread).toEqual(cfg); // v2 组合读投影等价
   });
 
   it('旧存量（仅 config.json）读路径不变——窗口兼容', () => {
@@ -63,33 +70,42 @@ describe('agent.patch.yml 读写（cr-906 批4；cr-918 镜像退役）', () => 
     expect((back as { tags?: unknown }).tags).toBeUndefined();
   });
 
-  it('origin 块保留（写透传既有 origin——preset 对账面切片三接入）', () => {
+  it('origin 随档案（agent.json 块——写透传既有 origin；cr-1004 批2 从 patch 块迁出）', () => {
     writeAgentPatch(ROOT, ID, { ...configToPatch(cfg), origin: { template: 'standard', hash: 'abc123' } });
-    writeAgentConfig(ROOT, cfg); // 再写——origin 不丢
-    expect(readAgentPatch(ROOT, ID)?.origin).toEqual({ template: 'standard', hash: 'abc123' });
+    writeAgentConfig(ROOT, cfg); // 再写——origin 迁入 agent.json 不丢
+    expect(readAgentProfileAt(agentDir(ROOT, ID))?.origin).toEqual({ template: 'standard', hash: 'abc123' });
   });
 
-  it('坏 patch（顶层数组）→ throw fail-loud', () => {
+  it('v2 形态下旧映射读面让位（readAgentPatch → null——迁移窗口兼容）', () => {
+    writeAgentConfig(ROOT, cfg);
+    expect(readAgentPatch(ROOT, ID)).toBeNull();
+  });
+
+  it('坏档案（agent.json 非映射）→ throw fail-loud；v2 差量坏形读 null', () => {
     fs.mkdirSync(agentDir(ROOT, ID), { recursive: true });
+    fs.writeFileSync(path.join(agentDir(ROOT, ID), 'agent.json'), '[1,2]' + String.fromCharCode(10));
     fs.writeFileSync(path.join(agentDir(ROOT, ID), PATCH_FILE), '- a' + String.fromCharCode(10));
+    expect(readAgentPatchV2At(agentDir(ROOT, ID))?.entries).toEqual([]); // 坏条目滤除（fail-soft 面）
     expect(() => readAgentConfig(ROOT, ID)).toThrow('顶层必须是映射');
   });
 });
 
 describe('插件配置拆分（cr-906 批4 切片二）', () => {
-  it('写拆分：settings → <unit>.json 文件；patch 不随行；读合成等价', () => {
+  it('写拆分：settings → <unit>.json 文件；差量/档案不随行；读合成等价', () => {
     writeAgentConfig(ROOT, cfg);
     const dir = agentDir(ROOT, ID);
     expect(fs.existsSync(path.join(dir, 'run-code.json'))).toBe(true);
-    const patch = readAgentPatch(ROOT, ID);
-    expect(patch?.settings).toBeUndefined();
+    expect(readAgentProfileAt(dir)?.levels).toBeUndefined(); // 档案不随行 settings
     expect(readPluginConfig(ROOT, ID, 'run-code')).toEqual({ mode: 'observe' });
     expect(readAgentConfig(ROOT, ID)).toEqual(cfg);
   });
 
-  it('单元文件赢过 patch 内联 settings（窗口存量兜底）；readPluginConfigs 扫全量', () => {
+  it('单元文件赢过旧映射 patch 内联 settings（窗口存量兜底）；readPluginConfigs 扫全量', () => {
     writeAgentConfig(ROOT, cfg);
-    writeAgentPatch(ROOT, ID, { ...configToPatch(cfg), settings: { 'run-code': { mode: 'admin' }, mcp: { servers: [] } } });
+    // 旧映射形态内联 settings（存量窗口）——单元文件赢
+    fs.writeFileSync(path.join(agentDir(ROOT, ID), 'agent.patch.yml'),
+      'tier: full-access' + String.fromCharCode(10) + 'settings:' + String.fromCharCode(10) + '  run-code:' + String.fromCharCode(10) + '    mode: admin' + String.fromCharCode(10) + '  mcp:' + String.fromCharCode(10) + '    servers: []' + String.fromCharCode(10));
+    fs.rmSync(path.join(agentDir(ROOT, ID), 'agent.json'));
     const merged = readAgentConfig(ROOT, ID);
     expect(merged?.settings?.['run-code']).toEqual({ mode: 'observe' });
     expect(merged?.settings?.mcp).toEqual({ servers: [] });
@@ -105,15 +121,20 @@ describe('插件配置拆分（cr-906 批4 切片二）', () => {
   });
 });
 
-describe('levels 档位（cr-906 批4 切片四 / X1 回滚）', () => {
-  it('config↔patch 往返保形；settings 同键档位并存时 levels 赢在读面由运行时合成', () => {
+describe('levels 档位（cr-1004 批2b：归位装配条目 config——存储随差量条目走）', () => {
+  it('写侧：levels → 条目 config.level（browser/collab 行锚定；dev-tools 键退役）；读侧投影回 levels', () => {
     const withLevels: AgentConfig = {
       ...cfg,
       levels: { browser: 'inject', collab: 'admin', 'dev-tools': true },
     };
     writeAgentConfig(ROOT, withLevels);
-    const doc = readAgentPatch(ROOT, ID);
-    expect(doc?.levels).toEqual({ browser: 'inject', collab: 'admin', 'dev-tools': true });
-    expect(readAgentConfig(ROOT, ID)).toEqual(withLevels);
+    const dir = agentDir(ROOT, ID);
+    const v2 = readAgentPatchV2At(dir)!;
+    expect(v2.entries).toContainEqual({ id: 'browser', config: { level: 'inject' } });
+    expect(v2.entries).toContainEqual({ id: 'collab-tools', config: { level: 'admin' } });
+    expect(v2.entries.some((e) => e.id === 'dev-tools')).toBe(false); // 退役键不落
+    expect(readAgentProfileAt(dir)?.levels).toBeUndefined(); // 档案不再携带
+    const back = readAgentConfig(ROOT, ID)!;
+    expect(back.levels).toEqual({ browser: 'inject', collab: 'admin' });
   });
 });

@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-1002**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-1007**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1021,4 +1021,9 @@
 - 【cr-1000 2026-11-10 行尾统一 LF 单一真相：工具集归一（read 显示层剥 / write·edit 恒 LF 写回 / str_replace_editor 匹配与写入归一，bat/cmd 例外）+ cr-log 约定迁 LF（normalizeEol 修形翻转 + selftest 断言随迁）+ 存量化石清理（17 包源码/fold-out/mixed 测试文件）】
 - 【cr-1001 2026-11-10 plugin-rows 镜像窗口退役收口】
 - 【cr-1002 2026-11-10 cr sync 增量永不落盘根修（cr-986 回归）：L334 entries = prev.entries 引用赋值致增量扫描同体变异 prev.entries，L359 无变化判定比较的两侧变为同一内容恒相等，sync 自 cr-986 起恒走 unchanged 分支不写盘——投影停在 cr-986 提交（cr-987~1000 缺席）。修复 = 深拷贝隔离比较基准】
+- 【cr-1003 2026-11-11 shell-custom 偏好层词形扩展（cr-909 预留面）：except 停用豁免（全局关单 Agent 开）+ replace 实现替换（id 不变 path 换向，授权住用户域）+ 恒并席位停用护栏（拒绝生效防静默半激活）】
+- 【cr-1004 2026-11-11 agent.patch.yml 差量化改造设计立档：三层身份模型（存在域/Agent 身份/会话）+ DSH 对照勘察结论 + assembly 差量词形与代数 + origin 钉基线 rebase 裁决 + 迁移与写侧归一——动工蓝本】
+- 【cr-1005 2026-11-11 Agent 回复 markdown 本地图片渲染：img src workspace 路径重写为 /api/workspace/raw 直链（files/ 前缀与数据根内绝对路径）——多模态下行表达力最小补齐】
+- 【cr-1006 2026-11-11 插件体系规范重写为纯设计稿：去过度设计——origin.known 与钉住式 rebase 换基座行 adopt 分级领养；except 换「显式胜默认」、replace 归 dev；presets 层不设；台账迁 cr-log；新稿 docs/design/plugin-architecture.md】{plan}
+- 【cr-1007 2026-11-11 装配差量精简与基座去预设并集化（→cr-1004）：写侧滤除命中基础集的 no-op 加法条目（§六 只记离差；migrate --rebase 同步瘦身）+ 预设专属行移出基础集（sap-adt→bundle:abap / plugin-dev→bundle:creator / harness-tools·bench→bundle:dev，升 ac-base-version）——空白 Agent 不再恒装预设并集】
 

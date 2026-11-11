@@ -56,9 +56,25 @@ export interface BaseDoc<P extends BaseProc = BaseProc> {
 
 const VERSION_RE = /^#\s*ac-base-version:\s*(\d+)\s*$/m;
 
-/** 基座文档缺省位：<catalogFile 同目录>/profile/<proc>.patch.yml */
+/** 基座文档缺省位：<catalogFile 同目录>/profile/<proc>.yml（cr-1004 文件族
+ * 改名：「patch」中缀专属差量文档——基座与登记不是差量，不带中缀） */
 export function baseDocFile(profileDir: string, proc: BaseProc): string {
+  return path.join(profileDir, proc + '.yml');
+}
+
+/** 旧名 <proc>.patch.yml 只读兼容（cr-1004 改名窗口——数据根物化副本由
+ * 部署链 reconcile 收敛到新名后消亡） */
+function legacyBaseDocFile(profileDir: string, proc: BaseProc): string {
   return path.join(profileDir, proc + '.patch.yml');
+}
+
+/** 读单份基座文档（新名缺席时回退旧名——改名窗口兼容读） */
+function readBaseDocEither<P extends BaseProc>(profileDir: string, proc: P): { doc: BaseDoc<P>; file: string } | null {
+  const file = baseDocFile(profileDir, proc);
+  if (fs.existsSync(file)) return { doc: readBaseDoc(file, proc), file };
+  const legacy = legacyBaseDocFile(profileDir, proc);
+  if (fs.existsSync(legacy)) return { doc: readBaseDoc(legacy, proc), file: legacy };
+  return null;
 }
 
 /** catalogFile → 同目录 profile 目录（双读/部署链寻址基点） */
@@ -111,10 +127,10 @@ export function readBaseCatalog(profileDir: string): RowsetCatalog | null {
   let present = 0;
   const procs: Array<'host' | 'shell'> = ['host', 'shell'];
   for (const proc of procs) {
-    const file = baseDocFile(profileDir, proc);
-    if (!fs.existsSync(file)) continue;
+    const hit = readBaseDocEither(profileDir, proc);
+    if (hit === null) continue;
     present++;
-    docs.push(readBaseDoc(file, proc));
+    docs.push(hit.doc);
   }
   if (present === 0) return null;
   if (present !== BASE_PROCS.length) {
@@ -136,17 +152,17 @@ export interface MaterializeReport {
  */
 export function materializeBaseDocs(profileDir: string, dataRoot: string): MaterializeReport[] {
   // 源基座目录缺席（旧式 JSON-only 数据根——双读窗口兼容形态）= 无部署面
-  if (!fs.existsSync(baseDocFile(profileDir, 'host'))
-    && !fs.existsSync(baseDocFile(profileDir, 'shell'))) return [];
+  if (readBaseDocEither(profileDir, 'host') === null
+    && readBaseDocEither(profileDir, 'shell') === null) return [];
   const report: MaterializeReport[] = [];
   fs.mkdirSync(path.join(dataRoot, 'profile'), { recursive: true });
   for (const proc of DEPLOY_PROCS) {
     // webui 源缺席（旧应用形态）= 跳过该面，不阻断 host/shell 部署
-    const srcPeek = baseDocFile(profileDir, proc);
-    if (proc === 'webui' && !fs.existsSync(srcPeek)) continue;
-    const srcFile = baseDocFile(profileDir, proc);
+    const srcHit = readBaseDocEither(profileDir, proc);
+    if (proc === 'webui' && srcHit === null) continue;
+    const srcFile = srcHit!.file;
     const srcText = fs.readFileSync(srcFile, 'utf-8');
-    const srcVersion = readBaseDoc(srcFile, proc).version;
+    const srcVersion = srcHit!.doc.version;
     const dstFile = baseDocFile(path.join(dataRoot, 'profile'), proc);
     let dstText: string | null = null;
     try {
@@ -181,6 +197,18 @@ export function materializeBaseDocs(profileDir: string, dataRoot: string): Mater
       }
     }
     report.push({ proc, version: srcVersion, updated });
+    // 存量数据根 reconcile（cr-1004 改名）：旧名基座副本清除——新名副本已
+    // 就位。**判据 = 版本戳**：旧基座名 <proc>.patch.yml 与用户差量层新名
+    // 同名，只有带 `# ac-base-version` 戳的才是旧基座物化副本（可删）；
+    // 无戳文件是用户差量层（保留——误删 = 用户配置丢失）
+    const legacyDst = legacyBaseDocFile(path.join(dataRoot, 'profile'), proc);
+    if (fs.existsSync(legacyDst)) {
+      try {
+        if (VERSION_RE.test(fs.readFileSync(legacyDst, 'utf-8'))) {
+          fs.rmSync(legacyDst, { force: true });
+        }
+      } catch { /* 不可读 = 留置（不冒进出手） */ }
+    }
   }
   // 进程种类注册表随行部署（cr-910 批6 切片四 / cr-901 §4.7：repo 声明式
   // 清单住应用侧——profile/processes.json 与基座文档同域物化；数据根仅

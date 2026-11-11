@@ -7,7 +7,7 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import type { AgentConfig } from 'ac-agents-core';
-import { readCatalog, deriveShellRowset } from 'ac-rowset-core';
+import { readCatalog, evaluateLegacyShellRows, SEAT_ROW_IDS } from 'ac-rowset-core';
 import { filterSpawnTools, convInheritOf, spawnChildConfigOf } from '../src/inherit.ts';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,7 @@ const CATALOG = readCatalog(path.join(process.env.AGENTCHAT_REPO_ROOT ?? process
 describe('cr-856 spawn 物化单源（inherit.ts）', () => {
   it('filterSpawnTools：越面/subagent/run-code 拒绝，面内授予', () => {
     // parentIds 与 spawnOp 同构（真实派生——含恒并基座行）
-    const parentIds = new Set(deriveShellRowset({ rows: ['fs-tools', 'shell-tools', 'fs-search'] }, CATALOG).rowIds);
+    const parentIds = new Set(evaluateLegacyShellRows(['fs-tools', 'shell-tools', 'fs-search'], CATALOG.rows.filter((r) => r.tree === 'shell'), [], SEAT_ROW_IDS).rowIds);
     const out = filterSpawnTools(['read', 'fs-search', 'subagent', 'run_code', 'healthz', 'browser'], parentIds, CATALOG);
     expect(out.granted).toEqual(['read', 'fs-search']);
     expect(out.rejected).toContain('subagent');

@@ -66,7 +66,7 @@ describe('capabilitySetOf 行内档位 settings 合成（◐a cr-691）', () => 
     for (const t of ['web', 'observe', 'manipulate', 'inject']) expect(c3.has(t)).toBe(true);
   });
 
-  it('settings.collab.admin / dev-tools.enabled → admin / dev（回滚兼容线）', async () => {
+  it('settings.collab.admin → admin（回滚兼容线）；dev-tools 线随行退役（cr-1004 批2b）', async () => {
     const { ctx } = await boot(tmpRoot());
     ctx.agents.register({
       id: 's1',
@@ -75,7 +75,7 @@ describe('capabilitySetOf 行内档位 settings 合成（◐a cr-691）', () => 
     });
     const c1 = capabilitySetOf(ctx, 's1');
     expect(c1.has('admin')).toBe(true);
-    expect(c1.has('dev')).toBe(true);
+    expect(c1.has('dev')).toBe(false); // 'dev' 能力词退役
   });
 
   it('全 false / 缺席 browser = 无合成词（不误授）', async () => {
@@ -107,12 +107,12 @@ describe('levels 档位归装配（cr-906 批4 切片四 / X1 回滚：levels �
     expect(c.has('inject')).toBe(false);
   });
 
-  it('levels.collab admin / dev-tools 布尔；settings 行内档位回滚线仍生效（无 levels 时）', async () => {
+  it('levels.collab admin；settings 行内档位回滚线仍生效（无 levels 时）；dev-tools 键随行退役（cr-1004 批2b）', async () => {
     const { ctx } = await boot(tmpRoot());
     ctx.agents.register({ id: 'L2', model: 'm', levels: { collab: 'admin', 'dev-tools': true } });
     const c2 = capabilitySetOf(ctx, 'L2');
     expect(c2.has('admin')).toBe(true);
-    expect(c2.has('dev')).toBe(true);
+    expect(c2.has('dev')).toBe(false); // 'dev' 能力词随 dev-tools 行退役（无消费面）
     ctx.agents.register({ id: 'L3', model: 'm', settings: { collab: { admin: true } } }); // 旧线
     expect(capabilitySetOf(ctx, 'L3').has('admin')).toBe(true);
   });

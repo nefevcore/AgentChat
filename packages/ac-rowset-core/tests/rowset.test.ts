@@ -1,12 +1,14 @@
 // ============================================================
-// ac-rowset-core 单测（M2.3 验收）：壳行集派生全词形 / 捆绑词消解 /
-// exclude 减法 / 静态投影 / 宿主偏好派生 / 未命中警告
+// ac-rowset-core 单测（M2.3 验收 / cr-1004 求值引擎）：两段式合成全
+// 词形 / 捆绑词消解 / 减法与闭包次序 / 席位护栏 / 用户层停用与豁免 /
+// 实例层 fail-loud / 存量 rows 桥 / 宿主偏好派生
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  deriveShellRowset, deriveHostRowset, projectCatalog,
+  deriveHostRowset, evaluateAssembly, evaluateLegacyShellRows,
+  expandAssemblyTokens, legacyRowsToAgentPatch, SEAT_ROW_IDS,
   type RowsetCatalog, type RowDescriptor,
 } from '../src/rowset.ts';
 import { readCatalog, readHostPreferences, defaultCatalogFile, hostPreferenceFile } from '../src/disk.ts';
@@ -30,94 +32,132 @@ const catalog: RowsetCatalog = {
     row("ac-web-tools", "shell", { tools: ['web_search', 'browser'] }),
   ],
 };
+const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
+const ev = (patch: Partial<Parameters<typeof evaluateAssembly>[0]>) => evaluateAssembly({ base: shellRows, ...patch });
 
-describe('壳行集派生', () => {
-  it('tools 缺省 = 基础壳行集（非捆绑行）', () => {
-    const r = deriveShellRowset({}, catalog);
+describe('统一求值：存在合成 + 差量合成', () => {
+  it('零差量 = 基础集（非捆绑行）', () => {
+    const r = ev({});
     expect(r.rowIds).toEqual(['ac-conversation', 'ac-ledger', 'ac-math', 'ac-tools', 'ac-web-tools']);
     expect(r.warnings).toEqual([]);
   });
 
-  it('行引用：点名行 id 装载该行全部工具', () => {
-    const r = deriveShellRowset({ rows: ['ac-fs-tools'] }, catalog);
-    expect(r.rowIds).toEqual(['ac-fs-tools']);
-    expect(r.toolNames).toEqual(['fs_edit', 'fs_read', 'fs_write']);
+  it('加法词形：行引用 / 工具点名 / 捆绑词（行名优先消歧）', () => {
+    expect(ev({ agentPatch: [{ id: 'ac-fs-tools' }] }).rowIds).toEqual([
+      'ac-conversation', 'ac-fs-tools', 'ac-ledger', 'ac-math', 'ac-tools', 'ac-web-tools',
+    ]);
+    expect(ev({ agentPatch: [{ id: 'fs_read' }, { id: 'fs_glob' }] }).rowIds).toContain('ac-fs-search');
+    expect(ev({ agentPatch: [{ id: 'fs' }] }).rowIds).toContain('ac-fs-search');
+    expect(ev({ agentPatch: [{ id: 'infra' }] }).rowIds).toEqual(
+      expect.arrayContaining(['ac-run-code', 'ac-shell-tools']),
+    );
   });
 
-  it('工具点名：按工具词命中提供行（同表多工具单行装载）', () => {
-    const r = deriveShellRowset({ rows: ['fs_read', 'fs_glob', 'math'] }, catalog);
-    expect(r.rowIds).toEqual(['ac-fs-search', 'ac-fs-tools', 'ac-math']);
-  });
-
-  it('捆绑词消解：fs / infra 在派生内展开为组', () => {
-    const r = deriveShellRowset({ rows: ['fs'] }, catalog);
-    expect(r.rowIds).toEqual(['ac-fs-search', 'ac-fs-tools']);
-    const r2 = deriveShellRowset({ rows: ['infra'] }, catalog);
-    expect(r2.rowIds).toEqual(['ac-run-code', 'ac-shell-tools']);
-  });
-
-  it('include ∪ 展开 + exclude 减法（工具级 = 移除提供行）', () => {
-    const r = deriveShellRowset({ rows: { include: ['fs'], exclude: ['fs_glob'] } }, catalog);
-    expect(r.rowIds).toEqual(['ac-fs-tools']); // fs-search 行被工具级减法移除
-    const r2 = deriveShellRowset({ rows: { include: ['fs', 'infra'], exclude: ['ac-run-code'] } }, catalog);
-    expect(r2.rowIds).toEqual(['ac-fs-search', 'ac-fs-tools', 'ac-shell-tools']);
-  });
-
-  it('未命中条目 → warnings（boot 静态断言面）', () => {
-    const r = deriveShellRowset({ rows: ['no-such-tool', 'fs'] }, catalog);
-    expect(r.warnings).toEqual(['tools 条目未命中目录：no-such-tool']);
-  });
-
-  it('host 行不可被壳引用（树归属闸）', () => {
-    const r = deriveShellRowset({ rows: ['ac-post-office'] }, catalog);
-    expect(r.rowIds).toEqual([]);
-    expect(r.warnings).toContain('tools 条目未命中目录：ac-post-office');
-  });
-
-  it('行集闭包（cr-521）：requires 依赖行自动并入；exclude 减法不被闭包复活', () => {
-    const cat: RowsetCatalog = {
-      rows: [
-        row("x-tools", "shell", { tools: ['x'], requires: ['x-base'] }),
-        row('x-base', 'shell'),
-        row('x-deep', 'shell', { requires: ['x-tools'] }),
-      ],
-    };
-    const r = deriveShellRowset({ rows: ['x'] }, cat);
+  it('减法（disabled）与闭包次序：减法不被闭包复活', () => {
+    // 捆绑行不进基础集——加法/闭包/减法语义可独立观测
+    const base: RowDescriptor[] = [
+      row("x-tools", "shell", { tools: ['x'], requires: ['x-base'], bundle: 'xb' }),
+      row('x-base', 'shell'),
+      row('x-deep', 'shell', { requires: ['x-tools'], bundle: 'xb' }),
+    ];
+    const r = evaluateAssembly({ base, agentPatch: [{ id: 'x' }] });
     expect(r.rowIds).toEqual(['x-base', 'x-tools']); // 依赖自动并入
-    const deep = deriveShellRowset({ rows: ['x-deep'] }, cat);
+    const deep = evaluateAssembly({ base, agentPatch: [{ id: 'x-deep' }] });
     expect(deep.rowIds).toEqual(['x-base', 'x-deep', 'x-tools']); // 传递闭包
-    const ex = deriveShellRowset({ rows: { include: ['x'], exclude: ['x-base'] } }, cat);
+    const ex = evaluateAssembly({ base, agentPatch: [{ id: 'x' }, { id: 'x-base', disabled: true }] });
     expect(ex.rowIds).toEqual(['x-tools']); // 排除 = 显式意志（装配终检兜底）
   });
 
-  it('装配基座恒并（cr-548 收信面 + cr-602/881 提示装配行 + cr-610 池注册行 + cr-886 能力面）：点名形态不裁 conversation/persona/conduct/llm-pool/auto-title/host-face-client', () => {
-    const cat: RowsetCatalog = {
-      rows: [
-        row('conversation', 'shell'),
-        row('persona', 'shell'),
-        row('conduct', 'shell'),
-        row('llm-pool', 'shell'),
-        row('auto-title', 'shell'),
-        row('host-face-client', 'shell'),
-        row("x-tools", "shell", { tools: ['x'] }),
-      ],
-    };
-    // 点名只给工具 x：四行基座仍恒并（导入行集按工具标签推导，装配类行/
-    // 池注册行不在标签面——缺席面 = 人格/指引块丢失〔cr-602〕或壳内零
-    // provider 注册、一切 run NO_PROVIDER〔cr-610〕）
-    const r = deriveShellRowset({ rows: ['x'] }, cat);
-    expect(r.rowIds).toEqual(['auto-title', 'conduct', 'conversation', 'host-face-client', 'llm-pool', 'persona', 'x-tools']);
-    // 显式 exclude = 良定义降级（闭包后减法执行）
-    const ex = deriveShellRowset({ rows: { include: ['x'], exclude: ['conduct'] } }, cat);
-    expect(ex.rowIds).toEqual(['auto-title', 'conversation', 'host-face-client', 'llm-pool', 'persona', 'x-tools']);
+  it('用户层停用（全局减法）与 except 豁免（锚 = agentId）', () => {
+    const r = ev({ userPatch: [{ id: 'ac-math', disabled: true }] });
+    expect(r.rowIds).not.toContain('ac-math');
+    const exempt = ev({ userPatch: [{ id: 'ac-math', disabled: true, except: ['me'] }], agentId: 'me' });
+    expect(exempt.rowIds).toContain('ac-math');
+    const other = ev({ userPatch: [{ id: 'ac-math', disabled: true, except: ['me'] }], agentId: 'someone' });
+    expect(other.rowIds).not.toContain('ac-math');
+  });
+
+  it('席位护栏：恒并基座席位停用拒绝生效（管控策略注入）', () => {
+    const cat: RowsetCatalog = { rows: [row('conversation', 'shell'), row('ac-math', 'shell', { tools: ['math'] })] };
+    const r = evaluateAssembly({ base: cat.rows, userPatch: [{ id: 'conversation', disabled: true }], seatIds: SEAT_ROW_IDS });
+    expect(r.rowIds).toContain('conversation');
+    expect(r.notices.join()).toContain('恒并基座席位不可停用');
+  });
+
+  it('实例层点名被用户层停用且无豁免 = 求值 fail-loud（errors）', () => {
+    const r = ev({ userPatch: [{ id: 'ac-fs-tools', disabled: true }], agentPatch: [{ id: 'ac-fs-tools' }] });
+    expect(r.errors.length).toBe(1);
+    expect(r.errors[0]).toContain('ac-fs-tools');
+    // 豁免后放行
+    const ok = ev({
+      userPatch: [{ id: 'ac-fs-tools', disabled: true, except: ['me'] }],
+      agentPatch: [{ id: 'ac-fs-tools' }],
+      agentId: 'me',
+    });
+    expect(ok.errors).toEqual([]);
+    expect(ok.rowIds).toContain('ac-fs-tools');
+  });
+
+  it('行内 config：条目 config 落 rowConfigs（外层覆盖内层）', () => {
+    const r = ev({
+      userPatch: [{ id: 'ac-shell-tools', config: { profile: 'base' } }],
+      agentPatch: [{ id: 'ac-shell-tools', config: { profile: 'full' } }],
+    });
+    expect(r.rowConfigs['ac-shell-tools']).toEqual({ profile: 'full' });
+  });
+
+  it('未命中条目 → warnings（boot 静态断言面）；host 行不可被壳引用', () => {
+    const r = ev({ agentPatch: [{ id: 'no-such-tool' }] });
+    expect(r.warnings.join()).toContain('no-such-tool');
+    const h = ev({ agentPatch: [{ id: 'ac-post-office' }] });
+    expect(h.rowIds).not.toContain('ac-post-office');
+    expect(h.warnings.join()).toContain('ac-post-office');
+  });
+
+  it('installed 并入存在合成：撞基座名丢弃（保留字护栏）', () => {
+    const r = ev({ installed: [{ id: 'ac-math', tree: 'shell' }, { id: 'x-row', tree: 'shell' }] });
+    expect(r.rowIds).toContain('x-row');
+    expect(r.notices.join()).toContain('撞名');
+    // installed 捆绑行不进基础集（按差量加法点名）
+    const b = ev({ installed: [{ id: 'x-bundled', tree: 'shell', bundle: 'fs' }] });
+    expect(b.rowIds).not.toContain('x-bundled');
+    expect(ev({ installed: [{ id: 'x-bundled', tree: 'shell', bundle: 'fs' }], agentPatch: [{ id: 'x-bundled' }] }).rowIds).toContain('x-bundled');
   });
 });
 
-describe('行目录静态投影（per-agent 化）', () => {
-  it('只保留 picked 行与工具词', () => {
-    const p = projectCatalog(catalog, new Set(['ac-fs-tools', 'ac-math']));
-    expect(p.rows.map((r) => r.id)).toEqual(['ac-fs-tools', 'ac-math']);
-    expect(p.rows[0].tools).toEqual(['fs_read', 'fs_write', 'fs_edit']);
+describe('存量 rows 桥（cr-1004 §七 确定性转换）', () => {
+  it('点名清单 → 加法（T−B）+ 减法（B−T）；席位恒并不被裁', () => {
+    // fixture 补真实席位行（persona）——席位护栏词汇单源 SEAT_ROW_IDS
+    const base = [...shellRows, row('persona', 'shell')];
+    const entries = legacyRowsToAgentPatch(['ac-fs-tools'], base, [], SEAT_ROW_IDS);
+    expect(entries).toContainEqual({ id: 'ac-fs-tools' }); // 加法 = T − B
+    // 减法 = B − T：未被点名覆盖的基础集行成 disabled 条目（席位除外——恒并）
+    const disabledIds = entries.filter((e) => e.disabled === true).map((e) => e.id);
+    expect(disabledIds).toContain('ac-math');
+    expect(disabledIds).not.toContain('persona'); // 席位在 target 恒含
+    // 点名只有 fs-tools：其余基础集行出局、fs-tools 与席位保留
+    const r = evaluateLegacyShellRows(['ac-fs-tools'], base, [], SEAT_ROW_IDS);
+    expect(r.rowIds).toEqual(expect.arrayContaining(['ac-fs-tools', 'persona']));
+    expect(r.rowIds).not.toContain('ac-math');
+  });
+
+  it('include/exclude 形态：include 白名单（含 B−T 减法）+ exclude 减法；undefined = 无差量', () => {
+    expect(legacyRowsToAgentPatch(undefined, shellRows, [])).toEqual([]);
+    const entries = legacyRowsToAgentPatch({ include: ['fs'], exclude: ['ac-run-code'] }, shellRows, []);
+    expect(entries).toContainEqual({ id: 'fs' });
+    expect(entries).toContainEqual({ id: 'ac-run-code', disabled: true });
+    // include 白名单：未被覆盖的基础集行成 B−T 减法（含 include/exclude 差集语义）
+    const r = evaluateLegacyShellRows({ include: ['fs'], exclude: ['ac-run-code'] }, shellRows, [], SEAT_ROW_IDS);
+    expect(r.rowIds).toEqual(expect.arrayContaining(['ac-fs-tools', 'ac-fs-search']));
+    expect(r.rowIds).not.toContain('ac-run-code');
+    expect(r.rowIds).not.toContain('ac-math');
+  });
+
+  it('词展开纯函数：闭包随行 + 未命中警告', () => {
+    expect(expandAssemblyTokens(['fs'], shellRows).rowIds).toEqual(['ac-fs-search', 'ac-fs-tools']);
+    const miss = expandAssemblyTokens(['ghost'], shellRows);
+    expect(miss.rowIds).toEqual([]);
+    expect(miss.warnings.length).toBe(1);
   });
 });
 

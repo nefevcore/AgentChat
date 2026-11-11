@@ -51,9 +51,10 @@ export interface AgentConfig {
   description?: string;
   /**
   * 行内插件档位（cr-906 批4 切片四 / X1 回滚：档位词全部归装配——
-  * levels.browser.{observe,manipulate,inject} / levels.collab('admin') /
-  * levels['dev-tools']；键 = 插件单元名，值 = 档位词或布尔）。能力词
-  * 门禁退役（cr-953）后 levels 是行内档位唯一载体。
+  * levels.browser.{observe,manipulate,inject} / levels.collab('admin')；
+  * 键 = 插件单元名，值 = 档位词或布尔。cr-1004 批2b：存储归位 v2 差量
+  * 条目 config.level〔agent-assembly §四〕，本字段为组合读投影；
+  * dev-tools 键随行退役〔cr-520——'dev' 能力词无消费面〕。
   */
   levels?: Record<string, string | boolean>;
   /** 具名扩展设置：键 = 稳定单元名，值 = 该插件在本 Agent 上的配置 */

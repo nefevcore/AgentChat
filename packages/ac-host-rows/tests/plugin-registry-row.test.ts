@@ -1,13 +1,12 @@
 // ============================================================
 // 宿主 plugin-registry 行单测（cr-543）：装载裁决（install = 授权动作 →
-// 壳行集条目物化）+ 熔断闸门（壳侧回报 → 行集剔除）+ 行集偏好急救 +
-// staging 人审链路。数据根恒 sandbox（红线）。
+// installed 登记 + 行集现算视图）+ 熔断闸门（壳侧回报 → 行集剔除）+
+// 行集偏好急救 + staging 人审链路。数据根恒 sandbox（红线）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Context, FiberStates, Service, type Fiber } from '@agentchat/cordis';
-import { readPluginRows } from 'ac-rowset-core';
 import { makePluginRegistryRow, PluginRegistryHostService } from '../src/index.ts';
 
 const ROOT = path.join('sandbox', 'test-host-plugin-registry-' + process.pid);
@@ -127,8 +126,8 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
         description: '演示工具行',
         path: path.join(path.resolve(ROOT), 'plugins', 'demo-plugin'),
       }]);
-      // 物化文件（壳 boot 合并输入）
-      expect(readPluginRows(ROOT)).toEqual(approved.rows);
+      // 行集现算视图与回执一致（cr-1001 镜像退役——纯现算，无文件物化）
+      expect(h.registry.pluginRows().rows).toEqual(approved.rows);
       // 装载裁决：已安装可装；未安装不可装（fail-closed）
       expect(h.registry.canLoad('demo-plugin')).toBe(true);
       expect(h.registry.canLoad('ghost')).toBe(false);
@@ -171,7 +170,6 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
       // 熔断 = 行集条目剔除（fail-closed）+ 装载裁决拒绝
       expect(h.registry.canLoad('fragile-plugin')).toBe(false);
       expect(h.registry.pluginRows().rows).toEqual([]);
-      expect(readPluginRows(ROOT)).toEqual([]);
       expect(h.registry.loadHealth().disabled['fragile-plugin']).toBeTruthy();
       // 审计流水入账（install + load 失败）
       const audit = fs.readFileSync(path.join(ROOT, 'plugins', 'audit.jsonl'), 'utf-8');
@@ -195,7 +193,7 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
       expect(uninstalled.rows).toEqual([]);
       expect(h.registry.listInstalled()).toEqual([]);
       expect(uninstalled.backupDir !== undefined ? fs.existsSync(uninstalled.backupDir) : false).toBe(true);
-      expect(readPluginRows(ROOT)).toEqual([]);
+      expect(h.registry.pluginRows().rows).toEqual([]);
     } finally {
       await h.dispose();
     }
@@ -261,7 +259,7 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
 });
 
 describe('v2 统一安装器换轨（cr-903 批2 切片四）', () => {
-  it('installFromDir：installed.patch.yml 登记 + 回执带生效轴；healthz 对账零 issue；卸载对称', async () => {
+  it('installFromDir：installed.yml 登记 + 回执带生效轴；healthz 对账零 issue；卸载对称', async () => {
     const h = await boot();
     try {
       const svc = h.registry;
@@ -278,12 +276,12 @@ describe('v2 统一安装器换轨（cr-903 批2 切片四）', () => {
       if (result.status === 'installed') {
         expect(result.effective).toBe('live'); // 测试数据根无活壳
       }
-      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'), 'utf-8')).toContain('ac-plugin-v2');
+      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.yml'), 'utf-8')).toContain('ac-plugin-v2');
       const hz = (await h.web.call('plugin/healthz') as ReturnType<typeof svc.healthz>);
       const entry = hz.entries.find((e) => e.name === 'ac-plugin-v2');
       expect(entry?.issues).toEqual([]);
       await svc.uninstall('ac-plugin-v2');
-      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'), 'utf-8')).not.toContain('ac-plugin-v2');
+      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.yml'), 'utf-8')).not.toContain('ac-plugin-v2');
     } finally {
       await h.dispose();
     }

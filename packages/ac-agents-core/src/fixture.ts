@@ -50,8 +50,11 @@ export function buildDataRoot(
   if (skeleton.rowCatalog !== undefined) write('row-catalog.json', skeleton.rowCatalog);
   if (skeleton.hostPreferences !== undefined) write('host-rows.json', skeleton.hostPreferences);
   if (skeleton.mcp !== undefined) write('mcp.json', skeleton.mcp);
+  // shell 行目录（骨架 rowCatalog 投影——点名白名单 rows 写差量时的 B−T 面）
+  const shellRows = (skeleton.rowCatalog as { rows?: import('ac-rowset-core').RowDescriptor[] } | undefined)
+    ?.rows?.filter((r) => r.tree === 'shell');
   for (const agent of skeleton.agents ?? []) {
-    writeAgentConfig(root, agent);
+    writeAgentConfig(root, agent, ...(shellRows !== undefined ? [{ shellRows }] : []));
   }
   for (const [agentId, auth] of Object.entries(skeleton.agentAuths ?? {})) {
     const dir = path.join(root, 'agents', agentId);

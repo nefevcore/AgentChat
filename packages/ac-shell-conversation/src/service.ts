@@ -43,6 +43,10 @@ export interface ConversationRowOptions {
    * 服务面零目录知识。缺席 = 不展开（词形已是工具名的存量直用）。
    */
   rowTools?: Record<string, string[]>;
+  /** 全部 shell 行 id（cr-1007：工具面滤除无工具行 id 的单源——白名单
+   * 重建含无工具基础行，face 投影时滤除；行集目录引用兼作差量组合读面） */
+  allRowIds?: string[];
+  catalogFile?: string;
 }
 
 /**
@@ -104,6 +108,8 @@ export class ConversationService extends Service {
   private parentId: string | undefined;
   private postOfficeAddress: string | undefined;
   private rowTools: Record<string, string[]> | undefined;
+  private allRowIds: Set<string> | undefined;
+  private catalogFileOpt: string | undefined;
   /** 在途 run 表（键 = 门键 runAddress(agent, conversationId)——值含中止信号
    * 与会话面；interrupt 按 run 中止、runState 多 run 投影） */
   private readonly activeRuns = new Map<string, { conversationId: string; startedAt: number; abort: AbortController }>();
@@ -149,6 +155,8 @@ export class ConversationService extends Service {
     this.parentId = options.parentId;
     this.postOfficeAddress = options.postOfficeAddress;
     this.rowTools = options.rowTools;
+    this.allRowIds = options.allRowIds !== undefined ? new Set(options.allRowIds) : undefined;
+    this.catalogFileOpt = options.catalogFile;
     // 驻留面收割（注册即归属——主线 web-server 同款）：outbound 常驻 ipc
     // 连接随 fiber dispose 关闭，不关则壳进程 close 链永挂。
     this.ctx.fiber.effect(() => () => { this.outbound?.close(); }, 'conversation.outbound');
@@ -1170,8 +1178,8 @@ export class ConversationService extends Service {
    */
   readConfig(): AgentConfig {
     const config = this.parentId !== undefined
-      ? readChildConfig(this.dataRoot, this.parentId, this.agentId)
-      : readAgentConfig(this.dataRoot, this.agentId);
+      ? readChildConfig(this.dataRoot, this.parentId, this.agentId, { catalogFile: this.catalogFileOpt })
+      : readAgentConfig(this.dataRoot, this.agentId, { catalogFile: this.catalogFileOpt });
     if (config === null) throw new Error('agent 配置缺席：' + this.agentId);
     return config;
   }
@@ -1479,11 +1487,12 @@ export class ConversationService extends Service {
     };
   }
 
-  /** 工具面（行集投影——AgentConfig.tools 点名 ∨ 行引用解析；缺省 = 全部注册）。
-   * per-config 值缓存：写口落盘后 config.tools 变化即键变，天然失效。
+  /** 工具面（行集投影——AgentConfig.rows 点名 ∨ 行引用解析；缺省 = 全部注册）。
+   * per-config 值缓存：写口落盘后 config.rows 变化即键变，天然失效。
    * 行 id 展开（cr-590）：条目词形 = 行 id 时换行工具名（'fs-tools' →
-   * read/write/edit）；工具名/tag 词形原样透传（visible ∩ 在 toolDefs/run
-   * 装配处收敛）。 */
+   * read/write/edit）；工具名词形原样透传（visible ∩ 在 toolDefs/run
+   * 装配处收敛）。cr-1007：白名单重建含无工具基础行——已知行 id 而
+   * rowTools 无键 = 无工具面行，滤除（不透传——face 只出工具名）。 */
   private toolFaceCache: { key: string; face: string[] | undefined } | null = null;
   private toolFaceOf(config: { rows?: string[] | { include?: string[]; exclude?: string[] } }): string[] | undefined {
     const key = JSON.stringify(config.rows ?? null);
@@ -1491,7 +1500,12 @@ export class ConversationService extends Service {
       const resolved = resolveToolNames(config.rows);
       // 展开去重保序（多行别名/点名并集不产重复名——LLM schema 面干净）
       const expanded = resolved === undefined ? undefined
-        : [...new Set(resolved.flatMap((token) => this.rowTools?.[token] ?? [token]))];
+        : [...new Set(resolved.flatMap((token) => {
+          const tools = this.rowTools?.[token];
+          if (tools !== undefined) return tools;
+          if (this.allRowIds?.has(token) === true) return []; // 无工具行——滤除
+          return [token]; // 工具名/动态注册词形——透传（visible 收敛）
+        }))];
       this.toolFaceCache = { key, face: expanded };
     }
     return this.toolFaceCache.face;

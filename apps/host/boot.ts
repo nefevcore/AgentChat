@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
 import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace, readTemplate, materializeConfigOf, materializeTemplateSkills, readAgentSkills, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
 import { isPresetId, presetTemplateKeyOf, readAgentConfig, writeAgentConfig } from 'ac-agents-core';
-import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readCustomLayer, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
+import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readAssemblyPatch, assemblyBaseStamp, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
 import { hostLog } from './host-log.ts';
 import { PostOffice } from 'ac-post-office';
 import { readActivationLock } from 'ac-envelope-core';
@@ -127,12 +127,13 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   if (options.preferences === undefined && fs.existsSync(prefPath)) {
     preferences = JSON.parse(fs.readFileSync(prefPath, 'utf-8')) as HostRowPreference[];
   }
-  // host-custom 偏好层（cr-909 批6 切片三）：custom 停用 ∪ host-rows.json
-  // 镜像窗口（急救 RPC 写者不变）——两源并集后派生。custom 是用户域
-  // 文件（数据根 profile/——repo 不部署，与基座源文档分域）
-  const custom = readCustomLayer(path.join(dataRoot, 'profile'), 'host');
-  const mergedPrefs = custom.disabled.size > 0
-    ? [...preferences, ...[...custom.disabled].map((id) => ({ id, disabled: true }) as HostRowPreference)]
+  // host.patch.yml 用户差量层（cr-909 停用面 / cr-1004 改名——原 host-custom）
+  // ∪ host-rows.json 镜像窗口（急救 RPC 写者不变）——两源并集后派生。
+  // 用户域文件（数据根 profile/——repo 不部署，与基座源文档分域）
+  const custom = readAssemblyPatch(path.join(dataRoot, 'profile'), 'host');
+  const customDisabled = custom.entries.filter((e) => e.disabled === true).map((e) => e.id);
+  const mergedPrefs = customDisabled.length > 0
+    ? [...preferences, ...customDisabled.map((id) => ({ id, disabled: true }) as HostRowPreference)]
     : preferences;
   const derived = deriveHostRowset(mergedPrefs, catalog);
   if (derived.warnings.length > 0 || custom.warnings.length > 0) {
@@ -689,7 +690,9 @@ function reconcilePresets(dataRoot: string, templatesDir: string): void {
       writeOrigin(dataRoot, d.name, result.baseline);
     } else if ('follow' in result) {
       const follow = result.follow;
-      writeAgentConfig(dataRoot, follow.config); // cr-918：写口单源（patch 主写）
+      // cr-1004 批2：模板升级跟随 = 显式 rebase——基线戳取当前存在合成
+      //（follow.config 的 rows 白名单按当前 B 重新差量化；stamp 漂移不阻断）
+      writeAgentConfig(dataRoot, follow.config, { baseStamp: assemblyBaseStamp(dataRoot, 'shell') });
       for (const doc of follow.overwriteDocs) {
         const docFile = path.join(dir, doc.name);
         const docTmp = docFile + '.tmp';

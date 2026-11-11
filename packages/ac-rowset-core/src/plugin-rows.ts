@@ -3,7 +3,7 @@
 // 镜像窗口退役后仅存 manifest 投影 + 目录合并纯函数）
 //
 // install = 授权动作（A7/A10）：已安装插件的行集条目由其 manifest.rows
-// 声明，经 installed.patch.yml 菜单进壳行集派生
+// 声明，经 installed.yml 反向适配进壳行集求值
 //（installed-rows.ts——cr-908 装配菜单合流后的唯一装载输入）。
 //
 // 三条判据（承 R0a 判据 1「agent 代码零宿主驻留」+ 保留字护栏 F13/G1）：

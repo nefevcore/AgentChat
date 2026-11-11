@@ -111,20 +111,27 @@ describe('evaluateEngines（自求值，fail-closed）', () => {
   });
 });
 
-describe('installed.patch.yml 读写', () => {
-  it('缺席 = 空集；写读往返保形；损坏 → throw', () => {
+describe('installed.yml 读写（cr-1004：scope 退役）', () => {
+  it('缺席 = 空集；写读往返保形；损坏 → throw；旧文件名兼容读 + 写后清除', () => {
     expect(readInstalledDoc(ROOT)).toEqual([]);
     writeInstalledDoc(ROOT, [
-      { id: 'my-todo', name: 'ac-plugin-todo', owner: 'agent-1', scope: 'shell' },
+      { id: 'my-todo', name: 'ac-plugin-todo', owner: 'agent-1' },
       { id: 'my-local', name: 'link:C:/dev/my-plugin', disabled: true },
     ]);
     expect(readInstalledDoc(ROOT)).toEqual([
-      { id: 'my-todo', name: 'ac-plugin-todo', owner: 'agent-1', scope: 'shell' },
+      { id: 'my-todo', name: 'ac-plugin-todo', owner: 'agent-1' },
       { id: 'my-local', name: 'link:C:/dev/my-plugin', disabled: true },
     ]);
-    fs.writeFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'), 'version: 2\n');
+    // 旧名 installed.patch.yml 读侧兼容；存量 scope 字段容忍读取、不再投影
+    fs.rmSync(path.join(ROOT, 'profile', 'installed.yml'));
+    fs.writeFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'),
+      '- { id: legacy, name: legacy-pkg, scope: shell }' + String.fromCharCode(10));
+    expect(readInstalledDoc(ROOT)).toEqual([{ id: 'legacy', name: 'legacy-pkg' }]);
+    writeInstalledDoc(ROOT, [{ id: 'legacy', name: 'legacy-pkg' }]);
+    expect(fs.existsSync(path.join(ROOT, 'profile', 'installed.patch.yml'))).toBe(false);
+    fs.writeFileSync(path.join(ROOT, 'profile', 'installed.yml'), 'version: 2' + String.fromCharCode(10));
     expect(() => readInstalledDoc(ROOT)).toThrow('顶层必须是条目数组');
-    fs.writeFileSync(path.join(ROOT, 'profile', 'installed.patch.yml'), '- id: x\n');
+    fs.writeFileSync(path.join(ROOT, 'profile', 'installed.yml'), '- id: x' + String.fromCharCode(10));
     expect(() => readInstalledDoc(ROOT)).toThrow('缺 id/name');
   });
 });
