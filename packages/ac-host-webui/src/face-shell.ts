@@ -14,7 +14,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { agentDir, readAgentConfig, resolveToolNames } from 'ac-agents-core';
+import { agentDir, readAgentConfig, readAgentProfileAt, resolveToolNames } from 'ac-agents-core';
 import { effectiveToolMode, narrowToolsByMode } from 'ac-agents';
 import { pairKey } from 'ac-core-utils';
 import { goalSnapshotOf } from 'ac-goal';
@@ -493,7 +493,8 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
   // 子 Agent 持久化清单（cr-677）：跨父盘读聚合——subagents/updated 帧（壳
   // 旁带桥接）驱动前端 subagentBoard 重拉本面（帧载荷仅触发器）。数据源 =
   // children/ 物化树（跨重启完整）：与 ShellSubagentService.infoOf 同口径投影
-  // （盘上直读——会话账本统计 runs/task，config.json 读 name）。busy/exited
+  // （盘上直读——会话账本统计 runs/task，name 走 owning 包档案读面
+  //〔agent.json 主读 + config.json 存量回落，cr-1020〕）。busy/exited
   // 是父壳进程内态，盘读不可见——cr-725 起叠加活壳清单（subagents-list 管理
   // 帧只问在跑的壳，不因清单查询拉起壳；壳死/答错跳过，盘读兜底），否则
   // 运行中徽章恒 idle。query/runningOnly 在叠加后过滤。
@@ -516,11 +517,22 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
       for (const c of children) {
         if (!c.isDirectory()) continue;
         const root = path.join(childrenDir, c.name);
+        // name 单源读面（cr-1020）：cr-1004 批2起物化写 agent.json（v2 档案），
+        // 存量子仍住 config.json——此前只读 config.json，新物化子读不到 name 即
+        // continue，整条目被静默丢弃（前端新建子不可见的根因）。读序对齐
+        // readAgentConfig：agent.json 赢，缺席回落 config.json；都缺席/损坏 =
+        // 条目保留、name 空串（childMeta 的 name 是进程内态，盘读面无来源）。
         let name = '';
         try {
-          const raw = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf-8')) as { name?: unknown };
-          if (typeof raw.name === 'string') name = raw.name;
-        } catch { continue; }
+          const profile = readAgentProfileAt(root); // 损坏 throw——清单面降级空名不炸
+          if (typeof profile?.name === 'string' && profile.name !== '') name = profile.name;
+        } catch { /* 档案损坏 = 走存量回落 */ }
+        if (name === '') {
+          try {
+            const raw = JSON.parse(fs.readFileSync(path.join(root, 'config.json'), 'utf-8')) as { name?: unknown };
+            if (typeof raw.name === 'string') name = raw.name;
+          } catch { /* 存量窗口缺席——name 保持空串 */ }
+        }
         let task = '';
         let runs = 0;
         let createdAt = 0;

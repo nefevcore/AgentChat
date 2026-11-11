@@ -301,6 +301,35 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     }
   });
 
+  // cr-1020：cr-1004 批2起子物化写 agent.json（v2 档案）不再写 config.json
+  // ——此前 list 面只读 config.json，读不到 name 即 continue，新物化子整条
+  // 被静默丢弃（前端新建子不可见的根因）。回归锁：新物化子必须列出。
+  it('subagents/list 新物化读面：agent.json（无 config.json）子照常列出，name 正确', async () => {
+    const rootDir = 'sandbox/test-sub-v2-' + process.pid;
+    const childDir = rootDir + '/agents/parent1/children/kid9';
+    fs.mkdirSync(childDir, { recursive: true });
+    fs.writeFileSync(childDir + '/agent.json', JSON.stringify({ name: '新式子' }), 'utf-8');
+    const oldChild = rootDir + '/agents/parent1/children/kid8';
+    fs.mkdirSync(oldChild, { recursive: true });
+    fs.writeFileSync(oldChild + '/config.json', JSON.stringify({ id: 'kid8', name: '存量子' }), 'utf-8');
+    // 两者都缺席档案（无 agent.json 也无 config.json）——条目保留、name 空串
+    const bare = rootDir + '/agents/parent1/children/kid7';
+    fs.mkdirSync(bare, { recursive: true });
+    try {
+      const { web, handlers } = collect();
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => null });
+      const out = await handlers.get('subagents/list')!({ include_deleted: true }) as {
+        total: number; subs: Array<{ id: string; name: string }>;
+      };
+      expect(out.total).toBe(3);
+      expect(out.subs.find((s) => s.id === 'kid9')!).toMatchObject({ name: '新式子' });
+      expect(out.subs.find((s) => s.id === 'kid8')!).toMatchObject({ name: '存量子' });
+      expect(out.subs.find((s) => s.id === 'kid7')!).toMatchObject({ name: '' });
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   // cr-725：busy/exited 是父壳进程内态，盘读不可见——subagents/list 叠加
   // 活壳 subagents-list 回执（只问在跑的壳；壳答错 = 盘读值兜底）。
   it('subagents/list 活壳态叠加：busy → running（activeCount 口径同步）；壳死兜底盘读值', async () => {
