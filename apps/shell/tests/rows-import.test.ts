@@ -134,11 +134,12 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
       expect(names).toContain('read'); // fs-tools 行（工具真名 read/write/edit）
       expect(names).toContain('glob'); // fs-search 行
       expect(names).toContain('str_replace_editor'); // str-replace-editor 行（真名）
-      // infra bundle 同批点名：run-code/shell-tools（含闭包并入的 jobs）
+      // infra bundle 同批点名：shell-tools（含闭包并入的 jobs）。cr-1021 后
+      // run-code 是基础集行非 infra——旧白名单 B−T 语义下未点名即剔除，不再断言
       expect(boot.rowset.rowIds).toContain('fs-tools');
       expect(boot.rowset.rowIds).toContain('shell-tools');
       expect(boot.rowset.rowIds).toContain('jobs'); // shell-tools requires 闭包并入
-      expect(names).toContain('run_code');
+      expect(names).not.toContain('run_code'); // B−T：未点名的基础集行出局
       expect(boot.ctx.get('fileSnapshots', false)).toBeDefined(); // 伴生行（fs-tools 并入）
       // 主体指纹：行集派生内全部有 path 行入指纹（含 fs-tools 数组双包）
       const fpRows = boot.rowset.rowIds

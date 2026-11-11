@@ -1462,6 +1462,14 @@ export class ConversationService extends Service {
         | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
         | undefined,
     });
+    // 程序化档回退留痕（cr-1021）：tc-programmatic 但注册面无 mode 工具
+    //（run-code 行未装/被停用）→ narrowToolsByMode 回退常规面——warn 而非静默
+    if (mode === 'tc-programmatic' && !allDefs.some((t) => t.injection === 'mode')) {
+      this.ctx.logger.warn(
+        '[conversation] tc-programmatic 会话无 mode 工具（run-code 行未装）——LLM 工具面回退常规面：'
+        + config.id + (conversationId ? ' @ ' + conversationId : ''),
+      );
+    }
     return narrowToolsByMode(resolved.filter((n) => visible.has(n)), allDefs, mode);
   }
 

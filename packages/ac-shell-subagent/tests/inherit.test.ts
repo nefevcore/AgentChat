@@ -43,10 +43,15 @@ describe('cr-856 spawn 物化单源（inherit.ts）', () => {
       access: 'full-access',
       settings: { other: { flag: 1 } },
     } as AgentConfig;
-    // ① 缺省继承（rows 含 run-code）：形态合成 + 档位继承
+    // ① 缺省继承（rows 含 run-code）：形态 = 父形态 ∧ 子行集（cr-1021：
+    // 常规父不合成程序化——run-code 进基础集后行集信号对缺省继承恒真）
     const inheritRun = spawnChildConfigOf({ parent }, CATALOG);
-    expect(inheritRun.toolMode).toBe('tc-programmatic');
+    expect(inheritRun.toolMode).toBeUndefined();
     expect(inheritRun.access).toBe('full-access');
+    // ①' 程序化父 + 子行集含 run-code：合成 tc-programmatic
+    const progParent = { ...parent, toolMode: 'tc-programmatic' } as AgentConfig;
+    const inheritProg = spawnChildConfigOf({ parent: progParent }, CATALOG);
+    expect(inheritProg.toolMode).toBe('tc-programmatic');
     // ② 显式子集（无 run-code）：无形态词
     const subset = spawnChildConfigOf({ parent, tools: ['read'] }, CATALOG);
     expect(subset.toolMode).toBeUndefined();

@@ -1,4 +1,4 @@
-# ac-base-version: 2
+# ac-base-version: 3
 # shell 进程基座源文档（cr-902 / cr-901 v2.1 批1）——行→包映射单一事实源。
 # 顶层 = cordis-plugin-loader 官方方言条目数组（DSH 同款顶层数组约束）；
 # tree 字段由所在文档隐含（id 仅基座内唯一，跨基座同名合法）；
@@ -136,8 +136,7 @@
     - job
 - id: run-code
   name: link:packages/ac-run-code
-  description: 代码编排执行
-  bundle: infra
+  description: 代码编排执行（基础集——cr-1021：tc-programmatic 收窄单源依赖 mode 工具在场；捆绑形态下未点名 Agent 空面植物人，news 事故断根）
   requires:
     - tools
   tools:

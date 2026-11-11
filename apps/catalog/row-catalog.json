@@ -398,11 +398,10 @@
     {
       "id": "run-code",
       "tree": "shell",
-      "description": "代码编排执行",
+      "description": "代码编排执行（基础集——cr-1021：tc-programmatic 收窄单源依赖 mode 工具在场；捆绑形态下未点名 Agent 空面植物人，news 事故断根）",
       "tools": [
         "run_code"
       ],
-      "bundle": "infra",
       "requires": [
         "tools"
       ],

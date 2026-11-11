@@ -143,11 +143,11 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
         args: { action: 'spawn', task: '调工具任务' } }) as { ok: boolean; output?: { subagent_id: string }; error?: string };
       expect(spawnOut.ok, spawnOut.error).toBe(true);
       const childId = spawnOut.output!.subagent_id!;
-      // 子 config：无 tc-* 词（形态跟随装配——子 rows 缺省继承父 rows 含
-      // run-code 行 → 合成 tc-programmatic；这里验证缺省继承分支）
+      // 子 config：无 tc-* 词（形态跟随装配 cr-1021：程序化父 ∧ 子行集含
+      // run-code → 合成 tc-programmatic；rows 落盘差量瘦身滤掉基础集行点名）
       const childCfg = readChildConfig(ROOT, 'coder', childId);
-      expect((childCfg?.rows as { include?: string[] }).include).toContain('run-code');
-      expect(childCfg?.toolMode).toBe('tc-programmatic'); // 形态来自装配
+      expect((childCfg?.rows as { include?: string[] }).include ?? []).not.toContain('run-code'); // 基础集行点名 = no-op 滤除
+      expect(childCfg?.toolMode).toBe('tc-programmatic'); // 父程序化（会话覆盖）∧ 子行集闭包
       expect(childCfg?.access).toBe('full-access'); // 会话 access 继承（水位取高）
       // 子壳 LLM 工具面（toolDefs —— 与真实 run 单源）：mode 集 = ['run_code']，
       // 非空且不再把授予工具全丢

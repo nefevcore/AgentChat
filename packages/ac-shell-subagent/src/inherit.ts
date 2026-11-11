@@ -11,7 +11,7 @@
 // 的过滤（cr-616/762/763 拒绝词）同源在此，越权词不进子 config。
 // ============================================================
 import type { AgentConfig } from 'ac-agents-core';
-import { ACCESS_RANK, accessOf, type AccessLevel } from 'ac-agents-core';
+import { ACCESS_RANK, accessOf, toolModeOf, type AccessLevel } from 'ac-agents-core';
 import { expandAssemblyTokens, evaluateLegacyShellRows, SEAT_ROW_IDS, type RowsetCatalog } from 'ac-rowset-core';
 import { splitModelRef } from 'ac-llm';
 
@@ -91,10 +91,13 @@ export interface SpawnInheritInput {
  */
 export function spawnChildConfigOf(input: SpawnInheritInput, catalog: RowsetCatalog): AgentConfig {
   const { parent, tools, name, system, inherit, workdirAnchor, modelOverride, effectiveRows } = input;
-  // 形态合成（cr-821）：子的 toolMode 由子行集是否含 run-code 行结构化
-  // 决定——父级 tc-* 不继承，缺省继承（父行集快照）或显式点名命中才合成。
+  // 形态合成（cr-821 / cr-1021 修正）：子的 toolMode = 父形态 ∧ 子行集含
+  // run-code 行。run-code 进基础集（cr-1021）后「行集含 run-code」对缺省
+  // 继承恒真——仅凭行集判定会把所有 spawn 子翻转成程序化模式；父级
+  // tc-* 不继承的语义保留在「父非程序化 → 子恒常规」分支。
   const childTokens = tools ?? effectiveRows ?? parent.rows ?? [];
   const childRowIds = new Set(evaluateLegacyShellRows(childTokens, catalog.rows.filter((r) => r.tree === 'shell'), [], SEAT_ROW_IDS).rowIds);
+  const parentProgrammatic = toolModeOf(parent) === 'tc-programmatic';
   // 档位继承：会话覆盖与父 access 取高（只升不降）
   const parentAccess = accessOf(parent);
   const inheritedAccess = inherit?.access !== undefined && ACCESS_RANK[inherit.access] > ACCESS_RANK[parentAccess]
@@ -128,10 +131,11 @@ export function spawnChildConfigOf(input: SpawnInheritInput, catalog: RowsetCata
     ...(system !== undefined ? { system } : {}),
     ...(tools !== undefined ? { rows: tools } : effectiveRows !== undefined ? { rows: effectiveRows } : {}),
     ...(inheritedAccess !== undefined ? { access: inheritedAccess } : {}),
-    // 形态跟随装配（cr-821/cr-953）：父 toolMode 不继承——恒按子 rows 重算
-    ...(childRowIds.has('run-code') ? { toolMode: 'tc-programmatic' as const } : {}),
+    // 形态跟随装配（cr-821/cr-953，cr-1021 修正）：程序化 = 父形态 ∧ 子行集
+    // 含 run-code——非程序化父的子恒常规（父 toolMode 不继承）
+    ...(parentProgrammatic && childRowIds.has('run-code') ? { toolMode: 'tc-programmatic' as const } : {}),
   } as AgentConfig;
-  if (!childRowIds.has('run-code')) delete (child as { toolMode?: unknown }).toolMode;
+  if (!(parentProgrammatic && childRowIds.has('run-code'))) delete (child as { toolMode?: unknown }).toolMode;
   if (Object.keys(levels).length > 0) (child as { levels?: Record<string, string | boolean> }).levels = levels;
   else delete (child as { levels?: Record<string, string | boolean> }).levels;
   if (Object.keys(settings).length > 0) (child as { settings?: Record<string, unknown> }).settings = settings;

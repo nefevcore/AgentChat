@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-1020**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-1021**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1039,4 +1039,5 @@
 - 【cr-1018 2026-11-11 ops 域 3 篇 + platform 域 15 篇 + 2 个移动端图件落位检阅：头部三行全篇规约化、事实源与失效路径按现行代码修正、出向引用终指八域目录】{#docs|→cr-1008}
 - 【cr-1019 2026-11-11 cr-1008 独立复核问题全修（P0×2+P1×10+P2×3）：plugin 两篇漏归档补迁 archive/plugin（v2 与 paradigm-plan）+ 反引号死引用 39 处修正（archive 相对路径按域重写）+ archive 索引篇数按实测刷新（assembly8/session16/webui19/plugin5/llm3/ops5/platform29）+ gap-backlog 补状态行与 E2 三批核销 + 裸日期 7 处改真实日历日 + R1/R2 节标题行数 25/40 对齐实测 + webui-standalone 补「部分被取代」注记 + 归档豁免口径入规范；终态 43 篇头部 43/43、md 链接 0 断、代码注释 0 死路径、archive 索引与实测一致】{#docs|#fix|→cr-1008}
 - 【cr-1020 2026-11-11 修复 subagents/list 盘读面漏随 cr-1004 批2迁移：face-shell 读子域 config.json 取 name（新物化写 agent.json）——读不到即静默跳过，cr-1004 后新建子 Agent 在前端清单不可见（帧链路正常、list 查不到新子）。改读 owning 包 readAgentProfileAt 单源（v2 档案读面），存量 config.json 窗口保留】
+- 【cr-1021 2026-11-11 tc-programmatic 空面陷阱修复：run-code 行进壳恒并基座 + 无 mode 工具时回退常规工具面（news~news 71 run 静默零工具执行事故根因）】
 

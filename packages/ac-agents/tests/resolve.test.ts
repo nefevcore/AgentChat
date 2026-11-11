@@ -42,7 +42,7 @@ describe('工具调用模式单源（effectiveToolMode / narrowToolsByMode——
     expect(effectiveToolMode({ id: 'x', model: 'm', toolMode: 'tc-none' }, undefined)).toBe('tc-none');
   });
 
-  it('narrowToolsByMode：tc-programmatic → mode 工具集（从 defs 合成，与 tags/常规面无关）；无 mode 工具 = 空面（不回落）；tc-none → 空；tc-base → 原面', () => {
+  it('narrowToolsByMode：tc-programmatic → mode 工具集（从 defs 合成，与 tags/常规面无关）；无 mode 工具 = 回退常规面（cr-1021：不再空面）；tc-none → 空；tc-base → 原面', () => {
     const defs = [
       { name: 'read' },
       { name: 'bash' },
@@ -50,8 +50,10 @@ describe('工具调用模式单源（effectiveToolMode / narrowToolsByMode——
     ];
     // mode 工具从 defs 合成——tools 面里有没有它无关（它不进常规面）
     expect(narrowToolsByMode(['read', 'bash'], defs, 'tc-programmatic')).toEqual(['run_code']);
-    // 无 mode 工具（行未装）= 空面（形同 tc-none，不回落常规面——语义突变防护）
-    expect(narrowToolsByMode(['read', 'bash'], [{ name: 'read' }], 'tc-programmatic')).toEqual([]);
+    // 无 mode 工具（行未装）= 回退常规面（cr-1021：news~news 空面植物人事故——
+    // 静默零工具执行危害大于「悄悄变常规档」，可用性优先 + 调用方 warn 留痕）
+    expect(narrowToolsByMode(['read', 'bash'], [{ name: 'read' }], 'tc-programmatic')).toEqual(['read', 'bash']);
+    expect(narrowToolsByMode(['read', 'bash'], [], 'tc-programmatic')).toEqual(['read', 'bash']);
     expect(narrowToolsByMode(['read', 'run_code'], defs, 'tc-none')).toEqual([]);
     expect(narrowToolsByMode(['read', 'bash'], defs, 'tc-base')).toEqual(['read', 'bash']);
   });

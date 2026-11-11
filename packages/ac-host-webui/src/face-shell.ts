@@ -140,6 +140,14 @@ function staticToolDefs(
       | undefined,
   });
   const narrowed = narrowToolsByMode(names, defs as Array<{ name: string; injection?: 'capability' | 'mode' }>, mode);
+  // 程序化档回退留痕（cr-1021）：与 llmToolFace 同口径——tc-programmatic 无
+  // mode 工具时回退常规面并 warn（估算面静态数据源，无 ctx logger 时跳过）
+  if (mode === 'tc-programmatic' && !defs.some((t) => (t as { injection?: unknown }).injection === 'mode')) {
+    ctx.logger.warn(
+      '[face-shell] tc-programmatic 会话无 mode 工具（run-code 行未装）——估算工具面回退常规面：'
+      + agentId + (conversationId ? ' @ ' + conversationId : ''),
+    );
+  }
   const byName = new Map(defs.map((t) => [String(t.name), t]));
   return {
     names: narrowed,

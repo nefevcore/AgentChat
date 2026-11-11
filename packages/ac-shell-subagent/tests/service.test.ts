@@ -481,10 +481,11 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  // cr-763：子的交互形态由装配结构化合成（形态跟随装配）——父 config/
-  // 会话的 tc-* 词剥除；子 rows 命中 run-code 行（缺省继承父 rows 形态）才
-  // 合成 tc-programmatic。spawn 显式点名 run_code 词被拒（filtered）。
-  it('形态合成：父 toolMode 不继承；子 rows 含 run-code 行合成 toolMode=tc-programmatic；spawn 点名 run_code 被拒', async () => {
+  // cr-763/cr-1021：子的交互形态 = 父形态 ∧ 子行集含 run-code 行（形态跟随
+  // 装配）。cr-1021 修正：run-code 进基础集后「子行集含 run-code」对缺省继承
+  // 恒真——仅凭行集判定会把常规父的 spawn 子翻转成程序化；父非程序化 → 子恒
+  // 常规（父 toolMode 不继承）。spawn 显式点名 run_code 词被拒（filtered）。
+  it('形态合成：程序化 = 父形态 ∧ 子行集含 run-code；常规父的子不翻转；spawn 点名 run_code 被拒', async () => {
     const fake = fakeShell();
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
@@ -494,12 +495,14 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const tools = ctx.get('tools') as unknown as {
         execute(call: { name: string; args: Record<string, unknown>; conversationId?: string }): Promise<{ ok: boolean; output?: { subagent_id?: string; filtered?: string[]; note?: string } }>;
       };
-      // ① 缺省继承（不传 tools）：子 rows = 父 rows（含 run-code 行）→ 合成 tc-programmatic；父 full-access 授权词保留
+      // ① 缺省继承（不传 tools）：程序化父 + 子行集闭包含 run-code → 合成
+      // tc-programmatic。cr-1021 后 run-code 是基础集行——落盘差量瘦身滤掉
+      // 它的 no-op 点名（rows.include 不再含 run-code，行为靠基础集恒装承载）
       const inherit = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '缺省继承' } });
       const inheritId = (inherit.output as { subagent_id: string }).subagent_id;
       const inheritCfg = readChildConfig(ROOT, 'papa', inheritId);
-      expect((inheritCfg?.rows as { include?: string[] })?.include).toContain('run-code');
-      expect(inheritCfg?.toolMode).toBe('tc-programmatic'); // 形态来自装配而非继承
+      expect((inheritCfg?.rows as { include?: string[] })?.include ?? []).not.toContain('run-code'); // 基础集行点名 = no-op 滤除
+      expect(inheritCfg?.toolMode).toBe('tc-programmatic'); // 父程序化 ∧ 子行集含 run-code
       expect(inheritCfg?.access).toBe('full-access'); // 档位继承面不受影响
       // ② 显式点名子集（不含 run-code）：无模式词——工具面照常（tc-base）
       const subset = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '子集', tools: ['read', 'write'] } });
@@ -509,6 +512,14 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // ③ 点名 run_code 词显式拒绝（cr-763：防子域程序化形态自废 spawn 授予面）
       const rejected = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '拒 run_code', tools: ['run_code', 'read'] } });
       expect(((rejected.output as { note?: string }).note ?? '')).toContain('run_code');
+      // ④ cr-1021：常规父（无 toolMode）+ 子行集含 run-code（缺省继承）→
+      // 不合成程序化——「行集含 run-code」不再单独构成形态信号
+      fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'config.json'),
+        JSON.stringify({ id: 'papa', model: 'mock', access: 'full-access', tools: ['run-code', 'fs-tools', 'subagent'] }), 'utf-8');
+      const plain = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '常规父' } });
+      const plainCfg = readChildConfig(ROOT, 'papa', (plain.output as { subagent_id: string }).subagent_id);
+      expect((plainCfg?.rows as { include?: string[] })?.include ?? []).not.toContain('run-code'); // 基础集行点名 = no-op 滤除
+      expect(plainCfg?.toolMode).toBeUndefined(); // 常规父的子恒常规
     } finally { await dispose(); }
   });
 

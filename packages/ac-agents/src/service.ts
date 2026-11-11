@@ -282,9 +282,10 @@ export function effectiveToolMode(
 /**
  * 工具调用模式收窄（形态轴合成，injection:'mode' 工具的注入点）：
  *   · tc-programmatic → mode 工具集（defs 中 injection==='mode' 的工具，
- *     行在装即合成）；无 mode 工具（对应行未装）= 空面
- *     （warn 归调用方——形同 tc-none，不回落常规面：程序化档悄悄变
- *     常规档是语义突变）；
+ *     行在装即合成）；无 mode 工具（对应行未装）= 回退常规面
+ *     （cr-1021 推翻旧「空面不回落」裁决：news~news 事故证明静默空面
+ *     植物人〔71 run 零工具执行、模型无错误反馈无法自纠〕危害大于
+ *     「悄悄变常规档」——可用性优先，回退时调用方 warn 留痕）；
  *   · tc-none → []；
  *   · tc-base → 原面（mode 工具不进常规工具面——router/估算面在能力面
  *     过滤时按 injection 分流排除，本函数的原面里天然无 mode 工具）。
@@ -300,7 +301,11 @@ export function narrowToolsByMode(
   mode: ToolMode,
 ): string[] {
   if (mode === 'tc-programmatic') {
-    return defs.filter((d) => d.injection === 'mode').map((d) => d.name);
+    const modeTools = defs.filter((d) => d.injection === 'mode').map((d) => d.name);
+    // 无 mode 工具 = 回退常规面（cr-1021）——不再空面。warn 留痕归调用方
+    // （llmToolFace / staticToolDefs 自检 defs 有无 mode 工具）
+    if (modeTools.length === 0) return tools;
+    return modeTools;
   }
   if (mode === 'tc-none') return [];
   return tools;

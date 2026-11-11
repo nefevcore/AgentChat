@@ -27,7 +27,7 @@ const catalog: RowsetCatalog = {
     row("ac-fs-tools", "shell", { tools: ['fs_read', 'fs_write', 'fs_edit'], bundle: 'fs' }),
     row("ac-fs-search", "shell", { tools: ['fs_glob', 'fs_grep'], bundle: 'fs' }),
     row("ac-shell-tools", "shell", { tools: ['pwsh', 'bash'], bundle: 'infra' }),
-    row("ac-run-code", "shell", { tools: ['run_code'], bundle: 'infra' }),
+    row("ac-run-code", "shell", { tools: ['run_code'] }),
     row("ac-math", "shell", { tools: ['math'] }),
     row("ac-web-tools", "shell", { tools: ['web_search', 'browser'] }),
   ],
@@ -38,18 +38,19 @@ const ev = (patch: Partial<Parameters<typeof evaluateAssembly>[0]>) => evaluateA
 describe('统一求值：存在合成 + 差量合成', () => {
   it('零差量 = 基础集（非捆绑行）', () => {
     const r = ev({});
-    expect(r.rowIds).toEqual(['ac-conversation', 'ac-ledger', 'ac-math', 'ac-tools', 'ac-web-tools']);
+    // run-code 非捆绑（cr-1021：进基础集——tc-programmatic 收窄单源依赖 mode 工具在场）
+    expect(r.rowIds).toEqual(['ac-conversation', 'ac-ledger', 'ac-math', 'ac-run-code', 'ac-tools', 'ac-web-tools']);
     expect(r.warnings).toEqual([]);
   });
 
   it('加法词形：行引用 / 工具点名 / 捆绑词（行名优先消歧）', () => {
     expect(ev({ agentPatch: [{ id: 'ac-fs-tools' }] }).rowIds).toEqual([
-      'ac-conversation', 'ac-fs-tools', 'ac-ledger', 'ac-math', 'ac-tools', 'ac-web-tools',
+      'ac-conversation', 'ac-fs-tools', 'ac-ledger', 'ac-math', 'ac-run-code', 'ac-tools', 'ac-web-tools',
     ]);
     expect(ev({ agentPatch: [{ id: 'fs_read' }, { id: 'fs_glob' }] }).rowIds).toContain('ac-fs-search');
     expect(ev({ agentPatch: [{ id: 'fs' }] }).rowIds).toContain('ac-fs-search');
     expect(ev({ agentPatch: [{ id: 'infra' }] }).rowIds).toEqual(
-      expect.arrayContaining(['ac-run-code', 'ac-shell-tools']),
+      expect.arrayContaining(['ac-shell-tools']),
     );
   });
 
