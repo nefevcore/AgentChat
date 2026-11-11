@@ -226,6 +226,21 @@ function renderFrontmatterBlock(yamlText: string): string {
     return `<table class="md-frontmatter"><tbody>${rows.join('')}</tbody></table>`;
 }
 
+/**
+ * 本地图片 src 词表（image 重写安全门）：files/ 前缀（数据根上传/Agent
+ * 专用空间约定形）或 Windows 盘符/UNC/POSIX 根锚定的绝对路径。裸相对
+ * 路径（images/pic.png）与 http(s)/data: 等其余 src 一律不重写——外站
+ * 图与站内路由路径不得误伤。
+ */
+const LOCAL_IMAGE_SRC_RE = /^(?:files\/|[A-Za-z]:[\\/]|\\\\|\/)/;
+
+/**
+ * 二次包裹守卫：带 query/锚点的 src（/api/workspace/raw?path=… 端点形）
+ * 已是可渲染 URL——再包一层 raw 直链会把工作 URL 弄坏。/api/ 前缀同理
+ *（站内 API 路由不是文件路径）。
+ */
+const RAW_LINK_SKIP_RE = /(?:[?#]|^\/api\/)/;
+
 // ---- 创建实例工厂 ----
 let mdInstance: MarkdownIt | null = null;
 let mdPlainInstance: MarkdownIt | null = null;
@@ -270,6 +285,35 @@ function createBaseInstance(trusted = false): MarkdownIt {
             token.attrSet('rel', 'noopener noreferrer');
         }
         return defaultLinkOpen(tokens, idx, options, env, self);
+    };
+
+    // 本地图片 src 重写（cr-1005，多模态下行表达力）：LLM 正文以 markdown
+    // 引用工作区图片（![图](files/x/_tmp/a.jpg)，或 cr-22 绝对路径主形态）
+    // 时，浏览器按页面相对路径解析必 404 裂图——重写为 workspace raw 直链
+    //（与 UserMessage 缩略图 filePreviewUrl 同一端点单源）。绝对路径的
+    // 数据根包含判定由服务端 resolveWorkspaceFile 承担（根外 404，与文件
+    // 预览同语义）。词表安全门 LOCAL_IMAGE_SRC_RE。默认规则保留（alt 由
+    // children 内联文本渲染——renderToken 通用路径不覆盖它）。
+    const defaultImage = md.renderer.rules.image
+        ?? ((tokens: any[], idx: number, options: any, env: any, self: any) =>
+            self.renderToken(tokens[idx], idx, options));
+    md.renderer.rules.image = (tokens: any[], idx: number, options: any, env: any, self: any) => {
+        const token = tokens[idx];
+        const srcIndex = token.attrIndex('src');
+        if (srcIndex >= 0) {
+            const raw = String(token.attrs[srcIndex][1] ?? '');
+            if (!RAW_LINK_SKIP_RE.test(raw)) {
+                try {
+                    // src 经 markdown-it normalizeLink 已百分号编码（反斜杠
+                    // → %5C 等）——解码后按词表判定，重写时整体重编码
+                    const decoded = decodeURIComponent(raw);
+                    if (LOCAL_IMAGE_SRC_RE.test(decoded)) {
+                        token.attrs[srcIndex][1] = '/api/workspace/raw?path=' + encodeURIComponent(decoded);
+                    }
+                } catch { /* 畸形 % 序列——保持原样 */ }
+            }
+        }
+        return defaultImage(tokens, idx, options, env, self);
     };
 
     // 自定义表格渲染 —— 包裹滚动容器

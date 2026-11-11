@@ -146,4 +146,35 @@ http://example.com
       { key: 'empty', value: '' },
     ]);
   });
+
+  // ---- 本地图片 src 重写（cr-1005：多模态下行表达力）----
+  it('image：workspace 本地路径 → /api/workspace/raw 直链（files/ 前缀与绝对路径）', async () => {
+    const { useMarkdown } = await import('../client/useMarkdown.ts');
+    const { render } = useMarkdown();
+    // files/ 前缀（数据根上传/Agent 专用空间约定形）——src 整体编码
+    const files = render('![截图](files/__creator__/_tmp/1a0379ec43f6.jpg)');
+    expect(files).toContain('src="/api/workspace/raw?path=files%2F__creator__%2F_tmp%2F1a0379ec43f6.jpg"');
+    // 绝对路径（cr-22 上传引用主形态，正斜杠 Windows 形）
+    const absFwd = render('![图](C:/Users/x/data/files/tmp/abc.jpg)');
+    expect(absFwd).toContain('src="/api/workspace/raw?path=C%3A%2FUsers%2Fx%2Fdata%2Ffiles%2Ftmp%2Fabc.jpg"');
+    // 绝对路径反斜杠形（markdown-it 解析层已百分号编码 %5C——渲染层
+    // 解码判定后整体重编码）
+    const absBack = render('![图](C:\\Users\\x\\data\\tmp\\abc.jpg)');
+    expect(absBack).toContain('src="/api/workspace/raw?path=C%3A%5CUsers%5Cx%5Cdata%5Ctmp%5Cabc.jpg"');
+    // alt 文本保留
+    expect(files).toContain('alt="截图"');
+  });
+
+  it('image：非本地 src 一律不重写（http/data/裸相对路径/端点形不二次包裹）', async () => {
+    const { useMarkdown } = await import('../client/useMarkdown.ts');
+    const { render } = useMarkdown();
+    expect(render('![外链](https://cdn.example.com/a.png)')).toContain('src="https://cdn.example.com/a.png"');
+    expect(render('![本机](http://127.0.0.1:3830/api/workspace/raw?path=files/a.jpg)'))
+      .toContain('src="http://127.0.0.1:3830/api/workspace/raw?path=files/a.jpg"');
+    expect(render('![内嵌](data:image/png;base64,zz)')).toContain('src="data:image/png;base64,zz"');
+    expect(render('![相对](images/pic.png)')).toContain('src="images/pic.png"');
+    // 已是 raw 端点形（相对形态，LLM 也可能输出）——不二次包裹
+    expect(render('![已直链](/api/workspace/raw?path=files/a.jpg)'))
+      .toContain('src="/api/workspace/raw?path=files/a.jpg"');
+  });
 });
