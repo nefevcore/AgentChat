@@ -16,6 +16,7 @@ import {
   workspaceTree,
   workspaceTreeBase,
 } from '../src/workspace-files.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-ws-files-' + process.pid);
 const WS = path.join('sandbox', 'test-ws-files-ext-' + process.pid);
@@ -30,8 +31,8 @@ beforeEach(() => {
   fs.rmSync(WS, { recursive: true, force: true });
   fs.mkdirSync(path.join(ROOT, 'files', 'neko'), { recursive: true });
   fs.mkdirSync(path.join(WS, 'src'), { recursive: true });
-  writeJson(path.join(ROOT, 'agents', 'neko', 'config.json'), { id: 'neko', name: 'neko' });
-  writeJson(path.join(ROOT, 'agents', '__standard__', 'config.json'), { id: '__standard__' });
+  writeAgentConfig(ROOT, { id: 'neko', name: 'neko' }); // cr-1036 批3：v3 写口
+  writeAgentConfig(ROOT, { id: '__standard__' });
   writeJson(path.join(ROOT, 'workspaces.json'), [
     { id: 'ws-1', name: '演示', path: path.resolve(WS), createdAt: '', updatedAt: '' },
   ]);
@@ -60,7 +61,7 @@ describe('树基准（会话挂载工作区 > Agent 级基准 > 数据根）', (
   });
 
   it('显式 settings[security].workdir 最优先；损坏/缺席登记表按未挂载降级', () => {
-    writeJson(path.join(ROOT, 'agents', 'tester', 'config.json'), {
+    writeAgentConfig(ROOT, { // cr-1036 批3：v3 写口（settings 拆 security 单元）
       id: 'tester',
       settings: { security: { workdir: path.resolve(WS) } },
     });

@@ -8,6 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Context } from '@agentchat/cordis';
 import { WorkspaceShim, AgentsShim } from '../src/shims.ts';
+import { writeAgentConfig, writeAgentPatchV3At, writePluginConfigAt } from 'ac-agents-core';
 
 // cr-755：影子形态 config 物化在 children 嵌套域——get 顶层缺席须回落
 // （否则 tags 丢失 → run_code SDK 投影空）。
@@ -56,12 +57,11 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
   });
 
   it('未挂载会话 + settings security.allowedPaths 并出面（真 agents 垫片链）', () => {
-    const agentDir = path.join(ROOT, 'agents', 'neko');
-    fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'config.json'), JSON.stringify({
-      id: 'neko', model: 'mock', tags: ['sandbox-access'],
+    // cr-1036 批3：身份 fixture 走 v3 写口（config.json 读窗退役；tags 档位词 → access）
+    writeAgentConfig(ROOT, {
+      id: 'neko', model: 'mock', access: 'sandbox-access',
       settings: { security: { allowedPaths: ['C:\\data\\a', '', 42] } },
-    }), 'utf-8');
+    });
     const ctx = new Context();
     new AgentsShim(ctx, ROOT); // 注册 ctx.agents（settingsOf 消费面）
     const shim = new WorkspaceShim(ctx, ROOT);
@@ -82,13 +82,13 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
     // 物化子域 config（仅嵌套域，顶层不建——影子形态事实）
     const childDir = path.join(ROOT, 'agents', 'papa', 'children', 'sub-x');
     fs.mkdirSync(childDir, { recursive: true });
-    fs.writeFileSync(path.join(childDir, 'config.json'), JSON.stringify({
-      id: 'sub-x', model: 'mock', tags: ['tc-programmatic', 'fs'],
-    }), 'utf-8');
+    // cr-1036 批3：子域 fixture 走 v3（tags → toolMode/rows）
+    writeAgentPatchV3At(childDir, [], {}, undefined);
+    fs.writeFileSync(path.join(childDir, 'agent.json'), JSON.stringify({ model: 'mock', 'tool-mode': 'tc-programmatic' }));
     const ctx = new Context();
     const shim = new AgentsShim(ctx, ROOT, undefined, 'papa');
-    // 回落命中：嵌套域 config 可读，tags 完整（投影链的授权输入）
-    expect(shim.get('sub-x')).toMatchObject({ id: 'sub-x', tags: ['tc-programmatic', 'fs'] });
+    // 回落命中：嵌套域 v3 可读（cr-1036 批3——tags 退役，toolMode 结构化投影）
+    expect(shim.get('sub-x')).toMatchObject({ id: 'sub-x', model: 'mock', toolMode: 'tc-programmatic' });
     expect(shim.settingsOf('sub-x')).toEqual({}); // 无 settings = 空合并（不 undefined）
     // 无 parent 的 shim：顶层缺席即 undefined（原语义不变）——独立 ctx
     //（同 root 双注册 agents 服务 = 冲突）
@@ -108,12 +108,13 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
     // 子 config（影子嵌套域）带 workdir 快照——AgentsShim settingsOf 读取
     const childDir = path.join(ROOT, 'agents', 'papa', 'children', 'sub-x');
     fs.mkdirSync(childDir, { recursive: true });
-    fs.writeFileSync(path.join(childDir, 'config.json'), JSON.stringify({
-      id: 'sub-x', model: 'mock', settings: { security: { workdir: WS2 } },
-    }), 'utf-8');
+    // cr-1036 批3：子域 fixture 走 v3 + 单元文件
+    writeAgentPatchV3At(childDir, [], {}, undefined);
+    fs.writeFileSync(path.join(childDir, 'agent.json'), JSON.stringify({ model: 'mock' }));
+    writePluginConfigAt(childDir, 'security', { workdir: WS2 });
     // 无 workdir 的对照组 Agent
     fs.mkdirSync(path.join(ROOT, 'agents', 'plain'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'plain', 'config.json'), JSON.stringify({ id: 'plain', model: 'mock' }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'plain', model: 'mock' });
     const ctx = new Context();
     new AgentsShim(ctx, ROOT, undefined, 'papa');
     const shim = new WorkspaceShim(ctx, ROOT);

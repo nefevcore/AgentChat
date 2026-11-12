@@ -8,6 +8,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { makeSinglesHostRow, HostInbox } from '../src/index.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 import { makeTitleRequestEnvelope, type Envelope } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-singles-title-' + process.pid);
@@ -233,7 +234,7 @@ describe('清单注册表落盘（cr-845 摘要索引 → cr-869 全视图清单
 describe('清单注册表（cr-869：写点维护 + list 零读）', () => {
   it('create/update/delete 写点同步注册表——list 直吐且与盘一致；delete 后重启不复活', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', name: 'Alpha' }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'alpha', name: 'Alpha' }); // cr-1036 批3：v3 写口
     const h = boot(false);
     await h.handlers.get('singles/create')!({ id: 'r1', agentId: 'alpha' }) as { single: { id: string } };
     await h.handlers.get('singles/update')!({ id: 'r1', title: '注册表标题' });
@@ -282,7 +283,7 @@ describe('清单注册表（cr-869：写点维护 + list 零读）', () => {
 describe('指定 id 物化（cr-847 延迟落盘链路）', () => {
   it('带 id 创建 → 落盘同 id；重复带 id 创建 → 幂等返回现状视图（不重写 meta）', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', name: 'Alpha' }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'alpha', name: 'Alpha' }); // cr-1036 批3：v3 写口
     const h = boot(false);
     const created = await h.handlers.get('singles/create')!({ id: 'fixed-1', agentId: 'alpha', workspaceId: 'ws1' }) as { single: { id: string; agentId: string; workspaceId?: string } };
     expect(created.single.id).toBe('fixed-1');

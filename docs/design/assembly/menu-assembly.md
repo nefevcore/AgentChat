@@ -134,7 +134,7 @@ patch 内的定义副本会随出厂定义演进而过时。裁决：**行定义
 | 1 | 骨架裁级行（jobs / host-face-client）终裁 | 按表归置 |
 | 2 | 指纹算法（规范化序列化 + 哈希选型）与 src-fingerprint 字段名 | 实施批定 |
 | 3 | 存量迁移推导：现生效行集（基础集+差量现算）∩ 能力行 → 菜单片段；migrate-agent-patch.mjs 换轨 | 机械推导可行 |
-| 4 | config 升级策略（保守/替代）——插件改名配置键后存量设置迁移 | 独立特性另行立项，不阻塞本档 |
+| 4 | config 升级策略（保守/替代）——插件改名配置键后存量设置迁移 | ☑ 已立项承接：[config-upgrade.md](config-upgrade.md)（cr-1037 plan） |
 | 5 | ~~第一方包自述归一~~ 已落地（cr-1033）：能力定义迁各包 package.json `ac.rows`（词汇 id/description/requires——name 由聚合器按包根派生禁自写；多行包合法）；构建期聚合（aggregatePackageRows → gen-row-catalog.mjs）；readCatalog 合并语义（骨架归基座/能力归 JSON 投影，部署链随行物化 row-catalog.json）；shell.yml v5 单区骨架（双区读面退役，zone 变为投影派生词） | 收口（存量基线戳经 migrate --rebase 一次收敛，定义指纹零漂移） |
 | 6 | 旧 config.json 存量（模板物化窗口期产物）在迁移批的处置 | 随 §六-3 同批 |
 | 7 | requires 推导自包内 inject 导出（服务名→行映射 gen 期生成）——白名单内唯一可再降级的字段 | 后继方向；本档保留手写（它是静态闭包校验的本体输入，无运行时真值可抄） |

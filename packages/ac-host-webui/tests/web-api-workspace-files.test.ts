@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { makeWebApiRow } from '../src/web-api.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 import type { Plugin, Context } from '@agentchat/cordis';
 
 const ROOT = path.join('sandbox', 'test-ws-files-api-' + process.pid);
@@ -14,7 +15,7 @@ const ROOT = path.join('sandbox', 'test-ws-files-api-' + process.pid);
 beforeEach(() => {
   fs.rmSync(ROOT, { recursive: true, force: true });
   fs.mkdirSync(path.join(ROOT, 'agents', 'neko'), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'agents', 'neko', 'config.json'), JSON.stringify({ id: 'neko' }));
+  writeAgentConfig(ROOT, { id: 'neko' }); // cr-1036 批3：v3 写口
   fs.writeFileSync(path.join(ROOT, 'note.md'), '# hi\n');
 });
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));

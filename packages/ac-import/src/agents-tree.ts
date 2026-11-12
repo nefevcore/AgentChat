@@ -23,6 +23,7 @@
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { writeAgentConfig, type AgentConfig } from 'ac-agents-core';
 import { pathSegment } from './writer.ts';
 
 /** 身份文件（树根留驻——非机制 entries）：文档双名 + 头像扩展名族 */
@@ -135,15 +136,15 @@ export function importAgentTree(legacyAgentDir: string, targetRoot: string): Age
   } catch {
     return result; // 空目录/不可读——无迁移面
   }
-  // ① config 换轨（目标已存在 = 幂等跳过）
+  // ① config 换轨（目标已存在 = 幂等跳过；cr-1036 批3：写 v3 形态——
+  // config.json 产线退役，导入不再造存量）
   const configFile = path.join(legacyAgentDir, 'config.json');
   if (fs.existsSync(configFile)) {
-    const targetConfig = path.join(targetDir, 'config.json');
-    if (!fs.existsSync(targetConfig)) {
+    if (!fs.existsSync(path.join(targetDir, 'agent.patch.yml'))) {
       const old = JSON.parse(fs.readFileSync(configFile, 'utf-8')) as Record<string, unknown>;
       const converted = convertConfig(dirName, old);
       fs.mkdirSync(targetDir, { recursive: true });
-      fs.writeFileSync(targetConfig, JSON.stringify(converted, null, 2) + '\n', 'utf-8');
+      writeAgentConfig(targetRoot, converted as unknown as AgentConfig);
       result.configConverted = true;
     }
   }

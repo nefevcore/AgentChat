@@ -13,6 +13,7 @@ import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { deriveKey, machineMaterial, readCredential } from 'ac-credentials-core';
 import { bootHostWeb, type HostWebResult } from '../src/host-web.ts';
 import { LedgerWriter, sessionDir } from 'ac-ledger';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-host-web-' + process.pid);
 let host: HostWebResult | null = null;
@@ -63,7 +64,7 @@ describe('8.5a 宿主 web 面接线', () => {
     // 种一个 agent 配置（agents/list 数据源 + deliver 目标）
     const agentDir = path.join(ROOT, 'agents', 'alpha');
     fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock', description: '阿尔法', tags: ['full-access'] }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock', description: '阿尔法', access: 'full-access' }); // cr-1036 批3：v3 写口（tags→access）
     // 头像在场（cr-588：agents/list 注入 hasAvatar/avatarVersion——版本化 URL 面）
     fs.writeFileSync(path.join(agentDir, 'avatar.png'), Buffer.from('<png>'));
     // 会话流域污染样本（cr-607）：pair 对角线域的兜底 config + 无 config 的
@@ -276,7 +277,7 @@ describe('8.5a 宿主 web 面接线', () => {
   // 每次变更都广播 singles/updated（前端 singleBoard 增量合并的单源）。
   it('singles 全族：create/reuse → update → fork → archive → delete + 事件帧', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' }); // cr-1036 批3：v3 写口
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);
     const events: unknown[][] = [];
@@ -383,7 +384,7 @@ describe('8.5a 宿主 web 面接线', () => {
   // → steps 投影（思考/工具卡刷新不丢）；未收束 run 标 partial。
   it('session/history：peer 行 run 键带出 steps（result 内联 + partial 判定）', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' }); // cr-1036 批3：v3 写口
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);
     const conv = 'hist-steps-1';
@@ -423,7 +424,7 @@ describe('8.5a 宿主 web 面接线', () => {
   // 整条消失。身份锚与直播行 persistedMsgId 同值（前端去重/归位前提）。
   it('session/history：注入行投影为 context 行（label/来源/身份锚/真序位）', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' }); // cr-1036 批3：v3 写口
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);
     const conv = 'inj-row-1';
@@ -465,7 +466,7 @@ describe('8.5a 宿主 web 面接线', () => {
   // 机制注入（无同键行）照投。
   it('session/history：插队注入行与 agent 域入站 user 行同 requestId → 注入卡不投；机制注入照投', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' }); // cr-1036 批3：v3 写口
     const conv = 'inj-dup-1';
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
     // 插队消息的入站落账（壳侧 agent 域 user 行——requestId 同注入行）
@@ -518,7 +519,7 @@ describe('8.5a 宿主 web 面接线', () => {
   // 已落盘步；running 门控 = 孤儿 journal 不投）。
   it('conversation/stats 真源 + history journal 活投影（running 门控）', async () => {
     fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' }); // cr-1036 批3：v3 写口
     const conv = 'hist-live-1';
     // agent 域 journal：run-live 两步未收束 + run-orphan 崩溃孤儿（同未收束）
     const NL = String.fromCharCode(10);

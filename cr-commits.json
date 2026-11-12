@@ -1,6 +1,6 @@
 {
- "scannedHead": "83eafccd3eef6e5dcfa2d8ad90e7e22d4898edfe",
- "generatedAt": "2026-11-12T09:20:35.586Z",
+ "scannedHead": "d3053211770df264b19ff417f7515ca5b084f955",
+ "generatedAt": "2026-11-12T10:43:40.008Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -4387,6 +4387,13 @@
     "sha": "8c4d311f478b7a7da50d5939fbe9e599efee2907",
     "date": "2026-11-11",
     "subject": "chore(cr): cr-commits.json 投影同步（cr-1009~1019 整理批台账）"
+   }
+  ],
+  "1015": [
+   {
+    "sha": "d3053211770df264b19ff417f7515ca5b084f955",
+    "date": "2026-11-12",
+    "subject": "fix(session): cr-1015 subagent 恢复面 S1 缝隙断根——boot 恢复链 R4 replayAnsweredInteractions 改挂 inboxRecovery 串行链（原 void 直调并行：R4 队列在途跳过快照早于 R2 重投 → 同一答案双投双跑），抽 replayAnsweredAfterInbox 可测面 + boot.test.ts 回归锁（R4 起跑晚于 inbox 恢复兑现 + 信号/异常面）；矩阵档 S1 断根注记 + gap-backlog §五-1 销项；顺修存量 lint（COMPANION_ROW_ROOTS 索引访问类型断言）；typecheck + test:unit 413 全绿 + test:integration 12/89 + 定向 lint 通过"
    }
   ],
   "1020": [

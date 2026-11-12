@@ -382,18 +382,16 @@ describe('M8.2 全量 loop 接线（conversation 域 + collab-tools）', () => {
 
 describe('cr-593：agents 垫片词形展开（AgentConfig.rows 行 id → 工具名）', () => {
   it('get()：行 id 按目录投影展开（保序去重）；对象形态 include/exclude 各自展开；无投影透传', async () => {
-    const dir = path.join(ROOT, 'agents', 'vocab');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
+    // cr-1036 批3：身份 fixture 走 v3 写口（mini shell 目录注入——定义拷贝面）
+    const MINI_ROWS = ['fs-tools', 'shell-tools', 'subagent', 'math'].map((id) => ({ id, tree: 'shell' as const, zone: 'capability' as const }));
+    writeAgentConfig(ROOT, {
       id: 'vocab', model: 'mock',
       rows: ['fs-tools', 'subagent', 'math'],
-    }), 'utf-8');
-    const dir2 = path.join(ROOT, 'agents', 'vocab-obj');
-    fs.mkdirSync(dir2, { recursive: true });
-    fs.writeFileSync(path.join(dir2, 'config.json'), JSON.stringify({
+    }, { shellRows: MINI_ROWS });
+    writeAgentConfig(ROOT, {
       id: 'vocab-obj', model: 'mock',
       rows: { include: ['fs-tools'], exclude: ['shell-tools', 'pwsh'] },
-    }), 'utf-8');
+    }, { shellRows: MINI_ROWS });
     const rowTools = { 'fs-tools': ['read', 'write', 'edit'], 'shell-tools': ['pwsh', 'job'] };
     const ctx = new Context();
     const fibers: Array<{ uid: number | null; dispose(): Promise<void> }> = [];
@@ -402,10 +400,17 @@ describe('cr-593：agents 垫片词形展开（AgentConfig.rows 行 id → 工�
       fibers.push(shim);
       await shim;
       const agents = ctx.get('agents') as unknown as { get(id: string): { rows: unknown } };
-      // 数组形态：行 id 展开 + 工具名透传（主线 list_tools 等按注册名过滤不再落空）
-      expect(agents.get('vocab').rows).toEqual(['read', 'write', 'edit', 'subagent', 'math']);
-      // 对象形态：include/exclude 各自展开（'pwsh' 直名与 shell-tools 展开去重）
-      expect(agents.get('vocab-obj').rows).toEqual({ include: ['read', 'write', 'edit'], exclude: ['pwsh', 'job'] });
+      // 数组意图写入口 → v3 组合读恒 include 形态（cr-1036 批3，含骨架恒并面）：
+      // 行 id 展开 + 工具名透传（骨架 = 数据根投影解析，断言能力面即可）
+      const vocabRows = (agents.get('vocab').rows as { include: string[] }).include;
+      expect(vocabRows).toEqual(expect.arrayContaining(['read', 'write', 'edit', 'subagent', 'math']));
+      expect(vocabRows).toContain('tools'); // 骨架恒并在场
+      // 对象形态：include 展开直读；exclude 在 v3 世代经「不进即不装」表达
+      //（cr-1036 批3——shell-tools 不进 defs，组合读无 exclude 键）
+      const objRows = (agents.get('vocab-obj').rows as { include: string[] }).include;
+      expect(objRows).toEqual(expect.arrayContaining(['read', 'write', 'edit']));
+      expect(objRows).not.toContain('pwsh');
+      expect(objRows).not.toContain('job');
     } finally {
       for (const f of [...fibers].reverse()) if (f.uid !== null) await f.dispose();
     }
@@ -415,7 +420,9 @@ describe('cr-593：agents 垫片词形展开（AgentConfig.rows 行 id → 工�
     await shim2;
     try {
       const agents2 = ctx2.get('agents') as unknown as { get(id: string): { rows: unknown } };
-      expect(agents2.get('vocab').rows).toEqual(['fs-tools', 'subagent', 'math']);
+      // v3 组合读恒 include 形态（骨架 ∪ defs——cr-1036 批3 后无裸数组读面）
+      const plainRows = (agents2.get('vocab').rows as { include: string[] }).include;
+      expect(plainRows).toEqual(expect.arrayContaining(['fs-tools', 'subagent', 'math']));
     } finally {
       if (shim2.uid !== null) await shim2.dispose();
     }

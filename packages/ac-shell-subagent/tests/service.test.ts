@@ -21,10 +21,29 @@ const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'app
 const SHELL_ROWS = ['fs-tools', 'fs-search', 'shell-tools', 'subagent', 'run-code']
   .map((id) => ({ id, tree: 'shell' as const, zone: 'capability' as const }));
 
+// cr-1036 批3：身份 fixture 走 v3 写口（config.json 读窗退役）；tools 旧词形归一 rows
+import { writeAgentConfig, writeAgentPatchV3At, writePluginConfigAt } from 'ac-agents-core';
+function seedPapa(extra: Record<string, unknown> = {}): void {
+  const { tools, ...rest } = extra as { tools?: unknown };
+  writeAgentConfig(ROOT, {
+    id: 'papa', model: 'mock',
+    ...(tools !== undefined ? { rows: tools as string[] } : {}),
+    ...rest,
+  } as import('ac-agents-core').AgentConfig, { shellRows: SHELL_ROWS.map((r) => ({ ...r, path: undefined })) });
+}
+/** 子域最小物化（v3 空清单——config.json 在场判定的等价面）；originConversation 走 origin.json 单元（主写面） */
+function seedChildRaw(childId: string, originConversation?: string): void {
+  const dir = path.join(ROOT, 'agents', 'papa', 'children', childId);
+  fs.mkdirSync(dir, { recursive: true });
+  writeAgentPatchV3At(dir, [], {}, undefined);
+  if (originConversation !== undefined) {
+    writePluginConfigAt(dir, 'origin', { originConversation });
+  }
+}
+
 beforeEach(() => {
   fs.mkdirSync(path.join(ROOT, 'agents', 'papa'), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'config.json'),
-    JSON.stringify({ id: 'papa', model: 'mock', tools: ['fs-tools', 'shell-tools', 'fs-search'] }), 'utf-8');
+  seedPapa({ tools: ['fs-tools', 'shell-tools', 'fs-search'] });
 });
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
@@ -494,8 +513,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
       // 父 config 带程序化形态 + rows 含 run-code（程序化 Agent 形态）
-      fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'config.json'),
-        JSON.stringify({ id: 'papa', model: 'mock', toolMode: 'tc-programmatic', access: 'full-access', tools: ['run-code', 'fs-tools', 'subagent'] }), 'utf-8');
+      seedPapa({ toolMode: 'tc-programmatic', access: 'full-access', tools: ['run-code', 'fs-tools', 'subagent'] });
       const tools = ctx.get('tools') as unknown as {
         execute(call: { name: string; args: Record<string, unknown>; conversationId?: string }): Promise<{ ok: boolean; output?: { subagent_id?: string; filtered?: string[]; note?: string } }>;
       };
@@ -519,8 +537,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       expect(((rejected.output as { note?: string }).note ?? '')).toContain('run_code');
       // ④ cr-1021：常规父（无 toolMode）+ 子行集含 run-code（缺省继承）→
       // 不合成程序化——「行集含 run-code」不再单独构成形态信号
-      fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'config.json'),
-        JSON.stringify({ id: 'papa', model: 'mock', access: 'full-access', tools: ['run-code', 'fs-tools', 'subagent'] }), 'utf-8');
+      seedPapa({ access: 'full-access', tools: ['run-code', 'fs-tools', 'subagent'] });
       const plain = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '常规父' } });
       const plainCfg = readChildConfig(ROOT, 'papa', (plain.output as { subagent_id: string }).subagent_id);
       expect((plainCfg?.rows as { include?: string[] })?.include ?? []).toContain('run-code'); // v3 正清单直读
@@ -717,7 +734,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
   it('重启对账：新服务实例 boot 即补投漏通知（requestId 幂等键 + originConversation 盘读）', async () => {
     const childRoot = path.join(ROOT, 'agents', 'papa', 'children', 'sub-reboot');
     fs.mkdirSync(childRoot, { recursive: true });
-    fs.writeFileSync(path.join(childRoot, 'config.json'), JSON.stringify({ id: 'sub-reboot', originConversation: 'u-init~papa' }), 'utf-8');
+    seedChildRaw('sub-reboot', 'u-init~papa');
     fs.writeFileSync(path.join(childRoot, 'interactions.jsonl'), JSON.stringify({
       id: 'dur-r1', kind: 'ask_questions', state: 'pending',
       payload: { questions: [{ question: '重启后的问题', options: ['继续', '放弃'] }] },
@@ -761,7 +778,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     const childRoot = path.join(ROOT, 'agents', 'papa', 'children', 'sub-legacy');
     const inboxDir = path.join(childRoot, 'sessions', 'papa~sub-legacy', 'inbox');
     fs.mkdirSync(inboxDir, { recursive: true });
-    fs.writeFileSync(path.join(childRoot, 'config.json'), JSON.stringify({ id: 'sub-legacy' }), 'utf-8'); // 无 originConversation
+    seedChildRaw('sub-legacy'); // 无 originConversation
     fs.writeFileSync(path.join(inboxDir, 'sub-t1.json'), JSON.stringify({
       uuid: 'papa~sub-legacy', requestId: 'sub-t1', sender: 'papa', to: 'sub-legacy', kind: 'message',
       payload: { text: '任务', replyConversation: 'u-legacy~papa' },
@@ -804,7 +821,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
   it('对账重试：conversation 延迟就位（行序后装）→ 重试链等到后投出通知', async () => {
     const childRoot = path.join(ROOT, 'agents', 'papa', 'children', 'sub-late');
     fs.mkdirSync(childRoot, { recursive: true });
-    fs.writeFileSync(path.join(childRoot, 'config.json'), JSON.stringify({ id: 'sub-late', originConversation: 'u-late~papa' }), 'utf-8');
+    seedChildRaw('sub-late', 'u-late~papa');
     fs.writeFileSync(path.join(childRoot, 'interactions.jsonl'), JSON.stringify({
       id: 'dur-late', kind: 'ask_questions', state: 'pending',
       payload: { questions: [{ question: '延迟服务下的问题', options: ['A', 'B'] }] },
@@ -900,10 +917,10 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // 盘上预置"会话 B"的子与无键子
       const bRoot = path.join(ROOT, 'agents', 'papa', 'children', 'sub-fromb');
       fs.mkdirSync(bRoot, { recursive: true });
-      fs.writeFileSync(path.join(bRoot, 'config.json'), JSON.stringify({ id: 'sub-fromb', originConversation: 'conv-b' }), 'utf-8');
+      writeAgentPatchV3At(bRoot, [], {}, undefined); writePluginConfigAt(bRoot, 'origin', { originConversation: 'conv-b' });
       const uRoot = path.join(ROOT, 'agents', 'papa', 'children', 'sub-nokey');
       fs.mkdirSync(uRoot, { recursive: true });
-      fs.writeFileSync(path.join(uRoot, 'config.json'), JSON.stringify({ id: 'sub-nokey' }), 'utf-8');
+      writeAgentPatchV3At(uRoot, [], {}, undefined);
       // 会话 A 视角：own + 无键可见；conv-b 隐去
       const inA = await tools.execute({ name: 'subagent', args: { action: 'list' }, conversationId: 'conv-a' });
       const idsA = (inA.output?.agents ?? []).map((e) => e.childId);
@@ -940,7 +957,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       });
       const childRoot = path.join(ROOT, 'agents', 'papa', 'children', childId);
       fs.mkdirSync(childRoot, { recursive: true });
-      fs.writeFileSync(path.join(childRoot, 'config.json'), JSON.stringify({ id: childId }), 'utf-8');
+      writeAgentPatchV3At(childRoot, [], {}, undefined);
       acquireActivationLock(childRoot, {
         pid: process.pid, bootId: 'b-kid-s', acquiredAt: new Date().toISOString(), transportHint: hint,
       });
@@ -955,7 +972,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // 重拉（spawnShell 替身被调——children 句柄回管）
       const deadRoot = path.join(ROOT, 'agents', 'papa', 'children', 'kid-dead');
       fs.mkdirSync(deadRoot, { recursive: true });
-      fs.writeFileSync(path.join(deadRoot, 'config.json'), JSON.stringify({ id: 'kid-dead' }), 'utf-8');
+      writeAgentPatchV3At(deadRoot, [], {}, undefined);
       const deadOut = await svc.sendOp('kid-dead', 'x', 'async');
       expect(deadOut.delivered).toBe(true); // 落盘即送达
       const inboxDir = path.join(deadRoot, 'sessions', 'papa~kid-dead', 'inbox');
@@ -1100,7 +1117,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // 死子（无锁无句柄）不建——消费面无人
       const dead = 'sub-dead-1';
       fs.mkdirSync(path.join(ROOT, 'agents', 'papa', 'children', dead), { recursive: true });
-      fs.writeFileSync(path.join(ROOT, 'agents', 'papa', 'children', dead, 'config.json'), JSON.stringify({ id: dead }), 'utf-8');
+      writeAgentPatchV3At(path.join(ROOT, 'agents', 'papa', 'children', dead), [], {}, undefined);
       svcInner.reconcilePendingAsks();
       expect(svcInner.askWatchers.has(dead)).toBe(false);
     } finally { await dispose(); }

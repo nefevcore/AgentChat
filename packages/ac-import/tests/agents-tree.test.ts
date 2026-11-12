@@ -53,7 +53,7 @@ describe('importAgentsTree（树域迁移）', () => {
     const target = path.join(tmp, 'target');
     const r1 = importAgentsTree(path.join(tmp), target);
     expect(r1).toEqual([{ agentId: 'demo', configConverted: true, entriesMoved: 1, identityFilesCopied: 2 }]);
-    expect(fs.existsSync(path.join(target, 'agents/demo/config.json'))).toBe(true);
+    expect(fs.existsSync(path.join(target, 'agents/demo/agent.patch.yml'))).toBe(true); // cr-1036 批3：v3 写口（config.json 产线退役）
     expect(fs.existsSync(path.join(target, 'agents/demo/entries/todo.json'))).toBe(true);
     expect(fs.existsSync(path.join(target, 'agents/demo/AGENT.md'))).toBe(true);
     // 幂等重入：二跑零新增

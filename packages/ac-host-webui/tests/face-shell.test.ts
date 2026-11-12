@@ -8,6 +8,9 @@ import { describe, it, expect } from 'vitest';
 import type { Context } from '@agentchat/cordis';
 import * as fs from 'node:fs';
 import { registerShellFace, type ShellAdminPort } from '../src/face-shell.ts';
+import { writeAgentConfig, writeAgentPatchV3At } from 'ac-agents-core';
+// mini shell 目录（v3 写口 fixture 输入——rows 点名定义拷贝面）
+const MINI_SHELL_ROWS = [{ id: 'fs-tools', tree: 'shell' as const, zone: 'capability' as const }];
 
 type Handler = (params: unknown) => unknown;
 
@@ -267,7 +270,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     const rootDir = 'sandbox/test-sub-list-' + process.pid;
     const childDir = rootDir + '/agents/parent1/children/kid1';
     fs.mkdirSync(childDir + '/sessions/s1', { recursive: true });
-    fs.writeFileSync(childDir + '/config.json', JSON.stringify({ id: 'kid1', name: '调研员' }), 'utf-8');
+    writeAgentPatchV3At(childDir, [], {}, undefined); fs.writeFileSync(childDir + '/agent.json', JSON.stringify({ name: '调研员' })); // cr-1036 批3：v3
     fs.writeFileSync(childDir + '/sessions/s1/messages.jsonl', [
       JSON.stringify({ type: 'session-header', version: 1 }),
       JSON.stringify({ role: 'agent', agent_id: 'parent1', content: '去查证 X' }),
@@ -275,7 +278,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     ].join('\n') + '\n', 'utf-8');
     // 第二父：物化但未开跑（无 sessions）
     fs.mkdirSync(rootDir + '/agents/parent2/children/kid2', { recursive: true });
-    fs.writeFileSync(rootDir + '/agents/parent2/children/kid2/config.json', JSON.stringify({ id: 'kid2' }), 'utf-8');
+    writeAgentPatchV3At(rootDir + '/agents/parent2/children/kid2', [], {}, undefined); // cr-1036 批3：v3
     try {
       const { web, handlers } = collect();
       registerShellFace(web, ctx, { dataRoot: rootDir, port: () => null });
@@ -311,7 +314,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     fs.writeFileSync(childDir + '/agent.json', JSON.stringify({ name: '新式子' }), 'utf-8');
     const oldChild = rootDir + '/agents/parent1/children/kid8';
     fs.mkdirSync(oldChild, { recursive: true });
-    fs.writeFileSync(oldChild + '/config.json', JSON.stringify({ id: 'kid8', name: '存量子' }), 'utf-8');
+    writeAgentPatchV3At(oldChild, [], {}, undefined); fs.writeFileSync(oldChild + '/agent.json', JSON.stringify({ name: '存量子' })); // cr-1036 批3：v3（档案在场）
     // 两者都缺席档案（无 agent.json 也无 config.json）——条目保留、name 空串
     const bare = rootDir + '/agents/parent1/children/kid7';
     fs.mkdirSync(bare, { recursive: true });
@@ -336,7 +339,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     const rootDir = 'sandbox/test-sub-live-' + process.pid;
     const childDir = rootDir + '/agents/parent1/children/kid1';
     fs.mkdirSync(childDir + '/sessions/s1', { recursive: true });
-    fs.writeFileSync(childDir + '/config.json', JSON.stringify({ id: 'kid1', name: '调研员' }), 'utf-8');
+    writeAgentPatchV3At(childDir, [], {}, undefined); fs.writeFileSync(childDir + '/agent.json', JSON.stringify({ name: '调研员' })); // cr-1036 批3：v3
     fs.writeFileSync(childDir + '/sessions/s1/messages.jsonl', [
       JSON.stringify({ type: 'session-header', version: 1 }),
       JSON.stringify({ role: 'agent', agent_id: 'parent1', content: '去查证 X' }),
@@ -370,7 +373,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     const rootDir = 'sandbox/test-sub-hist-' + process.pid;
     const sessDir = rootDir + '/agents/parent1/children/kid1/sessions/c1';
     fs.mkdirSync(sessDir + '/journal', { recursive: true });
-    fs.writeFileSync(rootDir + '/agents/parent1/children/kid1/config.json', JSON.stringify({ id: 'kid1' }), 'utf-8');
+    writeAgentPatchV3At(rootDir + '/agents/parent1/children/kid1', [], {}, undefined); // cr-1036 批3：v3
     fs.writeFileSync(sessDir + '/messages.jsonl', [
       JSON.stringify({ type: 'session-header', version: 1, participants: ['kid1', 'parent1'] }),
       JSON.stringify({ role: 'agent', agent_id: 'parent1', content: '干活' }),
@@ -403,7 +406,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     const rootDir = 'sandbox/test-sub-subcall-' + process.pid;
     const sessDir = rootDir + '/agents/parent1/children/kid1/sessions/parent1~kid1';
     fs.mkdirSync(sessDir + '/journal', { recursive: true });
-    fs.writeFileSync(rootDir + '/agents/parent1/children/kid1/config.json', JSON.stringify({ id: 'kid1' }), 'utf-8');
+    writeAgentPatchV3At(rootDir + '/agents/parent1/children/kid1', [], {}, undefined); // cr-1036 批3：v3
     const header = { type: 'session-header', version: 1, participants: ['kid1', 'parent1'] };
     const taskRow = { role: 'agent', agent_id: 'parent1', content: '调研任务', requestId: 't1' };
     const finalRow = { role: 'agent', content: '终稿', agent_id: 'kid1', run: 'run-1', requestId: 'reply-t1', message_id: 'm1', timestamp: new Date().toISOString(), seq: 3 };
@@ -488,7 +491,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     const rootDir = 'sandbox/test-face-tdefs-' + process.pid;
     const dir = rootDir + '/agents/a1';
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(dir + '/config.json', JSON.stringify({ id: 'a1', model: 'mock', rows: ['fs-tools'] }), 'utf-8');
+    writeAgentConfig(rootDir, { id: 'a1', model: 'mock', rows: ['fs-tools'] }, { shellRows: MINI_SHELL_ROWS }); // cr-1036 批3：v3 写口
     try {
       // 活壳真值：壳在句柄池 → tool-defs 帧往返（与 run 同口径）
       const frames: Array<Record<string, unknown>> = [];

@@ -58,15 +58,15 @@ class ConvSettingsShim extends Service {
 import { makeConversationRow, type ConversationService } from 'ac-shell-conversation';
 import { makeEnvelope, type Envelope } from 'ac-envelope-core';
 import { readPrefixSnapshot, diffFingerprints } from '../src/prefix-snapshot.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-prefix-snapshot-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
-  const dir = path.join(ROOT, 'agents', agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock-1', ...extra }), 'utf-8');
+  // cr-1036 批3：v3 写口（config.json 读窗退役）
+  writeAgentConfig(ROOT, { id: agentId, model: 'mock-1', ...extra } as import('ac-agents-core').AgentConfig);
 }
 
 /** singles 注册表直投（SinglesShim 读面——cr-973 迁 meta/sessions/） */

@@ -1,0 +1,17 @@
+{
+  "name": "ac-migration-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "迁移链纯库（cr-1036）：版本化持久形态的换轨器统一组织——相邻边注册 + 四断言完备性校验（严格相邻/from 无重复/链完整/future 拒绝降级）+ plan/run 执行语义（逐边可审计）；零 cordis 依赖",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

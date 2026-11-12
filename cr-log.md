@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-1035**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-1039**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1054,4 +1054,8 @@
 - 【cr-1033 2026-11-12 cr-1022 §六-5 立项：能力定义归包（shell.yml 能力区迁各包 ac.rows + 构建期聚合，B1 立法/B2 换源/B3 基座收缩三批）】{#assembly|→cr-1022}
 - 【cr-1034 2026-11-12 restart_shell 换代壳不续跑修复：接管壳锁观察器 marker 消费改 cr-663 领取语义（.claimed 承载原文交接 conversationId——cr-994 误删断链）】{#session|#ops}
 - 【cr-1035 2026-11-12 仓库卫生：.gitignore 补 %SystemDrive% 与临时产物规则，误入库的 fold-out.txt/subagent-tool-test-report.md 移出索引】{#ops}
+- 【cr-1036 2026-11-12 "链完备性立项：版本化持久形态的换轨器统一为相邻边迁移链 + 校验器（严格相邻/from 无重复/0..current 完整缺环 fail-loud/未来版本拒绝降级——DSH CompiledSessionFormatChain 先例）；新增换档=注册新边，一次性 migrate 脚本禁令" "#assembly" "--status" "plan"】{doing}
+- 【cr-1037 2026-11-12 "config 升级立项：行级 configVersion 戳 + owning 包声明相邻迁移边（纯函数）+ boot 惰性迁移落盘（原子写+备份同源）；无损才迁——语义变化不写边，旧值保 config.legacy + notice 明示手动重设；改键名的 CR 必须同批处理存量" "#assembly" "--status" "plan"】
+- 【cr-1038 2026-11-12 superagent 大计划：对标 dots/dsh 差距研究成文（superagent-master-plan.md，含底稿固化/安全前置/compaction/B1-B4/harness 体验五线）】{plan}
+- 【cr-1039 2026-11-12 cr-1036 全批收官：批2 agent.patch 形态链注册（patch-chain v0→v1→v2 + 探测 + 链驱动执行）+ migrate 工具换轨链驱动（换算代码清零）；批3 shell boot 惰性走链 + config.json 读窗退役（残留视同缺席）+ ac-import 写口换 v3 + workspace/home 42 存量收编零残留】
 

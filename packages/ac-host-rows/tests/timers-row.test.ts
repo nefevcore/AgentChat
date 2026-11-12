@@ -11,6 +11,7 @@ import { TimerService } from '@agentchat/cordis-timer';
 import { ConfigService } from 'ac-config';
 import { PostOffice } from 'ac-post-office';
 import { makeTimersHostRow, GLOBAL_TIMER_OWNER, HostTimersService } from '../src/timers-row.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-host-timers-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -48,7 +49,7 @@ async function boot(endpoints: string[] = ['alpha']) {
 function seedAgent(id: string, entries: Array<Record<string, unknown>>, config: Record<string, unknown> = { id, model: 'mock' }) {
   const dir = path.join(ROOT, 'agents', id, 'entries');
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'agents', id, 'config.json'), JSON.stringify(config), 'utf-8');
+  writeAgentConfig(ROOT, config as unknown as import('ac-agents-core').AgentConfig); // cr-1036 批3：v3 写口
   if (entries.length > 0) {
     fs.writeFileSync(path.join(dir, 'timer.json'), JSON.stringify({ entries }), 'utf-8');
   }

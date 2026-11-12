@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import { HostFaceClient } from 'ac-host-face-core';
-import { readAgentConfig } from 'ac-agents-core';
+import { readAgentConfig, writeAgentConfig } from 'ac-agents-core';
 import { makeHostFaceRow, currentHostFace } from '../src/index.ts';
 
 const tmps: string[] = [];
@@ -72,10 +72,8 @@ describe('宿主能力面（cr-886）', () => {
 
   it('execute update_agent_profile：改自己落盘（agents-core 归一形态）；改他人非 admin 拒绝', async () => {
     const root = tmpRoot();
-    fs.mkdirSync(path.join(root, 'agents', 'a1'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'agents', 'a1', 'config.json'), JSON.stringify({ id: 'a1', model: 'm' }), 'utf-8');
-    fs.mkdirSync(path.join(root, 'agents', 'a2'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'agents', 'a2', 'config.json'), JSON.stringify({ id: 'a2', model: 'm' }), 'utf-8');
+    writeAgentConfig(root, { id: 'a1', model: 'm' }); // cr-1036 批3：v3 写口
+    writeAgentConfig(root, { id: 'a2', model: 'm' });
     await bootFace(root);
     const client = new HostFaceClient();
     await client.connect(pipeOf(root));

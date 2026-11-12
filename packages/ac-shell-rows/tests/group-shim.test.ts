@@ -9,15 +9,14 @@ import * as path from 'node:path';
 import { Context, Service, type Fiber } from '@agentchat/cordis';
 import { AgentsShim, SessionShim, GroupShim } from '../src/shims.ts';
 import { makeLedgerRow, readLedger } from 'ac-ledger';
+import { writeAgentConfig } from 'ac-agents-core';
 import type { Envelope } from 'ac-envelope-core';
 
 const ROOT = path.resolve('sandbox/group-shim-test-' + process.pid);
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 function seedAgent(id: string): void {
-  const dir = path.join(ROOT, 'agents', id);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id, model: 'mock-1' }), 'utf-8');
+  writeAgentConfig(ROOT, { id, model: 'mock-1' }); // cr-1036 批3：v3 写口
 }
 
 function seedGroup(gid: string, members: string[]): void {

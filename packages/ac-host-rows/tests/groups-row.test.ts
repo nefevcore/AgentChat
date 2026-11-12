@@ -7,6 +7,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { makeGroupsHostRow } from '../src/index.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 import { ConversationRegistry } from 'ac-post-office';
 import type { Envelope } from 'ac-envelope-core';
 
@@ -17,8 +18,8 @@ afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 type Handler = (params: unknown) => unknown;
 
 function seedAgent(id: string): void {
-  fs.mkdirSync(path.join(ROOT, 'agents', id), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'agents', id, 'config.json'), JSON.stringify({ id, model: 'mock' }), 'utf-8');
+  // cr-1036 批3：身份 fixture 走 v3 写口（config.json 读窗退役）
+  writeAgentConfig(ROOT, { id, model: 'mock' });
 }
 
 function boot() {

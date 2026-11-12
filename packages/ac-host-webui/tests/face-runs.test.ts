@@ -10,6 +10,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import { registerOpsFace } from '../src/face-ops.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 import type { ShellAdminPort } from '../src/face-shell.ts';
 
 type Handler = (params: unknown) => unknown;
@@ -80,9 +81,9 @@ describe('session/tokens（宿主聚合）', () => {
       expect(out.agentId).toBe('a1');
       expect(out.cache).toEqual({ lastHit: 70, lastMiss: 30, hit: 120, miss: 50, lastRunPrompt: 200 });
 
-      // agent 差异层覆盖预算分母
+      // agent 差异层覆盖预算分母（cr-1036 批3：v3 写口——settings 拆 archive 单元）
       fs.mkdirSync(path.join(root, 'agents', 'a1'), { recursive: true });
-      fs.writeFileSync(path.join(root, 'agents', 'a1', 'config.json'), JSON.stringify({ id: 'a1', settings: { archive: { maxContextTokens: 500 } } }), 'utf-8');
+      writeAgentConfig(root, { id: 'a1', settings: { archive: { maxContextTokens: 500 } } });
       const out2 = await handlers.get('session/tokens')!({ conversationId: 'c1' }) as Record<string, unknown>;
       expect(out2.maxContextTokens).toBe(500);
       expect(out2.usagePercent).toBe(0.8);

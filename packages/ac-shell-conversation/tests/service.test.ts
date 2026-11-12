@@ -7,6 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Context, Service, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as llmRow from 'ac-llm';
@@ -16,22 +17,33 @@ import { makeLedgerRow, readLedger, readJournal } from 'ac-ledger';
 import * as durableInteractionRow from 'ac-durable-interaction';
 import { makeConversationRow, replyTargetOf, type ConversationService } from 'ac-shell-conversation';
 import { makeEnvelope, socketPathFor, listenIpc, type Envelope } from 'ac-envelope-core';
+import { writeAgentConfig, writeAgentPatchV3At } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-conv-svc-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
+// mini shell 目录（fixture 面——seedAgent 的 v3 写口输入；行 id 与真实投影同词）
+const SHELL_ROWS = ['fs-tools', 'fs-search', 'shell-tools', 'run-code', 'math', 'subagent'].map((id) => ({
+  id, tree: 'shell' as const, zone: 'capability' as const,
+}));
 function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
-  const dir = path.join(ROOT, 'agents', agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock-1', ...extra }), 'utf-8');
+  // cr-1036 批3：身份 fixture 走 v3 写口（config.json 读窗退役——残留死文件视同缺席）；
+  // 旧词形归一：tools → rows、tags 档位词 → access/toolMode（读侧归一窗口关闭）
+  const { tools, tags, ...rest } = extra as { tools?: unknown; tags?: unknown };
+  const cfg: Record<string, unknown> = { id: agentId, model: 'mock-1', ...rest };
+  if (tools !== undefined) cfg.rows = tools;
+  if (Array.isArray(tags)) {
+    if (tags.includes('full-access')) cfg.access = 'full-access';
+    if (tags.includes('tc-programmatic')) cfg.toolMode = 'tc-programmatic';
+  }
+  writeAgentConfig(ROOT, cfg as unknown as import('ac-agents-core').AgentConfig, { shellRows: SHELL_ROWS });
 }
 
-/** 子域物化 fixture（cr-863）：readChildConfig 读 agents/<parent>/children/<id>/config.json */
+/** 子域物化 fixture（cr-863）：物化走 materializeChild 同形 v3 写口（cr-1036 批3） */
 function seedChild(parentId: string, childId: string): void {
-  const dir = path.join(ROOT, 'agents', parentId, 'children', childId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: childId, model: 'mock-1' }), 'utf-8');
+  writeAgentPatchV3At(path.join(ROOT, 'agents', parentId, 'children', childId), [], {}, undefined);
+  fs.writeFileSync(path.join(ROOT, 'agents', parentId, 'children', childId, 'agent.json'), JSON.stringify({ model: 'mock-1' }), 'utf-8');
 }
 
 /** 真树 boot：tools → llm → mock provider → loop → ledger → conversation。
@@ -584,13 +596,13 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
 });
 
 describe('agent-admin 预览面（cr-552 跨进程 dry-run 壳内半边）', () => {
-  it('previewSystemPrompt：装配链真实生效（persona 注入 system）+ 干跑无副作用', async () => {
-    seedAgent('alpha', { system: '基底' });
+  it('previewSystemPrompt：装配链空转载体不变（v3 世代 system 恒缺席——退役面）+ 干跑无副作用', async () => {
+    seedAgent('alpha');
     const { fibers, conv } = await bootTree('alpha');
     try {
-      // 无组装器时 = config.system 原样直过（装配链空转 = 载体不变）
+      // 无组装器时 = 载体原样直过（v3 组合读不产 system——cr-1036 批3 后恒空串）
       const system = await conv.previewSystemPrompt();
-      expect(system).toBe('基底'); // 无组装器时 = config.system 原样
+      expect(system).toBe('');
       // 干跑无副作用：不落账、不占门、无 run
       expect(conv.isBusy()).toBe(false);
       expect(fs.existsSync(path.join(ROOT, 'agents', 'alpha', 'sessions'))).toBe(false);
@@ -600,7 +612,7 @@ describe('agent-admin 预览面（cr-552 跨进程 dry-run 壳内半边）', () 
   }, 15_000);
 
   it('previewSystemPrompt：装配链真实生效（before-run 组装器变异载体）', async () => {
-    seedAgent('alpha', { system: '基底' });
+    seedAgent('alpha');
     const { ctx, fibers, conv } = await bootTree('alpha');
     try {
       // 主线 persona 行同构的组装器插件：waterfall 事件经 on('loop/before-run') 订阅
@@ -616,7 +628,7 @@ describe('agent-admin 预览面（cr-552 跨进程 dry-run 壳内半边）', () 
       fibers.push(asmFiber);
       await asmFiber;
       const system = await conv.previewSystemPrompt();
-      expect(system).toBe('基底\n[persona 块]');
+      expect(system).toBe('\n[persona 块]'); // 空载体 + 组装器追加（v3 世代 system 恒缺席）
     } finally {
       await dispose(fibers);
     }

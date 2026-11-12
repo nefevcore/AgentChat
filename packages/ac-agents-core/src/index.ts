@@ -11,6 +11,7 @@ export const name = 'ac-agents-core';
 export * from './config.ts';
 export * from './tree.ts';
 export * from './patch-doc.ts';
+export * from './patch-chain.ts';
 export * from './write.ts';
 export * from './fixture.ts';
 export * from './auth-shape.ts';

@@ -73,13 +73,12 @@ function profileToMenuConfig(agentId: string, profile: AgentProfile, defs: impor
   });
 }
 /**
- * 直读 Agent 定义（cr-906 批4 双读 + cr-1004 批2 三读：v2 差量〔数组
- * agent.patch.yml + agent.json〕赢 → 旧映射 patch → config.json 存量窗口）。
- * ◐b cr-691 键归一：盘上旧键 tools → rows（读时兼容已迁数据；写恒 rows）。
+ * 直读 Agent 定义（cr-1022 批3 v3 唯一装配读面 + cr-1036 批3 读窗退役）：
+ * v3 菜单片段在场即组合读（档案 + 定义 + 单元文件）；旧形态在场 =
+ * fail-loud 指路迁移（shell boot 惰性走链后活文件清零，此处兜底防绕过）。
  */
 export function readAgentConfig(dataRoot: string, agentId: string, opts: { catalogFile?: string } = {}): AgentConfig | null {
   const dir = agentDir(dataRoot, agentId);
-  // v3 菜单片段（cr-1022 批3 起唯一装配读面——v2 差量组合读退役）
   const v3 = readAgentPatchV3At(dir);
   if (v3 !== null) {
     const profile = readAgentProfileAt(dir) ?? {};
@@ -90,28 +89,10 @@ export function readAgentConfig(dataRoot: string, agentId: string, opts: { catal
     if (Object.keys(unitFiles).length === 0) return config;
     return { ...config, settings: { ...(config.settings ?? {}), ...unitFiles } };
   }
-  const patch = readAgentPatch(dataRoot, agentId);
-  if (patch !== null) {
-    // 插件配置合成（cr-906 切片二）：单元文件赢——拆分后 patch 不再随行
-    // settings（窗口期 patch 内联 settings 为未拆分存量兜底）
-    const config = patchToConfig(agentId, patch);
-    const unitFiles = readPluginConfigs(dataRoot, agentId);
-    if (Object.keys(unitFiles).length === 0) return config;
-    return { ...config, settings: { ...(config.settings ?? {}), ...unitFiles } };
-  }
-  const file = path.join(agentDir(dataRoot, agentId), CONFIG_FILE);
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AgentConfig> & { tools?: unknown };
-    if (typeof parsed.id !== 'string' || parsed.id !== agentId) return null;
-    if (parsed.rows === undefined && parsed.tools !== undefined) {
-      (parsed as Record<string, unknown>).rows = parsed.tools;
-      delete (parsed as Record<string, unknown>).tools;
-    }
-    // cr-953：存量 tags 读侧归一（档位/模式/levels 词结构化，能力词丢弃）
-    return normalizeLegacyTags(parsed as AgentConfig);
-  } catch {
-    return null;
-  }
+  // 旧形态在场 = 身份缺席语义（读窗退役——cr-1036 批3：活数据根内旧形态
+  // 已由 shell boot 惰性迁移收编清零；此处读到 = 残留死文件，视同缺席。
+  // v3 缺席而档案在场（手删 patch）= 同缺席——与 cr-1022 批3 同语义）
+  return null;
 }
 
 /** 写 Agent 定义（cr-1004 批2：档案 → agent.json；装配差量 → agent.patch.yml
@@ -194,8 +175,7 @@ export function readChildConfig(parentDataRoot: string, parentId: string, childI
   assertAgentId(parentId);
   assertAgentId(childId);
   const dir = path.join(agentDir(parentDataRoot, parentId), 'children', childId);
-  // v2 差量（cr-1004 批2：children 随 migrate 同形迁移）→ 组合读；
-  // 缺席走 config.json 旧路径（物化即快照——v3 缺席 = null）
+  // v3 菜单片段唯一读面（cr-1036 批3 读窗退役——同 readAgentConfig）
   const v3 = readAgentPatchV3At(dir);
   if (v3 !== null) {
     const skeletonIds = readCatalog(opts.catalogFile ?? defaultCatalogFile(parentDataRoot)).rows
@@ -205,14 +185,9 @@ export function readChildConfig(parentDataRoot: string, parentId: string, childI
     if (Object.keys(unitFiles).length === 0) return config;
     return { ...config, settings: { ...(config.settings ?? {}), ...unitFiles } };
   }
-  const file = path.join(dir, CONFIG_FILE);
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as Partial<AgentConfig>;
-    if (typeof parsed.id !== 'string' || parsed.id !== childId) return null;
-    return parsed as AgentConfig;
-  } catch {
-    return null;
-  }
+  // config.json 旧读窗退役（cr-1036 批3）——物化即快照的子身份经
+  // migrate/惰性迁移同形收编；残留死文件视同缺席
+  return null;
 }
 
 /** 列某 agent 的 children id（物化子树清单；缺席 = 空数组） */

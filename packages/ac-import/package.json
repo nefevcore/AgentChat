@@ -12,6 +12,7 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
+    "ac-agents-core": "workspace:*",
     "ac-ledger": "workspace:*"
   },
   "devDependencies": {

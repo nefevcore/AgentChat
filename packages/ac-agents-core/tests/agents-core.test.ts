@@ -111,27 +111,21 @@ describe('agents/<id>/ 树直读', () => {
     expect(readAgentConfig(ROOT, 'delta')).toBeNull();
   });
 
-  it('存量 config.json 带 tags：读侧归一（档位词结构化、能力词丢弃）', () => {
+  it('存量 config.json（读窗退役——cr-1036 批3）：旧形态在场 = 身份缺席语义（残留死文件），不再旧读', () => {
     fs.mkdirSync(agentDir(ROOT, 'legacy'), { recursive: true });
     fs.writeFileSync(path.join(agentDir(ROOT, 'legacy'), 'config.json'),
       JSON.stringify({ id: 'legacy', model: 'm', tags: ['full-access', 'fs', 'admin'] }), 'utf-8');
-    expect(readAgentConfig(ROOT, 'legacy')).toEqual({ id: 'legacy', model: 'm', access: 'full-access', levels: { collab: 'admin' } });
+    expect(readAgentConfig(ROOT, 'legacy')).toBeNull();
   });
 
-  it('id 不符 / 缺席 / 损坏 → null（未注册语义；cr-1004 批2：v2 在场即赢）', () => {
+  it('id 不符 / 缺席 → null（未注册语义）；v3 在场即赢（config.json.migrated 副本不拖累）', () => {
     const cfg: AgentConfig = { id: 'beta' };
-    fs.mkdirSync(agentDir(ROOT, 'beta'), { recursive: true });
-    fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
-    expect(readAgentConfig(ROOT, 'beta')).toBeNull(); // 旧路径：id 不符
-    // v3 在场即赢（config.json 镜像坏不拖累 patch 读面）——组合读恒带
-    // rows（rows 缺省写全部能力行：正清单）
+    // v3 在场即赢——组合读恒带 rows（rows 缺省写全部能力行：正清单）
     writeAgentConfig(ROOT, cfg);
-    fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
+    fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json.migrated'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
     expect(readAgentConfig(ROOT, 'beta')).toEqual({ ...cfg, rows: { include: ['ledger', 'fs', 'math'] } });
     expect(readAgentConfig(ROOT, 'ghost')).toBeNull();
-    fs.mkdirSync(agentDir(ROOT, 'broken'), { recursive: true });
-    fs.writeFileSync(path.join(agentDir(ROOT, 'broken'), 'config.json'), '{nope', 'utf-8');
-    expect(readAgentConfig(ROOT, 'broken')).toBeNull();
+    expect(readAgentConfig(ROOT, 'ghost2')).toBeNull();
   });
 
   it('listAgentIds：目录序且只列目录', () => {
@@ -152,19 +146,12 @@ describe('children 嵌套解析（R-5 物化即快照）', () => {
   beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
   afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-  it('子身份直读物化快照，父改配置不传播', () => {
-    // 物化子：宿主写 children/<cid>/config.json
+  it('子身份 config.json 读窗退役（cr-1036 批3）：残留死文件 = 缺席语义', () => {
     const child: AgentConfig = { id: 'sub-1', model: 'gpt-y' };
     const cdir = path.join(agentDir(ROOT, 'parent'), 'children', 'sub-1');
     fs.mkdirSync(cdir, { recursive: true });
     fs.writeFileSync(path.join(cdir, 'config.json'), JSON.stringify(child), 'utf-8');
-    expect(readChildConfig(ROOT, 'parent', 'sub-1')).toEqual(child);
-    // 父目录随后消失——子快照仍可读（不回溯父）
-    fs.rmSync(agentDir(ROOT, 'parent'), { recursive: true, force: true });
-    // 快照随父目录删除（物理内嵌）——重建父目录+子快照验证独立读取路径
-    fs.mkdirSync(cdir, { recursive: true });
-    fs.writeFileSync(path.join(cdir, 'config.json'), JSON.stringify(child), 'utf-8');
-    expect(readChildConfig(ROOT, 'parent', 'sub-1')).toEqual(child);
+    expect(readChildConfig(ROOT, 'parent', 'sub-1')).toBeNull();
   });
 
   it('listChildIds：只列物化目录', () => {

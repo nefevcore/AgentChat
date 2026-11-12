@@ -42,7 +42,9 @@ describe('身份迁移脚本（cr-1022 批2 v3 目标态）', () => {
     expect(v3!.defs[0]!.name).toMatch(/^link:/); // 定义自带装载路径
     for (const def of v3!.defs) expect(v3!.fingerprints[def.id]).toMatch(/^[0-9a-f]{16}$/);
     expect(fs.readFileSync(path.join(dir, PATCH_FILE), 'utf-8')).toContain('# ac-menu: 1');
-    expect(fs.existsSync(path.join(dir, 'config.json'))).toBe(true); // 旧读者窗口保留
+    // cr-1036 批3：config.json 收编转 .migrated（旧读者窗口退役——形态死亡留审计副本）
+    expect(fs.existsSync(path.join(dir, 'config.json'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'config.json.migrated'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'memory.json'))).toBe(true);
     expect(fs.existsSync(path.join(dir, 'preset-origin.json.migrated'))).toBe(true);
     const reread = readAgentConfig(ROOT, 'alpha');
@@ -67,9 +69,10 @@ describe('身份迁移脚本（cr-1022 批2 v3 目标态）', () => {
     run('--revert');
     expect(fs.existsSync(path.join(dir, PATCH_FILE))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'agent.json'))).toBe(false);
-    // config.json 旧读窗口仍在——回退后身份可读（内容原样）
-    expect(JSON.parse(fs.readFileSync(path.join(dir, 'config.json'), 'utf-8'))).toEqual(alpha);
-    expect(readAgentConfig(ROOT, 'alpha')?.model).toBe('mock');
+    // cr-1036 批3：回退删 v3 面；config.json.migrated 不自动恢复（回退面
+    // 报告提示手动改名）——测试断言副本在场
+    expect(fs.existsSync(path.join(dir, 'config.json.migrated'))).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'config.json.migrated'), 'utf-8'))).toEqual(alpha);
   });
 
   it('v2 输入经桥换算：基础集 ∩ 能力 ∪ 加法 − 停用（B−T 逐位等价）', () => {

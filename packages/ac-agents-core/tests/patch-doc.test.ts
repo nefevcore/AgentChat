@@ -52,10 +52,10 @@ describe('agent.patch.yml v3 菜单片段 + agent.json（cr-1022 批2）', () =>
     expect(reread).toEqual(cfgV3); // v3 组合读投影等价（正清单直读）
   });
 
-  it('旧存量（仅 config.json）读路径不变——窗口兼容', () => {
+  it('旧存量（仅 config.json）读窗退役（cr-1036 批3）：残留死文件 = 缺席语义', () => {
     fs.mkdirSync(agentDir(ROOT, ID), { recursive: true });
     fs.writeFileSync(path.join(agentDir(ROOT, ID), 'config.json'), JSON.stringify(cfg), 'utf-8');
-    expect(readAgentConfig(ROOT, ID)).toEqual(cfg);
+    expect(readAgentConfig(ROOT, ID)).toBeNull();
   });
 
   it('镜像退役后删 patch = 身份缺席（回滚窗口已关闭——存量 config.json 根仍走旧读路径）', () => {
@@ -112,15 +112,13 @@ describe('插件配置拆分（cr-906 批4 切片二）', () => {
     expect(readAgentConfig(ROOT, ID)).toEqual(cfgV3);
   });
 
-  it('单元文件赢过旧映射 patch 内联 settings（窗口存量兜底）；readPluginConfigs 扫全量', () => {
+  it('旧映射 patch（读窗退役——cr-1036 批3）：v3 被覆盖 = 缺席语义；readPluginConfigs 独立不受影响', () => {
     writeAgentConfig(ROOT, cfg);
-    // 旧映射形态内联 settings（存量窗口）——单元文件赢
+    // 旧映射形态覆盖 v3（无 ac-menu 头）——读面视同缺席（残留死文件）
     fs.writeFileSync(path.join(agentDir(ROOT, ID), 'agent.patch.yml'),
-      'tier: full-access' + String.fromCharCode(10) + 'settings:' + String.fromCharCode(10) + '  run-code:' + String.fromCharCode(10) + '    mode: admin' + String.fromCharCode(10) + '  mcp:' + String.fromCharCode(10) + '    servers: []' + String.fromCharCode(10));
+      'tier: full-access' + String.fromCharCode(10) + 'settings:' + String.fromCharCode(10) + '  run-code:' + String.fromCharCode(10) + '    mode: admin' + String.fromCharCode(10));
     fs.rmSync(path.join(agentDir(ROOT, ID), 'agent.json'));
-    const merged = readAgentConfig(ROOT, ID);
-    expect(merged?.settings?.['run-code']).toEqual({ mode: 'observe' });
-    expect(merged?.settings?.mcp).toEqual({ servers: [] });
+    expect(readAgentConfig(ROOT, ID)).toBeNull();
     expect(readPluginConfigs(ROOT, ID)).toEqual({ 'run-code': { mode: 'observe' } });
   });
 

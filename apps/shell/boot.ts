@@ -30,7 +30,7 @@ import * as net from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis';
 import { readCatalog, fitInstalledRows, readAssemblyPatch, resolveReplacements, assemblyBaseStamp, mergeMenu, applyAssemblyLayer, menuDefinitionFingerprint, type RowDescriptor, type MenuEntry } from 'ac-rowset-core';
-import { readAgentConfig, readChildConfig, readAgentPatchV3At, writeAgentPatchV3At } from 'ac-agents-core';
+import { readAgentConfig, readChildConfig, readAgentPatchV3At, writeAgentPatchV3At, migrateAgentPatchAt } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { IMPORTED_ROWS, COMPANION_ROWS, COMPANION_ROW_ROOTS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow } from 'ac-shell-rows';
 import { makeHostFaceClientRow } from 'ac-host-face-client';
@@ -272,20 +272,32 @@ export function deriveAndAssertRowset(
   const agentDirAbs = parentId !== undefined
     ? path.join(dataRootAbs, 'agents', parentId, 'children', agentId)
     : path.join(dataRootAbs, 'agents', agentId);
-  // 实例装配：v3 菜单片段唯一读面（cr-1022 批3——旧差量/config.rows 读侧
-  // 窗退役：旧形态在场 = fail-loud 指路迁移，不做读侧双窗）
-  const v3 = readAgentPatchV3At(agentDirAbs);
+  // 实例装配：v3 菜单片段唯一读面（cr-1022 批3 + cr-1036 批3 惰性走链）：
+  // v0/v1 存量 → 链驱动迁移到 v2 + config.json 收编（原子纪律同 §2.3——
+  // writeAgentPatchV3At 临时文件 + fsync + rename + 留一代备份）；不可迁
+  // （对账失败等）= throw fail-loud；无身份 = 原指路迁移报错
+  const currentStamp = assemblyBaseStamp(dataRootAbs, 'shell');
+  let v3 = readAgentPatchV3At(agentDirAbs);
+  const lazyNotices: string[] = [];
+  if (v3 === null) {
+    const lazy = migrateAgentPatchAt({ dir: agentDirAbs, skeleton, capability, stamp: currentStamp });
+    if (lazy !== null) {
+      const trail = lazy.reports.map((r) => 'v' + r.from + '→v' + r.to).join(' ');
+      lazyNotices.push('惰性迁移：agent.patch v' + lazy.fromVersion + ' → v2（' + trail + '）——config.json 已收编（cr-1036 批3）');
+      for (const note of lazy.notices) lazyNotices.push('迁移 notice：' + note);
+      v3 = readAgentPatchV3At(agentDirAbs);
+    }
+  }
   if (v3 === null) {
     const config = parentId !== undefined
       ? readChildConfig(dataRoot, parentId, agentId)
       : readAgentConfig(dataRoot, agentId);
     throw new Error(
-      'agent.patch.yml v3 菜单片段缺席（旧差量/旧形态读侧窗口已退役'
+      'agent.patch.yml v3 菜单片段缺席（惰性迁移不可达——无身份或形态不可识别'
       + (config === null ? '且配置缺席' : '——检测到旧形态配置') + '）——'
       + '先迁移（node scripts/migrate-agent-patch.mjs ' + dataRootAbs + '）：' + agentDirAbs,
     );
   }
-  const currentStamp = assemblyBaseStamp(dataRootAbs, 'shell');
   if (v3.base !== undefined && v3.base !== currentStamp) {
     throw new Error(
       'agent.patch.yml 基线戳漂移（ac-base: ' + v3.base + ' → 现算 ' + currentStamp + '）——'
@@ -358,7 +370,7 @@ export function deriveAndAssertRowset(
   return {
     rowIds: rows.map((r) => r.id),
     rows,
-    notices: [...menu.notices, ...applied.notices],
+    notices: [...lazyNotices, ...menu.notices, ...applied.notices],
     errors: [],
     replacedIds: replaced.replacedIds,
   };

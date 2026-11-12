@@ -22,7 +22,7 @@
 
 | 域 | 收什么 | 代表档（批后落位） |
 |---|---|---|
-| assembly/ | 装配、行集、进程模型、数据根分层 | host-shell-row-manifest.md、host-shell-decisions.md、agent-assembly.md、data-root-layers.md |
+| assembly/ | 装配、行集、进程模型、数据根分层 | menu-assembly.md、host-shell-row-manifest.md、host-shell-decisions.md、data-root-layers.md、migration-chain-completeness.md、config-upgrade.md（agent-assembly.md 已被 menu-assembly.md 取代） |
 | session/ | 会话状态机、运行生命周期、信封投递、子 Agent | session-design.md、run-status-state-machine.md、subagent-recovery-matrix.md |
 | webui/ | WebUI 装载模型、行/席、控件标准、UI 计划 | webui-v3.md、ui-rows-and-slots.md、webui-standard-controls.md |
 | plugin/ | 插件体系规范与开发范式 | **plugin-architecture.md（现行规范，cr-1006）**、auth-registry-data-format.md |

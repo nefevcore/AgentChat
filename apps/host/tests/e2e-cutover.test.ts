@@ -17,7 +17,7 @@ import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { importRoot } from 'ac-import';
 import { readAgentConfig, writeAgentConfig } from 'ac-agents-core';
-import { materializeBaseDocs, profileDirOf } from 'ac-rowset-core';
+import { materializeBaseDocs, profileDirOf, assemblyBaseStamp } from 'ac-rowset-core';
 import { readLedger, projectUserReplay, LedgerWriter, sessionDir } from 'ac-ledger';
 import { bootHost, type HostBootResult } from '../boot.ts';
 import { adoptShell } from '../orchestrate.ts';
@@ -71,13 +71,14 @@ function seedLegacy(): void {
   mk('s-two', [['user', '单问'], ['assistant', '单答'], ['assistant', '再答']]);
 }
 
-/** cr-1022 批3：importRoot 产物仍是旧形态 config.json（ac-import 域），
- * 而壳 boot 对旧形态 fail-loud（「先迁移」）。宿主/壳消费前测试内走同款
- * 换轨：物化基座（bootHost 部署链同款——基线戳两侧一致）→ 经
- * writeAgentConfig 落 agent.json + v3 菜单片段（config.json 原样保留）。 */
+/** cr-1022 批3 → cr-1036 批3：importRoot 产物已是 v3 形态（ac-import 写面
+ * 换轨），宿主/壳消费前只补物化基座 + 幂等重写（基线戳两侧一致）。 */
 function migrateTargetAgent(): void {
   materializeBaseDocs(profileDirOf(CATALOG), targetRoot);
-  writeAgentConfig(targetRoot, readAgentConfig(targetRoot, 'alpha')!);
+  const cfg = readAgentConfig(targetRoot, 'alpha');
+  // baseStamp 显式传当前物化态——importRoot 写口在基座物化前落盘（空态戳），
+  // existingStamp 保真语义会带着旧空戳走（漂移即红）；此处 rebase 到现态
+  if (cfg !== null) writeAgentConfig(targetRoot, cfg, { baseStamp: assemblyBaseStamp(targetRoot, 'shell') });
 }
 
 function connect(port: number): Promise<WebSocket> {
@@ -132,10 +133,14 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     expect(report.skipped).toEqual([]);
     // agents 树：config 换轨 + entries 归拢 + 身份文件
     expect(report.agentsTreeResults).toEqual([{ agentId: 'alpha', configConverted: true, entriesMoved: 1, identityFilesCopied: 1 }]);
-    const cfg = JSON.parse(fs.readFileSync(path.join(targetRoot, 'agents/alpha/config.json'), 'utf-8')) as { rows?: string[]; access?: string; levels?: Record<string, string> };
-    expect(cfg.rows).toEqual(expect.arrayContaining(['shell-tools', 'math', 'todo', 'datetime']));
+    // cr-1036 批3：导入产物 = v3（agent.json 档案 + agent.patch.yml 菜单片段——
+    // config.json 产线退役）。换轨语义验收走组合读投影。
+    const cfg = readAgentConfig(targetRoot, 'alpha')!;
+    expect(cfg.rows).toBeDefined();
     expect(cfg.access).toBe('full-access');
-    expect(cfg.levels?.browser).toBe('observe');
+    // levels.browser 归位需 rows 点名 browser 行（cr-1004 批2b 不进即不装——
+    // 导入白名单无 browser，档位不落为既定语义）
+    expect(cfg.levels?.browser).toBeUndefined();
     expect(fs.existsSync(path.join(targetRoot, 'agents/alpha/entries/todo.json'))).toBe(true);
     // cr-973：viewer 物化退役（userProjection 选项删除）——终稿层 =
     // agent 域账本读时投影；两 singles 会话各自可投影出全量行

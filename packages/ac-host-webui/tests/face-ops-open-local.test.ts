@@ -11,6 +11,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { registerOpsFace } from '../src/face-ops.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 import type { Context } from '@agentchat/cordis';
 
 // runNativeOpen stub（opened 恒 true；调用参数可断言）。其余导出（parentDirOf
@@ -67,7 +68,7 @@ describe('workspace/open-local 上下文定位（cr-827）', () => {
     fs.mkdirSync(path.join(ROOT, 'files', 'neko'), { recursive: true });
     fs.writeFileSync(path.join(ROOT, 'files', 'neko', 'memo.txt'), 'm');
     fs.mkdirSync(path.join(ROOT, 'agents', 'neko'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'neko', 'config.json'), JSON.stringify({ id: 'neko' }));
+    writeAgentConfig(ROOT, { id: 'neko' }); // cr-1036 批3：v3 写口
     const rpc = captureRpc();
     expect((await rpc('workspace/open-local', { path: 'note.md' })).opened).toBe(true);
     expect((await rpc('workspace/open-local', { path: 'memo.txt', agentId: 'neko' })).opened).toBe(true);
