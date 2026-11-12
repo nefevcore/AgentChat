@@ -1,0 +1,1067 @@
+# 变更登记目录（CR log）
+> 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node cr/cr.mjs append "一句话描述" [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期；详情 `get`；查询 `grep [head|detail]`〔head 缺省只查索引行，detail 连 logs/ 一并检索〕；欠账 `stats`；守门 `cr/cr-git.mjs check`；投影 `cr/cr-git.mjs sync`），再动代码。
+> 规约背景见 `docs/design/meta/epoch-marking-convention.md`（cr-1 起 CR 制度建立）；工具 v3.1（索引/内容/元数据三分离 + git 面拆分 + 包化 ac-cr）见 `docs/design/meta/cr-tool-v2.md` §v3。
+>
+> 本文件纯索引（append-only，永不手编）；状态/标签住 cr-meta.json（CLI 维护）；细节住 logs/cr-N.md。
+## 登记格式
+```
+【cr-序号 yyyy-mm-dd 一句话描述】
+```
+- cr 号为正整数、单调递增、永不复用（不固定位数，前导零禁止）；日期 = 登记当日真实日期。
+- 描述一句话说清改了什么；细节写对应设计文档或 CHANGELOG，目录行保持一行。
+- 一次会话内的一组关联小改可合并为一条 CR。
+- 可选尾部元数据块（cr-982 v2）：`】{状态|#标签…|→cr-引用…}`——状态 ∈ plan/doing/done/drop（缺省 done = 登记随批闭环；跨会话 WIP 显式 `--status doing`，立项 `--status plan`）；无块存量条目一律视为 done。`#标签` = 域/类型检索维度（如 `#webui` `#fix`）；`→cr-N` = 显式依赖/落地/勘误引用（须存在）。状态流转用 `set <crN> <状态>`。
+- 描述 >200 字 append 打警告（软门）——细节迁设计文档或 CHANGELOG，条目保持一句话。
+## 目录
+- 【cr-1 2026-09-27 日期语义重定义：批次代号退役、存量月份标记 blame 分层还原为真实日期（史前/不可考 → `-00`）、外部归档目录改名、规约重写并建立 CR 登记】
+- 【cr-2 2026-09-27 cr 号位数约定修订：三位改「正整数单调递增、不固定位数、前导零禁止」】
+- 【cr-3 2026-09-27 CR 目录自 epoch-marking-convention.md §三迁出为独立文件 cr-log.md】
+- 【cr-4 2026-09-27 记忆时间线与群聊转录流重构：记忆桶寻址改 Agent 人格单时间线（timeline.md + checkpoint/delta 注入协议 + memory_write/memory_grep 工具）+ 群聊派生视图改成员私有转录流；memoryOwner 全链与派生窗全族退役（计划 src/docs/memory-timeline-plan.md）；追加裁决：迁移前置检查 infra 等价授予——有存量记忆的 infra Agent 自动补 memory 标签（一次性，预设豁免）；条目 log 形态前缀 [date] 由工具铸造 + [tags] 段为正文通道（tags 参数移除）；memory_write 增 date 参数（事实发生日回填）；迁移提示词改指路形态（不内嵌旧桶，Agent 自读 ./memory 整理）】
+- 【cr-5 2026-09-27 PTC 程序化失效事故：根因 = DeepSeek 越面结构化幻觉直调（推理端不校验 tool_calls 函数名，editor~user 750K 经典直调历史浸泡下模型无视 run_code 单 schema 请求面、模仿历史直调面外工具；执行面无请求面闸门致全部放行——llm-req/resp 两侧探针实锤）。修复 = loop 请求面硬闸：request.tools 已定义时面外调用不执行、回填「面内可用工具 + 程序化正确入口」引导纠错（模型 ReAct 自愈回落 run_code）；request.tools 未定义不判定。诊断探针六处全部移除，闸门落 src/ac-agent-loop/service.ts 执行点（原探针③位置），单测锁定】
+- 【cr-6 2026-09-27 fix(preview): 文件预览双滚动条——body/code-wrap 嵌套 overflow:auto 收归 body 单滚动容器（面板与 Modal 双形态）；markdown/html 预览 iframe 补 display:block 消 inline 基线底隙（~7px descender 撑出 body 纵向溢出 = 双滚动条第二根因）】
+- 【cr-7 2026-09-28 dev:demo（boot-yml-main.ts）数据根无条件锚定 workspace/test（同 smoke.ts 语义）：脚本曾尊重宿主继承的 AGENTCHAT_DATA_ROOT，e2e 段把 helper~user 演示会话写进真实数据根（2026-09-15 污染实例）；同步清理真实根内测试残留（helper~user 会话、pending-a~a~a、空 files 桶）】
+- 【cr-8 2026-09-27 patch 层加固方案立项（src/docs/patch-layer-hardening-plan.md）：setPatchEntry 改 AST 保注释编辑（yaml@^2，findLast 对齐 include last-wins，损坏文件 throw）+ setPatch 前置装配树校验（未知 id fail-loud 不落盘）；裁决不采纳 DSH overridden 四态/统一锁域/Agent 启停工具入口三项】
+- 【cr-9 2026-09-28 browser eval 序列化语义优化（run_code 编排实测复盘驱动）：eval 返回未调用 function（IIFE 漏写括号）/未 await 的 Promise 从静默 {} 改为带修复指引的明确报错；eval 结果保留 JSON 类型（数字/布尔/对象直出，去字符串化）；wait 动作内部 Promise 改经 evalExpr awaitPromise 通道；工具 description 补各动作返回字段契约；run_code 失败时 log 末尾行并进 error 诊断】
+- 【cr-10 2026-09-28 run_code 输出预算缺省 32KB→64KB：全量实战复盘定标（489 会话 19008 次落地调用，截断率 0.5% 且 75% 走 return 通道；超限 p50≈45.8K、64K 档消除 71% 事件，正常返回 93%<16K 故提额不伤常态；触发后 30% 被残留数据吞噬、68% 被迫改分段读多烧一轮）。tool.ts DEFAULTS 与 index.ts 行配置缺省/工具参数描述同步】
+- 【cr-11 2026-09-28 patch 层加固实施（cr-8 方案落地）：setPatchEntry 改 eemeli/yaml AST 编辑（保注释/保条目序/新条目 flow 风格；findLast 对齐 include last-wins；损坏文件 throw 拒绝覆盖）+ setPatch 前置装配树校验（include 在位且 id 不在 enumerateDisablableEntryIds → throw 不落盘，对齐 DSH 先校验再落盘；落地核对保留为兜底）】
+- 【cr-12 2026-09-28 portb-e2e 测试对齐 cr-4 记忆时间线契约：memory.set 桶写口退役 → memory.write 单时间线（预设软停用断言改锁 <memory-guide> 缺席 + 工具轮直写视角不注入）+ workspace root 补隔离（preset workdir 回落数据根，防 timeline.md 落真实根）】
+- 【cr-13 2026-09-28 webui 运行基线收口（真机 M3 §1.1 实录根因）：产物未声明最低运行环境——vite build.target 不设 = 只降语法不补运行时 API，cordis 打包进的 Object.hasOwn 在真机 WebView 92 上「is not a function」炸掉装配（白屏）。落地三处同一份基线：① public/legacy-runtime.js 垫片（classic script 先于 module，补 Object.hasOwn / Array findLast·findLastIndex·toSorted·toReversed·toSpliced / AbortSignal.timeout）；② vite build.target=chrome92 声明语法基线；③ scripts/check-webview-baseline.mjs 构建期守门（垫片在位与顺序 + 产物超基线 API 命中即 fail），接入 webui:build（守门含 API 面与语法面两条判据；垫片覆盖度从垫片源码 feature-detect 自动判定，杜绝「声明垫了却实际没垫」漂移）。同轮第二层：cordis 的 class static block（Chrome 94）esbuild **不降级只警告** → 真机 SyntaxError 整块 chunk 不执行，故 esbuild.supported['class-static-blocks']=false 授意降级。遗留：CSS 侧 color-mix()（Chrome 111）大量无兜底声明，非阻断待后续收口】
+- 【cr-14 2026-09-28 真机 X25519 兜底实现（真机 M3 §1.3 首配闪退根因）：Redmi K20/Android API 30 的 JCA 对 X25519/XDH/X25519DH 三个算法名**全无**（连 BC provider 也没有——Android 裁剪版 BouncyCastle 不带 XDH），API 33+ Conscrypt 才有，模拟器长期掩盖。新增 mobile/transport/.../X25519Pure.kt（RFC 7748 Montgomery ladder，BigInteger 直译伪代码；握手为每链路一次性低频运算，可读性优先，常数时间性由 JCA 路径承担）；Noise.kt dh() 改「探测优先 JCA、缺席落纯实现」，删无调用方的 X25519Platform.require()；X25519PureTest 5 例锚定 RFC 7748 §5.2×2 + §6.1 DH 交互 + JCA/纯实现一致性 + basepoint 生成路径。次生坑：BigInteger.TWO 是 JDK 9+ 常量，Android API 30 core-libart 无 → NoSuchFieldError（JVM 单测绿、真机崩），全部换 valueOf(2)】
+- 【cr-15 2026-09-28 真机验证基建（M3 真机轮配套，均为验证/开发面，不动产品语义）：① MainActivity 开 WebView CDP 调试口（BuildConfig.DEBUG 门控，chrome://inspect 可用）+ debug 构建跳过生物锁（无人在场的自动化验证不被指纹门挡住，release 语义全保留）；② network_security_config 放行局域网明文（adb reverse 通道长时不稳，真机实测约 25s 后断链——清单 §4.2 预言成真，改 PC 局域网 IP 直连验证）；③ scripts/remote-loopback-host.ts 加 LOOPBACK_AUTO_RECONNECT env（缺省仍 false 一次性语义）；④ ac-relay-server main.ts 加限额 env 口（RELAY_MAX_CONN_PER_IP/RELAY_JOIN_BURST/RELAY_JOIN_RATE，本地联调双端同 IP 挤兑时放宽，生产缺省不变）+ RELAY_DEBUG=1 连接生命周期诊断日志（哑中继刻意不打日志，排障时是盲区）】
+- 【cr-16 2026-09-28 KK 重连时序竞态修复（M3 真机 §3.3 根因落地）：哑中继只转发实时帧——发起方 m1 早于响应方进房即丢失，双方各自超时后按同款退避（1s 起 60s 顶 ±20% 抖动）错开、反复错过（RELAY_DEBUG 日志实录：设备 join 即发 m1 时宿主未进房）。三处修复对齐 scripts/remote-loopback-client.ts 的既有裁决（M3.1 Kotlin 移植漏了重试层）：① RelayClient.reconnect 加 handshakeTimeoutMs 参数（缺省 KK_HANDSHAKE_TIMEOUT_MS=3s 短窗，m2 不到快速失败）；② RemoteSession.tryReconnect 改 10 轮整链重试（每轮新 dial/新握手/新临时密钥，3s 超时 + 4s 间隔 ≈8.5 join/min 不触 relay 频控，覆盖对端 60s 退避窗）；③ RemoteLinkService 构造器补「启动即连」（有 relay 且有已配对设备时 void connect()——响应方不先进房则发起方重试再多也握不上）。新增 RelayReconnectTimeoutTest（ktor 最小 relay 夹具：join 后永不回 m2，锁「短超时快速失败」契约，防回退 15s 长挂）】
+- 【cr-17 2026-09-28 预设记忆工具面收口：三个内置预设（标准/极简/创造）tags 移除 memory——预设无人格（记忆归人格，cr-4 前提）且单例物化按 agentId 寻址，注入软停用 + 工具面预授予的「可见但永不回来」半可用语义是裂缝（memory_write 描述承诺跨会话可用，对预设为假）；收口 = memory_write/memory_grep 对预设不可见（要记忆走人格 Agent）。注入侧 settings.memory.enabled=false 软停用维持不变（双闸独立）；同步 builtin 测试三处 tags 断言与 README 预设段】
+- 【cr-18 2026-09-28 桌面端 Windows NSIS 安装向导高 DPI 模糊修复：安装器 exe 无 DPI awareness 声明 → 系统 150% 缩放下整窗位图拉伸模糊（本机 2560x1440@144dpi 实证：DPI-unaware 窗口 755x543 被 DWM 位图放大）；修复 = desktop/build/installer.nsh 写 ManifestDPIAware true（NSIS 编译期指令嵌 manifest）+ package.json nsis.include 挂载，安装向导/卸载向导自声明 DPI-aware 由系统按矢量渲染】
+- 【cr-19 2026-09-28 事件目录锁定测试改自动发现（M25 P1 防线自加固）：event-catalog.test.ts 的 EVENT_FILES 手工清单漏 5 个声明文件（ac-session/ac-remote-link/ac-client-runtime/ac-tag-registry 的 events.ts + ac-restart 嵌 index.ts 声明），漏网目录的标注漂移静默失守——实锤一处：session/context-injected 标注 @mode broadcast（不在 DispatchMode 五值）+ @scope session（非法值），实际分发就是 ctx.emit。修复：清单改扫描发现（src/ac-*/src 全部 .ts 含 declare module '@agentchat/cordis' + interface Events 即纳入，tests 除外）+ 曾漏网 5 文件 canary 锚；订正 context-injected 为 emit/run、补 ac-restart @scope host】
+- 【cr-20 2026-09-28 plugin 域三事件合并 plugin/updated（事件 seam 评估落地）：installed/reloaded/catalog-changed 订阅面完全重合（后端仅 ws-bridge 转发；前端三个消费方逐字复制三重 type 条件后一律忽略载荷 refetch）——按 singles/subagents 的 updated 既有先例合并为 plugin/updated(payload)，action ∈ installed|uninstalled|staging|session|loaded|reloaded；安装明细（version/dir/permissions）不再进广播面（审计流水 G7 已留全量）。消费方三处三重条件各改单订阅；ws-bridge 三 fwd 并一；README/plugin 测试/event-graphs 同步。同批记档：group 配置簇 6 事件（created/deleted/renamed/description-set/member-added/-removed）同形态但前端按 type 分两个刷新作用域，合并收益低于 plugin 簇——polish-backlog 登记缓行，第三处同形态域出现时再并源】
+- 【cr-21 2026-09-28 池凭据/字段三连修（用户反馈「覆盖保存清空 API 地址和 apikey」）：① 改名迁移——config/set·config/save 池域提取前置 diff，掩码条目无凭据且旧名凭据在库时 pool:<旧>→pool:<新> 搬迁（连接指纹匹配优先、消失旧名唯一兜底、多候选 fail-safe 不迁；llm/searchpool 双域同源）；② 保存守门——PoolManager/SearchPoolManager 编辑已存条目时 Key 掩码→空或 base_url 将被清空（含误触提供方下拉换模板）先 ConfirmDialog 确认再保存；③ 防覆盖守门——useSettings 新增 poolsLoaded 标记，LlmPoolsHost/SearchPoolsHost saveNow 在池元数据未加载成功时拒绝整域覆盖（加载失败 pools 停留初始 {}，此时一次保存会清光后端现有连接；与 saveGlobal 空 config 防御对称）】
+- 【cr-22 2026-09-29 附件上传引用改完整路径：saveUpload 返回新增 absPath（落点绝对路径），前端 uploadPaths 登记与 [附件] 行合成、attachments.ref、chips text/缩略图全链改消费 absPath——LLM 通路与 UI 引用同形绝对，read 工具按 Agent 沙箱锚点解析相对路径踩空的根因消除（锚点非数据根时 files/ 相对形不可达）；物化/预览链（resolveIn 数据根包含判定）双形态直通。splitAttachmentLines 安全门增绝对路径词形（POSIX 根 / 与 Windows 盘符）】
+- 【cr-23 2026-09-29 代码注释缺口收集成清单：全仓字面搜索「缺口」47 处（src 40 + mobile 5 + CHANGELOG 2），核实开放/闭环状态后形成 src/docs/gap-backlog.md 待修清单（6 个开放缺口 + 3 个已修但文档滞后项），剔除已闭环 4 项（run_code dev worker 回退 cr 前已落地、provider 跨家覆盖已修、m32 白屏四处已修、m28 全部落地）】
+- 【cr-24 2026-09-29 cr 序号勘误（跳号事故记录）：cr-21（池凭据三连修）登记时误跳号 21→29 写成 cr-29，并行会话以 29 为基数顺延出 30/31——30（附件上传）、31 首登（注释缺口清单）随之改号为 cr-22/cr-23，31 复用（harness 桥接）保持 31 不变。中间态提交 025ed772/5e57ea94/0c78bfc7 内的 cr-29 字样与 amend 事故（--amend 误挂并行提交 0c78bfc7，序号修正错位并入）不重写历史修正——cr-log 为准：本批相关变更 = cr-21/22/23，引用以 cr-log 序列 21→22→23→25 为准。教训：登记前 grep 全文件确认最大序号（此前只读尾部）；并行会话活跃期禁用 amend/rebase 历史重写】
+- 【cr-25 2026-09-29 harness 桥接方案 B 立项成文（docs/harness-bridge-plan.md，待实施）：run_harness 工具行（needPermission + tags 'harness' + 沙箱两档 plan/workspace-write + agent 维互斥）+ harness 委托子代理预设；两包分工 ac-harness-core 纯库 / ac-harness-tools 行包，零框架改动纯增量行。方案 A（provider 入池）推后到 llm-protocol-extensibility 备忘实施后再评估；方案 C（工具回接）显式不做；DSH 首期不桥（web 服务无 exec 面）。README 索引同步（首登误取号 cr-31——跳号事故顺延基数，随 cr-24 勘误归位 25）】
+- 【cr-26 2026-09-28 ISSUE 反馈工具行：新增 ac-issue-tools 包（submit_issue 工具——GitHub/Gitee 创建 ISSUE，多一条用户经 Agent 直达 Git 的反馈通道；requiredTags ['web'] 复用网络词表 + needPermission 非 LLM 出口档位门；目的地解析链 settings['issue-tools'] → 行配置 server/repo/token/apiBase/labels → 内置缺省本仓库 github/nefevcore/AgentChat；令牌三源链行直配 → ac-credentials（provider 'github'/'gitee'，Agent 级→全局）→ env GITHUB_TOKEN/GITEE_TOKEN；Gitee v5 owner 路径 + body.repo + access_token + labels 逗号串；apiBase 覆盖可接 GitHub 兼容自建台如 Gitea）；挂载 cordis.yml/ac-app TREE/根 package.json，README 工具行清单同步】
+- 【cr-27 2026-09-28 submit_issue 系统提示词引导（cr-26 配套）：用户一般不关心提 issue——ac-system-prompt 指引块新增第 12 条「问题反馈」（条目级门控 submit_issue 在场才注入，标准/创造者预设带 web 标签天然覆盖）：发现系统层面问题（平台 bug/异常行为/体验缺陷）时 Agent 主动上报无需用户指示；边界 = 系统层面问题才报（用户工作内容的问题不报）+ 敏感内容不进 ISSUE；测试基线同步（全量集 12 条 + 单工具门控）】
+- 【cr-28 2026-09-28 移动端 UI 范式重设计立项（src/docs/mobile-ui-paradigm-plan.md）：现有 webui 为桌面大屏工作台范式（VSCode 式多面板 + 活动栏 + 抽屉），手机端交互别扭的根因是范式不匹配而非样式缺陷——多面板并行 vs 单窗口栈式导航。裁决：三期落地——①导航范式（底部标签栏 + root/push 页导航 + Android 返回键接入 + 汉堡变返回 + 断点单源 matchMedia）②覆盖层全屏化（aux 选区/设置面板窄屏统一全屏 Sheet，webui-kit 出 Sheet.vue 原语）③品质收口（adjustResize 键盘 + color-mix 133 处构建期回退 + baseline 守门补 CSS 判据 + 触摸三件套 + safe-area 令牌 + 四处复制抽屉 CSS 并源）；壳件 ac-client-ui-layout 窄屏分支承载，行包席位契约零改动，桌面 ≥769px 行为零变动】
+- 【cr-29 2026-09-28 Phase① 导航范式落地（cr-28 方案实施）：uiStore 加 narrow 响应式单源（matchMedia 768）+ mobileMainOpen（root 页/会话页推入态）——抽屉态 drawerVisible 窄屏退役；AppFrame 窄屏 root/push 双层布局（root = 列表页 + MobileTabBar 底部标签栏，push = 会话页整页覆盖）；ActivityBar/primary-sidebar/aux 窄屏隐藏，汉堡按钮变返回（ConversationHeader 消费 mobileMainOpen）；行选中统一 push（AgentList/SessionList/RunTrackingPanel/GroupDrawer 单点分派）；MainActivity onBackPressed 接入导航栈（会话页开 = 关会话页、否则默认退出）——WebView 内按返回不再直接杀链路。实施修正：useUnreadBadges 初版落 layout 触发 R5 运行时环（layout→conversation .ts 边与 conversation→layout 反向成环），归位 conversation 包（feedStore 的家——徽章聚合 = feed 展示工具）消环未入白名单；抽屉态退役比计划更彻底（drawerVisible/toggleDrawer/closeDrawer/overlay 全链删，非仅窄屏停用）；三处窄屏测试自 innerWidth 模拟改 ui.narrow 直写】
+- 【cr-30 2026-09-28 Phase② 覆盖层全屏化（cr-28 方案实施）：①aux 选区窄屏通路补齐——Phase① 隐藏 AuxSidebarHost 后九个选区（preview/search/usage/tracking/file-edits/task/timers/prompt/workspace/group）在手机端无入口（遗留缺口）；本轮 AuxSidebarHost 窄屏改全屏 Sheet 形态（webui-kit Sheet 原语承载，full + keepAlive 两档），MobileMoreSheet 出「面板」区列 auxSidebarRailDefs 全量入口；辅助活动栏窄屏不渲染（入口归更多面板）。②宽度单源：新增 ui.auxPaneStyle（窄屏 = 100% 全屏 / 宽屏 = 拖调宽）——九个选区宿主自绑 ui.auxWidth 改消费单源（窄屏固定宽会撑破全屏 Sheet）。③窄屏 Modal 收编：usage/prompt/preview 三处「窄屏 Modal 兜底」分支退役——统一走 aux 意图通道路径（三 Modal 与 aux 面板本就同源内容逻辑：FilePreviewModal/FilePreviewPanel 共用 filePreviewContent.ts、TokenUsage 带 variant 两态、SystemPromptModal/Panel 共用 chatStore systemPrompt 族）；删 overlay 三贡献 + tokenUsageVisible/systemPromptOpen/previewVisible 三标志。④返回键消费链接通：AppFrame 的 registerBackConsumer 通道上线为栈（Set + 倒序询问），MobileMoreSheet 关面板 / AuxSidebarHost 关全屏 Sheet 逐层消费】
+- 【cr-31 2026-09-28 Phase③ 品质收口（部分落地，cr-28 方案实施）：①触摸基线（base.css 全局三行）——-webkit-tap-highlight-color: transparent（消 Android WebView 点击灰闪，反馈由组件 hover/active 承担）/ touch-action: manipulation（消双击缩放的点击延迟与误触，pan/pinch 保留）/ body overscroll-behavior: none（遏制页面级滚动链外溢，卡片/面板内滚动区既有 contain 约定不变）；②软键盘钉死——AndroidManifest 的 activity 补 android:windowSoftInputMode="adjustResize"（键盘压缩 WebView 视口而非整页上移，100vh 高度链随之收缩；不声明则交厂商 heuristics，输入框会被键盘盖住）；③safe-area 令牌与 viewport-fit=cover 已于 cr-29 前置（tokens.css 的 --safe-top/--safe-bottom + index.html）。真机验证轮（chrome://inspect + m3-realdevice-checklist）待设备】
+- 【cr-32 2026-09-28 color-mix 收口（cr-31 遗留落地）：基线 WebView 92 不解析 color-mix()（Chrome 111+），tint 一律改写语义等价的 rgba(var(--x-rgb), α)——①tokens.css 补双主题 RGB 三元组（primary/text-1/2/3/ok/warn/err）+ 遗留名别名三元组（只列实际被引用者，零冗余）；②badge.css 九个 tt-* 色相类补伴随三元组 + tag 缺省回落；③starColor.ts 新增 hexTriplet，三个 star 组件（StarAvatar/StarCard/PulseTrace）注入 --sc-rgb/--tc-rgb 伴随（星色是运行时内联值，CSS 侧无从派生）；④133 处主体经确定性 codemod 转换 123 处，残量 10 处（「色相 N% + 文本色」混色 6 / RunTracking 底色带 3 / currentColor 1 / error+黑 1）保留 color-mix 但**同属性前置静态回退声明**（渐进增强：基线取回退值，现代浏览器被 color-mix 覆盖）。⑤构建期棘轮守门（check-webview-baseline.mjs 判据④ CSS 面：产物 color-mix 声明数 ≤ CSS_COLOR_MIX_CAP=12，只减不增，同 dep-cycles.yml 纪律）；⑥新增 src/webui/tests/css-color-tokens.test.ts 三锁——同步锁（--x 的 hex 与 --x-rgb 三元组逐位一致）/存在锁（引用的 -rgb 必有定义或属内联注入白名单）/反向锁（定义的三元组必须被 var() 消费，死条目红）。测试自查反哺零冗余：清掉 3 个未引用别名（color-bg-page/-text-secondary/-text-tertiary-rgb）与 1 个因此变死的 --bg-base-rgb。⑦真机等价验证（无设备条件下的替代手段）：本地探针页加载**构建产物 CSS**，读回解析后的计算样式——实测 tint 透明度）、色相链路（tt-web/admin/inject/缺省回落）、令牌三元组（--x-rgb 双主题值）、回退链（rgba 在 color-mix 之前生效）全部正确。**探针实锤一处级联缺陷**：.ui-badge.tag 规则内声明 --tag-hue-rgb 缺省值（特异性 0,2,0）压掉 .tt-* 色相类（0,1,0）→ 标签底色/描边全部错用灰；改为使用处 var(--tag-hue-rgb, var(--text-3-rgb)) 回落，复验四态全对。教训：自定义属性也会级联，**「缺省值」声明在选择器里就参与了层叠竞争**，不该写在高特异性的组件规则内。⑧流程附记：全量测试中途出现过一次 web-server 「bad port」红——根因是同一环境下另有一个后台重 IO 任务（目录递归扫描）持续占用磁盘，拖慢测试进程暴露了 ac-web-server ready() 的端口解析竞态（port 0 未解析即被 fetch），**非本批改动引入**；任务清理后复跑全绿。验证：typecheck / webui:typecheck / test:unit 2193 / check:deps / eslint / webui:build（含守门）全绿】
+- 【cr-33 2026-09-28 移动端真机反馈五连修（cr-29/36 范式的首轮实测反馈，用户验收轮）：①只读会话无法返回——返回钮只挂 !isGroup 分支，pair/subagent 视角（独立头部组件）无返回钮且 Android 返回键不消费：SubagentConversationView 头部补窄屏返回钮（closeSubagentView 语义）+ ConversationHeader 返回钮解除 !isGroup 门（群形态也要——群也是 push 页），pair 分支同样补钮；②标题溢出——.agent-label 单行截断已有但独立会话标题含「 · 独立会话」长后缀 + pair 双端点名横排：窄屏 pair-sub 隐藏（cr-29 已做）+ subagent pair-sub/code.sub-id 窄屏隐藏 + agent-label 保留单行截断；③输入占位窄屏置空——placeholderText 三分支（预设退役提示/归档提示/忙态手势提示）均含桌面键盘词汇（Enter/Cmd/Ctrl//命令），窄屏统一回落『输入消息…』；④工具栏窄屏纯图标——六个 select-btn 的 .select-text 窄屏隐藏（模型名过长时切 icon 提示）、chevron 保留（点开菜单仍可看全名）；⑤设置面板窄屏全屏化——sp-panel 82vw/82vh 桌面居中形态窄屏改 100vw/100dvh 无圆角全屏 + 左侧 sp-tree 200px 目录窄屏改顶部横向滚动条（树→横 tab），其余 overlay 席位贡献（用量 Modal/版本/建群/预览 tab 等）由 Modal/Sheet 原语的 max-width 钳制已兜底。Android 返回键消费：设置面板开 = 关面板（AppFrame 消费链第 0 层前插）】
+- 【cr-34 2026-09-28 移动端反馈二轮四连修（cr-33 复验反馈）：①会话头两行溢出——.header-info 是块级默认宽度 100% 触发 flex wrap，标题与 preset-chip 上下两行：改 display:flex + align-items:baseline + gap + 子项 flex-shrink:0/min-width:0，单行不换行（chat-header 本身 nowrap）；mobile-main 层补 padding-top: var(--safe-top)（状态栏遮标题的次因）。②输入区空态过高三处——编辑面 .pe-editor 固定 63px（恰好 3 整行）窄屏改 42px（2 行，UX 判定手机上 3 行占屏比过高）；空态占位窄屏彻底置空（现代用户无需『输入消息…』提示，props.placeholder 透传不再回落兜底文案）；占位高度由 min-height 承担不受置空影响。③overlay 系统性窄屏适配——webui-kit Modal 原语 @media(max-width:768px) 全屏化（panel 100vw/100dvh、无圆角、safe-top 顶到、body 底 padding safe-bottom）：全部 overlay 席位贡献（用量弹窗/版本/建群/Agent 新建/工作区表单/插件配置/EntryPicker 等十余处）一改全改；ESC 关闭桌面保留移动端无碍；设置面板 cr-33 已全屏。④「缺返回钮」反馈澄清：cr-33 已补 pair/群/subagent 三处返回钮，本轮无新增——若仍缺为真机验证轮待办】
+- 【cr-35 2026-09-28 subagent 视图返回钮不可见修复（用户真机反馈实锤）：cr-33 在 SubagentConversationView 补的 .back-btn 样式只写了 display:none 隐藏与「窄屏显示」注释，漏配 @media(max-width:768px) 显示块——按钮在任意视口恒不可见（运行跟踪 → 点子 Agent 进入即无返回）。ConversationHeader 的返回钮能活是巧合：元素带 hamburger-btn/back-btn 双类，被既有 @media 的 .hamburger-btn 选择器覆盖到；subagent 视图是独立组件单类，无此庇护。修复 = 补显示块。全仓扫同类（display:none 默认 + 无配对 @media）无其他残留；其余 mobile-close-btn 命中均为 cr-29 已删按钮的死样式行（待随下轮清理）】
+- 【cr-36 2026-09-28 设置面板窄屏全屏不生效修复（用户真机反馈实锤）：cr-33 的 @media 窄屏块被插在 .sp-panel 桌面规则**之前**——媒体查询不提升特异性，同特异性时后写的赢，82vw/82vh 居中形态压过 100vw/100dvh 全屏形态 = 「左右有 margin/高度未满」的直接根因。而「模型池编辑」走 webui-kit Modal 原语（cr-34 的窄屏块写在基础规则后，顺序恰对）→ 两面板形态不一致的对照来源。修复 = 窄屏块移到桌面规则之后。产物 CSS 验证：100dvh 位置在 82vw 之后（delta=361）。教训记档：**@media 覆盖块必须写在被覆盖规则之后**（同 cr-35 一类——「写了规则但没验证实际渲染形态」；本仓已两次踩：元素默认隐藏无显示块、媒体块顺序颠倒——根因同源 = 改 CSS 后只看 typecheck 不看计算样式，构建产物探针法（cr-32⑦）应作为窄屏改动的常规验证步骤）】
+- 【cr-37 2026-09-28 设置面板导航改头部下拉 + 气泡窄屏行宽修复（用户真机反馈三轮）：①横滚胶囊 tab 弃用——10+ 节清单横向滚不出全貌（多数节藏在滚动区外不可发现）且宽度未满；改**头部节选择下拉**（当前节名 + chevron，点开 = 全节竖列下滑面板，选择即收；桌面左侧树形态不变）。②气泡行宽：.turn-item 的 max(70%,440px) 管的是含头像的整行——375px 屏文本列被压到 ~209px 而另一侧空 ~108px（「未考虑另一侧头像宽度」）；窄屏 @media 提到 88%（两侧各留 6% 呼吸边，文本列 ≈274px）。③**第三次踩 CSS 顺序坑并根治**：43c 又把媒体块插在 .sp-tree 基础规则之前（cr-36 刚记完教训又犯——根因是「在文件中部就近插入」的编辑习惯）；根治 = 本文件窄屏规则**全部集中到文件末尾统一媒体块**（顺序即生效，中部只留指路注释）。探针教训补录：iframe 克隆样式法必须给探针元素补 data-v scoped 属性（scoped 选择器带属性限定，裸 class 探针读出的是未被任何规则命中的初始值——turnMaxWidth "none" 的假阴性来源）。验证：375px 探针全项（media=true / turn 88% / sp-tree none / nav-toggle inline-flex / panel 375px 全屏 r=0 h=700px）+ typecheck + build 守门 + 全量单测】
+- 【cr-38 2026-09-29 cr 号连续性修复（cr-24 勘误补全）：并行批 ISSUE 工具行（原 cr-32/33）未随 cr-24 勘误的基数收缩平移——26~30 空号遗留，当晚移动端 UI 批（原 cr-34~43）以 33 为尾顺延令空号固化。修复：①原 32~43 整体平移 -6 为 26~37（条目 + 全仓现行引用单遍正则同步，单遍免疫级联）；②代码 7 处 cr-30 陈旧引用（附件 absPath——cr-24 时漏改）订正为 cr-22；③cr-24 指引句「序列 …→31 为准」更新为 25；④五处未来日期幻觉订正（cr-9/cr-18 的 2026-10-09→09-28、cr-21 的 10-14→09-28、cr-22~25 的 10-14→09-29，以 git 首见提交日为锚）；⑤历史叙述原样保留（cr-24 条目内 29/30/31 为事故时历史号非现行号；gap-backlog「误取号 cr-31」同理）。教训：勘误改号须全文重排查号空洞，不能只改受牵连号；条目日期 = 登记当日真实日历日，出现未来日期即登记事故红旗】
+- 【cr-39 2026-09-29 LLM 协议多态扩展（docs/llm-protocol-extensibility.md 备忘实施）：池条目增 protocol 字段（缺省 openai-compat 零迁移）；新增三协议纯库 ac-anthropic-completions / ac-gemini-completions / ac-ollama-completions（stream/listModels/usage 归一，Anthropic /v1/messages + Gemini generateContent + Ollama /api/chat 原生线格式；toolCalls/reasoning 映射超出 D2 首期缩水——ReAct 平台无工具调用不可用）；PROTOCOLS 注册表住 ac-llm-pool（protocol → { 工厂, listModels }），未知协议 boot fail-loud / 热更跳过（D4）；协议值域 = PROTOCOLS 键集单源（D5）；probe-models / probe-vision 增 protocol 分发（免注册探测）；webui PoolManager 自定义流程协议选择 + 模板 anthropic 原生/gemini 原生/ollama 三预设；ac-llm stats 透 protocol；三库 SSE 行解析复用 openai 库 sseDataEvents（跨协议通用件）】
+- 【cr-40 2026-09-29 cr-log 头部增「当前号」快查块（agent 惯从头部读，最新号原需读尾/grep 二次查询——cr-24 跳号事故教训「登记前 grep 全文件」即该摩擦的补丁式补救）：头部引言区加单行当前号声明（读头即得号，免二次查询），vitest 守门测试 src/ac-app/tests/cr-log.test.ts 双锁（头部行与目录最大号同步；新 CR 未同步头行即红）+ SKILL.md 红线段指引句同步（cr-24 教训句降格为守门测试兜底）】
+- 【cr-41 2026-09-29 submit_issue 隐私防线：能力轴独立标签 issue-report（requiredTags 从 web 切换——网络授权不再连带解锁对外发布，出厂行内 web/issue-report 双词并立不互斥）+ tag-registry 预注册 + 会话开关 issueSubmit（conv-settings experimental 组键——输入箱「实验性」目录驱动出现，grants 注入 issue-report 可见性通路 + disabled 执行前置拦截）+ 敏感自审引导（工具 description 逐字段警示 + system-prompt 第 12 条脱敏纪律：密钥/凭据/私人数据不进公开 ISSUE）+ 出厂预设与 smoke Agent tags 增补 issue-report】
+- 【cr-42 2026-09-29 fix(preview): markdown 预览沙箱复制脚本被 CSP 确定性拦截——srcdoc iframe 继承父页 script-src 'self'，markdownPreviewDoc 注入的内联 MD_COPY_SCRIPT 必死（报错 hash LLfocE7VQPOGGd9VwJGzVzAGc/cWJ0OwwJ/I87zjMKY 与脚本体 sha256 吻合实锤；本地复现实验 .dsh/tmp/csp-srcdoc-test/：外链 self 脚本在 srcdoc 沙箱内实测可执行）。修法 = 脚本外链化：MD_COPY_SCRIPT 退役 → src/webui/public/md-preview-copy.js（vite public 直拷 dist 同源托管，CSP self 放行——legacy-runtime.js/officeVendor 同款通道，mobile 经 sync-webui 自动跟进），markdownPreviewDoc 改注 <script src>；单测断言随迁 + public 在位守门。遗留：HTML 预览（用户文件内容的内联脚本）同样被继承 CSP 拦——allow-scripts 与 CSP 继承相矛盾，修法需 blob: src 通道（相对引用基准随之变），未在本批处理】
+- 【cr-43 2026-09-29 移动端四项批：①安卓图标全套换标——脚手架默认机器人图标（ic_launcher_*/splash 从未换过）由 mobile/scripts/gen-icons.mjs 从 src/webui/public/logo.svg 单源派生（resvg-js 光栅化→各密度 PNG + 自适应前景 + 深底色；Edge headless 通道被系统策略层层拦截后弃用），重跑即再生（图标资产 = 构建产物，不手绘）；②主题三档 system|light|dark——ThemeCore 偏好档位化（缺省 system 实时跟随 prefers-color-scheme + change 监听，matchMedia 垫片防单测炸——jsdom 无 change 事件），toggle 从 system 切出落定当前生效值，「更多」面板增「跟随系统」入口；③配对面板自带扫码——ScanActivity（CameraX ImageAnalysis + zxing-core 解码，GMS-free），扫得 agentchat://pair 直接走既有 pairWith 路径，配对面板增「扫码」按钮；④PairingQr 占位点阵换 qrcode（npm）真码渲染（remote-link-remaining-plan 1.3 既定待办——手机自带扫码后 PC 端必须出真可扫码，闭环才成立），URI 复制降级通道保留】
+  - cr-43 真机轮补录（与下条同号并源，⑤~⑮）：⑤sync-webui 双落点——原只写 mobile/app/www（Capacitor 中转），gradle 实际打包 android/app/src/main/assets/public，APK 永远带旧 webui（真机加载旧 chunk 实锤），改双落点同步；⑥RelayClient 自签证书——OkHttp 默认信任链拒自签（公网 wss 实锤 CertPathValidatorException；之前局域网明文 ws 掩盖），对齐 PC 侧 rejectUnauthorized:false 语义加 trustAll + hostnameVerifier（认证在 Noise 层）；⑦配对会话 UI 态丢失修复——会话引用只存发起窗口组件内存，关页/换窗即丢：SAS「一致」按钮消失 + 新发起被 already in progress 挡（两窗口互抢实锤）。修法：服务端为单一事实源——status() 附活动会话快照（前端 refresh 对账恢复 UI 态）+ startPairing 幂等（活动会话返回它而非报错）+ 测试随新语义更新+ ⑧配对后断链死锁：connect() 对 connections 槽位无条件 continue——断链但 onClose 未触发（relay 单侧 failure 帧）时槽位残留 → connect 短路 → 设备永不重连（真机实锤：配对成功 1 秒后 relay failure 断链，PC 侧 onlineDeviceIds 挂死、手机 KK 十轮重连全空撞）。修法：RelayConnection 暴露 isOpen（ws readyState 只读），connect 改「健康跳过 + 死链交 runDeviceConnection stale 清理重建」+ ⑨KK 重试烧穿 relay 频控：runDeviceConnection 失败重试 1s×10 连发 join，超 relay joinBucket（burst 5 / 10 每分钟 per IP）配额 → 稳定 room-unavailable 恶性循环（真机实锤：PC 侧 0 relay 连接、手机 KK 十轮全空撞；本地探针 join 即 unavailable 复现）。修法：重试间隔 1s → 7s（≈8.5/min 不触顶，与手机侧 KK_RETRY_DELAY_MS 同节奏）+ ⑩已配对黑屏返回键失灵：WebView 崩溃态 evaluateJavascript 永不回调 → 返回键无响应困死黑屏。修法：onBackPressed 双通道（JS 应答 + 600ms 超时兜底，幂等 moveTaskToBack）+ ⑪移除配对死锁（用户可用性报告）：PC 端吊销设备后手机无通知通道、无解除入口，无限退避重连卡死黑屏。修法三件：手机退避循环加总时长上限（10 分钟）→ 超时置 ERROR 终态（message 说明可能被移除）；MainActivity ERROR 终态弹配对面板（不再静默黑屏）；面板已配对态加「重试连接」+「解除配对并重新开始」（确认框 → clearPairing → 回扫码面）。手机端自治自救，不依赖对端通知（被吊销后通知通道本不可信）+ ⑬relay 连接容量三连修（真机终局：配对成功后必断链之谜全解）：频控 joinBucket 10/min 在两端 NAT 同出口 IP 时被手机 KK（15/min）+核心端重试合计超限互杀 → 30/min；maxConnPerIp 5 被「手机 KK 超时放弃用 ws.close(1000) 优雅关闭、relay 未及处理 close 帧 TCP 挂僵尸」爬满（netstat 实锤 12 条 Established 全是僵尸）→ 上限 30 + relay 加连接级 15s 未 join 空闲清退 + 手机端 RelayClient 加 cancel()（立即断 TCP）用于超时放弃路径 + 手机 KK 轮间隔 4s→7s 与核心端同节奏；频控测试随新参数更新（burst 耗尽语义不变）+ ⑭KK 相位死锁（终局修复）：双端对称重试永不相遇——PC responder join 后等 m1 仅 15s 即退出重试（7s 轮），手机发起方 3s 超时 7s 轮，同周期相位锁定（真机实锤：双方各自在房等待却互不重叠，探针 join 即 joined 证明房空）。修法：RelayConnectOptions 增 waitFirstMsgMs，KK 路径传 70s（覆盖手机 10 轮×7s 完整周期+退避窗）——responder 长驻等、发起方短重试撞的互补节奏（恢复 M3 原设计语义并适配 7s 新节奏）；XK 配对路径维持短窗+ ⑮PC 侧 KK 并发占房自锁（真机实锤收尾）：connect 手动触发与 scheduleReconnect 退避并发时多条 KK 链同时 join 同一房间（房间 2/2 满员但手机不在其中——手机 join 全被 room-unavailable 拒，宿主 13 条 Established 并存）。修法：runDeviceConnection 加 connectingDevices 在途去重（同设备同时仅一条连接尝试，外包裹 try/finally 释放）+ 二次 ONLINE 桥端口重载（loadedBridge 一次性门闩令链路重建后 WebView 停死端口白屏——改 loadedPort 变化即重载，真机 21:41 轮实锤修复后完整 webui 加载成功）；交接文档 src/docs/m3-handoff-20260929.md 的登记原拟 cr-44，因宿主重启写半中断，正式登记见 cr-47
+- 【cr-44 2026-09-29 幻影回放根因修复（读侧闸门 + v6 迁移双层）：陈年未收束 partial 行年龄上限（news~news 孤儿 run 事故——09-25 双进程并发写丢收束行，78 行 partials 孤儿 + 45 行主文件物化残留每轮活投进上下文诱发模型幻觉；修复双层 = ① records() 读侧闸门：timestamp 距今超 7 天的 partial 行不投出（partials 插回/journal 活投影/主文件物化残留三路径同口径收口，isStalePartial 住 migrations.ts 与迁移同源）；② v6 迁移 stale-partial-purge：物理清除两文件内陈年孤儿 partial 行（迁移前强制快照 + mtime 还原），下次重启时由平台持锁清理（news~news/abap-dev~admin/abap-dev~user/user~writer 四会话受害面）】
+- 【cr-45 2026-09-29 孤儿 run 恢复物化段行 agent_id 错根（singles 回放丢失事故——09-29 宿主被 agent 停止重启后 run2 轨迹对后续 run 不可见）：recoverJournal 从桶键 split('~') 推导 agentId，对桶碰巧正确、singles 桶（uuid）拿到桶键本身 ≠ 运行 Agent（__standard__），history() 空 content 段行按 viewer 匹配不中整轮跳过。修复 = journal 行内真实 agentId（步行/注入行落盘直存）优先，缺席回落旧推导（行为同旧）】
+- 【cr-46 2026-09-29 记忆注入重复根因修复（1v1 双人格共桶锚串台）：锚检测扫桶内全部 memory 行不看 agent_id，双端点桶（news~user 等）里对方人格的注入行被当成自己的锚——user 侧见 news 锚 S>H 误判「文件缩短」走全量快照重定基线、news 侧见 user 锚 S<H 误判大批「新 delta」重复注入，每次对方说话即互相打掉基线无限震荡（实测 news~user 桶 8 行注入 agent_id 交替、基线 25↔1/32↔3 震荡；单 Agent 桶 news~news 基线单调正常）。修复 = 锚检测只认 agent_id === 本 Agent 的注入行 + 双人格共桶回归测试锁定】
+- 【cr-47 2026-09-29 M3 真机联调收尾：交接文档 src/docs/m3-handoff-20260929.md（全链路走通实况：扫码→配对→KK 会合→完整 webui 加载 + 主题 system 缺省实锤；cr-43 ⑤~⑮ 修复总账；P0 公网 relay 部署/保活稳定性、P1 防火墙/UX 细节、P2 走查等遗留清单；常用命令速查 + 踩坑存档六条）——下轮会话从该文档恢复现场】
+- 【cr-48 2026-09-29 远程链路保活修复（六处）：手机 OkHttp pingInterval 25s→15s（闪断检出 50s→30s）+ 手机退避上限 60s→15s（撞门密度↑）+ relay destroyRoom 改 terminate（死链即断不留优雅关闭尾巴）+ sweep 60s→15s（僵尸房间窗口 120s→45s）+ PC RelayConnection 增 pong watchdog（62s 无入站帧 sever RST 强断进重连）+ service reconnectAttempt 断链时归零（原只在连接成功时清零——一次断链周期后每次断链都直接从 60s 退避起步，PC 侧长时间「消失」）——真机实测断链→恢复全程 76s→预期 <30s；另顺手修 relay unref 可选链与 connectingDevices 可选链 lint error、cr-log cr-43 重复号事故（上轮宿主崩溃半写孤儿条目降格）】
+- 【cr-49 2026-09-29 手机端闪屏修复（桥与链路解耦）：LoopbackBridge 增 swapUpstream（重连只换上行通道，桥不死端口不变）+ RemoteSession.startBridge 幂等（桥已活则 swap）+ 重连成功路径不再重建桥 + MainActivity 已 ONLINE 过的短暂断线不弹全屏「正在连接」覆盖层（防抖）——修「每次重连换桥端口 → WebView 整页重载」的闪屏根因（USB 隧道闪断 45~90s 一次，虽 1.8s 自愈但整页刷新闪眼）】
+- 【cr-50 2026-09-29 PC 侧 KK 握手失败残骸竞态修复（公网真机实锤）：握手超时 reject 与对端 m1 到达竞态——close 优雅关闭 30s 残骸期占房 2/2 堵对端 join 且制造对端「假 ONLINE」；失败路径（catch/stale 清理）一律 sever（RST 立断），sever 公开化。公网部署同批完成：relay.mjs 更新（cr-48 参数）+ RELAY_DEBUG drop-in + 双端切 wss://47.110.63.135:8443】
+- 【cr-51 2026-09-29 移动端链路图：src/docs/mobile-link-diagram.html——三端一管道总览（手机 App / 哑中继 / PC 核心端）、XK 配对与 KK 重连时序、安全四道防线、业务帧同构说明与涉及包清单；与源码现状对齐的整理产物，无代码改动】
+- 【cr-52 2026-09-29 公网大帧风暴双修（真机实锤：握手成功瞬间宿主连灌 3×1.1MB session/history 应答，手机 OkHttp 接收不住判死断链→重连→再灌→死循环，即公网形态「闪来闪去」完全体）：①remote-link forwardRpc 对远程 session/history 未显式指定 limit 时强制 8 条/页且显式大 limit 一律钳到 ≤8（50 条在 subcalls 投影后仍 1MB+——按条数分页挡不住单轮超大）+ 应答尺寸兜底 truncateRemoteResult（超 300KB 的 records 截尾 2 条 + hasMore 让前端上翻续拉）②桥 callUpstream http/read|write 在途合并（同 path GET 重试等同一应答不重发）——分帧传输（M3.4 登记的分片待办）仍是根本解，此为止血】
+- 【cr-53 2026-09-29 重启后 remote-link「待机」不连（用户实锤）：构造器时序里 config 服务可能尚未就位——applySettings 拿不到 relayUrl，启动即连被静默跳过，手机端空撞门等 PC 待机；config/changed 只在写入时广播，boot 期静态加载无事件可依赖。修复 = 启动即连触发点搬到「URL 首次到位」时刻（applySettings 内补触发，bootConnected 门闩只跑一次；构造器路径保留直接触发）】
+- 【cr-54 2026-09-30 session/history 远程瘦身（steps 摘要化）：实测重会话 387KB 中 steps 占 98.7%（run_code 子调用轨迹：toolCalls arguments/result 全量传输），reasoning 几乎 0——「PC 折叠思考卡片」是渲染层优化、传输层两端从未有过体积意识。修法：web-api session/history 增 view:'lite' 投影（steps[].toolCalls 参数截 2KB + 结果换 {truncated,size,preview} 摘要），remote-link forwardRpc 远程路径自动注入（前端显式传 view 不覆盖）——桌面默认行为零变化；顺手修 web-api 两处存量 lint（JSON.stringify 恒串判断 / PROTOCOLS 键守卫改 Object.hasOwn）】
+- 【cr-55 2026-09-30 lite 视图 steps[].reasoning 截断（§6.5c 残余瘦身）：cr-54 后实测残余 166KB 的构成探针显示 steps[].reasoning 才是大头（单步 6~7KB × 每轮 10+ 步；toolCalls 参数/结果截断后各 <2KB 只剩零头；§6.5c 预判的 steps[].content 实测仅 0.9KB/步）。修法 = web-api session/history lite 投影把 reasoning 超 LITE_FIELD_MAX 同样截为 `前缀…[+NB 截断]` 摘要（思考折叠卡纯文本渲染，截断后缀可见即可，与工具卡截断提示同语义）。editor~user 探针：lite 166KB → ~22KB（-87%）。附带修复 cr-54 遗留的缓存污染缺陷（本测试 full-after-lite 断言抓出）：records() 元素对象共享解析缓存（约定调用方只读），cr-54 的 lite 截断直接变异缓存对象——污染后续 full 请求与 history()（LLM 回放读侧会读到「…截断」标记文本）；且 limit 未传时 page 即缓存数组本体（page = all 同引用，替换槽位 = 写缓存）。修法 = page 无条件自有副本 + lite 投影逐层浅拷贝（step/toolCall 均 spread 新对象）】
+- 【cr-56 2026-09-30 手机端 localStorage 失效根因修复（桥固定端口稳定 origin）：回环桥每次启动随机端口（LoopbackBridge port=0 缺省）+ 切后台 onStop 停桥重建 → WebView origin http://127.0.0.1:<port> 每次都变，localStorage 按 origin 分区故每次都是全新空分区——主题/lastContext/树折叠/composePrefs 等 webui 持久化在手机端「存得住一时、重启全丢」。修法（壳层三处，webui 零改动）：① LoopbackBridge.start() 固定端口 bind 失败回退 port=0 随机（fail-soft，占用者可能是别的 App 拿到同端口）；② RemoteSession.startBridge 优先复用 PairingStore 持久化的上次实际端口（无记录缺省 27182），实际端口写回持久化——回退随机也复用该值，漂移不固化；③ LoopbackBridgeTest 补固定端口监听 + 被占回退随机两测】
+- 【cr-57 2026-09-30 手机端启动页 logo 畸形修复（splash 资产形态改 layer-list 等比居中）：全幅 splash.png（渐变底+logo+品牌字，320:480）作窗口背景被拉伸铺满整窗，真机屏比例（≈9:19.5）与图比例（2:3）不符 → logo 纵向拉长畸形——全幅位图做窗口背景在千差万别的屏比下必然失真。修法：gen-icons.mjs 的 splash 产物改为「drawable/splash.xml layer-list（渐变 shape 铺满 + bitmap 等比居中）+ 5 密度 splash_logo.png（透明底 logo+品牌字卡片）」，退役 11 张全幅图；styles.xml NoActionBarLaunch 补 windowBackground 项（与 android:background 双路径同指 layer-list）；新增 values-v31 styles 配 windowSplashScreenBackground 品牌底色（Android 12+ 系统 splash 阶段视觉一致，icon 用系统默认 app 图标）】
+- 【cr-58 2026-09-30 cr-log 管理 CLI（scripts/cr.mjs 零依赖本地工具）：append 自动取号 + 当日真实日历日 + 同步头部「当前号」行（写前不变量自检 fail-loud，与守门测试同口径）；grep 条目块级检索（多词 AND、续行按引用 cr 号归属、最新在前）——登记/查询各一次调用完成，替代读头行→手写条目→改头行的多轮文件操作；CR_LOG_FILE 供测试隔离；SKILL.md 红线指路与 package.json（pnpm cr）同步】
+- 【cr-59 2026-09-30 run_code # 注释规范化：strip 前确定性 #→// 改写（共享扫描器）+ 报错提示覆盖 V8 编译失败路径 + SDK 纪律行】
+- 【cr-60 2026-09-30 会话切换 user 消息掉底/错渲染修复（resume 快照尾部追加越过 journal 活投影步）】
+- 【cr-61 2026-09-30 修复 run 中后台 job 通知 event 行插入后工具卡永久转圈：turnContentSig 漏 tool result 长度致前缀复用过期 Turn】
+- 【cr-62 2026-09-30 手机端握手时序图（src/docs/mobile-handshake-sequence.html）：XK 配对与 KK 重连两条握手全时序（源码对齐版）——三泳道参与者/保活与频控参数/断链恢复实测节奏/SAS 校验锚点，与既有 mobile-link-diagram.html 同族样式】
+- 【cr-63 2026-09-30 手机冷启会合提速：PC KK 循环间隙 7s→2s（在房率 91%→97%，join 频控无压力）+ 手机撞门轮间隔 7s→4s（15/min 频控安全）——冷启等待实测 ~29s 降至预期 ~7s 均值。根因：撞门粒度与 PC 循环间隙的乘积构成相位错拍窗口，两端各压一半】
+- 【cr-64 2026-09-30 relay 安全审计修复：KK 模式改真 KK（加 s/ss token）+ responder 校验对端静态公钥；relay 清扫频控 bucket 残留 + 单 IP 未封闭房间配额；下行事件按 device.scopes 过滤；singles/update fork 移出 read 档；relay frame 转发死代码清理】
+- 【cr-65 2026-09-30 审计修复第二批：配对二维码携带 TLS pin 并双端校验；SAS 确认显示设备公钥指纹；配对会话过期重生成房间号；download-gate 路径段级匹配修子串误拒；KK 重试错峰抖动】
+- 【cr-66 2026-09-30 远程链路真机两缺陷：①loader 行 config 经 schemastery 归一化把 defaultScopes 变空数组（?? 不认空数组）→ 配对设备零权限注册 → 手机端 webui 装配被 scopes 闸门全拒 → 黑屏；②status() 配对会话 done 后未释放仍判 pairing → PC 端恒显配对中。修：①defaultScopes 空数组回落缺省档；②链路状态判定排除 done 态会话】
+- 【cr-67 2026-09-30 远程链路真机续两缺陷：①配对收编路径（adoptConnection）漏挂 onClose——手机离线后 connections 残留死链、status 恒报在线、重连永不触发，手机在派生房空撞门卡「正在连接」（onClose 统一移入 adoptConnection 漏斗 + 新链替换守卫）；②配对 done 会话永不释放——SAS 完成面板常驻不退（done 短驻 10s 后释放，前端对账即收起）】
+- 【cr-68 2026-09-30 真机 KK 重连失败根因定位：PC 宿主重启后已跑 cr-64 真 KK（m1=[e,es,s,ss]），手机 APK 仍为 20:51 旧构建（精简 KK m1=[e,es]）——协议版本错配致 PC 端解析 m1 抛 noise: truncated s、重连永不成功；重编 APK 对齐协议版本】
+- 【cr-69 2026-09-30 PC 端 KK 70s 握手等待死等缺陷（真机+relay 日志双实锤）：expectHandshakeMessage 只挂超时定时器，ws 被 relay 销房 RST 后仍盲等到自然超时——手机撞门轮 cancel 切 TCP→relay 销房→PC 死 ws 盲等剩余窗口→手机下一轮 join 空房，两端相位互屠；修：ws close 即 reject 全部挂起握手等待，失败立即进 2s 快速重试与手机撞门轮对齐】
+- 【cr-70 2026-09-30 会合协议结构重构：常住方（resident）模型根除相位耦合——relay 成员离线不再销房（移除成员+通知幸存者 peer-left，房间随心跳存活）；PC 端 KK 改常住连接（对端离开原地待命，新 m1 到达即在同 ws 上重握手，删 70s 等待/2s 快重试/kkRetries 全部时序参数）；手机端零改动】
+- 【cr-71 2026-09-30 cr-70 手机端补丁：peer-left 处理过于激进——收到即 cancel 自杀健康连接（真机实锤：PC 旧版重试轮断开触发 relay peer-left，手机误判为断线自cancel，发消息即断连）。修正语义：peer-left = 对端连接走了但房间保留，正确动作是走既有重连循环（撞门即会合常住的 PC），非放弃】
+- 【cr-72 2026-09-30 relay TTL 误杀常住房（cr-70 补丁）：openRoomTtl 5min 判定用 createdAt 且不区分「从未封闭的占座房」与「曾封闭后回到 1 席的常住房」——PC 独守超 5min 被 sweep 杀、被迫每 5min 重拨一轮，违背常住方意图。修：Room 增 everClosed 标记，TTL 只管从未封闭的房间；常住房由幸存者心跳（60s 超时）保活】
+- 【cr-73 2026-10-01 cr-70 补缺：配对连接被收编为常住后住在配对房（p 前缀一次性房），手机 KK 撞的是派生房（r 前缀）——房间错位永不相遇（真机实锤：重新配对后强杀手机，PC 在配对房 waiting，手机在派生房撞门 10 分钟不合）。修：配对连接不转常住——onPeerLeft 时弃链并立即去派生房 dial 常住连接（配对房本就是一次性 rendezvous，常住语义只属于派生房）】
+- 【cr-74 2026-10-01 哑中继安全审计第一轮报告（relay-security-audit-2026-10-01.md）：代码面 8 项发现（F-1 崩溃/F-2 房间池耗尽为主），纯审计无代码改动】
+- 【cr-75 2026-10-01 哑中继安全审计第二轮报告（relay-security-audit-round2-2026-10-01.md）：服务器攻破→PC 入侵链路分析——转发链 Noise 稳健，R-1 高危发现：桌面更新信任链自指（manifest 与 sha256 同源+明文 HTTP+无代码签名）】
+- 【cr-76 2026-10-01 DSH 0.2 契约比对增量计划文档：ac-config 热更三小件（changed 载荷/提交去重/快照冻结）+ 原则记档（src/docs 新档 + README 索引）】
+- 【cr-77 2026-10-01 安全审计修复（relay-security-audit 两轮 2026-10-01）：download-gate 抽 parseGatePath 统一 400 防崩（F-1）；per-IP 房间配额含 everClosed 房间 + IPv6 聚合 /64（normalizeIp）+ 全局 maxTotalConns 兜底（F-2）；所有 op 统一收帧速率桶费（F-3）；env 数值 NaN 防护回退缺省（F-4）；quota 读盘一次复用（F-8）；桌面更新链 manifest 双源校验（下载面 ↔ GitHub Releases 信任锚，desktop.yml 上传 manifest.json 资产）+ install 前就地复核 sha256（R-1）；SAS 确认改输入 8 位数字服务端核对（R-2）】
+- 【cr-78 2026-10-01 remote-link deliver 信封 sender 由 remote:<id> 改回 user：remote: 前缀致 1v1 直答桶键分裂（pairKey(remote:xxx, agent)≠user~agent），流式门控拦帧、历史读侧读不回；sender=端点身份（手机=viewer 另一块表面），设备溯源留链路层】
+- 【cr-79 2026-10-01 设计档案整理：src/docs 根 27 份已收官过程文档（M1/M3 远程批次·LLM 域·系统提示词·记忆时间线·安全审计两轮·治理审查等）移入 archive/ 冻结区 + .dsh/tmp 两份真文档收编（实战 PoC 审计/M3 交接单）+ 源码注释与留守文档引用路径同步 + src/README.md 索引重写（修正 3 处过时状态·补登 4 份漏登） + archive/README.md 索引扩容】
+- 【cr-80 2026-10-01 手机端下拉刷新：webui-kit PullToRefresh 触屏原语 + 会话/Agent 列表接线（消息区上滑加载历史为既有行为，本轮确认覆盖）】
+- 【cr-81 2026-10-01 真机「连不上」排障三修（中继重部署后双端互等实锤）：① relay-connection handleWire 的 room-unavailable 拒帧不解除 expectOp('joined') 等待——房满被拒时白等满 15s 才进重试，撞门相遇窗被拉长 3~5 倍；拒帧即 resolve(false) 走既有 join failed 路径快速重试（pong 不碰等待者，防迟到回包误判）。② MainActivity 补 onStart 回前台自愈：ERROR 终态（重连超上限停摆）与切后台 stop() 后的 IDLE（原实现回前台无任何恢复路径，WebView 停死桥白屏 ERR_CONNECTION_REFUSED）由 onStart 显式 startAndLoad + resumeOnline 拉起——watchJob 活着时不重复拉（并发双 dial 同房会占满 2 席把对端关门外）。③ build.gradle 更新清单缺省地址 127.0.0.1:18080 → 生产下载面 47.110.63.135（本地联调残留，真机每次启动必检查失败）。契约测试 +3（拒答秒回/回归锁/pong 边界）】
+- 【cr-82 2026-10-01 远程 HTTP 桥透传缓存头 + 头像版本化 URL/ETag + workspace/raw 缓存头（手机端无 web 缓存根因修复）】
+- 【cr-83 2026-10-01 手机端已配对态重新扫码不显示 SAS 验证码——pairWith 前确保配对面板在位（sasView 归属面板，未建面板则 showSas 静默丢）】
+- 【cr-84 2026-10-01 手机端 Enter 换行（窄屏不拦截）+ PC 端 SAS 大数字显示退役（防盲确认被照抄削弱）】
+- 【cr-85 2026-10-01 下行线格式共享纯库 ac-wire-format：llm/delta 瘦身投影 + 30ms 合批，ws-bridge 与 remote-link 并源（手机端流式逐帧 MB 级载荷过 WAN 根修）】
+- 【cr-86 2026-10-01 文件编辑面板抬头工具化：折叠卡列表改单文件视图（文件下拉/版本下拉/上一下一版本/本地打开固定抬头）】
+- 【cr-87 2026-10-01 消息处理链路全景图谱（message-pipeline-graph.html：写路径/存储/三读路径/前端合流四层泳道 + 双源时序 bug 窗口 + 修复热点分层）与根因分析文档（message-pipeline-analysis.md：直播流与权威投影双管线合流缺收敛协议的结构性诊断）】
+- 【cr-88 2026-10-01 文件编辑面板：时间线退役（版本下拉+步进已覆盖入口）+ diff 区填满高度】
+- 【cr-89 2026-10-01 文件编辑面板：diff 自动换行开关（对齐预览页形态）+ 当前内容视图无 diff 着色】
+- 【cr-90 2026-10-01 文件编辑面板：diff 行三段分块（符号/行号/内容三列——对齐主流 diff 界形态）】
+- 【cr-91 2026-10-01 文件编辑面板：diff 三列成块——符号列着色/行号列分界线/行底色增强】
+- 【cr-92 2026-10-01 文件编辑面板：diff 三列解析容错 CRLF 行尾（\r 残留致正则失配全落 ctx 容错分支）】
+- 【cr-93 2026-10-01 文件编辑面板：diff 行底色三列统一（去割裂）+ ctx 正文灰改主色】
+- 【cr-94 2026-10-01 消息链路根修 D1 收敛协议：settlement 物化完成后 emit session/run-settled（载荷 conversationId/agentId），前端事件驱动重拉首屏替代 TURN_DONE_DELAY 300ms 赌窗（延时降级为兜底）——直播行→权威行替换获得显式收敛信号】
+- 【cr-95 2026-10-01 D2 读投影单源化：lite 截断投影自 ac-web-api 归位 ac-session（records 单源导出——web-api 传输层只剩参数透传，消除投影逻辑放错层的缓存污染类风险，cr-55 病理断根）】
+- 【cr-96 2026-10-01 cr-94/95 后续精简：_settlementReload 预登记集与 gated 参数判死清除（两驱动均无条件重拉后只写不读——全仓求证零消费方）；scheduleSettlementReload 签名收敛为 delay 单参】
+- 【cr-97 2026-10-01 模型提供商模板扩容：对齐 DSH（pi-ai 2026-07-25 目录）新增 12 提供方（含 anthropic 原生协议模板），修正 xai/glm-coding 失效默认模型】
+- 【cr-98 2026-10-01 LLM 域五项：云部署型接入（Bedrock 模板/Azure authHeader）+ LlmHttpError 错误分类（429/5xx 可重试+Retry-After）+ Anthropic thinking 回放 + 媒体字节上限；文档收录云部署型差异裁决】
+- 【cr-99 2026-10-01 模型池评估修复：路由确定性消歧（同名 model 字典序+warn）+ 传输键单源兜底剥离 + 观测/意图分离（replaceMeta 通道，清单变化不重挂在途）+ 连接健康面（chat-error 归属 provider 进 meta）+ 容量元数据字段 + 改名/删除引用检查】
+- 【cr-100 2026-10-01 移动端 webui 产物更新：构建新 dist 并 sync-webui 双落点同步（含 cr-85 批帧解包 unpackWireFrames + cr-94 收敛协议前端面 feed-core——PC 侧已发 llm/delta-batch 合帧，旧 APK 无解包会流式丢字，本次同步消除新 PC/旧 APK 组合的线格式断裂）】
+- 【cr-101 2026-10-01 移动端 webui 静态资源在线化（变体B）：http-bridge 放行 GET 静态路径 + 回环桥 serveStatic 代理核心端 + 失败回落本地 dist】
+- 【cr-102 2026-10-01 cr-101 完结：核心端 http/static RPC + 桥静态面在线代理（replyProxied 共源精简）+ 双侧测试 + README 同步】
+- 【cr-103 2026-10-01 cr-101 真机验证收口：dist 顶层白名单补 legacy-runtime.js/ui-plugin-iframe.html/md-preview-copy.js（index.html 与 iframe 档真实引用）+ 端到端实锤（标记注入 dist→手机桥命中→模拟发版杀 App 重启拉到 v2）】
+- 【cr-104 2026-10-02 手机端会话级设置全部静默失效根修：remote-link SCOPE_ALLOWED_METHODS 白名单自 M1 后未随 webui 功能面迭代同步——conv-settings/get|set|keys（工具模式/浏览器档/模型覆盖/实验键=工具栏设置本体）、singles/update（改名/挂工作区/模型）等会话写面不在任何档位，手机端 rpc 全被闸门拒且仅 console.error 静默；按语义归档补齐（conv-settings/get|keys 入 read、conv-settings/set 与 singles/update 入 chat——提权 elevation 剥除面不动）+ 闸门拒绝显性化（ChatInput 设置写入失败 toast）】
+- 【cr-105 2026-10-02 remote-link scopes 闸门退役（用户裁决：配对是本人扫码建立的信任，逐方法白名单是自我限制——M1 以来两次真实事故〔cr-66 空档黑屏、cr-104 设置静默失效〕皆因白名单未随功能面同步，机制负价值）：SCOPE_ALLOWED_METHODS/scopeAllows 删除、forwardRpc 不再按方法拒绝（保留 deliver 强制 sender/user + 剥 elevation——防伪造端点注入，非自我限制）、http 桥 GET-only 与静态路径白名单保留（桥层独立安全面）、sendToReadDevices 保留 read 档下行过滤（chat-only 设备不收明文事件——注册表既有字段语义不变）、scopes 字段落库保留（历史数据兼容，仅不再参与闸门）】
+- 【cr-106 2026-10-02 mergeHistory 前缀对齐加身份门+空载门：悬挂 run 空占位窗内切回会话，用户落盘行不再被内容前缀互验误吸收进 Agent 占位（Agent 气泡镜像用户消息事故根修）；回归测试 4 例钉住门语义与 2026-09-21 #4 不回归】
+- 【cr-107 2026-10-02 会话前端收敛 checkpoint B+C：B·live 分区（流式/占位/未闭合工具行）历史重入禁指纹短路，切回时点=确定性收敛（服务端全量覆盖临时态）；C·悬挂流探针——streaming 分区静默3min 查 conversation/stats 权威判死活（判死关停+强制收敛/判活顺延/RPC 失败不定罪），发送看门狗触发即权威化；新增 convergeDialog 写口 + 回归测试；run 生命周期文档同步】
+- 【cr-108 2026-10-02 远程下行事件面与 ws-bridge 并源（cr-105 同型走散第三现场根修，用户裁决「只防必要的，不防自己」）：REMOTE_DOWNLINK_EVENTS 13 事件白名单退役——桥接策略（过滤/整形/投影）从 ws-bridge 内联监听器抽出为共享目录 ac-wire-format BRIDGE_EVENTS（42 事件全量：群消息/决策卡/列表刷新/chat-error 等 29 种此前手机端静默缺失），ws-bridge 与 remote-link 同源消费，两链载荷同构（durable-interaction/opened 整形并源）；llm/delta 微批保留在各消费侧（性能机制）。同批：http-bridge 静态路径白名单退役为通用校验（仅挡目录逃逸与 URL 形态——GET-only 与主机钉死保留，cr-103「新 dist 文件忘加白名单真机 404」事故类别根除）】
+- 【cr-109 2026-10-02 手机端优化双件：后台保活（CONNECTING/ONLINE 期部分锁 wakelock 替代 onStop 全断链）+ 重连风暴修复（断链触发源去重防双循环互踩）】
+- 【cr-110 2026-10-02 新增根级 webui-gallery.html：webui-kit 全控件静态陈列页（对照评审用，非产品代码）】
+- 【cr-111 2026-10-02 移动端输入框默认单行自增高：PromptEditor 窄屏编辑面 42px(固定2行)→21px(1行) 起、随内容增至 63px(3行) 上限后内滚；窄屏 @media 块同步移到基础规则之后（cr-36 同款顺序坑：媒体块写在被覆盖规则前，同特异性被后写的基础 63px 压过）】
+- 【cr-112 2026-10-02 远程链路下行三连根修：①单批器漏斗 WireBatcher（全部下行帧过同一 100ms 微批，首帧原生直发保交互延迟，稳态 20/s 结构性低于 relay 30/s 帧闸——断链风暴根因是逐帧直发无界供给）；②设备上线/重握手回放信令 remote/resync（前端对账恢复 pending 交互卡，投递保证从至多一次变为至少一次）；③deliver 转发停止剥除 elevation（cr-105 配对即信任裁决的补全——sender/user 强制改写保留防伪造，手机提权武装态经 conv-settings 水位机制生效）】
+- 【cr-113 2026-10-02 多端回复竞态防御：interaction/reply 的 duplicate 结果前端如实消费——outcome.status 区分「自己已送达的重试」（answer 深比对同源 → 按成功出卡）与「其他端已先答」（提示已被他端回答、不冒充成功）；审批卡 respondApproval 同步检查。先答者赢在 store 状态机已是结构保证（answered 不覆盖不再发事件），本项补战败端诚实反馈面】
+- 【cr-114 2026-10-02 webui-gallery.html 消费面校准：移除零消费预留件 StarCard/PulseTrace 陈列，新增真实系统消费对照表（StarCard/PulseTrace 经查证为 tree.md 标注的预留原语，无行组件消费）】
+- 【cr-115 2026-10-02 webui-gallery.html 新增展区13：业务面未提取控件陈列（dock 卡族外壳/工具卡/思考卡/消息气泡对/InputMention 弹层/TokenGauge chip）——复刻自 ac-client-ui-* 真实源码】
+- 【cr-116 2026-10-02 新增 webui-standard-controls-proposal.md：基于陈列页全量数据的标准控件库整理提案（删减/合并/组合 + 分层目标态 + 迁移路线）】
+- 【cr-117 2026-10-02 webui-gallery.html 与 webui-standard-controls-proposal.md 归位 src/docs/（设计档案区，与 webui-component-tree.md 同区）】
+- 【cr-118 2026-10-02 新增 src/docs/webui-gallery-preview.html：标准控件库整理提案（cr-116）重构后目标态静态预览——删减面标记 + 三新原语（BusyRing/CollapseRow/DockCard）+ 迁移对照与组合示例】
+- 【cr-119 2026-10-02 新增 src/docs/webui/v2.html：标准控件库预览页外壳 v2（sticky 顶栏+滚动进度+区块 rail 导航+序号 eyebrow 层级+卡片/统计/删减/批次卡视觉收敛）——组件陈列与提案内容沿用 cr-118】
+- 【cr-120 2026-10-02 webui 预览页 v1：gallery-preview 单源化整理为 src/docs/webui/v1.html——裁死样式（x-* 业务复刻块/别名层）、sticky 顶栏章节导航+scrollspy、折叠交互去内联、toast 可演示】
+- 【cr-121 2026-10-02 webui-kit 控件库 v2 评审修正：双主题对比度达标 + 焦点环/reduced-motion 全局兜底 + 开关可达性 + BusyRing/CollapseRow/DockCard 三原语落地】
+- 【cr-122 2026-10-02 webui-kit 令牌与控件面收敛：合并 busy/running 色轴、用量四档收三档删 warn-strong、删死令牌（grad-star/glow-*/shadow-primary/bg-deep/role-info/role-active/accent）、行选中背景改 role-selected-bg、hover 去边框、FeedbackNotice 恒 chip、cfg 徽章并入 info、TokenGauge 硬编码清零、修复预览页星色色板无底色】
+- 【cr-123 2026-10-02 语义色拆分墨色/图形双档（--ok/--warn/--err + 新增 -graphic 变体）：4.5 线墨色保持深度、3.0 线图形档提亮（环描边/状态点/折线/命中条），亮色图形绿 #6f9f77 族】
+- 【cr-124 2026-10-02 UI 重构指导文档（webui-refactor-guide.md）：迁移规则 R1-R7 / 五批路线（615 处 hex 分布） / 评审红线】
+- 【cr-125 2026-10-02 webui重构P1：conversation 包向 v2 标准控件库迁移（hex→令牌/消息卡三件套迁 CollapseRow/ChatInput 反馈归 toast）】
+- 【cr-126 2026-10-02 webui重构P2：agents+singles 清单行 ui-row 化 + 状态点 StatusDot】
+- 【cr-127 2026-10-02 webui重构P3：workspace+runview spinner 归 BusyRing + 树行 ui-row】
+- 【cr-128 2026-10-02 webui重构P4：browser+usage+system 徽章归 ui-badge + 图表色板分层核对】
+- 【cr-129 2026-10-02 webui重构P5：其余小包 hex 清零（fs/goal/jobs/layout/shell/subagent/run-code/timer/todo/group/web/llm-pool/remote/settings/search-pool）】
+- 【cr-130 2026-10-02 webui重构P6：renderer 与 webui/src/assets 兼容层 hex 判定与迁移（指南外存量收编）】
+- 【cr-131 2026-10-03 webui重构P7：遗留 legacy 别名消费清收——业务件 var(--color-*) 归本源令牌、kit StarAvatar 去自身别名依赖、死别名条目剪除 + 预览页重注入】
+- 【cr-132 2026-10-03 subagent 两修：①看门狗超时改 handoff（不杀 run，转后台 job 跟踪+通知回投父会话）②子 Agent 工具 job 回投子 Agent 自会话桶导致降档（pwsh fail-closed）——job.conversationId 改父会话键】
+- 【cr-133 2026-10-03 fix(webui-kit): tokens.css 别名层注释含 --radius-*/--space-* 使块注释提前闭合，CSS minifier 报 Unexpected * 警告——注释措辞去 * 通配】
+- 【cr-134 2026-10-03 文字链路提亮（cr-125）：Nebula 三档各提亮（text-1 #f4f6f7 / text-2 #cbd3d8 / text-3 #a8b2b5——去灰白感）；Aurora text-1 近黑化 #2c3e50→#1e293b（去蓝灰闷感）；同步 rgb 三元组/code-text/role-hover-text/Element 兼容层；开关关闭轨道浓度 0.35→0.30 保两态可辨】
+- 【cr-135 2026-10-03 色彩丰度注入（cr-135）：压抑感根因 = 色彩出现率低（90% 像素中性 + 交互反馈全灰）——hover/选中底靛染（N #252637 / A #ececf5）、primary 拉满饱和（N #7c8cff S100 / A #4338e8）、边线靛染（N #33343c/#41424e / A #e2e4ec/#b9c0d4）、滚动条同步——交互路径全面色彩回应】
+- 【cr-136 2026-10-03 submit_issue 无令牌降级：官方台（GitHub/Gitee）令牌三源链全空时不再硬失败，改为生成预填新建 ISSUE 链接（issues/new?title=&body=&labels=，Gitee 未证实支持预填参数 → 裸新建页）交用户人审后手动提交；apiBase 覆盖的自建台场景保留配令牌指路错误】
+- 【cr-137 2026-10-03 配色瑕疵清理：main.css --el-* Element Plus 覆盖死代码剪除（EP 已移除且只写在媒询内手动切暗色本不生效）+ 业务面 rgba 尾巴归令牌 22 处（旧语义档位化石→ok/err/warn-rgb tint；精确同配方影→shadow-hover/knob/primary-hover/pop/panel；var() fallback 字面量删除）+ UserMessage 附件 chip 白底暗色不可读（对比 1.9）改 bg-raised（9.1）+ CreateGroupDialog 亮色 primary 硬编码（暗色用错色）归 primary-rgb + FilePreviewTabPane P6 遗留阴影收编 TODO 落实】
+- 【cr-138 2026-10-03 v2.html 双主题色彩校准：Nebula 拉开表面层级/阴影减负/加环境辉光/星色增饱和；Aurora 语义色上浮一档/中性色去蓝/底色微暖/星色提亮；修复未 scope 硬编码暗色】
+- 【cr-139 2026-10-03 活动栏容器底色修正：新增 --bg-nav 专属令牌（双主题），.activity-bar 从误用的 --bg-hover 改归位；徽章描边同步；消灭 hover 反馈与容器底同色的错位】
+- 【cr-140 2026-10-03 语义档重构：--{ok,warn,err}-graphic 改名 --{ok,warn,err}-status（状态表示层：大字状态字/环色/状态点/图标），aurora 取 GitHub 色感值（ok #2DA44E/warn #bb831c/err #be123c），nebula 同步鲜化；文字档不动】
+- 【cr-141 2026-10-03 diff 正文回归码色（FileEditsPanel 方案 B：语义由 tint 底+符号承载，正文 code-text；符号列 err 侧用 err-status 加固）+ 活动栏底拉回融合（bg-nav 双主题回调，与侧边栏几乎连续成外壳层）】
+- 【cr-142 2026-10-03 状态表示消费面补齐：环心百分比/任务终态徽标 st-*/goal 阶段字/±diff 统计数字/覆盖面图标/版本状态字等 9 组件 12 处迁 --*-status 档（cr-140 边界：状态表示走 status，错误正文/按钮底/横幅保持文字档）】
+- 【cr-143 2026-10-03 v2.html 预览页三修：M 图标表补 chevron-up + RingProgress 展区旧令牌名 *-graphic→*-status；loader-circle 忙态图标配 data-spin（此前全页 0 处、全部静止）；DockCard 底改 --bg-surface 与输入卡同面】
+- 【cr-144 2026-10-03 图标缺失根修：iconMap 补 edit-3（独立会话活动栏钮 info 兜底）；DockCard 底改 --bg-base（用户裁决：与页面底同层）；图标着色语义补迁 status 档（v2 预览页状态灯/环展区等）】
+- 【cr-145 2026-10-03 DockCard 补 eyebrow 图标位（icon prop + Icon 渲染，cr-129 迁移缩水回填）：任务 clipboard-list/提权 shield/决策 message-circle/目标 target——dock 头部从纯文本恢复图标+文本形态】
+- 【cr-146 2026-10-03 图标着色语义补迁 status 档四处：TodoPanel 完成勾圈/GoalBar 受阻标记/ChatInput 下拉警示三角/InputMention 危险项图标（纯图标元素，cr-140 边界回填；按钮反馈与文本标记保持文字档）】
+- 【cr-147 2026-10-03 DockCard eyebrow 图标 11→13px：对齐眉标文字视觉高度（fs-2xs 大写眉标下 11px 图标过小）】
+- 【cr-148 2026-10-03 status 档伴生三元组 --{ok,warn,err}-status-rgb（cr-32 同构）：RunTracking head-ic/tip-ic 的 tint 底改用状态档本色——修 cr-140 两档分色后『status 墨坐文字档 tint』的错配（墨底同源）】
+- 【cr-149 2026-10-03 diff 面板边界统一（承 cr-146 口径）：FileEditsPanel 删行符号 err-status→err（tint 底构图墨底同源、与增行对称）；ToolResultEdit 补修 cr-141 方案 B 漏网——diff 正文全彩→code-text，语义由行底 tint 承载】
+- 【cr-150 2026-10-03 --bg-hover 语义过载修正：新增 --bg-inset（凹嵌面：计数徽章/内联代码底/开关轨道/软按钮/中性徽章/空态容器），取值与 bg-hover 同值——语义分离视觉零变；hover/open 态保留 bg-hover 本职；badge.dim 测试锁断言源同步】
+- 【cr-151 2026-10-03 v2 预览页 busy 环动画两修：① mk() 布尔判定改 spin in dataset（data-spin 无值属性 dataset 值为空串、falsy 漏判）② BusyRing/ic-spin 是忙指示功能语义（同 StarAvatar run-ring 先例）——reduce 媒体查询豁免，不经 --motion-scale 归零；装饰性 breathe 保持静止】
+- 【cr-152 2026-10-03 dock header 节奏归一：BusyRing 改 box-sizing:border-box（:size=总尺寸，修 13px 环实占 17px 且基线溢出 2px 的凸出感）；eyebrow 图标 13→12px（10px 大写眉标旁收半档）】
+- 【cr-153 2026-10-03 星色板活力版重定档：语义修正——星色=社区 Agent 身份色（鲜活个性、色相拉开），非星空氛围色（统一低调马卡龙）。nebula 果汁软糖档（S 尽量高 L 亮）/aurora 社区徽章档（600-800 活力色）；双 tint 锁（0.14 星色/0.08 标签）全过 4.5；badge.css tt-* 同步】
+- 【cr-154 2026-10-03 星色板二修：色相均匀化——旧板（含 cr-151 版）5/9 色挤在蓝紫红三带、aurora 三色相未动致观感无变化。重排为九档均匀色环（35/70/105/175/210/245/275/305/320°）并避语义带（绿/黄/玫红让 ok/warn/err）；nebula 鲜活档 S90-95/L74-80；品红紫/玫瑰拆分（原板同带相撞）】
+- 【cr-155 2026-10-03 webui-gallery.html 重写为纯画廊版：基于 v2.html 生成（默认 Aurora 白主题），剥离增删改查叙事区；build-webui-preview.mjs 扩为双页注入】
+- 【cr-156 2026-10-03 webui-gallery.html 目录化重组：移除组合示例/互叠态区，左栏目录树导航（层→控件锚点），逐 UI 插件包分析补全表单与业务控件陈列（下拉框/输入框/复选/分段等）】
+- 【cr-157 2026-10-03 标准控件库重构：webui-kit 补齐标准件（Chip/Tabs/Dropdown/Progress/Drawer/Confirm/Breadcrumb/IconAction 等），业务包自建样式统一切换】
+- 【cr-158 2026-10-03 画廊目录重编：按控件类别（基础件/输入/选择导航/标识/反馈加载/浮层容器/工具/业务参照）替代架构层分组，拆散混合陈列格】
+- 【cr-159 2026-10-03 webui-gallery 左侧目录修复：移除 cr-158 树形目录重写时遗留的旧圆点 rail 两段媒体查询（1340/1339 档），消除与树形 rail 的层叠冲突（9px 子项裁字/translateY 错位/空气泡 tooltip/点击拦截层），pv-to-top 抬升并入 <1199 档并统一 --safe-bottom 令牌】
+- 【cr-160 2026-10-03 gallery 演示对齐 kit 现状：M 表补 6 图标名、fx-search 选择器适配 svg、状态灯/StarAvatar/FeedbackNotice/Toast/PTR/三段胶囊演示 DOM 迁至现类名（漂移根因：构建脚本只注入 CSS，演示 DOM 手写无锁）】
+- 【cr-161 2026-10-03 kit 功能动画对齐 WCAG 2.3.3 essential-motion：Button spinner 与 PTR 刷新旋脱离 --motion-scale（承 cr-149 BusyRing 先例——静止的环被读作卡死），StatusDot 呼吸关键帧锚定满强度帧（reduce 下呈实心点而非半透明冻结帧）】
+- 【cr-162 2026-10-03 kit 新增 Select 标准件（cr-157 族第 13 件）：原生 select 弹层不可定制与页面风格割裂，Select 以 ui-dd-menu 配方为弹层、OptionRow 为选项行；表单弹层风格自此统一，存量原生 select 迁移另行批次】
+- 【cr-163 2026-10-03 字段行非默认态视觉改版：三处同源（gallery fx-field / AgentPane llm-item / NsFieldList ns-item）由左缘 3px 主色竖条（括号感）改为标签区 primary-light 着色底】
+- 【cr-164 2026-10-03 左侧语义色条统一改版（用户样例）：ToastHost/AgentPane 两处/NsFieldList/gallery fx-field+gal-note/StorageHost warn 由 border-left 3px 改为独立左条分栏（flex 条 + overflow:hidden 随圆角裁切），条色不变、语义不变；markdown blockquote 与目录树选中线为中性排版线不动】
+- 【cr-165 2026-10-03 左分栏色条接缝柔化（用户反馈）：条左缘单独设小圆角 2px（约条宽之半），替换此前条全直角 + 容器大圆角裁切的生硬接缝；涉及 ToastHost/AgentPane/NsFieldList/gallery fx-field+gal-note/StorageHost warn 七处同源】
+- 【cr-166 2026-10-03 修正 cr-165 色条圆角方向：条左缘 2px 小圆角被容器 overflow:hidden 的大圆角裁切覆盖（用户 F12 实测发现）——正确解是条圆角与容器同心同值（toast 用 --r-lg、fx-field 用 --r-sm、gal-note 用 --r-md），条贴容器圆角曲线无缝】
+- 【cr-167 2026-10-03 cr-166 方向再修正（用户澄清）：条与容器同心同值在视觉上等于容器原圆角（用户看来没变）；真实诉求 = 容器左角（色条侧）收窄为小圆角、右侧保持大圆角的非对称形态——toast 左 6px 右 --r-lg / fx-field 与 gal-note 左 4px 右原值 / 条直角随容器左角裁切】
+- 【cr-168 2026-10-03 UI 统一化批次（用户指令）：表单配方升级为 kit 标准件——Input/Textarea/Checkbox/Slider/FieldRow/SearchInput/PasswordInput 七件（承 cr-162 Select 路径），复合件经标准件组合间接收纳（TagChoice→Dropdown 扩展、TokenGauge→RingProgress 组合、ResizeHandle/QR 保持业务件）；推翻 cr-158「kit 无表单件」分层，业务面迁移另行批次】
+- 【cr-169 2026-10-03 业务面 UI 迁移 webui-kit 标准件：SettingField/NsFieldList/AgentPane 表单控件换 kit 件、删本地配方】
+- 【cr-170 2026-10-03 主色 tint 静态梯度令牌化：rgba(var(--primary-rgb),α) 散点（16 种 α·65 处）与 cr-135 靛染面色换血为 OKLCH 锁相静态 hex（--primary-tint/light/tint-strong/border-soft/border 五档）——sRGB alpha 合成 chroma 崩至 9% 且色相漂 +9°（紫灰「脏」感根因）；结构线/凹嵌面褪染回中性、hover/选中染色彩保量但锁 H276；WebView 92 兼容】
+- 【cr-171 2026-10-04 设置域界面归 kit：新增 --star 星标语义色（池默认星标/设为默认按钮退役 warn）；ui-row 移除边框；ui-dd 选项间隔；pl-*/agent-pane/remote-pane 等自建控件全面归 ui-* 组件】
+- 【cr-172 2026-10-04 用户反馈三连：①亮底星标色 #854d0e 观感偏棕改 #a16207（yellow-700 更金）+ 池默认星标图标实心（fill currentColor）；②remote status-card 移除 surface 底改透明；③Agent 设置表单失效排查（待用户定位具体页签）】
+- 【cr-173 2026-10-04 kit 补 Label 标准件（FieldRow .ui-field-label 配方抽出单源，画廊/v2 补陈列）+ AgentPane 移除 llm-group-title 分组标题（LLM_GROUPS/llmSections 编排随之退役，字段平铺）】
+- 【cr-174 2026-10-04 FieldRow 布局改上下（label/description 上、控件下，竖排 stretch）——设置表单长描述与宽控件（下拉/输入）横排挤压的根修；画廊/v2 同步】
+- 【cr-175 2026-10-04 Select 弹层根修纵向溢出：absolute 在 .agent-tab-body（overflow:auto）内被剪裁——靠下字段下拉底部选项 hit-test 穿透到 sp-overlay（mousedown.self 关面板），Enter 不经 hit-test 故正常。弹层改 Teleport+fixed 定位（视口坐标锚定），滚动/resize 即收起，向下不足翻上】
+- 【cr-176 2026-10-04 Select 触发器长值省略：.ui-sel-value 加 min-width:0/nowrap/ellipsis（长 label 曾换行撑破固定高触发器），chev 箭头 flex-shrink:0】
+- 【cr-177 2026-10-04 模型页签来源徽章位置统一：去 .llm-badge-and-ctrl 的 flex-wrap（宽度变化时徽章有时折行到控件上方、有时在左侧）——徽章恒定控件左侧不收缩，控件自适应】
+- 【cr-178 2026-10-04 设置页描边卡去底色：.card（StorageHost/RemoteDevices）移除 bg-surface 底承 cr-172 扁平方向，同步删 RemoteDevices .status-card 透明覆盖死代码与模板残留类；两处保留本地 scoped 定义不并源——盒装卡退役裁决（row.css）下一行配方×2 低于抽象阈值，同 error-banner/tool-group-head 双胞胎先例】
+- 【cr-179 2026-10-04 Button soft 变体收编进 ghost 落地（cr-121 定案执行）：全仓 19 处 variant="soft"→"ghost"（PluginLibraryPane 9 / AgentPane 3 / PoolManager 3 / PairingQr / RemoteDevices / SearchPoolManager / TimerPane 各 1）+ Button.vue 删 soft 配方与类型 + 默认值 soft→ghost + 头注释裁决收编完成 + 预览页重注入】
+- 【cr-180 2026-10-04 webview-baseline 棘轮补记：CSS_COLOR_MIX_CAP 12→9——cr-170 RunTracking tint 梯度令牌转正已消化底色带 3 处，产物 color-mix 实测 9 处（全部带回退）】
+- 【cr-181 2026-10-04 表单输入件去填充底色：kit Input/Textarea/Select 触发器 background 改 transparent（边框形态保留），业务侧 esm-input/sas-input 同步，--input-bg 令牌随之消亡——消除「填充块读作非输入项」的视觉歧义】
+- 【cr-182 2026-10-04 kit Avatar 回退盘方形修复：容器 overflow visible（cr-157 角标悬挂）不裁剪子元素，.ui-avatar-img 自带 border-radius:inherit 而回退盘 .ui-avatar-fallback 无圆角——无图/图挂回退（虚 Agent 常见）呈方形。根修 = 回退盘补 border-radius:inherit（随 shape 取圆/方角）——StarAvatar 内 :deep(.ui-avatar-fallback) 是星色配色规则（非圆角补丁），保留不动】
+- 【cr-183 2026-10-04 Provider 模板更名 glm→zai、glm-coding-plan→zai-coding-cn（品牌对齐）并全表按 id 字母序排列】
+- 【cr-184 2026-10-04 kit Select 弹层 z 序随宿主层自适应——弹层 Teleport 后 z 写死 1100，被 z≥1200 的 Modal 压在弹窗之下（cr-169 表单迁 kit Select 后「弹窗内下拉无弹层」回归）；打开时扫祖先链取最大 z-index，弹层盖过宿主层，缺省 1100 不变】
+- 【cr-185 2026-10-04 移除 glm-coding 模板（GLM Coding Plan 编程套餐订阅唯一，国际端点与 zai-coding-cn 国内端点同订阅——单模板收录）】
+- 【cr-186 2026-10-04 dock header 减重视觉（纯图标+不加粗文本）+ DockCard collapsible header 整体可点折叠】
+- 【cr-187 2026-10-04 run_code SDK 投影/引导加「思考内容不写入注释」纪律行（DEFAULT_GUIDANCE）】
+- 【cr-188 2026-10-04 webui-style.md 全量对齐 kit 现状（cr-125~187 漂移收口：表单标准件族/status 档/星板 9 色/--star/bg-inset/bg-nav/soft 删除/row 无边框化）+ tokens.css 头注释修复（悬空技能引用 webui-kit-style 归位 agentchat-dev/references/webui-style.md、过时 glow 约定行改动效约定）+ 双预览页重注入】
+- 【cr-189 2026-10-04 文件预览失效修复：assets/* 404 误走 SPA fallback 回 index.html（旧页面懒加载新 hash chunk 撞 200 text/html，JS 解析失败预览组件静默不挂）——assets 路径 404 直回 404 + 前端 vite:preloadError 自动 reload 自愈】
+- 【cr-190 2026-10-04 文件预览面板空白修复：FilePreviewPanel/WebSearchPanel 迁 kit DocTabs（cr-157）后 .ui-doc-tabs 根 height:100% 在宿主 flex column 里把 pane 区挤成 0 高（fpp-panes 存在但 h=0 空白）——DocTabs 根去 height:100%/min-height（两消费方均只嵌条不自足分栏）】
+- 【cr-191 2026-10-04 FileEditsPanel diff 行号列动态宽度（4 位行号溢出 4ch 定宽与正文重叠——改为按当前 diff 最大行号位数计算 ch 宽）】
+- 【cr-192 2026-10-04 FilePreviewTabPane/FileEditsPanel 控件迁 kit 标准件：fpt-icon-btn/fe 图标钮族迁 IconAction（on/error/copied 态经宿主 class），fpt-mode-select 自绘下拉与 fe-file-select/fe-view-select 原生 select 迁 kit Select，fpp-action/fe 头部按钮统一 Button ghost sm】
+- 【cr-193 2026-10-04 FileEditsPanel 下拉塌宽修复：kit Select 根 width:100% 与工具行 flex 布局冲突（版本下拉 basis:auto 吞满 572→文件下拉 grow 分 0、值区不可见）——宿主覆写 file width:0+flex:1 / view width:auto+max-width:220】
+- 【cr-194 2026-10-04 名册最近消息显示记忆快照根修：tail() 末条记录口径收窄为末条真实发言（跳过 role=context/event 宿主注入行——admin~user/neko~user 孤儿记忆快照行被名册当 user 发言展示，2026-10-04 案例；inbound 丢失微观机制未定〔案发进程已替换、当前代码全链路复现通过〕，显示层根因独立成立）】
+- 【cr-195 2026-10-04 OptionRow 选项行边框退役：ui-opt 及选中态、ui-opt-num 序号圈移除描边，选中态纯底色（循 cr-171 ui-row 裁决）】
+- 【cr-196 2026-10-04 徽章三调：unread-badge/aux-ab-badge 描边退役（border 挤占 border-box 内容高致数字不居中，循 cr-195 边框退役线）；ui-avatar-badge 配方 16px→14px 收敛（cj-count 业务先例），cj-count 覆写随之精简】
+- 【cr-197 2026-10-04 FileEditsPanel 双下拉定宽（文件 240 / 版本 168——自适应宽随选中项伸缩推挤步进钮漂移，无法同位连点上一/下一版本）】
+- 【cr-198 2026-10-04 FileEditsPanel 工具行加复制按钮（终版全文——与预览面板同形态：IconAction copy/check/alert-circle 三态 + 2s 复位）】
+- 【cr-199 2026-10-04 FileEditsPanel 复制语义修正：随视图版本（编辑 #N = 该步后全文 version point content，总览/当前内容 = 终版）——用户直觉是复制所见版本而非恒终版】
+- 【cr-200 2026-10-04 browser 卡 eval 结果为对象时显示 [object Object]：非字符串结果改 JSON 序列化】
+- 【cr-201 2026-10-04 会话输入框工具栏下拉改向上弹出（composer 场景对齐 kit Dropdown up 缺省）；webui-gallery Tooltip 预览修复为标准 top/bottom 双形态（原常显布局退化且 ui-tip-host 幽灵类）】
+- 【cr-202 2026-10-04 输入框模型菜单二级面板修复：宽度改撑满输入卡（旧 dd-menu 收缩宽迁移 kit 配方时沿用，与提权/工具模式菜单 280px 固定宽不一致，长模型名溢出裁切）；模型选项补 Label（池元数据 defaultModel→「默认」徽、vision→「视觉」徽，原裸 id 单行丢元数据——对齐思考强度档位有 label 的形态）】
+- 【cr-203 2026-10-04 模型菜单选项图标升级为厂商 logo：ui-dd-opt-icon 按 provider 匹配 simple-icons 品牌图标（27 模板 slug 映射表住 ui-llm-pool poolApi，未命中回退 cpu）；新增 devDep @iconify-json/simple-icons】
+- 【cr-204 2026-10-04 智谱品牌图标收编：ZaiIcon.vue 自绘组件（cdn.bigmodel.cn 官方 logo.svg 品牌区——21 粒子 + Z 主体，去字标，currentColor 单色）注册 si-zai，poolApi 域名映射补 open.bigmodel.cn / api.z.ai】
+- 【cr-205 2026-10-04 kit Select 选项接口扩 icon 可选图标（弹层行首 ui-dd-opt-icon 位，触发器值行同步）；PoolManager 提供方下拉选项附厂商品牌图标（providerIconOf 复用模板 baseUrl 映射）】
+- 【cr-206 2026-10-04 provider 品牌图标着色：providerIconOf 返回 {name,color}（simple-icons 官方品牌 hex）；ChatInput/Select 弹层图标位与触发器随 iconColor 染色（currentColor → 品牌色）】
+- 【cr-207 2026-10-04 DocTabs 选中底 bg-surface 改 role-selected-bg：对齐全站选中角色色（ui-row/ui-opt/sp-nav 同语言），修亮色下选中底与宿主 bg-base 几不可辨且弱于 hover 的倒挂】
+- 【cr-208 2026-10-04 kit Tooltip 与原生 title 双显修复：IconAction 新增 suppressTitle 开关（外层 Tooltip 场景关掉原生 title，aria-label 恒保留单通道可达性），FileEditsPanel/FilePreviewTabPane/SystemPromptPanel 的 Tooltip 内嵌 IconAction 补 suppressTitle】
+- 【cr-209 2026-10-04 AssistantMessage 复制钮原生 tooltip 归 kit Tooltip（placement top，动态文案已复制/复制失败/复制全文），aria-label 保留单通道可达性——cr-208 双显修复的收尾迁移】
+- 【cr-210 2026-10-04 全量按钮 tooltip 迁 kit Tooltip：kit Tooltip 补 align=start 边缘对齐（左缘场景防溢出）；布局族/会话族/消息族/工具结果族/面板族按钮类原生 title 批量迁移（截断与信息提示类保留原生 title）】
+- 【cr-211 2026-10-04 活动栏 CSS 气泡被侧边栏层叠遮挡复盘（cr-210 回退面）：kit Tooltip 非 Teleport，z-index 700 困在活动栏祖先 stacking context（aux 栏自带 z-index:10）与 overflow 裁剪链内——两活动栏按钮移除 tooltip 包裹（aria-label 保留），ResizeHandle 恢复原生 title】
+- 【cr-212 2026-10-04 弹层菜单触发钮 tooltip 复盘（cr-210 修正面）：点击带出下拉菜单后 CSS 气泡不消失与菜单同屏重叠——此类触发钮去 tooltip（AgentList 新建/两处更多操作/SessionList ws-act 更多/ActivityBar more 原生 title）；SessionList 新建钮被 Tooltip inline-flex 包裹致 width:100% 失效——去包裹复原占满】
+- 【cr-213 2026-10-04 会话清单新增按钮「点击无反应」排查：createSession carryEmpty 分支 RPC 失败无 catch（unhandled rejection 静默）——补 catch + toastError 错误可见化；复用既有空白会话时无感切换确认为主区切换正常（浏览器实测场景复现数据链）】
+- 【cr-214 2026-10-04 usage 弦图统计范围修复：byPair 增日×端点对交叉维 byDayPair，usageApi 范围过滤后重建 by_pair（切时间段弦图不重绘的根因 = by_pair 无日期维度，cloudKey 守卫判定数据未变）】
+- 【cr-215 2026-10-04 TokenUsage 面板控件 kit 化：日期范围下拉/日期输入/应用按钮/包含 user 复选框/panel 刷新钮与页签条迁 webui-kit 标准件（Select/Input/Button/Checkbox/Tabs），清理自建配方】
+- 【cr-216 2026-10-04 TokenUsage 面板两修：①formatNumber 加 B 档（8282.3M → 8.28B，十亿量级可读）②用量统计柱状图 x 轴日期标签补齐斜排实现（样式段注释自称斜排但 rotate 从未存在——34 天标签窄容器叠压成日期错乱观感）+ uplot 轴空间参数（size/gap）适配】
+- 【cr-217 2026-10-04 TokenUsage 柱状图四修：①类目轴滤非整数刻度（7 天 0.5 步长 round 撞索引致日期重复）②轴标签与柱底留隙（gap 0→4）③堆叠柱整体顶部圆角 ④堆叠实装——barPaths 各段改画 prev..cum 区间（原 0..cum 全覆盖致后序列盖掉先序列，双图从未真正堆叠）+ 第二图 tooltip 修正（恒读主图 rawSeries 的根因）】
+- 【cr-218 2026-10-04 job kill 终态通知按发起方裁剪：owner 自杀（job 工具 kill）不再注入会话通知，外部终止（webui jobs/kill）与 kill 失败照投——killedBy 随 JobSnapshot/settled 快照携带】
+- 【cr-219 2026-10-04 singles 启动上架同步改批量核验：每工作区一次 readdir+标记 stat 替代逐会话 setShelf 幂等重放（516 会话 ≈ 千次 existsSync）；计数改真实迁移数（旧口径幂等命中也全量虚报）】
+- 【cr-220 2026-10-04 remote-link 启动即连时序根治：构造器订阅 internal/service——config 服务后于本行就位时（loader 并发行激活，boot 期静态加载不广播 config/changed）applySettings 拿不到 relayUrl、启动即连被静默跳过（cr-53 补触发的残留竞态面）。服务就位即对账：bootConnected 门闩语义不变（URL 首次到位即连，只跑一次）。新增服务面测试锁契约：config 就位回调触发 applySettings 且启动即连只触发一次。】
+- 【cr-221 2026-10-04 Tooltip 鼠标点击后 focus-within 致弹层驻留：显示条件改 :has(:focus-visible)（键盘可达保留、鼠标点击聚焦不再常显）】
+- 【cr-222 2026-10-04 修复消息区回到底部按钮消失：TranscriptList 按钮被 kit Tooltip 根 span（position:relative）改写包含块后漂出 wrapper 被 overflow:hidden 裁剪（4dc8ad64 控件库重构批次引入，z-index 无辜）；悬浮定位上移独立锚 div，按钮回归文档流】
+- 【cr-223 2026-10-04 v2.html 预览页退役（被 webui-gallery.html 取代）：build-webui-preview.mjs 与 preview-kit-sync.test.ts 收窄为 gallery 单页注入，src/docs/webui/ 目录随文件删除】
+- 【cr-224 2026-10-04 diff 行底 tint 提档（fe-add 0.13→0.18 / fe-del 0.14→0.18）：用户反馈增删行底色偏淡——α 提至 Aurora 符号墨 4.5 线安全上限（ok 4.64 / err 4.57），双主题过目，正文对比度 10.4/7.0 仍宽裕】
+- 【cr-225 2026-10-04 ac-sap-adt 引擎升级 @nefevcore/abap-adt-core 0.11.0 → 0.12.0（纯引擎换代零适配改动；插件本体发版在独立仓库，本仓不动主项目版本）】
+- 【cr-226 2026-10-04 QueueDock 行内动作提示改原生 title——修 queue-list 未满也出横向滚动条（Tooltip ::after 绝对定位 nowrap，隐藏态仍占滚动范围且显示态被滚动容器裁剪）】
+- 【cr-227 2026-10-04 cr-218 补洞：owner kill 唤醒过滤改按 killedBy 判定、不依赖终态字面——Windows taskkill /F 下进程 exit code 1 无 signal，producer done 报 completed 而非 killed，字面过滤漏网（实测 pwsh-2 kill 后 0.85s 注入完成通知）；killedBy=owner 且 settle 非 failed 一律跳过，failed（kill 未遂）照投】
+- 【cr-228 2026-10-04 cr-226 扩散排查：全仓审计 Tooltip 嵌滚动/裁剪祖先——AgentPane/TimersPanel/GroupDrawer/ToolResultRunCode 四处同因改原生 title；kit Tooltip.vue 头注释加布局约束防复发】
+- 【cr-229 2026-10-04 pnpm-workspace.yaml: canvas 构建脚本授权由占位文本改为明确 false（jsdom 可选传递依赖，无测试依赖 canvas API；占位值致 pnpm install 非零退出）】
+- 【cr-230 2026-10-04 新增会话节点面板（aux-sidebar 会话 run 面板行 ac-client-ui-run-nodes：每 run 用户消息为节点、点击跳转定位该消息）】
+- 【cr-231 2026-10-05 上下文占用弹层改造：环图改四段水平堆叠条（工具定义/系统提示/会话上下文/余量）+ 新增 KV 缓存率走势图（等距 run 序号，ac-usage 行级 timeline 留存 + session/kv-timeline RPC）】
+- 【cr-232 2026-10-05 弹层迭代（cr-231 反馈）：头行改「上下文占用 N% ~xK/1M」并对齐用例字号、图例一例一行多色（tt-* 色相）数值随段色、条收窄 6px、段最小宽 2px、移除「最近一次」缓存区、KV 走势粒度细化到 step（流水行加 stepCache 摘要，旧行回退 run 合计）】
+- 【cr-233 2026-10-05 弹层反馈二轮（cr-232 后）：图例数值/占用率头行改默认色（色点保色，余量图例行移除——:is(:last-child) 永不命中致其余量点透明的根因随行消除）、KV 走势 hover 换 kit Tooltip（CSS 即显，去原生 title 延迟与常驻 meta 行）、归档按钮填满宽度】
+- 【cr-234 2026-10-05 弹层反馈三轮（cr-233 后）：余量段恢复（条不满宽才是真实占比——上轮删段致条恒 100%）、色带换星色板浅淡色（星色 hex 常量直取，脱离 tt-* 语义约束）、段序反转（固定开销在上限一侧从左往右：工具定义→系统提示→会话上下文→余量）、段间 1.5px 分隔】
+- 【cr-235 2026-10-05 弹层反馈四轮（cr-234 后）：移除弹层抬头行（状态文字通道由头部环 tone 承载）、色带降饱和三色相拉开（柔蓝/柔紫/杏橙——系统提示与会话上下文互换、工具定义换青系对比色）、头行「上下文占用」常规字重数值加粗、KV 走势去数据点只留折线】
+- 【cr-236 2026-10-05 弹层反馈五轮（cr-235 后）：色点去描边、KV 走势懒加载（开面板转圈等待，拉全量步序列——limit 参数退役）、约化符号统一 ~（弃 ≈）、删脚注说明行】
+- 【cr-237 2026-10-05 弹层反馈六轮（cr-236 后）：堆叠条两色对调——工具定义 柔蓝→杏橙、会话上下文 杏橙→柔蓝（系统提示柔紫不动）】
+- 【cr-238 2026-10-05 弹层反馈七轮（cr-237 后）：移除「缓存命中 · 本会话累计」行（走势图已直观承载）、走势图与归档按钮间加分割线】
+- 【cr-239 2026-10-05 弹层反馈八轮：KV 走势 hover 缓存率加一位小数（整数 % → 一位小数）】
+- 【cr-240 2026-10-05 弹层反馈九轮：修弹层内原生 title 与 kit Tooltip 同屏双显——根节点 title 覆盖含弹层的整个子树，归位到触发区（头部环），根节点保留 aria-label】
+- 【cr-241 2026-10-05 前端反馈：RunTrackingPanel/WorkspaceTree 移除自设面板底色（aux 容器惯例 cr-230——面板透明）；SessionList 树滚动容器内 7 处 Tooltip 改原生 title（cr-226 同因：::after nowrap 计入滚动范围出水平滚动条）】
+- 【cr-242 2026-10-05 弹层反馈十轮：头行右侧 ~xK/1M 去色加粗（600）、图例数值色降一档 text-1→text-2】
+- 【cr-243 2026-10-05 KV 走势加 95% 水平基准虚线（使用情况定的健康线，与 50% 弱参考线同在但强一档）】
+- 【cr-244 2026-10-05 移除会话头 System Prompt 预览按钮（冗余——辅助活动栏 rail 已有入口）】
+- 【cr-245 2026-10-05 KV 走势删 50% 弱参考线（用户反馈太浅未察觉——信息价值低于视觉噪音，95% 基准线已承担参考职责）】
+- 【cr-246 2026-10-05 占座模型+状态两维度投影：KK 首握超时改占房驻留（waiting-peer 提前到首握前，根除重启后手机缺席的相位空窗）；relay 房间存活统一为心跳保活（删 everClosed/openRoomTtl 分支）；remote/status 拆传输面 link+会话面 devices 两维度，前端随投影（待机不再误显连接中）】
+- 【cr-247 2026-10-05 占座模型真机 e2e 实证（cr-246）：手机冷启动/杀后台重拉均首轮 KK 会合（占座房 m1 直达，无撞门轮数）；断线自愈 1.4~2.6s；PC 端手机离线落 waiting 不弃房、link 恒 ok；期间发现并修复配对房 XK 超时污染 link 投影（一次性 rendezvous 无人扫码不属传输面异常）；另实锤存量身份漂移（手机换 Keystore 身份后旧配对断裂）经重新配对恢复】
+- 【cr-248 2026-10-05 手机桥静态代理超时修复（cr-246 后续）：启动期并发拉 chunk 打满 15s 超时 → 回落本地旧 dist → 新 chunk 缺失 404 →「页面资源已更新」弹窗死循环（真机实锤「Timed out waiting for 15000ms」×3 后回落）。修：静态代理窗放宽 60s；超时（TimeoutCancellationException）不回落本地直报 504（超时=上游忙≠资源不存在，回落只造成哈希断代），确定性失败仍回落；APK 内置 dist 同步重建（离线兜底同代）】
+- 【cr-249 2026-10-05 relay 帧闸调参 60/s burst120（cr-248 后续）：30/s 在手机 webui 启动/切页洪峰下打空 → fail-loud 断链（relay #59 closed 1006 与手机链路关闭同刻实锤）→ 在途 RPC 全超时。60s 监控终验：relay 重启（部署）手机 1.5s 自愈重连，链路终态 link ok + 设备 online】
+- 【cr-250 2026-10-05 pi durable 对标补强：steer stash 窗口 durable 化 + deliver requestId 幂等准入】
+- 【cr-251 2026-10-05 KV 走势实时性补齐：ac-usage 加订 loop/after-step（步收束即写 pendingMap 临时步流），conversationTimeline 查询拼接 pending 尾段，after-run 到达即清（正式记账接管）——run 进行中的缓存率步级可见，不再等整轮收束】
+- 【cr-252 2026-10-05 webkit 日期选择控件适配：Input(type=date) 加 ::-webkit-calendar-picker-indicator 配方 + tokens.css 主题 color-scheme 联动（nebula/dark、aurora/light、system 媒询三路对齐 main.css 既有四路）】
+- 【cr-253 2026-10-05 webkit 日期控件体验增强（cr-252 后续）：Input type=date 点击输入框任意处调 showPicker() 弹日历（特性检测，WebView<95 静默降级原生点图标路径）——原生只点小图标弹层，收窄面板里易被读作无日历控件】
+- 【cr-254 2026-10-05 DatePicker 表单标准件（cr-162 Select 同款路径）：原生 date 弹层 OS 绘制不可定制（color-scheme 只保明暗正确、风格不同构）——自建月历弹层（ui-dd 同语言 + Teleport fixed 锚定 + z 序自适应 cr-184 模式 + 方向键可达）+ icons 注册 calendar + 陈列室 INPUT 节编目 + 迁移消费面（TokenUsage 自定义区间×4 / TimerPane 日期×1）】
+- 【cr-255 2026-10-05 占座会合根因修复（cr-246 遗留缺陷）：kkTargetPubkey 赋值在首握等待之后——首握超时转占座驻留时该值为 null，waiting-peer 收 m1 走 kkRespond 分支不成立，hs 帧落入空等待队列被静默吞（真机实锤：PC 占座 waiting 但手机撞门 m1 全部无应答、3s 超时循环至 10min ERROR 弃连；下午验证走的是在线降级路径〔先握上手再 peer-left，kkTargetPubkey 已就位〕故未暴露；纯 loopback 同理）。修复：赋值前置到首握等待之前 + 真实路径回归测试（dial 劫持走完整 connectAndHandshake 超时→holdForPeer→m1 到达）。配套：PC join 被拒改 1s 短重试（手机撞门 3s 窗与 PC 退避形成拍手游戏死锁）；手机端 peer-arrived 重发缓存 m1（relay 只转发实时帧，早发 m1 已丢；responder 对重复 m1 幂等）】
+- 【cr-256 2026-10-05 「页面资源已更新」弹窗循环根因修复（cr-256）：弹窗两大成因分流——dist 换代（真需重载）vs 链路静默死（WiFi 半开，OkHttp 30s 判死窗内 chunk 全超时；reload 无用且循环弹窗）。修复：① webui chunk 失败改 rpc 探活分流——rpc 通才 confirm 重载，不通则 3s 轮询恢复后自动 reload（穿透式探活：rpc/call 经桥→加密链路→核心，本地桥 open 不算活）② 手机桥静态代理超时后等链路恢复（20s 轮询 upstreamLive）重试一次再 504——瞬断吸收在桥内。另实锤托管面路径：cordis 行 config ./webui/dist 按 baseUrl（src/）解析=src/webui/dist，每次 webui:build 即刻生效（多会话并发构建致 dist 代际漂移是弹窗土壤）】
+- 【cr-257 2026-10-05 remote 手机端提速：http 桥双向 gzip（PC 压缩+手机透传）——公网 relay 160KB 应答 1.2s 的带宽瓶颈】
+- 【cr-258 2026-10-05 移动端渲染性能优化立项文档（webui-mobile-render-perf-plan）：K20 实测基线与分期方案】
+- 【cr-259 2026-10-05 RPC 帧通道 gzip：rpc/result 压缩词汇（gz 标记 + 前端解压 + 协商位）——singles/list 类大应答 3.5x 提速；含压缩链收敛】
+- 【cr-260 2026-10-05 DatePicker 交互两项：①弹层收窄 200px 定宽（7×24 矩形日格）且与触发器宽解耦（原 min(触发器,240) 强拉宽是「太宽」根因）+ 右缘防溢出钳制；②标题上钻年视图（月↔年两级：标题点击切换、箭头随层级翻月/翻年、月格 tint 选中 + 当月中性环）+ 陈列室同步年视图陈列】
+- 【cr-261 2026-10-05 仓库整理三线：.dsh/tmp 历史残留移仓库外归档根 agent-scratch-2026-10（test-home* 数据根与被引用状态文件留位，dsh-main/pi 源码克隆删除）+ 一次性验证/迁移脚本冻结 src/docs/archive/scripts/ + src/docs 未索引文档判活归档与索引补全】
+- 【cr-262 2026-10-05 cr-log 提升至仓库根 cr-log.md（跨 src/scripts/docs 全仓变更登记）+ 新增 Agent 沙箱 .dsh/sandbox（run_code 程序化模式工作区）+ gallery 挪 webui/ 轨道目录】
+- 【cr-263 2026-10-05 .dsh/tmp 退役：全部状态目录/数据根迁 .dsh/sandbox（沙箱二合一：Agent 临时工作区 + 测试数据根），Kotlin 冒烟/loopback/download-gate/data-root-lock 报错语/技能红线/gap-backlog/postmortem/remote-link/perf-plan 引用同步，冻结区脚本按快照保留】
+- 【cr-264 2026-10-05 大扫除：sandbox 迁项目根（Agent 沙箱 + 测试数据根二合一，.dsh/tmp 退役承接）+ data/ 历史数据根归 sandbox/boot/ + workspace 清理 + gradle 隔离层归位 + 其余根级杂项处置】
+- 【cr-265 2026-10-05 大扫除执行批：desktop/release 构建产物清空（713MB，CI/本地可重建）+ workspace/home/backups 历史备份移仓库外归档根（864MB 含历史会话快照，不销毁；singles 双布局按用户指示暂缓)】
+- 【cr-266 2026-10-05 cr-265 补充：workspace/home/sessions-backup-cr44-20260929（0.6MB cr-44 修复期备份）同批移入归档根 backups/home-backups-2026-10/】
+- 【cr-267 2026-10-05 cr.mjs usage 尾行路径滞后修正：src/docs/cr-log.md → 仓库根 cr-log.md（cr-262 大扫除漏改），另 docs 索引维护批（本会话）预备登记】
+- 【cr-268 2026-10-06 SDK 投影参数语义保真：schemaTypeToTs 丢弃参数 description/enum——程序化形态下 subagent(browser/timer 同)参数级语义不可见（传统形态经 schema 直达）。修复=enum 投影为字面量联合+参数 description 单行尾注；DEFAULT_GUIDANCE 补程序内派子 Agent 编排纪律】
+- 【cr-269 2026-10-06 src/docs 文档治理批次：全量核对重写过期内容、合并冗余文档、归档失效文档（分组分派 subagent 执行，README 设计档案索引同步收口）】
+- 【cr-270 2026-10-06 subagent delete 清理派生后台 job：remove/settle 经 jobs kill（owner=subId，killedBy=owner 免通知）】
+- 【cr-271 2026-10-06 移动端应用更名为 AgentChat Remote（appName/strings.xml/描述对齐，appId 不变）】
+- 【cr-272 2026-10-06 SDK 投影参数尾注规范：尾注行与声明行解耦错位（声明在 args 单行内但尾注逐参数罗列）；多义参数（如 text/ms/since）拆多行并对齐适用动作前缀，纯信息性尾注（无需动作限定的，如 browser.js/eval）跳过前缀——提高模型读参准确率】
+- 【cr-273 2026-10-06 SDK 投影参数注释迁 JSDoc @param：cr-268 的行注释尾注（// key: text）是自造约定——LLM 消费者对 .d.ts 语料里的标准 @param 先验更强；*/ 转义与工具级 JSDoc 同源处理（根因：两套注释约定并存，并归一为 JSDoc 块）】
+- 【cr-274 2026-10-06 移动端启动等待优化：ONLINE 后覆盖层保留至 webui 就绪（ready 轮询撤层）+ index.html 首帧 splash + AppFrame 全局连接条（会话内局部条退役）】
+- 【cr-275 2026-10-06 链路级断线横幅：RemoteSession 状态流广播 remote/link-state 事件帧（桥与链路解耦后 wire WS 无感断线——真机实锤 connected 恒 true），AppFrame 消费打横幅】
+- 【cr-276 2026-10-06 SDK 投影消费面优化：①子调用前置校验器（纯库 validateInvoke——未知名/缺 required/enum 错值/additionalProperties:false 未知键，主线程 invoke 桥拦截，含最近名建议）把类型签名的软约束补成硬拦截，typo 第 0 步可修；②list_tools 从投影剔除（mode 形态下投影即工具面清单，回显纯冗余）——剔除名单 PROJECTION_EXCLUDE 双端（注入/校验）同源】
+- 【cr-277 2026-10-06 harness 桥接方案 B 补充裁决：run_harness 归入实验性工具（输入框工具栏实验性按钮区），出厂默认启用——实验性=发现入口归属，非能力开关；方案文档同步补 §5.7 + D11 + 插槽表/影响面/测试计划】
+- 【cr-278 2026-10-06 harness 桥接方案 B P1 实施：ac-harness-core 纯库（HarnessGateway 接口 + claude-code/codex exec JSONL 适配器 + 事件归一 + probe）+ ac-harness-tools 行包（run_harness 工具 [needPermission + tags harness + 沙箱两档 + agent 维互斥] + harnessTier 实验键注册 [conv-settings group experimental，缺省 enabled] + harness 委托子代理预设）；挂载 cordis.yml/ac-app TREE 各 +1 行；README 同步】
+- 【cr-279 2026-10-06 harness 桥接 P2 会话续接：runKey 持久化（Agent 专属空间 harness/sessions.json，conversationId→{gateway,runKey,ts} 映射，run 成功即记/失败不覆盖）+ run_harness resume 参数（auto/new；claude --resume、codex exec resume）+ 成功 run 后自动写映射——同会话再次委托默认续接上次 harness 会话】
+- 【cr-280 2026-10-06 手机端图片上传链路四连修：①ChatInput 上传失败 toastError 可见化（原 console.error 静默）；②大图上传前 canvas 压缩（media.ts 单源新增 maybeCompressImage，手机拍照兆级图压至约 2MP/JPEG0.85，绕开移动网络上传超时）；③LoopbackBridge API 面写请求超时 15s→120s（proxyToUpstream 显式传 timeoutMs，静态面 60s 先例对齐）；④MAX_PROXY_BODY_BYTES 6MiB→4MiB 校准（6MiB×4/3 base64 膨胀 + JSON 包装恰触 relay 单帧 8MiB conn.close 断链——原余量为负）】
+- 【cr-281 2026-10-06 手机端刷新后消息不更新：remote/resync 处理补全会话历史对账（convergeDialog + 名册重拉）——原实现只恢复问卡/审批卡，历史重拉缺失致页面停在旧消息直到重启】
+- 【cr-282 2026-10-06 harnessTier 实验键漏注册根修：ac-harness-tools 的 registerKey 走软取 ctx.get(convSettings, false)——loader 并发激活下行序 ≠ 激活序，软取 miss 即永久漏注册（bootTree 顺序 await 路径碰巧掩盖）。修 = inject 加 convSettings 硬依赖（cordis 依赖等待排激活序），注册与 execute 读取统一走注入服务面】
+- 【cr-283 2026-10-06 手机端网络切换即时换链：NetworkCallback 监听默认网络变化，在线期主动 cancel 旧链走既有重连循环，切网恢复从 OkHttp ping 最坏 30s 降到秒级】
+- 【cr-284 2026-10-06 移动端异形屏适配：安卓壳状态栏与 webui bg-base 双主题同色+图标明暗随系统（真机反馈顶部灰条——AppTheme 从未声明状态栏色，AppCompat 缺省灰悬于 web 深底上；MainActivity 补 applyStatusBarStyle，uiMode 不重建故 onConfigurationChanged 重涂）】
+- 【cr-285 2026-10-06 Remote 域发版前结构清理：service.ts 死字段（deviceRooms/pendingDeviceByConn）与死导出（REMOTE_SCOPES/RemoteCallContext）删除、reconnectTimer 单槽记账收敛（scheduleReconnect 与 room-unavailable 快速重试先 clear 在途定时器——旧设备退避定时器残留会覆盖丢新设备的重连请求）、relay-connection 握手分支大段求解过程注释收为结论、被 client 件取代的 remote-loopback.ts 原型脚本删除并同步文档】
+- 【cr-286 2026-10-06 移动端状态栏主题同步修正（cr-284 复验反馈）：事实源从系统夜间模式改为 web 实际主题——html.dark class 轮询（同 __agentchatBootReady 的 evaluateJavascript 通道）；web 主题可手动固定/localStorage 恢复，与系统值脱节时状态栏停在错侧。web 未就绪前系统夜间档兜底，onStop/onStart 停续轮询】
+- 【cr-287 2026-10-06 移动端窄屏底色统一（真机反馈「侧边栏与会话区两种白色」）：SessionList 容器/tree-scroll 亮色下为 bg-surface 暖白、与会话区 bg-base 及 tab 栏不同色——窄屏(≤768px,narrow 同源断点)下统一 bg-base（对齐暗色既有裁决 html.dark 翻 base 的先例）；桌面双栏分区设计不动】
+- 【cr-288 2026-10-06 harness 行集启动失败根修（supervised 启动 exit 78）：ac-harness-tools 未声明进根 package.json devDependencies——loader 以 src/ 为 baseUrl 解析裸行名，根 node_modules 无链接即 ERR_MODULE_NOT_FOUND（其余 97 个裸行名全部已声明）；+ src/cordis.yml 的 harness-preset 行名 'ac-harness-tools/preset' 非包导出子路径（exports 仅 . 与 ./src/*，链接补齐后必 ERR_PACKAGE_PATH_NOT_EXPORTED）→ 改相对路径 './ac-harness-tools/src/preset.ts'（同 ac-sap-adt/patch-rpc 先例）】
+- 【cr-289 2026-10-06 移动端窄屏底色统一续（cr-287 漏网补全）：AgentList 容器/list-scroll 同为 bg-surface——上轮搜索模式带空格漏匹配紧凑写法致误判「agents 透明底」；窄屏(≤768px)统一 bg-base 对齐 cr-287 裁决；SessionList 补滚动条 track 同规则；tracking 容器本就 base 无需动】
+- 【cr-290 2026-10-06 手机端会话清单未读无法定位与清除：SessionList 行补 single 未读角标（tab 聚合有数、行上无落点）+ 会话删除/归档清 feed 分区未读（孤儿未读防御）】
+- 【cr-291 2026-10-06 移动端通知：后台/锁屏时收到 Agent 消息或独立会话收尾消息弹出系统通知（Web Notification API + 安卓壳桥接预留）】
+- 【cr-292 2026-10-06 移动端常驻链路通知折叠为静默级（IMPORTANCE_MIN 删旧重建——FGS 法定通知不可去除，降级后状态栏无图标/通知栏折叠；消息通知 channel 不受影响）】
+- 【cr-293 2026-10-06 KV 前缀缓存断裂根因排查结案 + 修复方案设计（src/docs/kv-prefix-cache-fix-plan.md）：wire 探针实证每 run 首步 miss ≈ 上轮思考量；真实 API 实测锁定字段语义——DeepSeek 只认 reasoning_content 且 tools 在场时计入、GLM 只认 thinking、reasoning 为两家共死的字段名、name 字段两平台均不影响缓存；对照 dsh/pi-ai 源码确认思考回传 capability 矩阵（requiresReasoningContentOnAssistantMessages/reasoning-details 签名往返/clear_thinking:false）；修复 = 思考字段按 provider 单源化（live assistantOf 与回放 expandSteps 同形）+ OpenAI prompt_cache_key + Anthropic cache_control 增强】
+- 【cr-294 2026-10-06 思考字段按 provider 单源化：live/回放同形修 KV 边界断裂（kv-prefix-cache-fix-plan 实施）】
+- 【cr-295 2026-10-07 修复群播报重复投递：deliver 增 wakeNotice 双形态（steer 投原文/run 投瘦通知），群 hint 空闲轮不再与成员流投影行逐字双份】
+- 【cr-296 2026-10-07 技能事实校准（agentchat-dev）：gallery 陈列室路径改 src/webui/design/gallery.html（cr-262 迁移后技能未同步）+ webui-kit base 清单补 DatePicker（cr-260）+ plugin.md ac-session 规模 1200→3900+ 行 + release-ci check-deps 脚本路径笔误（scripts/check-deps.mjs）+ SKILL.md CR 规约文档路径显式化（src/docs/epoch-marking-convention.md + 仓库根 cr-log.md）+ framework.md TREE 位置精确到 src/ac-app/src/index.ts】
+- 【cr-297 2026-10-07 群聊行为契约新增工作任务先分工引导】
+- 【cr-298 2026-10-07 首启向导批1：ac-client-ui-onboarding 建包（overlay 98 + 首启标记 + 第1步 user 编辑 + 第5步导览，中间三步占位）——first-run-onboarding-plan 实施】
+- 【cr-299 2026-10-07 首启向导批2：PoolManager/SearchPoolManager 编辑弹窗体抽取为共用表单件 + 向导第2/3步接入内嵌表单（first-run-onboarding-plan §4.3）】
+- 【cr-300 2026-10-07 首启向导批3：第 4 步 Agent 创建表单（名称/模型下拉/人格/能力标签，默认 tags 对齐出厂标准档）+ provider 模型缓存加载并源 poolModelsOf（first-run-onboarding-plan）】
+- 【cr-301 2026-10-07 首启向导批4：activity-bar:more-menu 数据席位（layout 声明 + ActivityBar 渲染 + 向导注册「新手引导」项）——first-run-onboarding-plan §4.5】
+- 【cr-302 2026-10-07 首启向导前端行装配根修（同类第二次：cr-288）：ac-client-ui-onboarding 未声明进根 package.json devDependencies——loader 以 src/ 为 baseUrl 解析裸行名，根 node_modules 无链接即 ERR_MODULE_NOT_FOUND，supervised 启动 exit 78（cordis.yml/TREE/ac-app 依赖/docs 均已就位，只漏根声明）；+ 新增守门测试 src/ac-app/tests/row-manifest.test.ts（unit 档，静态零 boot）：裸行名必须①声明进根 devDependencies ②可从 src/ 锚点解析——行集装配这类缺口从此在 pnpm test:unit 就现形】
+- 【cr-303 2026-10-07 webview-baseline 棘轮守门红修：新组件 PoolEntryForm/AgentStep(onboarding) 选中态 chip 文字各引入 1 处无静态表达的 color-mix（primary 80%+text-1），产物 9→10 超上限——静态色混静态色改写 --primary-strong 令牌（tokens.css 既定档位：tint 底上 primary 对比不足 4.5 的文字场景），产物回到 9 处】
+- 【cr-304 2026-10-07 webview-baseline 棘轮随动：cr-303 改写后产物 color-mix 实测 8 处（另有一处被进行中改动消化），CSS_COLOR_MIX_CAP 9→8】
+- 【cr-305 2026-10-07 移除 __harness__ 预设子行：harness 委托已被实验性功能（harnessTier 实验键）覆盖，转述协议形态多余——yml/TREE/preset.ts/README/测试期望五面同步；工具行 run_harness 保留】
+- 【cr-306 2026-10-08 移动端 Remote CI 发版（独立 workflow mobile.yml + APK 分发进下载面）与下载页重构（仅最新版 + 桌面/移动双下载项 + 平台默认判定与切换 + webui 令牌风格）】
+- 【cr-307 2026-10-08 Agent 创建缺 id 报错根修：agents/create 服务端补 id 生成（name 派生 slug + 防撞后缀）——三创建面（引导页 AgentStep/AgentList 快建/设置面板）均不传 id 而 AgentList UI 承诺自动生成从未落地】
+- 【cr-308 2026-10-08 桌面端 v0.8.16 发版：cr-307 引导页 Agent 创建修复随版触达（版本同步 + CHANGELOG + tag/CI/下载面）】
+- 【cr-309 2026-10-08 隐藏群聊形态的上下文占用仪表：KV 走势按群 gid 聚合多 agent 步流，展示口径待定，想清后恢复】
+- 【cr-310 2026-10-08 凭据删除守卫：locked 密文（解密失败在盘）空串删除指令保留不删并 warnings 反馈，杜绝换机后随手保存销毁可恢复密文】
+- 【cr-311 2026-10-08 TokenGauge KV 走势 min-max 降采样（>440 代表点时桶内取极值，保深谷）】
+- 【cr-312 2026-10-08 前端 Agent 面切 Provider「当前生效」摘要不更新修复：selectLlmProvider 发现缓存 string-only 滤空（对象形态 models 全被滤掉→自动落模型逻辑永不触发）——改走 poolModelEntries 单源 + 对齐后端 defaultPoolConnection 落点口径（defaultModel 优先→降序首项）；cur 空/错配统一落新连接默认模型（「provider 显式+model 空」是无意义态——投递侧默认连接整体胜出，router 测试锁定）；llmEffectiveSummary 存量坏态按真实投递落点呈现（不再拼接「全局默认模型×所选连接」）】
+- 【cr-313 2026-10-08 「provider 显式 + model 空」语义补全（第四态断根）：provider×model 四组合此前有一态语义断裂——model 空被投递侧解释为连接选择整体未声明、默认池连接整体胜出（UI 多路径可达坏态：还原 model/切 Provider 解析坏/直连 patch，补丁修不完）。本轮：ac-llm-pool 提单源 poolFallbackRef（provider 显式→该连接默认模型，否则全局默认连接；per-entry 解析提 poolEntryDefaultModel 公开）+ router/agent-admin 预览/subagent 派生三处复制回落换用单源 + router 测试断言改新语义（provider 胜出）+ 前端摘要第四态显示「连接默认」、模型下拉默认项/脚注文案按连接感知】
+- 【cr-314 2026-10-09 journal 折叠 KV 前缀稳定化——折叠边界按 eventJournalKeep 量化推进（fold = floor((E-K)/q)*q, q=max(1,K)）：量子内摘要行与保留窗字节全稳、回放=上一轮前缀+尾部追加，news~news 每轮首步全量失效（命中恒剩 system+tools 静态前缀）降为每 q 轮一次；eventJournalKeep 语义改为保留窗下限（K..2K-1 呼吸），K=0 逐条即折不变；测试重写并新增前缀稳定性锁定用例】
+- 【cr-315 2026-10-09 journal 折叠方案融合落地（方案A）——eventReplay=journal 语义从读侧虚拟折叠升级为轮数触发的物理滚动归档：攒 K+max(1,K) 条机制行触发 ac-archive 整理 run（复用单漏斗：Agent 亲写滚动概要 + compact 物理剪至保留 K 条 + 被剪轮入归档段），上下文恒≈概要+K..2K 轮、非触发轮纯追加（KV 性质继承 cr-314 量子语义且断时重算量更小）；ac-session 读侧折叠分支与 eventReplayOf/eventJournalKeepOf 退役删除；自会话桶整理提示词对角线文案修正（不再误称与 user 的会话）】
+- 【cr-316 2026-10-10 新增 docs/explore 设计探索档案：cell 运行时与架构迭代（未裁决草稿，五轮讨论沉淀）】
+- 【cr-317 2026-10-10 插件包审查 #2：ac-relay-server 深审改判留（P0 删除候选→确认保留）——审查清单两条依据均不成立：①「非 workspace 成员」有误，pnpm-workspace src/* 通配实际覆盖（lock importers 可证）；②「零被依赖」仅指 import 图内，消费方全在图外：CI 双工作流部署 gen-manifest.mjs、移动端 Kotlin 协议级耦合（帧词汇/频控节奏注释互引）、公网 47.110.63.135 生产部署在跑、最近提交 2026-10-08（cr-306）。按清单联动规则「留则在 README 注明身份」：布局节补一行身份说明。源码 642/512 行无精简空间（注释全挂生产事故 CR 背书、限额参数真机校准）。】
+- 【cr-318 2026-10-10 ac-agent-loop 独立性修复（P1-3）：runAddress/pairKey/ARCHIVE_REVIEW_META/isArchiveReviewRun/normalizeToolSpecs 五个跨行协议词汇下沉 ac-core-utils，23 处消费方改源 + 依赖规范化】
+- 【cr-319 2026-10-10 P1-4 池词汇归位：LlmPoolEntry/PoolModelEntry/SessionHeaderSpec 形状 + normalizePoolModels/poolEntryDefaultModel/defaultPoolConnection/poolFallbackRef 解析词汇自 ac-llm-pool 下沉 ac-llm/src/pool.ts（域 owning，refs.ts 先例）；router/subagent/archive/agent-admin/presets/web-api 六包值导入改源，四包 ac-llm-pool 依赖解除（web-api 保留——PROTOCOLS 协议注册表留注册行，档案分层背书）；词汇测试随迁】
+- 【cr-320 2026-10-10 P1-5 ac-session 独立性修复：expandSteps 跨行值导入消解——ac-subagent 值导入改 ctx.session 服务面消费口（inject 加 session 硬声明），ac-session 导出收私有 + SessionService 挂公有方法；subagent ac-session 依赖转 devDependencies（type-only）；集成测试 boot 补 sessionRow（独立临时数据根）】
+- 【cr-321 2026-10-10 ac-persona 独立性修复（审计 P1-6）：resolvePersonaText/PersonaSettings 词汇下沉 ac-core-utils（cr-318 normalizeToolSpecs 同构——singles 前缀快照修订键与装配行同口径单源）；singles ac-persona 依赖解除（测试留 devDeps）；personas 行内解析改调纯库】
+- 【cr-322 2026-10-11 vitest 渗漏防线补 AGENTCHAT_SUPERVISED 摘除——Supervisor 模式宿主（本产品自托管开发态）跑测试时该变量渗入 worker，system/restart 非 Supervisor fail-closed 用例误走真重启路径（dispose 关掉测试自 boot 的 rpc 目标→15s 超时 + process.exit(42) Unhandled Rejection）；与 AGENTCHAT_DATA_ROOT 同一防线同一病根，摘除后测试对宿主 shell 环境免疫】
+- 【cr-323 2026-10-11 ac-restart 能力服务化（审计清单#7）：requestSystemRestart 函数升 ctx.restart 服务，ac-web-api 值导入解除改 inject 硬声明；ws-bridge 的 ac-restart 依赖顺带归位 devDependencies（type-only）】
+- 【cr-324 2026-10-11 ac-web-api 体量审查（#8 P1 验收+精简）：空 import type 死导入/孤儿注释/runsDigestCache payload 驻留/派生重复并源/头注释漂移订正】
+- 【cr-325 2026-10-11 P1-9 ac-openai-completions 深审收口：sseDataEvents/stripTransportKeys 三库值导入系 cr-39 D1/cr-99 B 双裁决背书的分层设计（纯库共享单源，非漂移），注释声明现状；孤儿 JSDoc 三块（isMaxTokensRenameHint/authHeaders/httpError 文档与函数分离悬空）合并归位；导出面逐词汇核验零包外越权消费，测试比健康（125 断言）】
+- 【cr-326 2026-10-11 ac-client-ui-conversation P2 精简审查收口：uid 单行函数双份并源 chatOps.ts（feed-core/chat-core 改 import）；全包死导出/孤儿模块/断链 import 零命中（171 导出全仓求证），大文件不拆（闭包内聚+CR 背书），包健康留】
+- 【cr-327 2026-10-11 webui-kit 深审收口（审计清单#11，P2 精简）：①死件三连删除（Dropdown 容器/Label/PickTag——cr-157 cr-173 增补后包外零 import 零标签使用，归一对象 label-badge 原样居 group/PluginLibrary 从未迁移；gallery 陈列格与注入标记同步拆）；②假执行裁决恢复执行——StarCard/PulseTrace 删除（cr-116 判死刑后未删，包外零消费，唯二命中系组件内用法示例注释；Skill 规范表同步订正）；③ThoughtIcon 退役（包外唯消费链 AssistantMessage 思考行图标位经 iconMap thought 键间接达成，与 ThinkingIcon 脑电波形态近乎重复，归并单图标）；④icons.ts 死图标 7 行剪除（grip-vertical/menu/brain-circuit/file-code/panel-right/shield-check/si-aliyun——137 名逐名字符串扫描全仓零消费；calendar 系 DatePicker 自用保留）；⑤ToastTone/ToastOptions/ToastItem/ThemeMode 类型出口修正为纯测试锁定（业务经类型推断零显式 import，无漂移不删）；审计清单 3614/0 与零测试指控勘误：kit 测试住 webui/tests（toast 12/kit-datepicker/kit-select-z/kit-tooltip/pull-to-refresh/contrast-tokens 8 契约/preview-kit-sync），非零测试包】
+- 【cr-328 2026-10-11 深审 ac-client-ui-plugin-registry（审计清单#12，P2 精简）：①补包内数据面测试 tests/plugin-registry-data.test.ts——pluginApi 21 导出中 16 个零覆盖（getPluginCatalog 不吞错契约〔2026-08-30 事故防线〕/patch 三态/dep-graph 与 events/descriptions 降级/staging 人审链/市场链/uninstall 会话链），附带 highRiskOf 未收录 id 回归锁；②highRiskOf 可选链断根（ac-webui-extensions/src/slotCatalog.ts——#1 遗留跟进②兑现：manifest 回读 ui.slots 带未收录 id 时 TypeError 致 getCatalog 五源全崩→插件库整页空白）；③精简裁决：不删不拆——三页签+ExtToolsPane 活跃（agents 跨包消费）、大件分区纪律好共享词汇密集拆分徒增胶水】
+- 【cr-329 2026-10-11 ac-client-ui-agents P2 精简收口：死口清理（服务面透传/死导入/死 CSS/fixed 恒假字段）+ 三处重复并源（池缓存加载/装配解析/avatar URL）+ LLM_SAMPLING_KEYS 镜像交叉锁定测试 + kit 归一（trash-2 图标注册、ui-dd 配方）】
+- 【cr-330 2026-10-11 ac-client-ui-workspace 精简收口：TabPane 重复 onBeforeUnmount 合并；jsonFetch 三副本并源 workspaceFile；isImage/ext 与 IMAGE_EXTS/extOf 并源（点文件语义走散修正）；OfficeView renderedTick/onRendered/resetState 死三件删除；Panel 头注释窄屏表述漂移订正；空壳 WorkspaceBoardOptions 退役】
+- 【cr-331 2026-10-11 webui 前端壳精简收口（审计清单#15，P2）——残留门面清理：6 零引用死门面删除（utils/switchTrace·toolIcon·types/index、settings/types·useSettings、composables/useChatShell）；12 仅测试引用门面改直连 owning 包后删（utils 九件、settings 三件〔api/types/schema〕、composables 两件）；preview-main 纯透传退役（index.html 入口直连 main.ts，adapter 过时注释订正）；slots-demo 临时验收入口删除（M27 已关，D3 语义已由 ac-client-slots 包测试锁定）；layout-unload.test 断链 import 修正（vueRenderer 已迁 ac-client-ui-renderer，webui tests 不进 typecheck 故静默）；package.json 描述漂移订正（adapter 已退役）；vitest.config.ts 5 处双 CR 字节修复；tsconfig exclude 死项清理（src/index.ts·plugin.ts 已不存在）】
+- 【cr-332 2026-10-11 ac-client-ui-layout 深审精简（cr-332）：备份/版本检查双份并源 systemActions.ts、图标归一（3 内联 SVG→kit Icon+2 新注册名、ms-dot #ef4444→--err-status）、badgeOf 双份并源 auxSidebarViews.ts、死口清理（togglePrimary/closePairView 导出、openAux 空 doc、~icons 白名单注释、AppFrame VIEWER_ID 改单源）、RESET 导出常量、测试比 3.9%→17%（新增 33 用例：选举互斥/持久化/备份单源/图标消费/webui stores 漂移）】
+- 【cr-333 2026-10-11 cr-327 thought 归并撤销：ThoughtIcon.vue 恢复（涟漪=单步思考 vs 脑电波链=整链过程——两图分工系原文件头注文档化设计，cr-327 按视觉直觉误判重复归并致链栏/思考行同图视觉回归，用户反馈发现；icons.ts thought 键重新映射 ThoughtIcon + 注释订正，webui-style.md 两处 cr-327 表述回订，审计清单 #11 补正）】
+- 【cr-334 2026-10-11 ac-client-ui-usage #17 精简收口：modal 形态死代码删除（cr-30 裁决补执行——Modal 模板/专属 CSS/usageViewMode 切换/variant prop，唯一消费方 PanelHost 恒传 panel）；rpcDefault 副本并源 settings 单源（12 前端行同款先例）；UsageSummary 类型镜像并源 usageApi 单源；uplot peer+dev 双声明收敛 dependencies；usageApi 纯函数面补包内测试（原测试比 1.9%，契约锁住 webui 不进 typecheck）；package 描述与头注 modal 残留措辞订正】
+- 【cr-335 2026-10-11 P2-18 ac-subagent 深审精简：死词三清——subagentErr 死函数删除（注释宣称 collab-tools 同源引用系漂移，实为零消费；工具体抛错由 ac-tools 统一收敛）、abortReason 死状态收口（cr-132 收窄后零读侧，6 处赋值随删）、HINT_AGENT_MESSAGING 收私有（包内 4 处消费、包外零引用）；package.json 描述四投递漏 async 订正；collab-tools 子上下文源注释旧单文件形态订正（三文件化后）】
+- 【cr-336 2026-10-11 ac-run-code 审计 #19：修词表单源 ESM 空转（tool.ts 裸 require 在 dev 形态 ReferenceError 被吞、永远走 FALLBACK——单源承诺从未生效）+ 出口截断假失败（enforceOutputBudget 截断破坏 JSON 结构、主线程 JSON.parse 炸 → 子调用全成功的程序整体报错）两 bug；精简：resolveEffectiveTools 零调用 llm 分支（全仓含测试求证）/formDenied 单行包装/core exclude 选项与空 if 块；2026-11-19 未来日期笔误校准 2026-09-21（lib DX 批次 git 首见日，worker.ts+测试 6 处；edit-core/fs-search/shell-tools/README 同款待后续批次）】
+- 【cr-337 2026-10-11 深审 ac-plugin-core（审计清单#20）：包健康留——多文件域面=纯库分域正解不拆包；①ac-plugin-market 依赖正位（type-only → devDependencies）；②镜像交叉锁定测试兑现 #1 遗留①（webui/tests/slot-catalog.test.ts 补 UI_SLOT_IDS/HIGH_RISK_UI_SLOTS/highRiskSlotsOf ↔ LEGACY_SLOT_CATALOG/highRiskOf 三断言，webui devDeps 加 ac-plugin-core）；③reserved.ts 与 plugin-core.integration.test.ts 行尾 CRLF→LF 与包内统一；④package.json 描述补内置目录清单域】
+- 【cr-338 2026-10-11 ac-plugin-registry #21 精简收口：ac-agent-loop 依赖归位 devDeps（type-only 剩余）+ installFromDir grants 死参数删（M23 免审不暴露语义一致化）+ mountUi 死 reason 参数删与 extensions-changed reload 死变体跨包收窄 + setPatch/resetPatches 热通道同构尾部并源 + MINIMAL_CORE_ENTRY_IDS 装配树一致性锁定测试】
+- 【cr-339 2026-10-12 ac-shell-tools 审计 #22（P2 精简）：修 translateUnset 多变量/带引号译文绑定错误（Remove-Item Env: 位置参数绑定错且错误形态不入 invocation-error 表→command-feedback 假成功；改词法校验 [A-Za-z_]\w* 空白分隔 + 逗号数组译文 Env:A, Env:B——实测存在删/缺失静默=unset no-op 语义）；job logs 死参数 args.lines 收口（schema 只声明 limit，隐藏参数面零消费）；审计误注勘正（cr-263/264 系沙箱目录迁移非翻译层改动）；2026-11-19 未来日期笔误校准 2026-09-21（画像Ⓐ git 首见日 1391f7a1，executor+process 三处——cr-336 尾注遗留批次兑现）】
+- 【cr-340 2026-10-12 ac-edit-core 审计 #23（P2 精简）收口：唯一性交叉校验死分支清理（maxCount=Math.max 三级计数恒= lenientCount——归一化越宽松计数单调不减，counts 数组+三元链两级漂移产物，改直判 lenientCount>1，报错文案值与级别名逐字节等价）；countOccurrences 死词删除（全仓零调用，countOccurrencesRaw 直供 countOccurrencesByLevel）；executor renderReadback 与 diff 的 findLineBreaks/charToLine 同构二分并源（diff.ts 导出、executor 改 import）；countOccurrencesByLevel JSDoc 幽灵参数 crossLevel 订正；2026-11-19 未来日期笔误校准 2026-09-21（画像 Ⓑ/Ⓒ git 首见 109010c6——edit-core 6 处 + README 1 处 + fs-search 3 处，cr-336 尾注欠账批次收口）】
+- 【cr-341 2026-10-12 ac-bench 深审收口（audit #24 裁决：用、留）：修 bench/* 事件订阅方注释漂移（实订阅面 = CLI 进度 + 测试断言，非 WS 广播/审计）；修 CLI 装配注释（无 system 行、进度行内嵌 bench 域装配自述，行集真实）；README 路线图改现状备注（多轮/τ²/Terminal-Bench 未启动，ac-bench 即选择压力已由 explore 档案背书）】
+- 【cr-342 2026-10-12 ac-remote-link #25 深审：修 httpParams 窄化器丢 supportsGzip/ifNoneMatch 真机失效 bug（cr-257/82 优化从未生效——测试直调 proxyToSelf 绕过 RPC 窄化层）+ 死件清理（knownDevices 死参数/startPairing deviceName 死链/DeviceRegistry.add 纯测试口/sasFromHandshakeHash 死导入）+ 注释漂移订正 + 窄化层透传测试锁】
+- 【cr-343 2026-10-12 cr-342 补记：RPC 应答压缩测试固定 20ms 等待窗改轮询（waitForFrame 50ms×40）——全仓跑批并发负载下假红（定向复跑绿），断言零变化；全仓 2558 测两 flake（本包 + webui boot-graph 集成）均定向复跑绿判时敏】
+- 【cr-344 2026-10-12 ac-sap-adt 深审收口（audit #28）：工具数口径漂移订正 46/47→32（README/cordis.yml 两注释/PluginLibraryPane 注释——0.8 时代旧数，正源 reserved.ts+引擎 0.12 assembleAdtTools）；engine.ts 重复 readDir/readFile 并源 guard 化收口（cwd 越界拒）；README 锚点注释漂移订正（.ac-sap-adt/agents 树 2026-09-17 已废）；包健康留】
+- 【cr-345 2026-10-12 ac-harness-tools/core 深审收口（#29/#30 裁决=留）：修 P2 续接链路断裂——started 事件 runKey 未捕获进 terminal facts，recordSession 永不执行、resume 恒落空（cr-279 承诺从未生效）+ codex 终稿丢失——delta 无累积、stop 空稿永远『无终稿输出』（注释宣称的 finalize 累积不存在）+ 续接键位随 cwd 漂移（agentDir=dirname(cwd)→恒基准）+ reasoning 事件行侧丢弃；精简：probeGateway 零消费死面删（D8 意图已由 spawn fail-loud 达成）、done 事件变体零生产删、两 adapter finalize 并源（已走散：codex 非零退出缺 runKey）、delta 去截断归消费面、导出收紧、cr-280→282 与 settings 域名漂移订正】
+- 【cr-346 2026-10-12 ac-hello 审计收口（#31）：裁决留——范例包三锚点背书；订正 src/README.md 布局行 effect 残词（源码无 effect 导出，实为 inject/apply/on + extension 自述）】
+- 【cr-347 2026-10-12 ac-tools 深审（audit #32）：ToolTransform.error 假契约修复（service 构造 payload 从未填充——events/contract 双处承诺的执行现场三件套缺一）+ readers 三读取器补单测（对齐 loop 域先例，M25 §3.2 零锁定缺口）+ tool/started·registered·unregistered emit 契约补测试锁定 + contract needPermission 例举注释漂移订正】
+- 【cr-348 2026-10-12 ac-llm 深审精简：poolEntryDefaultModel 导出收私有（包外零消费——cr-319 下沉词汇导出面收紧，包内 defaultPoolConnection/poolFallbackRef 消费不变）；readers 零锁定缺口补 tests/readers.test.ts（agentOfChatCall/agentOfChatInput 载荷形状，对齐 cr-347 ac-tools 先例）；index.ts 头注 ac-llm-pool「OpenAI 兼容」过时表述订正（cr-39 后多协议）；package.json 描述补池词汇域】
+- 【cr-349 2026-10-12 ac-router #34 深审收口：maxSteps JSDoc 0 语义对齐 loop 真实口径（0=不限非回落 Agent 原配置）+ ac-agent-loop 依赖段位归位 devDeps（纯 type 导入）+ index 行级 inject 与 static inject 漂移断根（补 tools）+ 描述「会话历史」史前残留订正 + readers 零锁定缺口补测（cr-347/348 族先例）】
+- 【cr-350 2026-10-12 ac-conversation 审毕收口（审计 #35）：ac-agent-loop 依赖归位 devDeps（源内已纯 type 导入，cr-318 下沉后漏改）；contract.ts ARCHIVE_REVIEW_META 注释住址订正（ac-agent-loop→ac-core-utils）；PendingLine 隐性前提显式化（source/wakeNotice 不落盘依赖 event/agent 源不走 next-turn 的消费面前提）；readers 补锁测对齐四包先例】
+- 【cr-351 2026-10-12 ac-agents 深审收口：reassign 补撞群校验（cr-4 双向卡位第三写口——管理面 create/update 走 reassign 绕过 register 的撞群防线，真 bug）；TOOL_MODE_TAGS 死词删除（全仓零消费、toolModeOf 未用）；UNIVERSAL_TAGS 收私有（运行时零消费——语义存档 + 注释指路）】
+- 【cr-352 2026-10-12 ac-agents-dir 深审收口：死配置面 AgentsDirRowOptions 删除（M15 数据根锚定后两条装配路径均不传参、实现零消费）；头注释热重扫待办订正（M14 管理面实际走写口同步 saveAgent→reassign，整目录热重扫被取代）；ac-agents events/service 注释幽灵机制热重扫覆盖注册连带订正】
+- 【cr-353 2026-10-12 ac-agent-store 深审（审计 #38）：修 saveAvatar 大写扩展名丢头像（avatarPath 只探测小写）+ agentIds 过滤非法词法目录（外部污染盘面曾可拖垮 boot——listAgents/timer reload 遍历链）+ 原子写尾部并源 writeTextAtomic + skills entries 注释漂移订正（实际消费者 timer/goal/todo）+ 头像与过滤测试补（原零覆盖）】
+- 【cr-354 2026-10-12 ac-agent-presets 深审收口（#39）：cr-319 换向残留 defaultConnection/LlmPools 转发壳删除（materialize/refreshModels 直连 defaultPoolConnection——agent-admin 同款先例，JSDoc 与 owning 侧重复随之归一）；refreshModels 池清空回落清除分支（model/provider 置 undefined）补锁定测试】
+- 【cr-355 2026-10-12 ac-agent-presets-builtin 深审收口（#40）：五面注释漂移订正——创造模式增补后头注释/README 漏列；程序化「随 ac-run-code preset.ts 子行走」过时叙事全链清除（现为会话级开关 tc-programmatic 非预设身份，reserved.ts L103 背书，git 全史无该文件）；创造模式内置指南两处事实校准（manifest「必填项」→实际必填仅 name/version、entry 缺省 index.ts；模板指路 src/templates/tool-row 精确化）】
+- 【cr-356 2026-10-12 ac-conv-settings 深审精简：clear() 零生产消费收口（set 键级 null 同终态可达）；set 签名 boolean 死通道收窄（wire 零生产者，web-api 镜像同步）；events/头注/description 三处漂移订正（事件实订阅面=零、行 options 非 config、全键口径）】
+- 【cr-357 2026-10-12 ac-system-prompt 深审收口（审计清单#42，P4 装配行）：注释漂移四订正——①L42 空导入注释宣称 LoopSender 系幽灵词汇（全仓唯一命中即该注释自身，信封字段实名 sender）；②single 字段 JSDoc/③apply 侧注释/④extension fields 描述三处仍持 2026-09-21 注入轴重构前旧口径（system_restart 受形态门控/工具已随形态面裁剪——实际门控已撤、指引随工具在场注入，头注与测试双锁定）——对齐现行事实。删/拆双否：分块装配器单文件 596 行为域 owning 真实复杂度（12 指引条目逐条事故背书+整段措辞锁定），消费面全活跃（yml/TREE/agent-loop 契约注释/backlog 载引），依赖声明全正位（ac-agents 双列=fs-search/session-query 同款惯例）】
+- 【cr-358 2026-10-13 ac-memory 深审收口：agent-loop 依赖归位 devDeps + 注释漂移订正三处（迁移双重 JSDoc/内嵌措辞/铸造双重 JSDoc）+ core 包描述刷新】
+- 【cr-359 2026-10-13 ac-datetime 深审收口（audit #44）：健康包留，零改动——双形态注入行 121/279 行设计全档案背书（收尾档位化 CHANGELOG-0.8/三档装配链/ADR-7 收敛式/KV cache §5.2），消费面全活跃（singles 行签名耦合/agent-loop 尾档契约/system-prompt 互引/web-api 扩展目录/技能范例包身份），零死代码零重复，依赖声明三处全正位（本包 + singles/web-api 消费方 devDeps），测试 9+5 用例双形态全覆盖】
+- 【cr-360 2026-10-13 ac-skill 深审收口（audit #45）：ac-agent-loop 依赖归位 devDeps（源码零 import，测试 boot 消费）+ 三区域隔行空行乱纹修复（词汇 v2 重构编辑事故残留）+ 头注手势去重叙事漂移订正 + 测试死占位行删除】
+- 【cr-361 2026-10-13 ac-mcp 深审收口：并发 run 双 sync 竞态修复（entry 级单飞——群聊/subagent 并发 before-run 双建连双注册互相拆台）；死词三清（sync force 死参/getServerVersion 死口/describeError re-export 及重复测试）；注释漂移订正】
+- 【cr-362 2026-10-13 ac-fs-tools 深审（清单#47）：read 目录列表补条目级双黑名单过滤（对齐 glob/grep 结果过滤口径）+ ac-tools 依赖归位 devDeps（src 零导入）+ 基线层 elevation/full×accessDeny 测试补强】
+- 【cr-363 2026-10-13 ac-fs-search 深审收口：deny 装配三姊妹并源 ac-sandbox-core（createDenyListsFactory）+ per-call 档位判定归位 ac-agents（effectiveTierOfCall）——#47 留给 #48/#49 的联动裁决兑现；sre view 读面补双黑名单口径】
+- 【cr-364 2026-10-13 ac-str-replace-editor 深审收口：三写命令读改写整段进突变队列（lost update 断根）+ view 目录列表双黑名单条目过滤（发现面对齐 fs-tools read）+ devDeps 重复声明清理】
+- 【cr-365 2026-10-13 ac-math 深审（#50）：判留——删/拆双否（消费面全活跃：TREE/yml/reserved 占名/toolLabel 镜像/run-code 面板/subagent·system-prompt·webui 集成测试；纯函数 evaluateExpression 已是纯库正位形态，单文件单行拆分即碎尸）。修三处：①头部注释漂移——仍称「注册无 requiredTags」但 2026-09-16 全量标签化后实为 requiredTags=[infra]（infra 属 UNIVERSAL_TAGS，一切 Agent 可调语义不变，机制描述过时）；②MAX_TOKENS=4000 死护栏——token 数恒≤字符数+1≤2001（MAX_EXPR_LENGTH=2000 先触发），恒不可达即删；③package.json description 仍称 node:vm 沙箱求值——vm 已于 A2（2026-08-31）移除，订正为现状】
+- 【cr-366 2026-10-13 ac-web-tools 深审收口（审计清单#51）——删/拆双否：消费面全活跃（TREE 装配唯一被依赖 + ac-cdp-core/ac-web-search-core 两纯库唯一行级消费方 + 前端镜像行 match web_search + tagExclusive browser-tier 抉择组 + conv-settings browserTier 消费方 + reserved 占名 + run-code/sap-adt 集成 boot）。修四处：①content/html 退役别名到期删除（CDP 化已随 v0.8.15 发布两版本，schema enum/ACTION_TIER/case 分支/observe 描述四处同步）；②fullPage 孤儿参数归位——实现自 CDP 化起读取但 schema 从未声明（git 实证），补 schema（screenshot 整页开关 + buildCmd 透传），删字符串兼容形态；③WebToolsSettings.enabled 全仓零消费死词删；④AgentsGateFace 死形状删（探测后仅真值判断，get() 从未被调——能力集合成早已单源 sessionCapsOf，无 agents 恒放行探测保留）。测试两改：无 key 用例 stubEnv 加固（本机/CI 有 DEEPSEEK_API_KEY 即假红）；补 fullPage 用例（dataRoot 注入通道——cdpEndpoint 同款测试注入先例）。注释漂移订正三处（守护进程/5 provider/三源链）。克制不动：web_search 全参数兼容分支（M15 对账背书）、nonEmptyStr 与 issue-tools 双份私有（不成环不满足 core-utils 准入）、BROWSER_FAMILY 前端正则匹配旧工具名（#122 裁决面）】
+- 【cr-367 2026-10-13 ac-issue-tools 深审收口（#52）：包健康留——cordis.yml 注释漂移订正（cr-41 切轴漏更：requiredTags web→issue-report）+ 凭据链冗余查询消除（resolve 已含全局级联，getGlobal 补位加 agentId 守卫与 web-tools 同构）】
+- 【cr-368 2026-10-13 ac-collab-tools 深审（#53）：ac-agent-loop 依赖归位 devDependencies（cr-318 值导入归零后残留，R1 判定）+ sub_ 未注册分支注释漂移订正；裁决留（消费面全活跃、删/拆双否）】
+- 【cr-369 2026-10-13 ac-session-query 深审收口（审计清单#54）：删/拆双否+依赖正位+三包合一测试归位拆分（dev/restart 各回 owning 包，query 留包内并补边界锁定）】
+- 【cr-370 2026-10-13 ac-timer-tools 深审收口：依赖正位（ac-timer/ac-tools 归 devDependencies——src 零值导入/纯 type-only）+ inject 死项清理（agents 零消费）+ 测试补强（可选字段透传锁定与 disable 未知 id 错误路径）】
+- 【cr-371 2026-10-13 ac-todo 深审（审计 #56）：listBuckets 死词删除（全仓零消费——含测试）+ 头注「goal-round 对齐提示」漂移订正（ac-goal 源码零 todo 引用，todo 状态唯一通道 = 工具消息面）+ 桶淘汰/上限护栏补测试锁定】
+- 【cr-372 2026-10-13 ac-goal 深审收口（审计 #57）：GoalsService.list() 死词删除（全仓零消费，cr-371 listBuckets 同款）+ renderGoalRoundMessage/GOAL_ROUND_META 包外零引用收私有 + package.json 描述漏 delete 订正（cr-335 ac-subagent 同款）+ ac-client-ui-todo tasks.ts 头注 goal 半边去向漂移订正 + 桶淘汰/history 上限零覆盖补测试】
+- 【cr-373 2026-10-13 ac-dev-tools 深审收口（审计清单#58）——删/拆双否：消费面全活跃（TREE+yml 装配 + reserved 占名 read_logs/reload/reload_modules + tag-registry dev 词条 + __creator__ 预设授予 + event-graphs 榜 + gap-backlog source:event 调用点登记），263 行单行同轴不拆（三工具+宿主半边共享 dev 域词汇与 executeReloadInterrupt，拆分徒增组合根开销）。修三处：①reload 假参数 scope 删除——self/global/all 三值唯一去向是 reason 装饰串且全仓零解析，宿主半边 include.refresh 全树原子无 scope 分支，系 src 平移遗留无对应物；②DevToolsRowOptions/bufferSize 死配置面删除——cordis.yml/TREE 零 config 传递，容量常量内联；③依赖正位——src 零 import ac-tools（type-only）归位 devDependencies（cr-369 同款 R1/R4 判定）；reason 描述漂移订正（记入日志→随语义化中断记录）。补测试：宿主半边 reload include 分支两用例 + read_logs limit 钳位】
+- 【cr-374 2026-10-13 cr-373 收尾备注：全仓 test:unit 2599 测 2596 绿（1 失败 = ac-client-ui-todo 装卸用例 15s 超时，定向复跑 6/6 绿判并发时敏 flake，cr-366~372 同款先例）；最终行数 262→248 src / 142→209 tests】
+- 【cr-375 2026-10-13 ac-ask-questions 深审收口（清单 #59）：死代码三清（questionsOf 死函数/ConversationLike.listRunning 死接口成员/poller deadline 自查死分支——2026-09-21 deadline_ms 移除漏网）+ ac-agent-loop 依赖归位 devDependencies（cr-318 值导入归零收尾）+ 中断清账悬问注释订正】
+- 【cr-376 2026-10-13 ac-file-snapshots 深审收口：会话删除级联接线（singles/updated-removed + group/deleted 含成员私有流键全清）+ memberStreamKey 下沉 ac-core-utils（跨行键词法，GROUP_HINT_META 先例）+ 死词清理（SnapshotStore re-export/location getter/rowOptions 死字段）】
+- 【cr-377 2026-10-13 ac-config 逐包深审收口：热更三小件 P1/P2 落地 + set 写侧快照隔离 + readJson/writeJsonAtomic 出口收私有】
+- 【cr-378 2026-10-13 ac-credentials 深审收口（audit #62）：包健康留——域 owning 消费面全活跃（security 脱敏 listValues/web-api 池凭据双 RPC 面/llm-pool 注入/issue-tools·web-tools 解析链/sap-adt 引擎缝全 ctx.get 解耦）。精简四刀：①path getter 死口删除（全仓零消费，JSDoc 诊断用从未接线）；②keys() JSDoc 漂移订正（管理面从未接线，实况=测试锁定盘上 key 命名）；③ac-agent-admin 死 inject credentials 删除（P4/D3 set-credential 退役漏清——service 零消费，测试四处凑数装配随删）；④ac-security 依赖归位 devDependencies（src 零 import，六消费方唯一异类）。CRLF 统一 LF】
+- 【cr-379 2026-10-13 ac-jobs 深审收口（audit #63）：JobOutcome.output 注释漂移订正（承诺 read 兜底实为 meta.output 供 wire 面）；DEFAULT_MAX 死导出收私有；测试补缺省上限断言；subagent/wakeup 的 ac-jobs 依赖 type-only 归位 devDeps】
+- 【cr-380 2026-10-13 ac-job-wakeup 深审收口（清单 #64）——ac-conversation 依赖归位 devDeps（type-only 正位）+ 测试死导入 conversationRow 删除 + disposeAll 冗余接持收直 + 头注 role 词汇漂移订正（M-role-v2）】
+- 【cr-381 2026-10-13 事故报告：ac-shell-tools 前台子进程在宿主退出后成孤儿（8 个 pwsh 常驻占满 8 核，跨重启存活），落档 src/docs/shell-orphan-process-postmortem.md】
+- 【cr-382 2026-10-13 孤儿进程闭环修复（cr-381 报告建议 1-4）：desktop 无条件树杀后端；shell 执行体记账 + exit 同步补刀；启动期孤儿指纹对账清扫（AGENTCHAT_ORPHAN_REAP）；killWithConfirm 未确认泄漏告警；pwsh 工具描述劝阻递归管道】
+- 【cr-383 2026-10-13 ac-security #65 深审收口：approvalScopeKey 归位 runAddress 单源（core-utils 注释宣称兑现）+ ac-tools 依赖归位 devDeps（type-only）+ CRLF→LF 统一 + webui port-b security mock 字段漂移订正】
+- 【cr-384 2026-10-13 ac-durable-interaction 深审（#66）：包健康留——死口清理（service.clear 透传/store.clear 全链/store.name 诊断口/file 收私有，全仓零消费）+ ac-security 窄类型死声明 deadline 删 + 三文件平移残注与 event-graphs 订阅者数据订正 + 包内 CRLF 统一 LF】
+- 【cr-385 2026-10-13 ac-usage 深审收口（审计 #67）：ac-agent-loop 依赖归位 devDeps（cr-318 值导入解除后残留，R1）+ byPair/byDayPair 查询合并键 | 换 \u0000（对齐同文件 byAgentConvMap 惯例——Agent id 无 | 禁令，自由段连接真串桶隐患）+ 方法面注释目录补齐（cr-324 同款漂移）】
+- 【cr-386 2026-10-13 ac-archive 深审收口（审计#68）：依赖正位 ac-agent-loop→devDependencies（src 仅 type-only，R1 最后遗漏）+ 双条 ac-core-utils import 合并（cr-318 下沉补丁痕迹）+ A1 listeners 补 loop/step-started 闸③观测条目（ac-usage 双条目先例）+ 头注 timer 依赖表述漂移订正（static inject 硬声明非经 ctx.get）+ events.ts 行尾与包内统一】
+- 【cr-387 2026-10-14 ac-timer 深审收口：chime 兼容死链清除（row options entries/globalSchedule/chime- 合成/TimerEntry.source + GlobalScheduleEntry 词汇）/ workday·random 集成缺口补 2 用例 / CRLF 统一】
+- 【cr-388 2026-10-14 ac-backup 深审收口（清单 #70/#91）：机制任务链断裂修复——前端简化形状（time/hint/targets）与 TimerEntry（id/mode）两套词汇从未接通，UI 建的系统任务全被 configEntries 形状校验丢弃（机制备份/归档定时执行从未生效）；映射归位 ac-timer configEntries 入口（time→mode time、hint 双下划线词→task 机制词、targets→target 逗号串）。语义修复：backupNow 的 keep 字段名不副实（实为当前存档数）；extension 描述 tar→zip；CRLF→LF 统一】
+- 【cr-389 2026-10-14 ac-workspace 深审收口（审计清单#71）——admin 配置手工镜像吞字段修复（spread 全字段跟随，曾漏 tags/llmParams）+ browser_daemon 退役遗留清理（mkdir 死初始化/fileURLToPath 死导入/files 死字段/叙事注释与步骤编号）+ ac-agent-loop 依赖归位 devDeps（cr-318 值导入归零后漏清）】
+- 【cr-390 2026-10-14 ac-tag-registry 深审收口（#72）：事件增量缓存与 defs 现算双源并源修 tools[].owner 装载序走散 + TagCategory 死词清理（base/owner/unknown，前端镜像同步）+ 启动断言 bootTree 接线（兑现 tag-system-report 红线承诺）+ 注释漂移订正】
+- 【cr-391 2026-10-14 cell-runtime 探索档案增补：per-agent 前向引用 + 四处前提演进尾注 + 开放张力小节】
+- 【cr-392 2026-10-14 ac-event-policy 深审（audit #73）：web-api events/policy-list live 字段假计算修真（disabledKeys 自证恒真 → chainEntriesOf×聚合行名交叉：待重载=live、已生效/stale=否）+ 集成测试补锁定 + aggregate.ts/index.ts 消费方注释漂移订正（M25 §3.5 计划的 plugin/rows·熔断·反依赖图三面落地未消费本模块）】
+- 【cr-393 2026-10-14 per-agent 架构探索档案 D3 激进化修订：需授权能力并入子树（信任轴翻转），R-4/R-9/R-11 连锁标注与 D9/D10/待裁决清单同步更新】
+- 【cr-394 2026-10-14 ac-plugin-gates 深审收口：删死选项面 PluginGatesRowOptions（enabled/contractsVersion 全仓零使用——yml 无 config、测试从不传参），src/index.ts CRLF→LF 统一（同文件混用 5+73）】
+- 【cr-395 2026-10-14 per-agent 档案 R-5 修订：subagent 单形态——注册表实体 + 域内嵌套物化 agents/<parentId>/children/，spawn 定性 ⊆ 授权投影；原双形态裁决附理由推翻（推理链存档）】
+- 【cr-396 2026-10-14 ac-plugin-market 深审收口：依赖正位（ac-web-server/ac-plugin-registry 移 devDependencies——src 零 import 纯服务面消费，ac-web-api/ws-bridge 同款 R1/R4 判定）+ index.ts CRLF→LF 统一】
+- 【cr-397 2026-10-14 审计清单 #76 ac-agent-admin 深审收口：删/拆双否（Agent 管理面写侧 owning——CRUD/文档写口/装配视图/system-prompt 干跑三域内聚共享 sanitize/changedKeysOf，9 RPC 全活跃前端消费），精简+正位——ac-agent-loop 归位 devDependencies（src type-only/tests 零消费）、index 空导入锚点×2 与包尾 re-export 死件清理、头注释 host 源对照叙事订正、yml m7-webui-plan 引用修正、assertNotPreset 防线补锁定】
+- 【cr-398 2026-10-14 per-agent 档案 R-7 裁决：版本指纹——主体 = boot 单元（宿主 / activation 两类）、形态 = Merkle 内容树为体 git 为饰、回滚目标规则（可回滚指纹 = 快照链上有快照的根）+ 内容物化纪律；新增族三，五步闭环待项收敛 R-8】
+- 【cr-399 2026-10-14 ac-web-server 审计清单 #77 深审收口：删/拆双否（传输域 owning，七生态行 inject + TREE/yml 双表 + 8 测试 harness 全活跃）+ ac-webui 依赖正位（src 零 import 纯 inject，deps→devDeps，cr-396 七行先例漏网者）+ boundPort/listenError 死词清理 + multipart 解析器包内契约锁定补测】
+- 【cr-400 2026-10-14 per-agent 档案 R-8 裁决：健康检查点判定分层（结构冒烟基 / 代码冒烟+观察期 / agent 包 run 收束）+ 事件触发 + GFS 分代保留；与 ac-backup 分轴（共享工程件、语义独立）；五步闭环前置全闭合】
+- 【cr-401 2026-10-14 per-agent 档案 MCP 归属裁决（族二 R-12）：MCP client = 子树内工具行、服务器清单 = 授权资产数据根直读、stdio 服务器进程 = 拉起方所有；待裁决清单该项收口】
+- 【cr-402 2026-10-14 审计清单 #78 ac-ws-bridge 深审收口：delta 家族统一走目录各自 wire（帧形状 3→2 元素与 remote-link 同源同形，删借道层）+ 14 条空 import type 占位死导入与配套 devDeps 清理 + 双条 import 合并】
+- 【cr-403 2026-10-14 ac-webui 深审收口：删 M3.4 通用桥后零调用的 ui/boot-graph 死 RPC；PluginUiManifest 并源 ac-plugin-core；测试死导入清理（ac-web-server devDeps 解除）；boot graph 服务面补测试（同名替换/陈旧 disposer 守卫/排序口径）；注释与描述漂移订正】
+- 【cr-404 2026-10-14 ac-singles 深审收口（审计 #80）：ac-agent-loop 依赖正位 devDependencies（src 已 type-only，cr-320 同款 R1）+ SinglesRowOptions 双份定义并源 service.ts 单源（index 改 re-export，ac-config/credentials 惯例；注释走散归一）+ 注释漂移订正四处（events.ts 审计订阅方→实际三方订阅面/prefixSnapshotOf RPC 面残称/extension 分区会话视图表述/快照 gate·observe 两个 description 误导名）+ contract.ts title 空值语义补注 + 包内 CRLF→LF 统一（cr-337/378 先例）】
+- 【cr-405 2026-10-14 新增探索档案 shell-model-unification.md：cell × per-agent 两档案统一综述（壳模型）——cell ≡ CLI 壳、执行面同一 + 控制面取代、池化解散、多租户降格、cell 剩余角色 = 沙箱；纯设计/对照裁决/开放问题三部分，壳模型为拟定方向未裁决】
+- 【cr-406 2026-10-14 ac-group 深审（audit #81）：依赖归位（ac-agent-loop 移 devDeps——cr-318 值导入归零漏尾）+ 死类型 GroupFeedAnchor/Page 删（readSince 随 cr-4 退役孤儿）+ memberStreamKey 死 re-export 删（全仓零消费，均直连 ac-core-utils）+ 注释漂移订正（loadLimitTokens 幻影/rotateWithReview 退役叙事/membersWithUser 消费面/GROUP_HINT_META 消费方）+ CRLF→LF 统一（cr-337 先例）】
+- 【cr-407 2026-10-14 shell-model 档案剃刀修订：移除 runtime 字段（M1，选址 = 触发形态 × 信任策略）、移除 L2 树级重启与其 spike（M2，适用面被蚕食）、移除多租户提法（M3，宿主内共进程 = 缺省）、形态谱系简化为两形态（S-1，沙箱 = 策略非档）】
+- 【cr-408 2026-10-14 ac-core-utils 深审收口（#82）：cr-376 memberStreamKey 下沉时包内文档漏同步三处订正（头注目录/描述/测试头注——六组实为七组）+ memberStreamKey 包内锁定测试补齐（10 词中唯一零包内覆盖）】
+- 【cr-409 2026-10-14 shell-model 档案 M4 终态修订：壳恒为进程（宿主内子树降为迁移过渡态，不进终态）——一形态/单协议/完整隔离/纯宿主/文件锁；宿主监护职责成文（拉起/监视/idle-exit/退避熔断）；S2/S6/P0/P2/开放问题连锁重写】
+- 【cr-410 2026-10-14 shell-model 档案 M5 过渡态删除：宿主内子树概念整体退役——过渡态验证的不是终态（内存锁/共享故障域/直调 transport 三样终态全无）、锁与 transport 双实现分叉、账本语义不依赖执行位置（现状单宿主即是验证场地）；D9 路径改写为直上终态（步 1 现状验证账本语义 → 步 2 进程化带出文件锁与宿主投递）】
+- 【cr-411 2026-10-14 shell-model 档案 M6 沙箱角色剔除：沙箱非架构角色而是授权宽度参数——三客户查证（RSI 影子天然 ⊆ 授权投影 / 高风险 agent = 窄授权配置 / 不可信代码与 D3 二值信任模型互斥）；S3 节删除、宪法层无专用硬化版、开放问题 4 收口；cell 档案遗产全部吸收完毕】
+- 【cr-412 2026-10-14 ac-error-core 深审收口（清单#83）：包健康留——删/拆双否（7 包值导入 + webui 对拍锁 + cr-98 分类簇共享单源）；订正描述漂移三处（package 描述/头注消费方目录/README 两行：LLM HTTP 分类簇漏记 + mcp-core re-export 残述），行为零变化】
+- 【cr-413 2026-10-14 shell-model 档案误写事故恢复：pwsh -replace 参数嵌含换行变量致解析炸裂、null 回写清空文件（未入 git 无版本兜底），自会话上下文按 cr-405→411 累积态完整重建；顺带一致性修正（P2①②措辞对齐 M4/M5/M6、S2 后果重编号、P3/P2 标题计数）】
+- 【cr-414 2026-10-14 shell-model 档案 S4 降格：自进化对照表移入 P1 存亡清单附注（对照区），「自进化 = 涌现性质，无独立子系统」一句入 S5 引语；设计部分编号 S4 退役、原 S6 顺移为 S5】
+- 【cr-415 2026-10-14 ac-text-budget 深审收口（审计清单#84）——深审揪出 lone surrogate 三防线全断（2026-08-05 DeepSeek 400 事故修复 9c6f8fdf 的三防线在插件化迁移中全部丢失）：防线1 grep_history 截断回退裸 slice（109010c6 批次回退）、防线2 写盘清洗零消费、防线3 请求体清洗未迁移。修复=三线全复活：sanitizeJsonLine 新词落 ac-text-budget（转义文本级清洗，当年 openai.ts 形态）+ ac-session write()/setShelf 落盘单点清洗 + ac-openai-completions 两 doFetch 请求体兜底 + grep_history 改 safeClipByTokens + ac-group 归档摘要/ac-singles 标题提示词安全截断。顺手：safeClipByTokens 尾部代理对计费疑点深查证伪（pair 相邻存储恒成立，charAt 恒正确——不修，误判防再犯）、包内 CRLF→LF、头注漂移订正】
+- 【cr-416 2026-10-14 per-agent 档案 R-10 裁决（preview 旁路重建模型）：迁移语义改为 cutover 时导入——开发期零兼容、旧格式知识圈禁导入脚本、主线原样保留 = 终极回滚；D9 补 preview 开发模型注记（步骤性质变里程碑、并行自由）；shell-model 档案 P3 新增 cutover 语义裁决点（并行期数据根隔离 / 稳定判据 / 切换动作）】
+- 【cr-417 2026-10-14 新增探索档案 host-shell-row-manifest.md：宿主树 × 壳树行集清单工程规格草稿——现状 100 行四分类（宿主沿用/壳沿用/一行两面拆分件/退役）+ 新增件九件 + 分类判据决策树 + 待钉清单；依据 per-agent 档案 R1-R12 与 shell-model S0-S5 裁决推导】
+- 【cr-418 2026-10-14 ac-config-merge 深审收口：注释/描述叙事订正（写侧已全量落盘，computeDiff 系变更键报告）+ IDENTITY_KEYS 死词条 agent_id 删除（白名单不可达，旧档残留形态恒虚报变更键的潜伏缺陷断根）+ CRLF→LF】
+- 【cr-419 2026-10-14 新增探索档案 protocol-spec-envelope-lock-guardian.md：协议规格草稿——A 信封 schema（uuid/requestId/budget/hop）+ B 投递通道与状态机（acquire→delivered→acked→settled）+ C activation 文件锁（agents/<id>/activation.lock）+ D 宿主监护信号（stdio TSV + 拉起三节拍）+ E 授权信；复用现状先例（cr-250 requestId / MAX_AUTO_WAKES=3 / 42-78-0 / ac-ws-protocol 帧）】
+- 【cr-420 2026-10-14 新增探索档案 auth-registry-data-format.md：授权注册表数据格式草稿——两层 schema（全局 auth.json / per-agent agents/<id>/auth.json）+ 投影算法（全局∩tags、denials 优先、children 物化即快照）+ grant 事务 + 现状五状态复用清单】
+- 【cr-421 2026-10-14 ac-glob-core 审计 #86 深审收口：fs-search grep 单文件分支 toPosix 并源（内联 replace POSIX 字面反斜杠误转缺陷随修）+ walkFiles skippedRoots 库级锁定 + glob-regex.ts 行尾归一】
+- 【cr-422 2026-10-14 ac-sandbox-core 深审收口：ac-text-budget 重复测试块+devDep 迁迹清除（owning 包覆盖更全）、包内 CRLF 统一 LF（#20 先例）、package 描述与 index 头注补 notice/双黑名单装配/防自杀域】
+- 【cr-423 2026-10-14 ac-gate-core 深审收口（审计清单#88）：删/拆双否——M25 §3.3 per-Agent 事件门控唯一实现（治理面双半边：per-Agent = 分发时门控本库、进程级 = ac-event-policy 注册期拦截，头注互引在档），生产消费 ac-goal（dependencies 正位）+ templates/event-row 模板装载面，101 行零 cordis 零依赖纯库三件套最小形态正位，6 测锁六形态测试比 130%；package.json CRLF→LF 包内统一（cr-337/418/422 先例）；facet 脏子键形状（非对象）回落行为级补锁定断言】
+- 【cr-424 2026-10-14 ac-archive-core 深审收口（#89）：修回放口径估算镜像漂移两处——视点过滤漏 context 角色（history() 滤 event|context 双角色、估算器只滤 event——技能注入/错误行被计入对端 Agent 注入形状，长会话虚增误触发归档整理 run）+ steps[].reasoning 不计（cr-294 思考回放后 DeepSeek/GLM 强制回传且为步体积大头——欠估致思考模型会话归档晚触发）；estimateReplayTokens 增 opts.summary（会话占用单口径——ac-archive 阈值检测漏 summary 与 web-api 手拼已走散，三消费方并源）；补 ac-session replay-parity 交叉锁定测试（逐行可见性判定同构，防两侧再漂移）】
+- 【cr-425 2026-10-14 ac-timer-core 深审收口：ZonedParts.wd 死链全删 + localISO 并源 zonedParts（sv-SE 双 formatToParts 退役）+ renderHint 补 tz 墙上时钟渲染（per-owner 时区遗漏）；ac-timer fire 活动窗口 parseActiveHours 死条件删除】
+- 【cr-426 2026-10-14 ac-ws-protocol 深审收口（审计 #92）：webui wire.ts 四控制帧常量镜像并源（ac-wire-format 裸包名先例同文件，镜像无对拍锁）+ 头注「仅三种」漏 WS_READY 订正 + package.json CRLF→LF】
+- 【cr-427 2026-10-14 审计清单 #93 ac-wire-format 深审收口：包健康留；连带修 ac-remote-link broadcastEvent 的 llm/delta-end 吞帧真 bug（cr-112 WireBatcher 重构引入 return——cr-85 原始形态帧照发；前端 feed-core 工具占位升级/thinking 收束/参数累积清理在手机端静默失效，测试从未断言 delta-end 下行故从未红）+ 回归锁测试 + package.json 描述补桥接目录与漏斗】
+- 【cr-428 2026-10-14 ac-supervisor-core 深审收口（审计 #94）：包健康留——纯库 191 行三职责（42/78/0 协议/退避熔断纯函数/.runtime 单写者锁）分层正确、消费面全活跃（supervisor.mjs 6 词 + boot/bootstrap 各 3 词）、11 测绿零死导出；修消费方真 bug——supervisor.mjs startChild 全量重置 policyState 致退避恒 1.5s、熔断永不可达（crashStreak/crashes 每次 spawn 清零，崩溃死循环无限重拉），改为仅更新 childStartedAt 延续监护状态；sandbox 探针真机验证退避数列与熔断】
+- 【cr-429 2026-10-14 ac-skill-core 审计：修 parseSkillFrontmatter 多行 description 末键形态解析坏（description 渲染成字面 |）——lookahead 加绝对串尾终止；补末键用例 + 头注多来源分组漏工作区组订正】
+- 【cr-430 2026-10-14 ac-mcp-core 深审收口（审计 #96）：connect 并发单飞断根（重入共享同一建连，防双连泄漏——cr-361 行侧单飞同根下移）+ 回归锁测试 + package.json CRLF→LF】
+- 【cr-431 2026-10-14 ac-memory-core 深审收口（审计清单#97，记忆渲染纯库）——删/拆双否（301 行四域词汇内聚，分层纪律 cr-4 档案背书）；精简三处：①entryPrefix/stripEntryPrefix 死导出收私有（全仓求证包外零消费——唯一 importer ac-memory 七词不含，cr-358 联动审阅漏网）；②renderEntry 内联日期剥离正则与 stripEntryPrefix 逐字节同构，并源消灭副本；③parse 空行累积死串清理；行为零变化】
+- 【cr-432 2026-10-14 ac-run-code-core 深审（#98 审毕留）：validateInvoke 消费 PROJECTION_EXCLUDE 兑现双端同源承诺（list_tools 不挂 injection:mode 能力面含它——投影面≠校验面，程序内调用真的执行回显）；tool.ts buildSdkProjection 死导入清理（注入轴重构后投影迁 prompt.ts）+ 头注释链路订正；core L62 双条目挤行格式残留修复】
+- 【cr-433 2026-10-14 ac-extension-core 深审收口（审计#99）：包健康留——纯类型契约三接口逐词活跃（ExtensionMeta 94 行包自述 + FieldMeta/ListenerMeta web-api 聚合）、96 处 import 全 type-only、测试锁零运行时导出、A1 注册制档案背书。连带两修：①wire plugin/extension-catalog 剔除 listeners 死载荷（前端 ExtensionEntry 镜像无此字段、webui/mobile/desktop 全端零读——监听器声明消费走 events/descriptions 单源；shim 曾同步 fields 漏 listeners 系镜像走散痕迹，cr-338 reload 变体删同款先例；服务端内部消费保留在 collectExtensionCatalog 返回值不动）；②ac-tag-registry 的 ac-extension-core 依赖正位 devDependencies（type-only，全仓 95 消费包唯一异类，cr-386 同款 R1 弱形态正位）】
+- 【cr-434 2026-10-14 ac-cdp-core 深审收口：死词三清（detectBrowser 收私有 / CdpTargetInfo 删 / RefElement.backendNodeId 死数据链删）+ serializeElements 死 limit 参数删 + press 未映射键 fail-loud（code 0 假成功）+ extractText 早停 O(n^2) join 改累计预算 + web-tools 连带死 slice 与注释漂移订正】
+- 【cr-435 2026-10-15 ac-web-search-core 深审收口（审计清单#101）：删/拆双否——纯库分层正位；修头注 key 三源→四层解析链漂移（cr-366 行侧订正漏同步）；package.json 描述补注册表在册口径；补 ddg Infobox 合成路径用例】
+- 【cr-436 2026-10-15 ac-migration-core 深审（#102）：readDataVersion 字段级异常（合法 JSON 但 dataVersion 缺失/非法）归 -1 全量重放——原静默落 0 跳过全部迁移；.initialized 推断注释漂移订正；ac-session type-only 依赖正位 devDeps；README 纯库表补行；补告警分支/快照红线锁定】
+- 【cr-437 2026-10-15 ac-client-runtime 深审精简（#103）：死出口清理（SlotsService/ObjectsService barrel、SessionsFeedFace/SessionsChatFace 子接口、rpc/sessions 冗余 type{} 锚行）+ CRLF 统一 LF（index/slots/switchTrace）+ lastContext 注释漂移订正（webui utils 门面已随 cr-331 清退）】
+- 【cr-438 2026-10-15 ac-client-slots 深审收口（#104）：FACTORY_SEALED 死错误码删除（全仓零构造零消费——S1.5 tier 选举取代封印拒绝后的幽灵词汇）+ 封印语义注释漂移订正五处（纯核头注与 sealFactory JSDoc 仍是「封印即拒」旧语义、runtime slots.ts 两处、webui main.ts）+ package/README 描述「D15 占位」表述更新为 S1.5 实装现状 + 包内行尾 CRLF→LF 统一】
+- 【cr-439 2026-10-15 行集清单 v2 重写：新增 R0b 行资格测试，立行 12→4（8 项改判纯库/编排/归并），归并现状行 9 退役 3；同步协议·授权草稿 security-exec/行序引用】
+- 【cr-440 2026-10-15 ac-anthropic-completions 深审收口：修真机流式三缺陷（signature_delta 签名事件形态——cr-98 捕获读法在官方流式下恒空致 thinking 回放 400；usage 分段合并——message_start 输入侧被 message_delta 覆盖归零；cache 语义归一——input_tokens 不含缓存桶，照抄 openai 包含式假设致 prompt/cacheMiss 低估）+ total 补齐 + chat() 替换式对齐兄弟库 + assistant 块构造并源；测试 mock 修正为官方事件形态】
+- 【cr-441 2026-10-15 协议规格补 A4 inbox 边界定义与 F-8 budget 链式语义待钉——防自激必要性推演落地（receipt 不进 inbox / budget=0 不入队 / 回复携带链剩余值）】
+- 【cr-442 2026-10-15 ac-gemini-completions 深审收口（审计 #106）：修三真机缺陷——thoughtSignature 通道打通（functionCall part 签名采集→中性 thinkingSignature 现成链路→回放附 functionResponse/functionCall part，Gemini 2.5 多轮工具不回传即 400，cr-98/cr-440 同型）、promptFeedback.blockReason 请求级安全拦截映射 finish（原静默空文本假成功）、并行 functionResponse 合并单 user content（官方角色交替形态）；测试 8→15 用例改官方事件形态；CRLF→LF】
+- 【cr-443 2026-10-15 ac-gemini-completions 签名通道跨包贯通（cr-442 收尾）：中性 tool_calls[].signature 通道打通——LlmToolCallDelta/LlmToolCall/GeminiToolCallDelta 增 signature 字段、ac-llm chat 聚合透传、loop assistantOf 装配、session expandSteps/wire 投影、openai completions+responses+ollama 剥离（cr-294 thinkingSignature 同因同法——跨 provider 重放不泄漏进 body）】
+- 【cr-444 2026-10-15 ollama 协议库深审收口（审计 #107）：restStripped 走散修复（解构源 restParams→restStripped，与 anthropic/gemini 同构对齐——白名单当前兜住无泄漏，形态归一断根）、toOllamaTools 死导出收私有、CRLF→LF 包内统一、补测试 6 用例（chat 聚合/无进展超时两形态/close 拒绝/NDJSON 解析失败/meta 传输键）】
+- 【cr-445 2026-10-15 行集清单 v2 补装配期派生：ac-rowset-core 纯库 + boot 编排读行集引用 + R7-6 两级定向（行级装配期/工具级运行时，软门壳内退役）+ R7-8 配置变更生效路径待钉 + plugin-registry 行集条目注入（动态插件隔离物理化）；协议规格 D1 argv 补行集清单引用】
+- 【cr-446 2026-10-15 行集清单 v2：ac-tag-registry 退役归并——catalog 静态化进 ac-rowset-core（per-agent 目录投影，编辑面与壳存活期解耦）、启动断言纯函数化进壳 boot 编排、TagDeclaration 类型随迁；壳树 36→35】
+- 【cr-447 2026-10-15 ac-client-ui-theme 深审收口（审计清单#108，P4 前端薄行）：删/拆双否（6 域行 themeStore 值消费 + ActivityBar/MobileMoreSheet 服务面 + renderer theme-changed 事件消费 + webui 验收测试；base 地基件卸载即整页重载——M27.2 §3.2 裁决）；注释漂移三处订正（头注引用的 webui stores/theme.ts 已随 M27.2-2 出包迁移消亡，双模门面实住本包 client/themeStore.ts——消费面 sidebar 面板壳表述同步订正为 6 域行）；applyThemeClass 死出口清理（ThemeService 委托 + themeStore 门面出口全仓零消费——html class 由 ThemeCore watch flush:sync 内同步保证，useMarkdown 直读 DOM class，跨包直接调用的消费形态不存在）】
+- 【cr-448 2026-10-15 ac-client-ui-renderer 审计精简：data-code-id/uuid 死链删除、katexVersion re-export 死出口收口、makePlaceholder 死参、头注 webui 旧路径漂移订正、包内 CRLF 统一】
+- 【cr-449 2026-10-15 行集清单：宿主 per-agent 管理转向配置文集——ac-agents 活注册表解体（配置轴=文件文集 / 在场轴=guardian 可达表，R0b 判例五）、ac-agent-presets 目录静态化归并编辑面行、ac-agents-core 扩为契约 owning+词汇+settingsOf 纯函数；宿主 48→47；顺修 cr-446 恒等式算误（tag-registry 双计，应为退役 3/归并 11）】
+- 【cr-450 2026-10-15 ac-client-ui-tool 深审精简（审计 #110）：注释漂移订正（8 卡批次已随域行退役——src/client 头注、extension.description、package 描述三处 M28 P2 过时叙述）+ toolLabel grep 截断死层删除（外层 80 上限内即 30 上限失效层）+ 悬空 JSDoc 合并 + CRLF→LF 统一六文件】
+- 【cr-451 2026-10-15 行集清单 R7 待钉清理：R7-1 timer 不进壳树定向（unref 本地原语 / 唤醒恒投递信 / 持久性恒宿主三理由，R3 补壳内定时纪律行）；R7-6 改残留定量领衔（两级定向保留正文）；R7 头注记定向项续编规则】
+- 【cr-452 2026-10-15 ac-client-ui-settings 深审精简：ns.* 死面链清理（getNamespaceSchemas/nsSchemas/NsFieldList/isNonDefault/nsValue·setNsValue——M22 D1 后无 ns 叶生产者，分支不可达）+ publicLegacySlots 死导出 + 注释漂移订正 + ac-client-slots 依赖正位 devDeps + 补包内 schema 纯函数测试】
+- 【cr-453 2026-10-15 行集清单 + 协议规格：jobs 归属三场景定向——壳 job（worker=壳子进程）进程内事件直投 inbox / 跨壳邮局信 / 宿主自有异步无基座（R7-2 收口：宿主 jobs 基座不设）；idle-exit 补第四条件（无在途 job）；job-wakeup 投递策略随迁；webui 观测 = 壳自报快照信 + 宿主聚合镜像（usage 同构）】
+- 【cr-454 2026-10-15 ac-client-ui-todo 深审（audit #112）：家族对齐三处（todo-row 测试 4.5s 超时根修=client 半边测试动态 import .vue 视图链改 defineAsyncComponent 同 goal 行先例；裸 slots.register 改 slots.inject 声明存活期效应同 run-code/shell 五行家族先例——消 boot 序隐性依赖）；重复勾圈 SVG path 双份并源 TodoGlyph.vue + 色档统一 --ok-status；reduce-motion 豁免表死类名清理（.glyph-spin/.g-spin 随 cr-129 BusyRing 化已无源消费）】
+- 【cr-455 2026-10-15 行集清单 R7-3 三拆重写：流式增量定向宿主转发（单安全边界/连接风暴吸收/远程复用/R0a 一致四论据，开销三个数量级以下不构成约束）+ 流式帧建模瞬态旁带（非信封、不入发件箱、生命周期=run）；协议规格 B 节补旁带帧条款】
+- 【cr-456 2026-10-15 行集清单 v3 重写：设计/裁决分离——正文纯净化（终态陈述，节号 R0-R8 保持稳定，R7 改待钉状态板：已定向一行指向裁决簿、未决展开），论据/判例/推演/演进史迁入新建 host-shell-decisions.md 裁决簿（十条目）；auth/protocol 草稿引用 v2→v3 同步】
+- 【cr-457 2026-10-15 ac-client-ui-jobs 深审收口（#113）：死口两清（Chip props.data.form 死字段——pair 隐身已由 conversationId=null 承载；JobBoardOptions 空壳+void options 退役，cr-330 同款）+ api/jobs.ts 已退役门面三处注释漂移订正（包内头注/RunTrackingPanel/webui 测试）+ WireJob⇄JobSnapshot 镜像锁补齐（#1 遗留①同构缺口）】
+- 【cr-458 2026-10-15 ac-client-ui-group 深审精简：修 group_id 透传断裂/VIEWER_ID 归一 runtime/死配置面与描述漂移订正/CRLF 统一】
+- 【cr-459 2026-10-15 ac-client-ui-singles 深审精简：死 CSS/空壳 Options/内联 SVG 归一/kit 配方归位/双实现并源/依赖正位/注释订正】
+- 【cr-460 2026-10-15 ac-client-ui-goal 深审（audit #116）：删/拆双否——双席位贡献+直编面全活跃（boot graph default 装载链/goal get RPC 契约/current 非终态不变式逐项核验）；订正描述漂移三处（order 20→50——2026-09-13 dock 序重排后 package/extension/头注未随行）+ goalCard 头注悬空残句 + GoalBar cr-129 注「P5 待裁决」过时表述收口（P5 已随 cr-129 终结）；CRLF→LF 包内统一（8 文件，cr-337 先例）】
+- 【cr-461 2026-10-15 ac-client-ui-skill 深审：client 门面 re-export 死口删除（全仓零消费，ChatInput/测试均走 skillsApi 深路径）+ fetchSkills 成功路径补测（三源合成/空字段归一/参数形状——原仅失败路径覆盖）】
+- 【cr-462 2026-10-15 ac-client-ui-system 深审收口（audit #118）：死门面 re-export 删除（cr-461 同款）+ simulateUpdate 键读取并源 simulateUpdateChannel + 头注/描述漂移订正（sidebar→layout、留-webui 矛盾、overlay 序补 98）+ 桌面更新桥客户端补测试（此前零覆盖）+ CRLF→LF 统一】
+- 【cr-463 2026-10-15 ac-client-ui-timer 深审收口（审计#119）：TimerEntry 镜像断根——ui-settings 手工副本（已漂移缺 task/conversationId/activeHours/gate）删除，四处消费改 import type 单源接 ac-timer-core；GlobalTimerHost 编辑弹窗表单归 kit 标准件（Input/Select/Textarea，sp-* 手工样式副本随撤）；TimerPane Select 死导入清理；头注/描述 A3 漂移订正；webui 零源码消费依赖转 devDependencies】
+- 【cr-464 2026-10-15 ui-shell 深审（audit #120）：修 ToolMessage error 特判漏 pwsh（Windows 失败态终端卡不渲染）；终端卡 notice 归一——handoff 后台启动通知（output.message 唯一生产者）误染红修正 + command-feedback 引导 note 卡内可见 + guidance 死词删；translated_command 翻译产物行可见；注释/描述漂移订正 + 包内 CRLF 统一 LF + 终端卡渲染测试补盲（webui/tests）】
+- 【cr-465 2026-10-15 ac-client-ui-fs 深审收口（审计 #121）——删/拆双否：M28 P2 §2.2 镜像表 fs 行（read/write/edit），消费面活跃（TREE/yml 双表/webui 装配/clients-tool-cards/d9）。修一真死件：ToolResultWrite 整卡渲染不可达 28 天——4116723a（2026-09-17）openPreview 直达后 write Label 永不展开 body（注释明示「无展开体」），卡只活在测试断言里；删除卡+write def+browseReadFile 别名（消费归零）+defineExpose 死口，write 落回 Label 直达预览（调用中流式即可点）。死代码三清：Code lineCount（宣称折叠判断从未接线）、Edit diffExpanded（全展开遗迹）、Code skill_read 双分支（全仓无此工具注册——skill/load_skill 是另一机制；连带 lang 早退/纯文本模式分支/样式）。并源两处：fenceOf 三份→单源 cardBits（Write 随卡消失、run-code 改 import）、lang/langDisplay 双份→单源（Write 增量 jsx/bat/cmd 并入）。CRLF→LF（cr-337 家族）。描述订正三卡→双卡。补渲染测试 clients-tool-cards-fs（Code 文件/目录/截断 + Edit diff 分色/无变更——卡组件此前零渲染测试，cr-464 先例）】
+- 【cr-466 2026-10-15 ac-client-ui-web 深审收口：BROWSER_FAMILY 死词汇联动清除（#51 移交线索——daemon 时代 11 工具名 v0.8.15 起不可再生，browser 卡实住 ui-browser 单席；def 注册/toolIcon 正则族/webui 断言三镜像同删，历史回放回落文本渲染=行卸载同语义）+ fetch 分支随 def 死亡整块退役（isFetch 恒 false；isBinary/text_extracted 全仓零生产者）+ openSearchPanel 768 即时读改 uiStore.narrow 单源（cr-29 退役形态）+ 截断恢复抽 partialSearch.ts 纯库并补测（SFC 内 50 行零覆盖）+ 内联 SVG 归 kit + 重复 CSS/描述订正】
+- 【cr-467 2026-10-15 ac-client-ui-browser 深审收口（审计 #123）——删/拆双否：M28 P2 §2.2 镜像表 browser 行，消费面活跃（TREE/yml 双表/webui 装配/clients-tool-cards/README 758/763/ui-rows-and-slots L54）。死词三清（cr-366 后端 v0.8.15 删 content/html 退役别名的前端残留——ACTION_META 词条/singleType 分支/stepSummary·stepDetail·hasDetail 三函数分支/html_length computed/eval-html 模板段六处）：content/html 动作不可再生，收到即落 default 兜底。修死路一：loadScreenshot j.error 分支（jsonFetch 非 ok 全走 throw，分支恒不可达）收敛 else 兜底。CRLF→LF（cr-337 家族，3 文件）。补渲染测试 clients-tool-cards-browser（卡组件此前零渲染测试，cr-464/465 先例：批量 tab 徽记/失败步骤、单动作 page/截图/elements/logs/tabs、单动作失败回落——修复前误显完成徽章）】
+- 【cr-468 2026-10-15 ac-client-ui-subagent 深审精简：board.ts 死插件 subagentBoardPlugin + SubagentBoardOptions 死配置面删除；卡 loading 自建 spinner→BusyRing（cr-129 R2 漏网）；六处内联 SVG→kit Icon 归一；send 卡折叠态复用 await 侧词汇；package 描述补 board 域投影面】
+- 【cr-469 2026-10-16 ac-client-ui-run-code 深审收口（审计 #125）：死类 is-error 与死 prop toolName 清理、复制按钮内联 SVG 归一 kit Icon（cr-329/332 先例）、RunSummary.frozenMs 徽章 title 消费补齐（契约字段 UI 缺口）、summary 形状具名化替 as never、头注数据面/package 描述漂移订正】
+- 【cr-470 2026-10-16 行集清单：preset-builtin 静态声明面承载待钉消解（内置模板 = 静态 Agent 配置文件集，随〈注册表解体〉收口）】
+- 【cr-471 2026-10-16 行集清单 R7-3：user 账本聚合定向形态二（终稿层独立账本 + steps 关联带出），〈webui 读投影〉三拆收口】
+- 【cr-472 2026-10-16 ac-client-ui-runview 深审（audit #126）：删双环死链 openTrackingPanel×auxOpenTracking（A5 迁移孤儿对）+ SidebarHost 死 watch；死词清理 sourceLabel/source 恒 chat 数据面/RunsSingleSession 恒空/coverage 恒 0 五字段/participants；RunsClientOptions 空壳退役；RunsMember.kind 收窄 agent|virtual；死 CSS 五处；event-refresh 桩形状修正（conversations 顶层——曾被 refresh catch 掩盖）；注释漂移订正（3s 轮询/头注/描述补 aux 贡献）】
+- 【cr-473 2026-10-16 ac-client-ui-run-nodes 审计收口（#127）：修面板滚动跟随缺陷（watch 无 immediate 挂载停顶 + scrollTop 跨内容保留致切会话不贴底——切会话/首开强制贴底、其余距底阈值跟随）；删 activeDialogId 冗余双重断言；runNodes.ts ts 字段注释按真实 reveal 链路订正（id 直传，ts 仅展示用）】
+- 【cr-474 2026-10-16 行集清单 R7-4：ui 骨架六件定向并入 webui 本体（phase:base 退役）+ 插件 client 通道立项（唯一通道，项目桩行同收敛）；并后宿主 42 算误修正】
+- 【cr-475 2026-10-16 ac-client-ui-llm-pool 深审（audit #128）：留——修 UI 死状态 2（PoolManager/LlmPoolsHost error 赋值后模板零渲染，cr-21/cr-310 反馈链断裂）；精简——visibleModelNames 死词删、draftProtocol 死计算属性删、detailOf void name 收口、白名单 ruling 词汇漂移订正】
+- 【cr-476 2026-10-16 webui 表面单包化定向：src/webui 与骨架六包并入 ac-webui（src/ 服务 + client/ 前端），ac-webui-extensions 消融；〈骨架归并〉双址残余收口】
+- 【cr-477 2026-10-16 ac-client-ui-search-pool 深审（#129 审计）：包健康留，修三缺陷——①SearchPoolsHost error ref 模板零渲染口（cr-475 同款孪生 bug）toastError 归位；②SearchEntryForm effectiveSchemas 对 schema 缺席 provider（2026-09-08 收敛摘三家后存量异 provider 条目）undefined.length 崩溃修复；③删除条目不清理 searchpool:<名> 侧信道凭据——llm/pool-credential 加 domain 参数（缺省 llm 向后兼容）+ removeEntry 确认弹窗/清理调用/失败 toast 对齐 llm 侧形态 + 注释漂移订正】
+- 【cr-478 2026-10-16 ui 树定调：新增 explore/ui-tree.md（三树同构 / 骨架=协议持有者判据 / 模块 manifest 三树投影 / 自定义阶梯与版本切换）+ 〈工作区语境〉（工作区=第三输入源，per-conversation 不进指纹）+ workspace 七面核查收口（③⑤⑥ 重组 ac-files 模块，② 纯库化）+ 骨架解构 3+4 重判 （conversation/settings/tool 转模块、renderer 剥 markdown 管线、theme 契约化、 layout 拓扑/形态壳分层）；行集清单同步】
+- 【cr-479 2026-10-16 ac-client-ui-onboarding 深审收口：修 requestSkip 钳掉 -1 哨兵致探测失败误弹确认（与 shouldConfirmSkip 契约矛盾）；LlmStep 保存文案按首条条件化；DEFAULT_TAGS 镜像 __standard__ 预设交叉锁定（builtin 导出 STANDARD + parity 测试）；死代码四清（llm-count 死 prop 链/openOnboarding 死再导出/offBus 死返回面/恒真 window 守卫）+ 注释订正两处】
+- 【cr-480 2026-10-16 ProfileStep 头像输入框在 label 外——label 无 for 关联点击头像不唤起文件选择器（AgentPane 先例嵌内），嵌回 + DOM 结构锁定测试】
+- 【cr-481 2026-10-16 深审 #131 ac-client-ui-desktop-storage 收口：vue 显式声明 + agentchat.client 相位元数据补齐 + 壳层测试三件归位 desktop/tests + StorageHost 死 CSS + bridge 客户端降级语义补锁 + README 布局补档】
+- 【cr-482 2026-10-16 ac-app 深审（#132 收尾）：smoke step5 静默失效修复（llm-deepseek 旧行 id 残留→llm-pool）；m7-rpc-check 死脚本删除；FIXTURE_POOL 三副本并源；PREVIEW_DIR→SRC_DIR 及 preview/ 注释漂移订正；补 smoke:run-code 入口】
+- 【cr-483 2026-10-16 run-nodes 面板贴底修复（首开/切会话强制归零 + activeDialogId 类型断言链余清）+ per-agent preview 架构文档批次（R-10 裁决修订 + 6 篇规格新档）】
+- 【cr-484 2026-10-16 R7-6 裁决：tag 机制解体（方案 A）——requiredTags/tags 全链退役，七职能归位（行集派生/settings X1/行引用资产/tier 轴/物理隔离），双闸换轨不换强度，R7-6 消解；回写裁决簿+行集清单+auth 草稿+per-agent D1】
+- 【cr-485 2026-10-16 R7-7 裁决：patch 机制整体退役——cordis.patch.yml/loader patches/热通道/急救通道形态退役，两树同形 boot（清单驱动装配：宿主 = 偏好文件 → rowset-core 派生，壳 = argv 派生清单）；行集唯一来源 = 派生推广全域】
+- 【cr-486 2026-10-16 web-search deepseek provider 换用官方专用搜索端点 /v1/tools/search（2026-10-16 上线），退役 Anthropic Messages 绕道特型与模型结构化输出解析】
+- 【cr-487 2026-10-17 壳模型统一裁决：S0 + P2 五条一揽子通过，回填 per-agent 与 cell 两母档案；S-2/S-3 备查搁置】
+- 【cr-488 2026-10-17 壳模型立项：8 份裁决/规格档案迁 src/docs/（explore/ 退役），preview/ 目录立项开张（壳模型终态骨架 + 数据根隔离纪律）】
+- 【cr-489 2026-10-17 preview 轨立项文档：规范 spec.md（需求 + 事实源映射 + 验收纪律）与计划 plan.md（M0-M8 里程碑拆分 + 跨会话状态板）】
+- 【cr-490 2026-10-17 preview 轨开工提示词 kickoff.md（跨会话入口：状态板流程 + 硬纪律）】
+- 【cr-491 2026-10-17 preview M0 地基：workspace 纳入 preview/packages + 六纯库骨架包 + preview:* 旧别名退役】
+- 【cr-492 2026-10-17 preview M1.1 ac-envelope-core：信封 schema（A1）+ requestId 幂等准入器（cr-250 语义）+ budget 状态机 + 确认状态机（A2）】
+- 【cr-493 2026-10-17 preview M1.3 activation.lock：O_EXCL 创建 + pid 探活 + 陈锁接管（stale-<bootId> 保留 1 个）+ exit handler 释放】
+- 【cr-494 2026-10-17 preview M1.4 ac-fingerprint-core：Merkle 内容树（行级子指纹 + 规范化 + 聚合根）+ 盘适配；钉 R-7 残余：文件清单 = 包目录全量（显式排除集）】
+- 【cr-495 2026-10-17 preview M2.1 ac-agents-core：AgentConfig 契约 owning + 词汇纯函数（tierOf/toolModeOf/resolveToolNames/displayNameOf/settingsOf）+ agents/<id>/ 树直读 + children 嵌套解析】
+- 【cr-496 2026-10-17 preview M2.2 ac-auth-core：授权注册表 schema（全局层+per-agent 层，墓碑与 InlineAsset）+ 投影算法（全局 ∪ 内联 - denials ∩ 行集）】
+- 【cr-497 2026-10-17 preview M2.3 ac-rowset-core：行集推导器（AgentConfig 工具点名∨行引用 × 全局行集目录 → 壳行集）+ 行目录静态投影（per-agent 化）+ 宿主偏好文件派生】
+- 【cr-498 2026-10-17 preview M2.4 ac-credentials-core 降格：加密算法半边纯库化（AES-256-GCM + PBKDF2 机器绑定 + credentials/ 目录直读），写者面留 M4 auth-registry】
+- 【cr-499 2026-10-17 preview M2.5 数据根骨架：测试数据根布局 fixture 工厂（agents 树 + auth 两层 + mcp.json + credentials/）+ 布局单测】
+- 【cr-500 2026-10-17 preview M3/M4 细化：plan 任务表展开（M3 壳 boot 五任务 / M4 宿主邮局化四任务——依 D9 步 2/3 与 manifest R1/R2/R3.2）】
+- 【cr-501 2026-10-17 preview M3.1/M3.2：行集目录 JSON（82 行对账）+ 壳 boot 编排骨架（argv→锁→rowset 派生断言→装配→stdout TSV 三节拍）】
+- 【cr-502 2026-10-17 preview M3.3 ac-ledger：per-agent 账本行（messages.jsonl 行协议 + journal partials + inbox durable + requestId 准入 + 落账即确认 + settlement 两阶段）】
+- 【cr-503 2026-10-17 preview M3.4 ac-conversation：会话状态机（串行化门 + inbox 双队列 next-step/next-turn + budget 消费 + user 端点桩）】
+- 【cr-504 2026-10-17 preview M3.5 级联验收：CLI 直连多轮会话端到端（boot→锁→账本落账→状态机 run/steer/queue→settlement→重读续跑）+ 双壳抢锁互斥 + 行集断言拦错】
+- 【cr-505 2026-10-17 preview M4.1 ac-post-office：邮局行（uuid 登记校验 R-1 + 投递路由 + 信封准入 + ipc 帧监听）】
+- 【cr-506 2026-10-17 preview M4.2 发件箱滞留中继：outbox/ 落盘（at-least-once）+ 通道恢复转投（可达即重发 + 成功出箱）】
+- 【cr-507 2026-10-17 preview M4.3 ac-guardian：监护行（拉起三节拍消费 adopt + 心跳监视 3 拍丢失判死 + idle-exit 收割 + 崩溃退避熔断）】
+- 【cr-508 2026-10-17 preview M4.4 级联验收：跨进程 1v1（两壳进程经邮局投递）+ 群播扇出 + 崩溃陈锁接管续跑】
+- 【cr-509 2026-10-17 preview M5 细化：药丸形端到端任务表展开（agent-loop 接入 / llm 适配 / 宿主编排面 / 三步合一验收）】
+- 【cr-510 2026-10-17 preview M5.1/M5.2 ac-shell-loop：精简 ReAct 编排纯域（provider 注入 + 工具注册表 + 步进 journal）+ boot 集成（conversation plan 驱动 run/settle）】
+- 【cr-511 2026-10-17 preview M5.3 宿主编排面 ac-host-app：spawn 壳 → guardian 三节拍 adopt → 可达表登记 → 邮局投递全链】
+- 【cr-512 2026-10-17 preview M5.4 补壳 ipc 半边：boot.ts 挂投递监听（transportHint 真值 + 常驻 + shutdown 语义）——宿主 adopt 后可直投】
+- 【cr-513 2026-10-17 preview M5 收尾补丁：e2e 壳进程收割兜底（spawn 句柄登记 + afterEach 精确 pid kill——2026-10-17 宿主误杀事故防复发；教训：宿主与 preview 壳同 node+boot.ts 形态，进程清理禁扫进程表）】
+- 【cr-514 2026-10-18 preview M6 细化开工：RSI 影子闭环（R-8 快照链落地 + 观察回执步 4 + 五步闭环收尾）任务表展开与实现】
+- 【cr-515 2026-10-18 M7 ui 树任务表细化（plan §2 展开）：webui 读投影三拆 + 插件 client 通道】
+- 【cr-516 2026-10-18 M7 ui 树收口：webui 读投影三拆（历史读纯库 ac-webui-core + B3 流式旁带 stream/StreamTap + user 账本形态二 UserLedger）+ 插件 client 通道（manifest schema/boot graph/静态路由）+ 级联 e2e 三线】
+- 【cr-517 2026-10-18 M8 cutover 任务表细化（三段式：产品面恒等收敛+恒等门导入+切换）+ 8.7 ac-import 恒等门导入脚本开工】
+- 【cr-518 2026-10-18 M8.7 导入写面收口：importSession 盘上落盘 + 原子换名 + 恒等复验 + unknown/singles/groups 归域裁决】
+- 【cr-519 2026-10-18 M8.1 行集收敛：preview 树沿用行从 src/ 导入装配（第一批 + 通道建立）】
+- 【cr-520 2026-10-18 M8.1 第二批行集收敛：模型编排 3 行（llm/llm-pool/agent-loop）+ 工具面 9 行（fs-tools 含 file-snapshots 并入/fs-search/str-replace-editor/run-code/math/web-tools/browser/issue-tools/sap-adt/dev-tools/mcp 中依赖闭合子集）导入 preview 壳树 + catalog path 数组化 + credentials 垫片（R-11 ③ 数据根直读）】
+- 【cr-521 2026-10-18 M8.1 第三批行集收敛：jobs/conv-settings/shell-tools/harness-tools 四行导入装配（依赖链闭合批次）】
+- 【cr-522 2026-10-18 M8.1 第四批：durable-interaction/ask-questions/bench 三行导入装配（余 collab-tools/subagent 随 8.2/8.3）】
+- 【cr-523 2026-10-18 M8.2 任务表细化 + 实施：精简 ReAct 换主线 ac-agent-loop 等量真身（壳内 conversation 域接线 + ledger/conversation 行接线 + collab-tools 导入收口）】
+- 【cr-524 2026-10-18 M8.3 run 内 spawn 工具面：ac-shell-subagent 行（真子壳进程 + 信封投递 + 多轮）+ boot 控制帧（interrupt/bench）+ bench 门（evolve bench-gate）+ 影子子壳 ledger 嵌套域修复】
+- 【cr-525 2026-10-18 M8.4 user 壳半边：R-1 签发 UUIDv7 + 邮局投递执行器 + user 壳桩（宿主内极薄——send 签发投递/收信面终稿写穿）+ conversation postReply 门修恒投回 sender】
+- 【cr-526 2026-10-18 M8.4 补记：post-office.test.ts M4 原测试被 write 覆写丢失（preview 未入 git 不可恢复）——按源码重构 M4 覆盖面 + 增补 M8.4 执行器用例；顺带根因修复：listenIpc 异步回调+close 强制断连、IpcClient 谓词等待（旁带帧误配 ack）、named pipe write 回调 err 成功可为 null、user-stub 类参数属性（cr-501 同族第四次）】
+- 【cr-527 2026-10-18 M8.6 第一批：壳侧 tools 授权门（A14 落地——ac-auth-core 投影 per-run 现算 + tool/before-execute waterfall：denials 三路匹配 + MCP 服务器投影收窄 + children 物化快照投影）】
+- 【cr-528 2026-10-18 preview M8.6 第二批：durable-interaction A8 per-agent 域锚定（D4 单写者）+ 监护 spike 收口（协议 F 表三参数钉 / warden idle 15min 与熔断 60s 窗修正 / 壳侧心跳 + idle-exit 四条件物理面 / R7-8 变更生效路径裁决）】
+- 【cr-529 2026-10-18 8.5 ui 树产品面第一批：任务表细化 + 宿主 web 面接线（web-server/ac-webui 行导入 + preview web-api 薄面 + e2e）】
+- 【cr-530 2026-10-18 8.5b webui 本体包解构第一批：本体包建立（避让名）+ 服务半边 boot graph manifest 单源化 + client 半边装配序列（骨架 3 件 in-bundle + 通道装载器单相）+ 通道条目化架构断言】
+- 【cr-531 2026-10-18 8.5b 第二批：模块资产通道装载产品化——四模块包建立（conversation/tool/settings re-export + markdown-render 声明）+ 通道装载机制升级（vitest 条件外部化 + boot channelImports 注入 + 构建脚本外部化）】
+- 【cr-532 2026-10-19 8.5d ws-bridge 旁带接线：壳旁带帧经 StreamTap → webServer.broadcast 事件帧桥接行 + e2e】
+- 【cr-533 2026-10-19 M8.5c ui 域行 manifest 声明化：25 域行上通道（channelImports 深路径扩展 + moduleHost 骨架面）】
+- 【cr-534 2026-10-19 run_code 单条 log 截断对齐 return 预算口径：退役 2000 字符独立上限，单条走 max_output_bytes 头尾保留截断；失败路径 error 并入尾行同受总预算约束】
+- 【cr-535 2026-10-19 M8.5e 前端 dev 联调面与浏览器闭环：vite 构建面（index.html/chrome92 降级）+ dev proxy → preview 宿主 + blob importmap 浏览器真跑 + 级联验收（列表→会话→发消息→流式渲染）】
+- 【cr-536 2026-10-19 8.5e 续：UI 深链（列表→会话→发送→流式）断点定位与修复】
+- 【cr-537 2026-10-19 8.8 前置·宿主行装配第一批：ac-host-rows 包（零改动 7 行导入：logger-console/timer/config/event-policy/remote-link/backup/ws-bridge）+ apps/host/boot.ts 宿主 boot 入口（偏好文件派生行集→装配）+ catalog path 钉】
+- 【cr-538 2026-10-19 8.8 前置·usage 自报链：ledger 订阅 loop/after-run 落 journal-settled 计量（journal 计量）+ run 收束发 usage 事件信经邮局投 host（事件信）+ 宿主 ac-host-rows 增 usage 行（registerLocal host 端点 + UsageService 聚合并复用）】
+- 【cr-539 2026-10-19 8.8 前置第三批：timers 宿主行改造（agents/agentStore/conversation/config 服务依赖换数据根直读 + 邮局信封投递——D10 机制照搬 + A13 宿主投递信）】
+- 【cr-540 2026-10-19 preview 8.8 前置第四批：身份编辑面行（preset-builtin 静态模板配置集 + agents 编辑面写口）】
+- 【cr-541 2026-10-19 unknown 1 例（实为 2 会话目录）人工裁决收口：B 跳过不导入——writer.ts ADJUDICATED_SKIPS 常量记裁决依据（__standard__ singles 调试会话、元数据已删；旧根保真 R-10）】
+- 【cr-542 2026-10-19 preview 8.8 前置第五批：宿主单树装配（web 环并入宿主 ctx——ws-bridge/remote-link 的 inject webServer 在双 ctx 形态永 PENDING 静默面根因修复 + ACTIVE 终检）+ agent-admin 写侧 RPC 编排行（CRUD 六方法经 agents 编辑面单写口）】
+- 【cr-543 2026-10-19 preview 8.8 前置第六批：插件治理面行落地（plugin-registry 改造行 + plugin-market 沿用导入）——装载裁决/熔断闸门/行集偏好急救 RPC/client manifest 注入】
+- 【cr-544 2026-10-19 preview 8.8 前置第七批：session-query 收敛为 agent 只搜自己（D10 用户裁决 2026-10-19）——行集树归属 host→shell（工具执行住壳），新行 ac-shell-rows/session-query.ts 只读本域账本回放】
+- 【cr-545 2026-10-19 8.8 前置第八批：auth-registry 行落地（grant 事务受理 + 两层 additive 写者 + 凭据写面——协议 E 全链）】
+- 【cr-546 2026-10-19 8.8 前置第九批：archive 改树入壳（裁决 D11 全壳内——宿主零 archive 职责，timer archive-all 改批量唤醒信）】
+- 【cr-547 2026-10-19 8.8 级联验收本体：B 段导入脚本扩 agents 树域/user 账本投影 + 宿主 boot 回放对齐 e2e】
+- 【cr-548 2026-10-19 8.8 壳级联合流：adoptShell 编排参数面扩展（--mock-provider/--post-office 透传）+ e2e-cutover 壳半边真子进程全链（宿主 boot + 导入数据根 + user 桩 → 壳 mock run → 终稿回链 user 账本）】
+- 【cr-549 2026-10-19 8.8 收尾：sandbox test-* 残留清理 + 无 provider run 永挂根因修复】
+- 【cr-550 2026-10-20 8.9 前置收敛第一批：宿主常驻监护面（superviseShell——心跳判死/崩溃重拉/熔断）+ 壳侧插件装载失败回报接线（plugin.load-failed TSV + 宿主熔断转发）+ preview supervisor 拉起脚本（D6 物理外置件）】
+- 【cr-551 2026-10-20 8.9 前置第二批：宿主编排面（orchestrator 按需拉起 + 邮局 ensure 钩子 + onAdopted re-tap）+ respawn 指数退避档 + timers entries 单写者收口（agents 编辑面单源）】
+- 【cr-552 2026-10-20 agent-admin 跨进程 dry-run：agents/system-prompt 装配预览与 agents/assembly 装配视图读写面（装配链住壳进程——信封请求 + 壳内干跑回执设计）】
+- 【cr-553 2026-10-20 creator 模板工具面收敛：插件装卸三件套 preview 形态——壳内 plugin-dev 行（三工具+会话级装载+收束检测）+ 信封面安装/卸载请求（envelope-core plugin-request schema + 宿主 plugin-registry 行受理+回执续跑）+ conversation 工具面会话级追加 + 行集 catalog/manifest/spec/模板回写（壳 36→37）】
+- 【cr-554 2026-10-20 orchestrator 测试残留根治（afterEach 清理钩子——cr-549 同族漏网）+ 8.9 切换前真数据根全量预演重跑】
+- 【cr-555 2026-10-20 8.5 收尾批：preview sandbox 旧预演目录清理 + isolated 档（iframe）通道装载接线】
+- 【cr-556 2026-10-22 8.9 切换本体：boot 入口替换（bin/scripts/supervisor 换轨 preview 宿主）+ 真数据根正式导入（改名封存 home→home-legacy）+ 域拷贝迁移 + cutover 执行脚本】
+- 【cr-557 2026-10-22 8.9 切换失败根因修复：封存 rename 的占用判据统一（旧/新宿主进程 + 主线数据根锁）+ 有界重试；守候器复核同判据；验证探针改 TCP（/api/version 不存在）；新宿主 CLI 拒绝旧布局数据根；报告名尾点修正】
+- 【cr-558 2026-10-22 8.9 切换前置：preview UI 静态面接入（vite build 产物 + boot CLI 默认 staticDir + cutover 静态面前置校验）】
+- 【cr-559 2026-10-22 8.9 切换实跑收口：启动步引号形态修复（start 空标题 + windowsVerbatimArguments）+ 验证探针改宿主身份（boot-graph）——TCP 假阳性根因】
+- 【cr-560 2026-10-22 preview 宿主重复启动的可读失败：数据根 IPC 管道/端口被占（EADDRINUSE）时给出「已有宿主在跑」指引而非裸栈】
+- 【cr-561 2026-10-22 WebUI 发消息无反应根因修复：壳会话模型回落改全局池默认连接（poolFallbackRef），不再落 mock；编排面孤儿配置不写死 model；__standard__ 数据修正】
+- 【cr-562 2026-10-22 切换补课批：数据根补迁（file-snapshots/archive/groups/memory/TODO/DONE）+ 真实健康端点 /api/healthz 替换假探活 + config/get 读面（脱敏）】
+- 【cr-563 2026-10-22 交接文档：preview/docs/handoff-2026-10-22.md（拓扑/坑位/下一批任务/回滚）】
+- 【cr-564 2026-10-22 8.9 切换后 P0：config 写面（config/set|delete|save + 池 api_key 侧信道写 credentials/ + config/get 池掩码回填 + llm/pool-credential）】
+- 【cr-565 2026-10-22 修复输入框选模型无效：会话级模型覆盖全链（conv-settings 行改宿主行 + 壳只读垫片 + 信封 model 载体 + deliver 合并点 + singles/update|conv-settings 写面）】
+- 【cr-566 2026-10-22 会话工作面补全第一批：singles 行全族（session.json 元数据单写者 + create|update|fork|archive|delete + singles/updated 帧广播）+ 账本管理面（session/truncate|delete-message 两侧账本原子改写）】
+- 【cr-567 2026-10-22 宿主直读 RPC 补全第二批：timer 四方法 + agents/presets + tags/catalog + skills/list + fileSnapshots 两读 + usage/tokens + system/version 四件 + events 治理面（face-ops.ts 直通 owning 实现）】
+- 【cr-568 2026-10-22 宿主面补全第三批：workspace 四件（browse-dirs/原生选择/系统打开——复用 ac-workspace 纯模块）+ plugin/catalog 与 load|unload|patch-* 的 preview 语义裁定 + llm/providers 配置投影】
+- 【cr-569 2026-10-22 跨进程批第一件：admin 控制帧通道（壳内管理面目标/清单）+ 宿主 goal/get|update|delete、todo/get、conversation/interrupt 三面（惰性编排面端口，队列面显式未落地）】
+- 【cr-570 2026-10-22 跨进程批第二件：admin 帧扩 op（interaction-reply / jobs-list / jobs-kill / session-archive）+ 宿主 interaction/reply、jobs/list|kill、session/archive（活壳枚举与 id 命中、归档触发到目标壳）】
+- 【cr-571 2026-10-22 跨进程批第三件：subagents/history（读子壳嵌套域账本，尾部翻页与 session/history 同形）+ subagents/stop（admin 帧 subagents-stop → 父壳 stopOp，实体保留）】
+- 【cr-572 2026-10-22 模型发现面：llm/probe-models（免注册探测 base_url+api_key）与 llm/models（池条目经凭据侧信道取 key → /models → 回写 config 发现缓存）】
+- 【cr-573 2026-10-22 会话 KV 时间线面补位：session/kv-timeline 返回空时间线（preview 无前缀快照机制——空集是终态，前端 KV 面板渲空态）】
+- 【cr-574 2026-10-22 preview 宿主面 A 组：session/tokens + runs/snapshot 宿主聚合落地】
+- 【cr-575 2026-10-22 preview 队列面产品化：ConversationMachine queue/remove/steer 三方法 + admin 帧 + face-shell 三条 RPC】
+- 【cr-576 2026-10-22 preview group 域落地：群存储行（宿主行集 47→48）+ group/* 九条 RPC】
+- 【cr-577 2026-10-22 fix(webui): preview UI 入口补 tokens.css 导入——令牌缺席致 var(--line/--text-*) 全空、页面无主题裸奔;对齐主线 main.ts L20 同款导入;重建 dist】
+- 【cr-578 2026-10-22 feat(p4): run 失败前端呈现——壳 driveRun settle 空 finish!==ok 时经 emitStreamFrame 发 run/error 帧(reviewRun 不发)→ 宿主 ShellStreamBridge 透传 → 前端 chat-core finish:error 错误条对齐主线】
+- 【cr-579 2026-10-22 feat(tails): §5 可选尾巴三件——runs/snapshot groups 接真群数据 + 群 join 成员流种子(seedMemberStream) + conversation/queue-changed 帧广播】
+- 【cr-580 2026-10-22 fix(interaction): 补 interaction/list 恢复链——宿主重启后 pending ask_questions 无从恢复致 run 挂死占门、新消息全排队(发不出去);admin op interaction-list + 宿主活壳聚合 RPC】
+- 【cr-581 2026-10-22 fix(webui): 补齐缺失的全局基础样式层——markdown.css(消息正文)/main.css(布局别名+base)/row.css(ui-row)/dropdown.css(ui-dd);badge 零消费不补;cr-577 只补了令牌层】
+- 【cr-582 2026-10-22 前端工具面两 RPC 落地：agents/tool-defs（Token 仪表估算面）+ tools/list（工具目录 owner 分组）；assembly 工具目录补 owner 字段（cr-552 遗留收口）】
+- 【cr-583 2026-10-22 工作区登记面修复：/api/workspaces REST 四路由落地（ac-host-rows 新行 owns workspaces.json 主线同布局）+ workspaces.json 补迁 + 存量会话 workspaceId 从旧根 singles 布局回填 + browse-dirs 快捷根并入登记工作区】
+- 【cr-584 2026-10-22 通道产物 style.css 装载修复：defaultLoader 注入 <link>（28 通道 SFC scoped 样式从未进浏览器——工作区侧边栏等通道组件裸奔的结构性根因）】
+- 【cr-585 2026-10-22 会话交接文档 p6（前端工具面/工作区/通道样式三批收口；下一轮优先：前端流式输出）】
+- 【cr-586 2026-10-22 preview 前端流式根因修复：rpc-wire 事件帧直转缺 unpackWireFrames——llm/delta-batch 批帧无人展开（feed-core 只认 llm/delta）→ delta 静默丢弃；对齐主线 wire.ts 解包语义 + ac-ui-app 补 ac-wire-format 依赖】
+- 【cr-587 2026-10-22 会话历史工具卡带出：session/history 按 run 键关联 agent 账本 journal——steps 投影（思考/工具卡刷新不丢）】
+- 【cr-588 2026-10-22 Agent 剩余工作面：agents/list 全量载荷 + hasAvatar/avatarVersion 注入 + 头像三 HTTP 路由（上传/删除/静态读）】
+- 【cr-589 2026-10-22 pwsh/fs 工具面补全：沙箱 workdir 基准钉 per-agent 专用空间 + __standard__ 盘上 config 补迁模板全集（tools/list 冷面闭环）】
+- 【cr-590 2026-10-22 工具面词形断裂修复：config.tools 行 id → 工具名展开（toolFaceOf + rowTools 投影）+ 目录 tools 数组对齐真实注册名（fs/pwsh 族进 LLM 面）；ensureHook 拒因上 stderr】
+- 【cr-591 2026-10-22 run 收束帧泛化（run-settled 取代 run-error）：成功收束也广播 loop/after-run——前端收束三件套（清 busy/终稿入列/权威行重拉）补齐，终稿不再需要刷新】
+- 【cr-592 2026-10-23 思考过程直播：run-started/step-started 帧链补全（carrier 创建面）】
+- 【cr-593 2026-10-23 终稿双卡/工具结果恒等待/工具白名单生效集三症状修复】
+- 【cr-594 2026-10-23 auth-registry 行 auth/* RPC 面装配根因修复：编辑面绑定从 options.webServer（boot 从不传——rowOptionsFor 无此键）改 inject [webServer] + ctx.webServer（singles/groups/plugin-registry 同款 cordis PENDING 装配序），行选项收窄为 dataRoot/inbox/postOffice】
+- 【cr-595 2026-10-23 历史会话思考过程缺失根因修复：终稿回信信封补 run 载体（postReply payload.run）→ user 壳收信写穿 source=run:<id>（D4.2 run 键关联从未到达 user 投影——cr-587 只修了读侧联查、写侧从来没盖戳）+ 存量行 requestId 连接回填脚本】
+- 【cr-596 2026-10-23 历史工具卡永恒运行中修复：loop/after-step 先于工具执行（步行 toolResults 恒空）而主线「tool/after-execute → journal 补行」整条路 preview 漏搬——新增 journal-tool-result 行型 + ledger 服务订阅 after-execute 落补行（身份四键缺席不落）+ stepsOfRun 两遍扫描按 toolCallId 覆盖合并（已收束无补行存量合成空成功、未收束仍 null 真在途）】
+- 【cr-597 2026-10-23 前端历史 subcall 展示补全：补行扩子调用档案（runCodeSubcall 补行携 name/arguments/subcall 标——主线 subcalls.jsonl 同义随补行落）+ stepsOfRun 注入宿主卡后平铺（<hostId>#<seq> 前缀定位 + seq 排序，主线 injectSubcalls 同义）；前端 subcall:true 消费面本就在位】
+- 【cr-598 2026-10-23 流式不稳定+刷新丢步双症状修复：web-api conversation/stats 硬编码空壳 running:[] 接真数据源（face-ops runs/snapshot 的活壳 run-state 聚合提为共享 collectRunning——前端两消费链全断：resume 恢复不拉 history、流式静默探针误判流死拆分区）+ session/history 补 journal 活投影（run 中未收束步行按步 partial 行追加——running 集门控防孤儿投影）】
+- 【cr-599 2026-10-23 入库前置：.gitignore 补 preview/sandbox/（临时区防真实会话数据/凭据误入库）+ 删除误产物 X/ 目录】
+- 【cr-600 2026-10-23 预设 Agent 名册收口：__standard__ 盘上 config 补 preset:true（cutover 兜底产物漏盖标记致预设混入 agents/list——preset 过滤链本就在位，纯数据补迁）】
+- 【cr-601 2026-10-23 预设 Agent 补全三件（__dsh_minimal__/__creator__/__abap_dev__ 模板补 tags+settings + abap 新模板 + 数据根物化）+ 新会话开场态修复（singles viewOf 空会话误盖 lastActivity=创建时刻——主线语义=有消息才带，isSingleFresh 永假致点击新会话直接进常规布局）】
+- 【cr-602 2026-10-23 system prompt 不正确根因修复：①行集派生装配基座恒并扩 persona/system-prompt（导入行集按工具标签快照推导，装配类行不在标签面→全体导入 Agent 指引块+人格静默丢失——主线两行全局恒装，per-agent 差异走 settings）②previewSystemPrompt 干跑工具面换 toolFaceOf（行 id 展开同源——直读 resolveToolNames 把行 id 当工具名，条目级门控全失配）】
+- 【cr-603 2026-10-23 程序化 SDK 投影前端不可见修复：previewSystemPrompt 干跑工具面从 toolFaceOf（未收窄全量）换 llmToolFace（cr-593 模式收窄同源）——tc-programmatic 会话干跑请求面=[run_code]，run_code 行 SDK 投影注入判定（isModeToolFace）随之到达，SystemPromptPanel 与真实 run 装配口径对齐】
+- 【cr-604 2026-10-23 preview docs 重组：状态板 M0-M8 建设期行与 p4-p7 交接归档 archive/、立 2026-10-23 现行交接、kickoff 刷新至切换后阶段】
+- 【cr-605 2026-10-23 preview 树入库提交切分（G8）：按里程碑/包边界切 commit 入库 + 切换入口/主线伴生改动归批】
+- 【cr-606 2026-10-23 迁移脚本重演测试：home-legacy-20261022 副本旁路跑 cutover 管线验证桌面端数据迁移能力】
+- 【cr-607 2026-10-23 名册轴修复：agents/list 与 healthz 排除 ~ 会话流键域（ensureAgent 兜底 config 污染名册）】
+- 【cr-608 2026-10-23 singles 导入归属修复：majorityAgentId 排除 user 端点（296 会话错位 agents/user）+ 存量回填】
+- 【cr-609 2026-10-23 users/user 轴更名 viewer（消除与 agents/user 命名混淆）+ 迁移管线含 cr-608 修复全停重验】
+- 【cr-610 2026-10-23 壳行集基座恒并 llm-pool：点名形态 agent 壳零 provider 注册根因修复】
+- 【cr-611 2026-10-23 迁移直答 pair 会话 viewer 投影补齐（前端非预设 Agent 1v1 历史空根因）+ journal 双端带出】
+- 【cr-612 2026-10-23 D5 边 2 常态化：壳侧邮局失联探测 + 宿主复活（host-revive 探测/退避/O_EXCL 仲裁纯域 + 壳 boot 接线 + 宿主优雅退出停机戳与 boot 清戳 + 壳 argv 增 --host-boot/--host-port）】
+- 【cr-613 2026-10-23 实验性菜单冗余根因修复：preview web-api conv-settings/keys 移植时丢主线 group===experimental 过滤——model/elevation/toolMode 三纯消费键混入输入框实验性菜单（前端只排 browserTier），补同款过滤】
+- 【cr-614 2026-10-23 full-access 仍无法访问工作区根因修复：WorkspaceShim 缺沙箱消费面——补主线同款 sandboxAllowedPaths/conversationWorkspaceRoot/会话感知 sandboxWorkdir（workspaces.json + viewer/sessions session.json 直读，主线 ac-workspace 同布局），挂载工作区即基准+授予端到端接通】
+- 【cr-615 2026-10-23 cr-615 标准模式工具面整理：预设身份模板物化（adoptShell 兜底）+ 出厂模板 18 行 + 活体 __standard__ 17 行迁移】
+- 【cr-616 2026-10-23 cr-615 配套：subagent spawn tools 词过滤落地（spawn ⊆ 父投影）——未过滤词使子壳行集断言 fail-loud 早退，spawn 面只见 boot.ready 超时】
+- 【cr-617 2026-10-23 cr-615 配套：标准模式能力 tags 恢复（活体 9 词 + 模板 10 词含 collab）——SDK 投影/能力面按 tags 门禁，缺 tags = 投影坍缩到 base 族】
+- 【cr-618 2026-10-23 cr-618 立：AgentConfig.tools → rows 改名登记为待裁决项（挂 cr-484 遗留 ◐b requiredTags 迁移批次同批落地——终态词形收敛纯行引用，名实相符）】
+- 【cr-619 2026-10-23 cr-619 多宿主共存根因修复：web-server 行增 strict 档（监听失败 reject 不降级），preview 宿主 boot 启用——此前不同数据根+同端口可双开（管道防线不撞 + EADDRINUSE 被降级成 warn，第二宿主无头存活且日志谎报端口）】
+- 【cr-620 2026-10-23 cr-620 进程可视身份：node.exe 品牌副本（bin/AgentChat{Host,Shell}.exe——rcedit 改 FileDescription，任务管理器可辨可杀）+ 宿主/壳 spawn 换用品牌副本（缺席回落 process.execPath）】
+- 【cr-621 2026-10-23 G8 第二批入库：cr-606…620 未提交改动按域切分提交 + 测试残留 X/ 清理 + bin/ ignore 补齐】
+- 【cr-622 2026-10-23 cutover 收尾：旧包退役清理首批（按归并表，ac-singles/ac-hello/ac-session 等）】
+- 【cr-623 2026-10-23 cr-621 cr-620 补件：AgentChatSupervisor.exe 品牌 + supervisor.mjs 自重-exec（缺席回落 node）——不品牌 supervisor 则杀宿主/壳会被拉起，任务管理器三件套缺一不可】
+- 【cr-624 2026-10-23 cr-624 cr-620/623 收敛：单映像 bin/AgentChat（无扩展名——CreateProcess 显式路径可执行，任务管理器三角色折一行）——make-node-identity 单角色 + 四 spawn 点统一引用】
+- 【cr-625 2026-10-23 标准预设移除 str_replace_editor + ask_questions 交互卡前端零直播根因修复】
+- 【cr-626 2026-10-23 full-access 下沙箱 workdir 越界拦截根因修复（工作区写入被拒）】
+- 【cr-627 2026-10-23 工作区 skill 不可加载 + answered 交互无人消费双根因修复】
+- 【cr-628 2026-10-23 中断/崩溃 run 前端丢失根因修复：①driveRun 终稿回信 user run 恒投（interrupted/error 空文本不再跳过 postReply——run 键行缺席 = 刷新后 steps 全丢）+ postReply 断链重试重连 ②壳 boot 孤儿 journal 收口（journal-settled interrupted 补写）+ web-api session/history 孤儿 run 投影（orphanRunsOf 纯函数——壳死 mid-run 不再整 run 蒸发）】
+- 【cr-629 2026-10-23 安全重启工具双件：restart_shell（中止在途 run→信封回队 inbox durable→退出码 42→宿主 respawn→新壳 boot inbox 恢复面重投续跑）+ restart_host（信封请求宿主 graceful exit 42——supervised 写停机戳防壳复活双宿主竞态；warden 42 = 有意重启不计崩溃熔断）】
+- 【cr-630 2026-10-24 cr-629 restart_host 停机戳分支设计违背修正：D5 边 2 裁决 = 任意宿主死亡活壳复活（supervisor 仅兜同死）——supervised 分支写停机戳让壳 stand down 是单点故障（supervisor 未拉起则宿主永死）且滥用戳语义（戳辖用户停机/换代）。改为恒不写戳：exit 42 后 supervisor（在场快路）与活壳（常态兜底）竞态由既有防线收敛（O_EXCL 壳间仲裁 + cr-619 strict EADDRINUSE 后到者可读退出 78）】
+- 【cr-631 2026-10-24 孤儿 run 可见性持久化补环（cr-628 后续）：web-api 孤儿投影以未收束为门控——新壳 boot recoverOrphanRuns 补 settled 后投影让位而 viewer run 键行从未落过（壳死时 postReply 未跑），steps 会二度消失。补：收口时经邮局向 user 壳补投空文本 run 键锚信（writeThrough 落 viewer 行，cr-595 同通道 D4 单写者不破；盘上 viewer 行在场即跳过防重，仅本 boot 收口的用户 run 补投——机制 run 不经此面）】
+- 【cr-632 2026-10-24 cr-631 补投判定 broaden：本 boot 收口门控漏「已收口未锚定」存量（活体实锤：活壳先跑旧码收口 7zs1，新码锚信永远不投）。锚定判定改链接制——anchorableRuns 纯函数：有步行 + viewer 无锚 + run=run-<requestId> 且该 requestId 在本会话账本有入站行（消息 run 判别；机制 run 无对应入站行天然排除）】
+- 【cr-633 2026-10-24 restart 行工具面收窄到创造预设（用户裁决）：基础行（全缺省壳可见）→ bundle 化离开基础集 + creator 模板 tools 点名引入（plugin-dev 同款惯例；__standard__ 17 行清单本就未含）+ 活体 __creator__ config 同步补行】
+- 【cr-634 2026-10-24 （墓碑——与 cr-633 同文的重复登记，原行在 cr-639 会话前的清理批被整行误删；号永不复用，留位保序列连续）】
+- 【cr-635 2026-10-24 （墓碑——与 cr-633 同文的重复登记，原行在 cr-639 会话前的清理批被整行误删；号永不复用，留位保序列连续）】
+- 【cr-636 2026-10-24 answered 交互 boot 重放面——ask-questions late-reply 跨壳重启恢复（answered+ask_questions+owner=self 未消费记录重投 deliver，转录 id 扫描去重）】
+- 【cr-637 2026-10-24 标准预设工具面复核：cr-615/625 裁决落实确认——出厂模板 templates/standard 17 行（含 collab-tools）、活体 agents/__standard__ 16 行（去 memory/collab，留 browser/math/mcp/datetime），派生 27 名/0 warnings、产品生效面 agents/tool-defs 实测 18 词（无 adt_*/bench/harness/plugin-dev）；datetime=提示注入行、mcp=接入服务行，两者零工具名；run_code 属 injection=mode（会话切程序化模式才现）。活体描述去「协作」词对齐实际行集；preview 定向 25 测 + typecheck 0】
+- 【cr-638 2026-10-24 answered 重放自激回环根因修复：late-reply 重放把「信源」当「回信目标」——sender=owner（保账本投影）使 driveRun 收束点 postReply(env.sender) 投回自身端点（落账成入站 message）→ 再拉一轮 run，自答循环（用户侧收不到终稿，只因预算衰减才停）。修：Envelope 增 replyTo（显式回信目标）+ replyTargetOf 纯函数（replyTo 优先 → sender；= 自身返 null）+ 重放面 replyTo:user + postReply 自回环防线（stderr 留痕）。活体实锤：__standard__ 会话 01a1681b 账本 reply-late-reply-dur-mvkst4pm 同文两行（seq 234 带 run / seq 236 无 run）+ journal 尾段 run-reply-late-reply 真跑——正是「我的终稿被投回自己当新输入」】
+- 【cr-639 2026-10-24 续聊中断会话三症状根因修复：①driveRun 当前消息重复投喂（deliverRow 已落 user 行，historyFor 复读后再 append 同文本——模型收双份，01a16af1 probe 实锤）；②事件链 ctx.tools 未声明 inject——conversation 行 run 装配在事件派生异步链（late-reply 唤醒）里抛 "cannot get property tools without inject" 被 .catch 静默吞 = 唤醒 run 从未拉起（cr-636 报告/run 7vmy 丢失同根因），inject 补 'tools'；③在途信封 at-least-once——run 起步入 inbox durable、收束即清（硬杀不再蒸发，下代 recoverPendingInbox 重投续跑）+ 恢复面补行门（盘面 requestId 查重，行缺席才补写）】
+- 【cr-640 2026-10-24 中断 run 步级工作对 Agent 上下文不可见（主线段行物化语义补齐）：journal 步行有 55 步、前端 steps 联查正常，但 replayView 只投影 messages 终稿行——空终稿被过滤 = 下轮 run 对中断前工作完全失忆。修 = 空终稿收束（interrupted/无文本 error）与孤儿收口时把 journal 步行物化为 assistant 段行入 messages（无 run 键——UI steps 联查仍走 journal，不双渲染；正常终稿 run 维持 D4.2 终稿层语义不膨胀上下文）】
+- 【cr-641 2026-10-24 restart_host R-1 uuid 冲突根因修复：壳→host 控制信封 uuid 复用会话键在已有 user↔agent 流量的会话必撞 registry participants 子集判定（incoming [sender,host] ⊄ [user,agent] → conflict fail-loud，ipc onFrame 空 catch 静默吞信）——e2e 用新鲜 uuid 首登不撞故漏测。修 = restart.ts 信封 uuid 换独立 host 请求域键 restart-host-<会话键>（首登 [sender,host] 恒 consistent）；外部帧协议探针实测修复生效（宿主 exit 42 换代）。文件：preview/packages/ac-shell-rows/src/restart.ts】
+- 【cr-642 2026-10-24 宿主收编壳 spawn 不 detached 根因修复：宿主 exit 42 时 Windows Job 对象/控制台组连带杀全部子壳——restart_host(或宿主崩溃)后所有壳换代重启，违反「保壳保 run」承诺。修 = orchestrate.ts defaultSpawn 加 detached: true（壳独立进程组，宿主死壳存活）；host-revive spawn 宿主同款已是 detached。文件：preview/apps/host/orchestrate.ts】
+- 【cr-643 2026-10-24 壳拉起 argv 丢失热修：cr-641/642（未登记的在工作树改动——orchestrate.ts detached 进程组改造）把 spawn(cmd, args, opts) 写成 spawn(cmd, opts)，壳全部裸 AgentChat.exe 启动（无 argv 不 boot）→ 零注册 → 全部投递积压 outbox、前端消息无法唤起会话。恢复三参形态，detached 语义保留】
+- 【cr-644 2026-10-24 restart_host 修复后活体实测通过：uuid 域拆分（cr-641）+ spawn detached（cr-642）+ argv 三参恢复（cr-643）三层修复叠加后实测——程序内串行调 restart_host：宿主 pid 25364→14220 换代（exit 42 快路 supervisor 重拉 4s），观察窗 healthz 断-复正常、supervisor/其他壳存活，发起调用的 run 全程存活出结果（保壳保 run 兑现，cr-639 重投链此前已三中断实战验证）。旧拓扑下「宿主重启=全壳连坐死」的根因即 cr-642 缺 detached】
+- 【cr-645 2026-10-24 restart 双件第二次实测：restart_host 复验（cr-644 后）+ restart_shell 首次活体验证（遗留项）】
+- 【cr-646 2026-10-24 restart dual-tool live testing round two: restart_host re-verification + restart_shell generational-change continuation】
+- 【cr-647 2026-10-24 restart_host 活体实测双缺陷根因修复：①壳侧 host-revive 抢跑 supervisor（stdin EOF kick 绕过探测节拍，宿主 exit 42 当刻即 spawn）→ supervisor 重拉宿主撞 EADDRINUSE 退出 78 → 监督栈永久消失（终端拓扑下连带全壳死）；修 = supervised 档复活宽限 10s（AGENTCHAT_SUPERVISED 透传），supervisor 快路 1.5s+boot 先赢 ②宿主换代后可达表空白，ensureHook 救援挂在 adopt 错误文本匹配（真链 adoptShell 只产「壳进程早退 code=」，壳内「activation 锁被进程」永不达）→ 救援恒不触发、活壳消息滞留 outbox；修 = ensureHook 前置读 activation.lock 探活回登记 + flushOutbox】
+- 【cr-648 2026-10-24 restart 链路消息面双缺口根因修复：①直投失败（陈旧 transportHint）只落 outbox 不摘除可达项也不触发拉起 → 壳死主机不知情后每封新信静默入箱无人重拉（B2 现场「nudge 也唤不起」）；修 = 失败即 markGone + store 后 ensureHook（与不可达同链）②宿主换代后活壳只在可达表不在句柄池（救援只回登记不接管），该壳 restart_shell 的 exit 42 无人 respawn → 在途消息滞留 inbox 直至下一条新消息；修 = 壳侧退出前向宿主发 restartShell 请求 + 宿主 1.5s 后轮询锁至 holder 死再 ensureAgent（有句柄则让 warden 快路，幂等）】
+- 【cr-649 2026-10-24 restart 双件二次稳定性实测（restart_host + restart_shell 活体复测）】
+- 【cr-650 2026-10-24 restart_shell 在「恢复面拉起的 run」内失效根因修复（01a16bfc 实锤）：run 由 recoverPendingInbox 重投（recovered=true）→ 收束点在途信封回队 inbox 后，receiveEnvelope 的「恢复面消费即清」在本轮返回后照常 inboxClear，把刚回队的信删掉 → 新壳 boot 恢复面读空、run 不续跑（壳本身已正常换代）。修 = driveRun 增 restarted 结果，恢复面清行门跳过 restarted（回队即下代消费，不得当已消费清）】
+- 【cr-651 2026-10-24 restart 双件第三次活体实测（restart_shell 正常/恢复面两路径 + restart_host 保壳保 run），测试留档 preview/sandbox/restart-lab-20261024/】
+- 【cr-652 2026-10-24 restart 双件第四次活体实测（新会话继承上轮工作树）：restart_shell 正常/恢复面两路径 + restart_host 保壳保 run 复核，留档 preview/sandbox/restart-lab-20261024/】
+- 【cr-653 2026-10-24 restart_shell 续跑「像新会话/丢历史」根因修复：中断 run 的步行物化只取 content，工具密集 run（content 恒空、只有 reasoning/toolCalls）零段行入 messages → 重投后模型上下文只剩用户消息（01a16c53 实锤：技能二次加载）。修 = stepSegmentsOf 对空 content 步渲染「推理 + 行动（工具名/参数）」，单段 2k/总预算 20k（超限裁最早步），recoverInterrupted 同源受益】
+- 【cr-654 2026-10-24 restart 双件活体实测（第三次用户任务：新会话 host→shell 双路径复核，留档 preview/sandbox/restart-lab-20261024/）】
+- 【cr-655 2026-10-24 restart 双件第五轮活体实测（__creator__ 会话 01a16c53：restart_host 宿主换代 + restart_shell 恢复面重投续跑复核），留档 preview/sandbox/restart-lab-20261024/】
+- 【cr-656 2026-10-24 restart_host 同一壳第二次调用恒失败根因修复（活体实锤）：restart.ts 惰性缓存邮局 uplink 不随宿主换代失效——宿主 exit 42 带走旧连接后仍复用，同壳再调恒「This socket has been ended by the other party」；修 = 每次调用独立连接、发毕即关（boot.ts notifyHostRestartShell 同款形态）+ 失败回执改软失败语义 + 回归测试（旧监听关闭/新监听接管后二次调用仍送达）】
+- 【cr-657 2026-10-24 restart 双件第七轮活体实测（__creator__ 会话 01a16c53 跨代续跑）：restart_host 同壳连调两次均换代成功（cr-656 修复后对照）、restart_shell 壳 43212→24316 而宿主 39648 全程未动（healthz uptime 连续无断点）原消息重投续跑，留档 preview/sandbox/restart-lab-20261024/】
+- 【cr-658 2026-10-24 restart_shell 改自然收束后重启：requestRestart 不再中断 run；轨迹完整性读侧修复（ledger historyMessagesFor 从 journal 重建 LlmMessage[]）；「已重启」注入信封照 timer/goal 桶对端设计；cr-650 restarted 特判与 cr-653 摘要物化退役】
+- 【cr-659 2026-10-24 restart_host 前端断连信息丢失：宿主 boot 换代活壳收复（扫 activation.lock 探活 → 可达登记 + 旁带流 re-tap）；前端 onOpen 补 turnInProgress 复位（断线窗口收束帧丢失时忙态不死锁）】
+- 【cr-660 2026-10-24 重连清理面补工具卡收口：closeAllStreaming 只关消息级 isStreaming，断连窗口丢失 tool/after-execute（含 subcall 结果帧）后工具卡 running 永真（restart_host 执行窗口杀宿主实锤）——onOpen 清理对全部分区收口运行中工具卡与 subcall 流式消息】
+- 【cr-661 2026-10-24 restart 双件第四次活体实测（cr-659 后首次）：restart_host 同壳两次换代保壳保 run + 换代后活壳直播帧收复（WS 探针实证）+ restart_shell 自然收束兑现（壳 30472→45920、宿主 43388 全程未动、复活标记自清、「已重启」注入开续跑轮、终稿恰好一次）；附带定位到测试前 14:21 creator 壳 26740 崩死引发的崩溃路径中断（孤儿收口 + inbox 重投从 step 0 重跑）】
+- 【cr-662 2026-10-24 诊断面（leftovers B1+B2）：壳 stderr 管道消费——defaultSpawn 按行转发宿主+滚动落 dataRoot/.runtime/logs/shell-<agent>.log+退出现场（code/signal+stderr 尾行）进 supervise 事件面；host-revive 复活宿主 stderr 落 ts 日志；supervisor 宿主 stdio inherit 改 tee 落日志】
+- 【cr-663 2026-10-24 restart 标记/重拉单一仲裁（leftovers C1）：orchestrator ensureAgent 在飞去重（并发触发面共享一次拉起——同宿主双拉根因）；宿主 boot 扫 restart-shell 标记原子领取（rename .claimed，失败回滚）+TTL 10min；壳 boot 自清认领文件名（保 cr-658 conversationId 注入）】
+- 【cr-664 2026-10-24 restart_shell 双防（leftovers D4/D5）：同轮重复调用直接返回已排程态（行内旗标，不再触服务面）；CLI 直连形态（无邮局）fail-loud 拒绝（退 42 无人重拉）】
+- 【cr-665 2026-10-24 B3 临时文件锚定：preview vitest setup 把 TEMP/TMP 指到 preview/sandbox/tmp（测试树及子进程不再写本机 %TEMP%——cr-593 同域瞬时 EPERM 规避；产品路径无 %TEMP% 写点已核实）】
+- 【cr-666 2026-10-24 C2 boot 收尾一致性对账：conversation 服务 reconcileUndelivered——末段入站 user 行无 run 轨迹/不在队列与收件箱（crash 窗口只落账未执行）确定性补投；boot 恢复链兜在 inbox 恢复后】
+- 【cr-667 2026-10-24 A1/A2 中断 run 原地续跑（design-run-resume.md 落地）：resumeContextOfRun 纯函数（未提交调用合成结果未知错误——不做 at-least-once 重执行）；ledger resumeStateFor/pendingInboxRequestIds + recoverOrphanRuns defer；driveRun resume 前缀装配 + maxSteps 剩余额度；恢复面续跑分支 + context-injected(resume) 标注；降级退回重投】
+- 【cr-668 2026-10-24 mock provider 延迟档：AGENTCHAT_MOCK_DELAY_MS 环境变量（首流前挂起——活体诊断/restart 实验造 mid-run 窗口，D1 复验用）】
+- 【cr-669 2026-10-24 品牌 exe 诊断旁路：AGENTCHAT_NO_BRANDED_EXE=1 时壳/复活宿主回落 node 本体（DSH 沙箱拒未知镜像 exe 连 named pipe——EPERM probe 实锤；真机不受影响，活体验证诊断档）】
+- 【cr-670 2026-10-24 supervisor argv 透传修复：无值旗标（--mock-provider 等）被成对消费循环丢弃——宿主收不到诊断档标志（活体 D1 复验抓到：壳零 provider、run 瞬间 error）。改为逐项扫描：--data-root 取值消费、值形参数成对透传、无值旗标单独透传】
+- 【cr-671 2026-10-24 mergeHistory 首屏 inFlight 分支终稿行去重失败致消息乱序修复：同锚 message_id 覆盖 + 内容等值兜底】
+- 【cr-672 2026-10-24 preview 会话标题生成修复：壳侧 auto-title 行（首步后 LLM 一句概括 → title-request 信封请求宿主 singles 行 write-if-absent 落盘 + singles/updated，行集 86 = 宿主 48 + 壳 38、rowset 恒并基座第五条）+ 标题词法下沉 ac-core-utils（上限/提示词/清洗/截断回落/材料行筛选单源，含 CRLF 首行脏尾修复；派生面改用户行优先并跳过路径/@ 引用/URL 行——存量 192 会话标题同形路径簇归零）+ 裁决簿 D13】
+- 【cr-673 2026-10-24 fix(preview): ui 树入口补 badge.css——徽章三族（.ui-badge 状态/标签/类型徽记）+ 头像角标 + tt-* 色相整族裸奔根因（cr-577 只补令牌层，导入面子集口径把 badge 记为「零消费」而实际 9 个行包在用）；新增导入面守门测试对齐 kit css 导出四层】
+- 【cr-674 2026-10-24 preview 名册第三道闸：派生（物化子）身份不进 agents/list——sub-* 子身份经运行期兜底 config 混入前端 Agent 列表】
+- 【cr-675 2026-10-24 preview 控制面与拉起所有权解耦：壳 admin/preview 控制帧改经 transportHint socket manage 通道（编排面 control 统一入口 = 句柄池 → 盘上活锁壳 → 按需拉起），修 system prompt 预览偶发「壳进程早退 code=1 / activation 锁被拒」】
+- 【cr-676 2026-10-24 preview 工作区文件面落地：宿主 web-api 补 /api/workspace/tree|file|raw + /api/upload 四端点（前端树面板/文件预览/附件上传此前落 no api route 404）——语义照搬主线 ac-workspace（树基准三级优先序/读面两段定位/raw ETag/上传内容寻址），纯函数面住 ac-host-rows/workspace-files.ts；同批并源：face-ops 工作区根推导取单源、open-dir 补 workspaceId/会话树基准、工作区登记原子写改 renameWithRetry（Windows 瞬时占用 flake）】
+- 【cr-677 2026-10-25 运行跟踪面板双区修复：subagents/list RPC（跨父盘读聚合）+ job/started·settled、subagents/updated 帧链（壳旁带→宿主桥接）——前端 jobBoard/subagentBoard 零改动点亮】
+- 【cr-678 2026-10-25 fs-search grep 引擎升级：vendor @vscode/ripgrep（spawn rg 主路径 + 纯 Node 回退），输出契约冻结——治 node_modules 大树串行遍历超时】
+- 【cr-679 2026-10-25 cr-639…678 批次入库：.pnpm-store/.runtime gitignore 卫生 + 按域切分 commit + 验证阶梯过门回写】
+- 【cr-680 2026-10-25 bench 门判据兑现：产品根 workspace/home 真凭据 bench-gate 跑批（evolve 五步闭环自验收 + BFCL 评测域行真 LLM 面）】
+- 【cr-681 2026-10-25 manage 探针 boot 窗口竞态根因修复：control() 读活锁时壳 ipc 未 listen（锁 :330 / listen :835 隔整段装载）→ ENOENT 被当老壳记黑名单 + spawn（必被单例拒，spawn 风暴 + 管理面全挂）——传输层失败改 holder 探活重试等窗口，仅回执超时才走 cr-675 黑名单】
+- 【cr-682 2026-10-25 singles/list 性能债收口：每次 RPC 全量重读+解析 919 会话账本（~300ms，随会话数线性劣化）——ledgerSummary 摘要按 messages.jsonl 的 size+mtimeMs 缓存（写者单源同进程，stat 未变即复用）】
+- 【cr-683 2026-10-25 row-catalog 虚胖词对账：行 tools 清单收净（fs_* 别名/bash/datetime/mcp 等——目录数据修正，LLM 面交集收敛已核实不受影响）】
+- 【cr-684 2026-10-25 会话列表待答徽标（UX 缺口第二次实锤：pending 提问只在其所属会话可见，用户不知道去哪答）：chat-core 公开 pendingInteractions（live 帧 + interaction/list 恢复共源维护），SessionList 行挂 .ui-badge.warn「待答」按 key 命中会话】
+- 【cr-685 2026-10-25 链跑队列双丢缺陷（实锤：creator 2 排队 turn 收束点全蒸发、01a1720c 信封孤儿滞留 inbox 零 run）：①takeFromInbox 死信 miss 即 break——出队条目丢且 finally 再移位丢第二条；②finally runSettled(false) 幂等收口在早退路径（重启 break/异常）移位丢弃队头。修 = 死信跳过取下一条 + 收口改 releaseGate 清门不动队列】
+- 【cr-686 2026-10-25 账本重复行清理（cr-638 挂账兑现）：01a1681b 三对同文双行（234/236、411/413、579/581——自激回环期终稿投回自身多写一行，+11ms 无 run 键形态），壳已退场后摘除三行无 run 回环转录行；viewer 投影核对无重复】
+- 【cr-687 2026-10-25 R7-9 插件 client 通道设计成文（preview/docs/design-plugin-client-channel.md）：seats 对账语义、挂拓扑 new/view 词形、换壳三级阶梯裁决、存量四批；同批记录通道包物理迁出与旧树退役的顺序耦合】
+- 【cr-688 2026-10-25 排队 turn 唤醒消费（cr-685 记档观察兑现）：非链跑收束（reviewRun）后排队 turn 无消费者——滞留到下一封入站信或壳重启；machine 增 takeQueueHead，reviewRun 收束后取队首信封重入 driveRun（其内部链跑自会清完队列），死信/无会话键留恢复面】
+- 【cr-689 2026-10-25 交接：本会话 bench 门判据兑现与 R7-9 通道设计收口，cr-681…688 已入库，三项用户裁决悬置（档位词终态/tools-rows 改名/通道迁出路径），新交接文档 handoff-2026-10-25-cutover-final.md】
+- 【cr-690 2026-10-25 B1 插件 client 通道实施：seats 对账（装载器快照 diff 双向 warning）+ manifest 三词形校验（new:/view/theme）+ 生成器 seats 声明快照 + 29 通道全装对账测试】
+- 【cr-691 2026-10-25 ◐a/◐b 语义批：档位词 settings X1 单源（web/collab 行内监听器改读 settingsOf + 活体 tags 换轨）+ requiredTags 迁移 + preview 全链 tools→rows 改名】
+- 【cr-692 2026-10-25 ◐a/◐b 语义批全落地：capabilitySetOf settings 并集合成（browser/collab/dev-tools 行内档位 settings X1 单源）+ collab hasAdminCapability settingsOf 直读 + subagent 派生剥 settings.collab.admin 提权面 + AgentConfig tools→rows 改名（preview 全链 + 主线 RPC 双键收讫 + 活体迁移）+ AgentPane browser-tier 组读写 settings.browser】
+- 【cr-693 2026-10-25 B2 主题包通道——令牌词汇完备性校验纯函数 + 纯数据主题包装载分支 + 示例主题包】
+- 【cr-694 2026-10-25 B3 视角挂载：layout registerView 公开入口 + 隔离档容器承载（design-plugin-client-channel.md §2.1③）】
+- 【cr-695 2026-10-25 ◐c 退役批前置侦察：R6.1 A 类 25 包传递闭包重算（preview 依赖面+源码面双扫描零命中）+ 主线树内 200 边闭环核证 + B 类涟漪 34 文件清单备档——结论固化 design-plugin-client-channel.md §7】
+- 【cr-696 2026-10-25 ◐c 旧树退役批（路径 A）：ac-client-ui-* 31 包物理迁出 preview/packages + A 类 25 包与旧树装配面退役删除 + 双占名回收前置清障】
+- 【cr-697 2026-10-26 settlement 段行物化恢复 + journal 收束即清：settle/orphan 收口把 run 步行（含 subcall 补行合并、注入行）物化进 agent 账本段行（各自原 ts），partial.jsonl 剔除该 run 行——journal 回归 run 周期台账本义，治 267MB 膨胀（推翻 cr-658 读侧永源语义）】
+- 【cr-698 2026-10-26 viewer 账本派生化：终稿信封降级为通知，宿主从 agent 账本按 run/通知派生 viewer 行（原 ts、requestId 幂等）；锚信通道退役（cr-631/632）；空终稿 run 不落 viewer 行——session/history 读面补 settled-无行 run 的 steps 投影（前端渲染形态自理）；存量双行迁移】
+- 【cr-699 2026-10-26 思考链 run 内连续性豁免：历史 steps 展开行携带 runId，buildTurns 对同 run 相邻消息豁免 solo/平文/时间间隔拆分——中断-续跑长程 run 恒为一条思考链（step#36 中断总结步拆卡消除）】
+- 【cr-700 2026-10-26 conversation 通道件共享基座外部化：ac-client-ui-conversation client 深引加进 channelImports + shared-modules 单例——通道件不再携带 feed/feed-core 内部拷贝（双拷贝漂移致 cr-699 修复两度被旧通道件吞掉），重建面收敛为单一】
+- 【cr-701 2026-10-26 B4 宿主树 ui 组终态清空：catalog 撤 25 ui 域行（86→61，host 48→23）+ 口径断言/注释/manifest R1R2 同步 + 设计文档 B4 落地标注】
+- 【cr-702 2026-10-26 发布链换轨批：build:bundle 改 preview 宿主双入口（agentchat.mjs+shell.mjs+资产面）+ 三 CI workflow 换轨 + src/webui 退役 + README 深层叙事重写】
+- 【cr-703 2026-10-26 全仓重组批（布局 C）：packages/ 收编全部活包（src 71 + preview 49）、apps/ 收编四应用、src/ 消灭——preview 覆盖正轨终态批；四遗留并入（4 死包删 + 批 C src/webui 退役 + cutover 三脚本 + cordis.yml/supervisor.mjs）；tag preview-final 归档】
+- 【cr-704 2026-10-26 preview 归档不设 git tag 裁决：删除本地轻量标签 preview-final（cr-703 开工会话 16:53 创建、从未推送），README/收尾清单/计划同步为「末态即提交 3943f5aa、不占 tag 命名空间」】
+- 【cr-705 2026-10-26 cr-703 收尾 P0 批：测试 EPERM 根修（e2e 数据根移出 workspace/test + host close 收割壳句柄 + global setup EPERM 有界重试与诊断）+ bundle 全链 e2e 脚本（scripts/e2e-bundle.mjs）+ release-preflight --clean 的 src/ 目录扫描 bug 修复（cr-703 布局后失效）】
+- 【cr-706 2026-10-26 cr-703 收尾续批：壳 bundle CLI 门修复（endsWith(boot.ts) 在 dist/shell.mjs 恒假——bundle 壳零输出直退，e2e-bundle 抓到的实锤；改宿主同款 resolve 等价门）+ CHANGELOG Unreleased 路径修正与 cr-703 条目 + 行 client default 出口跨行结构锁补回（packages 布局）】
+- 【cr-707 2026-10-26 上下文注入行（已发起提问/已收到用户回答）双面修复：① 刷新丢失——注入行 label/injectionId/injectSource 随 journal 落盘，宿主 session/history 读面投影为 context 行（原先被 derive 的 inject 过滤整条吞掉）；② 直播漂移——注入帧先发后落盘（不再等 journal IO 让后续 step 帧超车）+ mergeHistory 首屏按时间序归并（不再把直播注入行顶到历史块之后）】
+- 【cr-708 2026-10-26 cr-703 收尾卫生批：supervisor 双布局文件头互注 + supervisor-parity 回归锁；删 remote-loopback-host.ts（ac-app 依赖已亡两月无消费者）与 preview 备份（802MB 比对无差异，用户裁决）；ac-config/ac-harness-tools 原子写瞬时占用重试+诊断；retired-types 判死回滚（模块增强隐式消费——判死纪律注记）；kit 对比度锁补回（contrast-tokens 8 断言组，人为回归红验证）；P2 卫生（徽章 2400+/断链 ../preview 注释/5 处 ac-app 注释/.dsh 本地态注记）；coverage 完整审计落 sandbox/coverage-audit-cr703.md（138 件：PORT 94/COVERED 13/DROP 31）】
+- 【cr-709 2026-10-26 cr-703 收尾卫生批：supervisor 双布局文件头互注 + supervisor-parity 回归锁；删 remote-loopback-host.ts 与 preview 备份（802MB 比对无差异，用户裁决）；ac-config/ac-harness-tools 原子写瞬时占用重试+诊断；retired-types 判死回滚（模块增强隐式消费）；kit 对比度锁补回（8 断言组，人为回归红验证）；P2 卫生（徽章 2400+/断链/5 处 ac-app 注释/.dsh 本地态注记）；coverage 审计落 sandbox/coverage-audit-cr703.md（138 件：PORT 94/COVERED 13/DROP 31）】
+- 【cr-710 2026-10-26 会话防自激预算改由信封携带的 budget 权威裁决（此前内存计数器每壳代重置，agent⇄子Agent 自动互答可跨重启无限续跑）+ 父壳回信对子 Agent 直投 ipc（裸 id 走邮局会拉起同 id 幽灵顶层身份）+ async spawn 忙态随终稿回落（看板不再恒 running）】
+- 【cr-711 2026-10-26 子 Agent 完成回执语义修正（cr-711）：回执不进会话机（父⇄子对桶只落账），结果转投发起会话（replyConversation 随任务信封往返、self 发起 + replyTo=user）——修复「LLM 有消息必回」的父⇄子互答；附带 send_agent/send_group 投递缺口报告（docs/design/collab-delivery-gaps.md）与 makeEnvelope 补 replyTo 入参】
+- 【cr-712 2026-10-26 subagent delete 收割改归档：物理 rmSync 改 archived.json 标识——子域账本（任务/思考/终稿）保留可回放审计，list/看板按标识隐去】
+- 【cr-713 2026-10-26 mid-run 入站消息错位双行根因修复：busy-steer 分支不再 deliverRow——ledger 记录归 journal-inject 单源（settle 物化在位）， Receipt/用户 mid-run 消息同治】
+- 【cr-714 2026-10-27 token 上下文占用弹层修复：session/tokens 估算改 agent 域账本回放口径（estimateReplayTokens 单源、与归档阈值同口径）+ session/kv-timeline 去 stub 接 ctx.usage.conversationTimeline（KV 走势图恢复）+ 壳 usage 自报信补 stepCache 步级缓存序列 + 弹层单点不出空区块】
+- 【cr-715 2026-10-27 RPC 过渡实现审计落盘：docs/design/rpc-transitional-audit.md——前端死链 6（plugin/loaded·dev-scan·extension-catalog·dep-graph·events/policy-list·system/restart 均为旧主线 src/ac-web-api 面、新宿主未移植）+ 后端空桩 3（events/listeners·descriptions·tags/catalog）+ fail-loud 错位 8（patch-*·load·unload 占位 vs 前端 UI 未换面，rows/* 新面零生产消费方）+ timers-row 近似判定注释前提过时 + ~28 文件主线/preview stale 注释】
+- 【cr-716 2026-10-27 修复历史回放乱序：UserLedger.replay 投影丢 timestamp（user/peer 终稿行）+ 前端排序缺时刻行沉底（继承前驱）】
+- 【cr-717 2026-10-27 创造模式 system prompt 重写：对齐新架构（manifest.rows 行集声明 cr-543、三模板骨架、装卸语义细化、自律规约口径）】
+- 【cr-718 2026-10-27 shell-tools 任务日志流 EPERM 崩溃根修：handoff WriteStream 挂 error 吸收面（%TEMP% 瞬时拒写不再 unhandled 带崩壳进程）+ 后台 openLogFd 瞬时占用有界重试】
+- 【cr-719 2026-10-27 创造模式 system prompt 增补 restart_shell/restart_host 使用指引（自主使用导向，语义对齐 cr-629 实体）】
+- 【cr-720 2026-10-27 创造模式盘上物化实体 system 同步模板新文本（cr-717/719 只改了模板；orchestrate skip-if-present 使盘上遗留实体永不更新——前端预览读盘上实体导致漂移）】
+- 【cr-721 2026-10-27 预设身份配置运行时注入架构裁决：模板基座 + 盘上差异两层合成（取代一次性物化 skip-if-present——cr-720 漂移事故的结构性修复）】
+- 【cr-722 2026-10-27 行描述字段 role→description 更名：RowDescriptor/PluginRowDeclaration 契约 + row-catalog 61 行 + 宿主行集视图/安装链/测试/文档同步】
+- 【cr-723 2026-10-27 fs/pwsh 在 NTFS Low 完整性目录树上被 MIC 拦截的取证留档；bash-scan 裸斜杠（除法）误报 Unix 绝对路径；sandbox-access 用 icacls 限制范围的候选需求】
+- 【cr-724 2026-10-27 subagent 双修：子壳 spawn 补 windowsHide（Windows 弹命令行窗，随手关窗=杀子代理）；子壳硬退出时任务在飞无终稿——await 永 pending，改按 onExit 合成异常退出回执】
+- 【cr-725 2026-10-27 子Agent 面板双修：subagents/list 盘读面叠加活壳 busy 态（运行中此前恒显示空闲——busy 是父壳进程内态，盘读不可见；新增 subagents-list 管理帧只查在跑壳）；subagents/history 接 journal 步行活投影（运行中点开子会话只见到任务行、无过程回放——在途 run 内容住 journal/partials.jsonl，收束才物化）】
+- 【cr-726 2026-10-28 文档审查批：6 路并行审查 docs/ 全量（57 活跃 + cutover 16），归档 14 篇（10 入 design/archive、4 出仓库）、修正约 25 篇（行册/架构协议/会话存储/远程/UI 五组），疑点清单落仓库外 Note 归档根】
+- 【cr-727 2026-10-28 subagent 工具等待面遵守 call.signal 根修：run_code 墙钟耗尽/用户中止 abort 已随子调用信封下发，但 awaitReply 只认自身 timeout_s 轮询——worker 停在子调用 Promise 上够不到中止检查点，5s 宽限后 terminate 以「worker 异常退出（code=1）」收场（超时面永见不到『墙钟预算耗尽』真因）】
+- 【cr-728 2026-10-28 subagent 提权继承：任务信封透传 call.elevation（两档白名单窄化）——父的 full-access 是随信临时提权（cr-626），taskEnvelope 此前丢弃致子代理回落 base 底座（父 tags 无 full-access）；子壳 receiveEnvelope 的 env.elevation→loop 链路既有，只缺发送侧。对齐契约『elevation 继承不放大也不缩水』（agent-loop contract），collab send 的 opts.elevation 同步接线】
+- 【cr-729 2026-10-28 subagent ask 死锁闭环：①await 在 pending 时盘读子域 interactions.jsonl，返回 status=asking + 问题载荷（子 ask_questions 挂起对父此前不可见——父永轮 pending、子永等回答）；②subagent 新增 answer action：经既有 stdin 控制帧投 interaction-reply admin op 到子壳（子侧 durableInteraction.reply→replied 事件→三态注入续走，链路全既有），父 Agent 可代用户作答】
+- 【cr-730 2026-10-28 subagent 提问改推送：子域 interactions.jsonl 目录 watch（ac-webui-core watchLedger 同款防抖）发现新 pending ask 即向父会话注入「收到子 Agent 提问」上下文——忙 run steer 步边界注入/空闲 deliver 唤醒（对齐 ask-questions 答案注入三态形态），不再依赖父轮询 await 时盘读（await asking 面保留为查询兜底）；pendingAskOf 改 last-wins（reply 追加行覆盖旧 pending 态）】
+- 【cr-731 2026-10-28 subagent 提问通知改持久可重放：①spawn 把发起会话键 originConversation 物化进子域 config.json（重启后注入目标可恢复——convOf 原为内存态）；②提问通知 deliver 携带 requestId=ask-notice-<id>（cr-250 持久幂等面 .deliver-seen.json 去重）；③服务启动 + 首次工具调用时对账全部物化子的 pending ask 补投漏通知——修「父壳重启 watcher/askNotified/convOf 全蒸发，pending ask 成死信；不开会话父壳不拉起、通知无处安放」的易失推送面（store 仍在子域：reply 语义必须子进程内执行，位置非错误）】
+- 【cr-732 2026-10-28 提问对账注入目标回落链：config.originConversation（cr-731 新物化）缺席时读子域 sessions/*/inbox 任务信封的 payload.replyConversation（cr-711 早已持久化）——修历史子（cr-731 前 spawn）重启对账静默跳过、会话看不到提问注入】
+- 【cr-733 2026-10-28 提问对账重试时序修复：conversation 服务在 subagent 行之后装配（行序依赖）——boot 时对账恒拿不到会话面而静默跳过，此前的兜底只挂首次 subagent 工具调用（无人发消息永不触发）。改为有界重试循环（500ms×120 直到 conversation 可用），deliver 失败落日志不再静默吞】
+- 【cr-734 2026-10-28 待答提问拉壳扫描：宿主 boot 扫 children 域 interactions.jsonl（last-wins 判 pending ask_questions）命中即 ensureAgent(父)——提问通知链全住父壳进程而壳按需拉起，重启后无人发消息父壳永不起、pending ask 成死信；与 restart-shell 标记扫描同族（盘上事实→拉壳），壳起后对账链（cr-731/733）自行投递】
+- 【cr-735 2026-10-28 待答提问拉壳改延迟串行：boot 期拉壳与 rescue 探活并发——慢 boot 壳被 4s manage 探针误判真老壳→降级再拉→并发 ensureAgent 双 spawn（R3 已知竞态）互拒判死，壳 boot 完成前被杀。扫描改纯函数收集父清单，boot 后 15s 串行逐个 ensureAgent（避开启动风暴窗口）】
+- 【cr-736 2026-10-28 subagent 换代缺口双修：①answer 在父壳重启后（children 句柄面空）报不在管理面——改经子 activation.lock transportHint 直投 interactionReply 标记信封（deliverToChild 同款通道），子壳收信面认标记转 durableInteraction.reply（replied 事件三态续走既有）；②提问通知对账路径改 steer 优先（忙 run 步边界注入，不再挤进 QueueDock 排队）】
+- 【cr-737 2026-10-28 ToolResultSubagent 卡片对齐 preview 工具词形：list 读 agents（旧主线 subagents 词形回落，历史回放兼容）+ childId/id 双读 + busy→running/exited→stopped/ready→idle 徽章归一（已停止/已完成的子此前列表恒空「暂无活跃」）；ID 点击守卫认 sub- 连字符（此前 sub_ 单词形点击无效）；await 卡 result.text 展开（对象直渲 bug）】
+- 【cr-738 2026-10-28 subagent list 会话域过滤：子域无发起会话记录，list 为父 agent 全局面——跨会话互相可见。listOp 加 originConversation 投影（config→inbox 信封回落，读缓存）+ 当前会话过滤（无键条目保守显示防孤儿），工具 list 缺省过滤 / all=true 全量，输出带 origin_session；childOf 懒回填 config.originConversation（存量覆盖收敛）】
+- 【cr-739 2026-10-28 session/history 投影：busy-steer 注入行 requestId 关联过滤 viewer 域同键 user 行（插队消息双卡根修）】
+- 【cr-740 2026-10-28 运维日志面补齐：壳侧 run.started/run.settled 节拍 emit + 宿主监护面 runbeat 落盘 + stderr 落盘判定修正（boot 完成行/运维事件不再误判错误面）】
+- 【cr-741 2026-10-28 shell-*.log 运维优化：stderr 落盘行宿主侧盖 ISO 时标（时间线对齐）+ boot 完成行不再刷宿主控制台 + reportStderr 死参数精简】
+- 【cr-742 2026-10-28 控制台输出格式化：cordis logger 档位（label 对齐+颜色）+ 宿主/壳转发高频行统一 HH:mm:ss LVL [src] 格式 + strip-types ExperimentalWarning 消音】
+- 【cr-743 2026-10-28 壳 boot 关键路径插桩测量与 boot.ready 指纹域异步化】
+- 【cr-744 2026-10-28 会话状态 dock 卡（run-status）：发送→首输出的静默空窗前端可视化——connecting/thinking/streaming 三态 + 错误收敛（conversation:dock-widget 贡献 order 5）】
+- 【cr-745 2026-10-28 修复链跑交接 activeRun 会话键不更新：driveRun 链跑循环 runStarted 时同步重设 activeRun——运行跟踪面板（runs/snapshot runState）与 session/history 活投影在链跑 run 期间误报首会话】
+- 【cr-746 2026-10-28 per-conversation 串行化门落地：ConversationMachine 按 runAddress(agent, conversationId) 粒度多实例（Map<uuid, machine>），同 Agent 多会话并行 run——activeRun/currentAbort 多值化，run-state 帧改多 run 形状（宿主 collectRunning/活投影适配），链跑循环改 per-会话驱动，对齐 per-agent-instance-architecture D1 裁决】
+- 【cr-747 2026-10-28 ask-questions 二次唤醒根修：answered 交互消费路径 close 缺席 + boot 重放面比对口径漏 inject 行（steer/挂起注入消费的 notice 恒被 replayView 过滤→比对恒失配→重启必重放）】
+- 【cr-748 2026-10-28 shell 状态对账批：conversation.runState 增 recentSettled 尾巴 + 宿主 shellStatePoller 只读轮询面（快照缓存/收束对拍/可达维持），collectRunning 优先读缓存】
+- 【cr-749 2026-10-28 run-status 相位序根修：载体活跃相位优先——流式输出被历史工具残留（最短转圈延迟窗/参数分片）吞成 tooling/calling 的错位；文案格式改逗号用时】
+- 【cr-750 2026-10-28 webui:build 26 条 node:fs/node:path externalized 警告根因修复：ac-webui-core 增 ./browser 子入口（token-vocab+isolated-policy 浏览器安全面），apps/ui 浏览器侧值导入（client/boot.ts、src/isolated.ts）改走子入口——Node-only 模块不再进 vite 浏览器模块图】
+- 【cr-751 2026-10-28 run-status 状态卡布局：时间前置 + 自绘旋转时钟替代 BusyRing（指针 3s/圈，忙指示豁免 reduce）】
+- 【cr-752 2026-10-28 subagent 子会话视角刷新驱动改挂 subagents/updated 帧：原 watch 押 jobBoard kind=subagent 条目，而 preview 生产链（ShellSubagentService）从不向 jobs 注册表登记——job 恒 undefined，子 Agent 运行中/收束后子会话视角不重拉历史（思考过程要手动刷新才可见）。改经 ctx.subagentBoard（既有 subagents/list RPC + subagents/updated 帧驱动投影）驱动刷新与运行徽章，摘除 jobBoard 依赖】
+- 【cr-753 2026-10-28 subagent 会话设置继承：子 Agent 不继承父会话的 conv-settings 覆盖——父会话键（sid/对桶）上的 toolMode=tc-programmatic、elevation=full-access 等对子不可见（子会话键 parent~sub-x 在 conv-settings 无键，子 run 回落子 config tags = base/tc-base；唯一例外是 cr-728 的 per-call elevation 仅在父 run 自带提权时随任务信封到达）。修复：spawnOp 物化子域时读父会话（call.conversationId）的 conv-settings，把继承面键（elevation→档位词、toolMode→tc-模式词、browserTier/issueSubmit→等效能力词）合入子 config.tags 快照（会话覆盖本就是等效能力标签语义，物化即快照与 R-5 同构）】
+- 【cr-754 2026-10-28 子 Agent 工作区幻影路径修复：WorkspaceShim.sandboxWorkdir 对齐主线 ensureAgentWorkdir 懒建语义（files/<id> 首触即建）；subagent delete 归档时空工作区目录顺手回收】
+- 【cr-755 2026-10-28 run-status 响应式断链根修：流式载体经 feed-core 非 reactive Map（原始引用改属性无 trigger）——thinking 逐帧到达状态卡不重算恒显 calling；Host computed 挂 lastStreamAt 依赖锚（bump 每帧经代理更新）】
+- 【cr-756 2026-10-28 run-status 权威对账：run 在途判定挂 conversation/stats 轮询（活跃期 2s，Host 驱动）——本地帧点亮 + 权威判死（miss 且 20s 无帧 = 死行收束），替代启发式死行判别】
+- 【cr-757 2026-10-28 子壳 AgentsShim.get 顶层缺席回落 children 嵌套域（影子形态 config 读不到 → tags 丢失 → run_code SDK 投影空）：对齐主线 conversation readConfig 的 parentId 分支】
+- 【cr-758 2026-10-28 subagent 工作区锚点继承：发起会话挂载工作区时 spawn 快照进子 config settings.security.workdir，WorkspaceShim.sandboxWorkdir 补显式 workdir 层（主线 ac-workspace 同序）——子 Agent 相对路径/bash cwd/提示词工作目录锚定发起会话工作区】
+- 【cr-759 2026-10-28 subagent 模型继承（cr-758 续）：发起会话 conv-settings 的模型覆盖随 spawn 快照进子 config 的 model/provider（splitModelRef 拆分 name@model）——修复子 Agent 用默认模型而非会话设置模型】
+- 【cr-760 2026-10-28 上下文占用双修：trajFromRows 过滤 subcall 平铺卡（run_code 子调用对不进回放注入/估算——对齐旧架构「回放面纯净」裁决，上下文膨胀与估算高估同根断）+ 壳 after-step 步级缓存事件信（preview 拓扑宿主无 loop 事件源，pending 步流断链——运行中 run 的 KV 走势实时性恢复）】
+- 【cr-761 2026-10-28 上下文占用每 step 实时刷新：usage-step 信与 stepCache 增带步级 prompt（本步请求真实上下文体积），timeline 点透传 prompt，TokenGauge 运行中 run 以最新步 prompt 驱动占用环/头行/堆叠条（盘读估算仍在 run 收束后接管）】
+- 【cr-762 2026-10-28 子壳行集剔除 subagent 行（防子孙无限增长）——deriveAndAssertRowset parentId 形态过滤 + spawnOp ⊆ 投影拒绝显式点名】
+- 【cr-763 2026-10-28 前端工具卡永转根治：空输出工具 result 空串被判在途（feed.ts 派生收窄到末尾步）+ 重连无条件收口 + 权威判死联动消息行收口 + 悬挂探针挂载条件放宽（runInFlight 口径）】
+- 【cr-764 2026-10-28 run_code 程序卡退役卡内「工具调用」时间线段——逐条子调用已由 subcall 平铺卡展示；卡内保留执行摘要徽章行（调用计数/机器耗时/被拒唯一可见面）】
+- 【cr-765 2026-10-29 ctx.get 隐形依赖分析收口：SKILL 插槽-插头约束文案校准为粒度/时机真实语义（激活单元=意义单元；use-time 软取为正典、start-time 硬依赖必须 inject）；ac-goal goal-round 驱动改 inject conversation 硬依赖（消软取 warn 丢轮）】
+- 【cr-766 2026-10-29 中断步保真落盘 + 步内相位 duration 粒度（思考/回复 textMs + 工具执行耗时落盘）：ac-llm abort 返回部分聚合而非丢弃，loop 中断步照发 after-step 并跳过工具执行，journal/投影/续跑读侧全链带出，续跑剔除不完整 tool_calls】
+- 【cr-767 2026-10-29 注入卡展开体修复：inFlight 同锚丢弃改吸收（历史行 contextContent 补进直播行）+ 注入帧调度延迟重拉】
+- 【cr-768 2026-10-29 历史加载读面优化回填：session/history 恢复 lite 视图与 fingerprint 短路 + 读面单次化（cutover 迁移遗漏，cr-52/54/55 优化在新架构静默丢失）】
+- 【cr-769 2026-10-29 run-status dock 焦点化重设计：主色胶囊带 + 活动轨道 SVG 动效（替换时钟指针图标）+ 计时升为 hero 'run-status dock 焦点化重设计：主色胶囊带 + 活动轨道 SVG 动效（替换时钟指针图标）+ 计时升为 hero', 相位化轨迹运动】
+- 【cr-770 2026-10-29 run-status 状态行二次重塑：去壳、自建色板、CSS 呼吸柱列替代 SVG 旋转】
+- 【cr-771 2026-10-29 run-status 状态栏三版：悬浮呼吸胶囊（自建 pill + 相位色相 + 状态点心跳余波）】
+- 【cr-772 2026-10-29 历史耗时落盘透传：journal-step 补 elapsedMs/usage/stepId，LoopRunResult.wallMs 经终稿行 runMs 持久，前端历史链栏耗时/速率段补全】
+- 【cr-773 2026-10-29 run-status 状态栏 cr-772：计时弱化到与文案同级；结构面改走令牌修亮色白字隐形（classic 无 data-theme，改以 html.light 判亮极）】
+- 【cr-774 2026-10-29 run-status 无壳化：去掉胶囊壳，光晕改由状态点向外发散（--halo-a 分主题档）】
+- 【cr-775 2026-10-29 run-status 调优：字号降一级 fs-sm、光晕收小至 31px、整行改左对齐贴消息流基线】
+- 【cr-776 2026-10-29 run-status 容器透明化 + 计时/文案双磨砂色域（相位色底 + backdrop blur）防混读】
+- 【cr-777 2026-10-29 run-status 色域改渐隐底色：对齐 chain-header.expanded 手法，撤掉 backdrop-filter】
+- 【cr-778 2026-10-29 composer 浮层栈：dock 列+输入区脱流贴底，消息区全高+实测底部内边距+顶缘渐隐（修「像被遮挡」的根因）】
+- 【cr-779 2026-10-29 底部留白改内容尾部 spacer 元素（不再吃滚动容器 padding）：避开 border-box 与 scoped 特异性，测高走 prop 数据流】
+- 【cr-780 2026-10-29 run-status 微调：左缩进到头像位对齐正文、撤光晕（色域已承托）、色域左右加 8px mask 淡出】
+- 【cr-781 2026-10-29 composer 渐隐带下移到输入卡上缘（dock 槽抬 z-index）；run-status 色域提浓 0.26/0.16 + 背模糊（翻历史不再与正文混读）】
+- 【cr-782 2026-10-29 run-status 调整顺序：文案在前、计时在后（时间作注脚）；补顺序契约与长文案省略号伸缩约束】
+- 【cr-783 2026-10-29 run_code 墙钟耗尽/用户中止不再返回 tool-interrupt——预算耗尽是资源反馈（模型下一步自适配），用户中止由 loop 步边界 signal 检查收束（原 interrupt 化把它误标 tool-interrupt 且杀死整轮会话）】
+- 【cr-784 2026-10-29 底部留白旋钮澄清：spacer 高度改 calc(栈高 + --composer-extra)；锁 wrapper 不带 padding（会缩小可视区）】
+- 【cr-785 2026-10-29 可视区裁剪到浮层顶：wrapper padding-bottom=栈高（内容不再伸入输入区背后）；渐隐带回迁栈顶；spacer 降级为 --composer-extra 呼吸旋钮】
+- 【cr-786 2026-10-29 run-status 色域收敛：文案区/计时区两块合并为 .rs-line 整行一条，撤掉 backdrop-filter 磨砂】
+- 【cr-787 2026-10-29 ac-todo 补测试：todo 工具 write/read/桶隔离/校验/卸载级联（原包零测试，仅 UI 行覆盖装配面）】
+- 【cr-788 2026-10-29 composer 底边界改为输入卡上缘+16px（真浮层但不穿透输入卡）；撤栈顶渐隐带（真浮层下会成空洞）】
+- 【cr-789 2026-10-29 修复 ChatInput 多根 fragment 致 为文本锚点、ConversationView composer 测高崩溃退位：defineExpose cardEl 替代 取输入卡元素】
+- 【cr-790 2026-10-29 预设模板行集调整：标准移除 session-query/collab-tools；创造与 ABAP 移除 str-replace-editor（ABAP 另移 collab-tools）、新增 browser/goal/todo/mcp/datetime 行并同步 tags；极简不动】
+- 【cr-791 2026-10-29 run-status 色域双层配方：相位色 + 实底色（--rs-base 令牌化，不硬编码 white）；软化宽度变量化】
+- 【cr-792 2026-10-29 run-status 行高 19→25px（--rs-pad-y 变量化）：渐变停点为百分比，行高越高过渡的绝对像素越多】
+- 【cr-793 2026-10-29 收束收敛重拉静默化：区分用户可见加载与后台收敛，settlement 重拉不再点亮加载历史指示器】
+- 【cr-794 2026-10-29 门控退役批：datetime/memory/skill/sap-adt/issue-tools/harness-tools/goal 的 settings enabled 软停用收敛为壳行装载（exclude/不点名）；ac-gate-core 包 + ac-agent-loop agentOf readers + respectsEnabled 声明面随批退役】
+- 【cr-795 2026-10-29 恢复尾部 spacer：高度 = 重叠量 + --composer-extra（修滚到底最后一条贴死输入卡的回归）；overlap 由宿主单源传入】
+- 【cr-796 2026-10-29 --composer-extra 补默认值落点：apps/ui 布局令牌 @layer :root 声明 0px（此前只有 var() 兜底的悬空引用）】
+- 【cr-797 2026-10-29 尾部留白改为含 dock 高度：composerTail = 输入卡上缘 − 栈顶 + overlap（dock 多少张卡都自动算）；回到底部按钮抬升同改】
+- 【cr-798 2026-10-29 seats 对账时序缺陷修复：auditSeats 快照 diff 漏判 slots.inject 声明存活期贡献（todo 行 cr-454 引入的惰性注册形态——声明方通道在装载序后者贡献未即时落注册面），13 域行 declaredNotRegistered 假阳性 + settings 偶发 registeredNotDeclared；修复 = 审计双轴满足判定（即时贡献 diff + 窗口内新挂起的 inject 待声明效果〔SlotsService 新增 pendingInjects 诊断面〕），registeredNotDeclared 排除先行消费者 deferred 落位（声明方窗口内新声明的席位 + 先前挂起效果落位）；新增 29 通道全装运行时对账回归测试】
+- 【cr-799 2026-10-29 会话滚动跟随：贴底自动恢复阈值 BOTTOM_EPS 80→240px（前端反馈：流式期底部持续生长、80px 内难以滚回恢复跟随）；精简 useChatShell——删零调用方的 isNearBottom/isAtBottomEl，内联单用别名 scrollToBottomAndReset（按钮改调 scrollToBottom(true)）】
+- 【cr-800 2026-10-29 孤儿对账清扫补迁收口（cr-696 重组漏迁）：ac-app/src/orphans.ts 随包退役而 boot 期指纹对账丢失——回迁 apps/host/orphans.ts 并在 bootHost 锁后即扫（cr-382 建议 3 复位；指纹与 shells.ts 现行前缀核证一致；executor 失效注释同步修正）】
+- 【cr-801 2026-10-30 移除 RunStatusDockHost 临时诊断日志（cr-756 排查期 console.log [run-status]）——排查已收束，清理调试输出】
+- 【cr-802 2026-10-30 光环偶发消失根修：llm/delta 到达时重点亮分区 streaming（帧驱动即时性——重连/重启/边界帧丢失窗口光环不再消失）+ collectRunning 观测失败降级为跳过 digest 步进（peek poller 已有权威快照，观测抖动不再把 running 清空）——观测失败≠没在跑】
+- 【cr-803 2026-10-30 subcall 档案剥离出 messages.jsonl：settlement 物化段行不再内联子调用平铺卡，恢复独立 subcalls.jsonl 永久档案（旧轨道三文件裁决语义），读面联查注入保 UI 等价】
+- 【cr-804 2026-10-30 textBeforeTools 落盘透传缺失修复：journal/投影/物化链路补字段 + 直播 step-started 丢帧时相位标志跨步泄漏】
+- 【cr-805 2026-10-30 壳拉起风暴三修：adopt 超时杀拉起中进程（断幽灵持锁源头）+ supervise adopt 失败退避门（窗内快速失败不逐拍 spawn）+ control 池内失败盘上活锁 socket 兜底】
+- 【cr-806 2026-10-30 restart 双件使用引导优化（Agent 反馈四条）：description 补代码重载第一场景与非停机窗口语义 + 宿主 boot 落盘 host-facts.json（pid/port/bootAt）+ restart_host 回执结构化（oldPid/webuiUrl/healthz 探测指引，ack 语义写明壳侧合成）+ creator 预设 system 第 4 节同步】
+- 【cr-807 2026-10-30 error 收束错误行落账缺失：settle 链应按 session-design §2.5 落 role:context+source:error 行（UI 红条/LLM 喂回），实现缺席——错误文案只活瞬态帧，刷新/错过帧即不可见；补 settle 侧落账 + session/history 读面盲区附带透传（role:'error' 行），单测锁写侧（ledger）/调用侧（shell-conversation）/读面（view）三层】
+- 【cr-808 2026-10-30 对话对象行防身份误认：id-显示名并排改方向性谓语句（你正在与 <id>（显示名） 对话），锚定自身视角】
+- 【cr-809 2026-10-30 .gitattributes 声明全仓 LF（* text=auto eol=lf，*.bat/*.cmd 保持 CRLF），消除 core.autocrlf=true 下的 LF-will-be-CRLF 警告】
+- 【cr-810 2026-10-30 预设身份人设载体迁移：creator 模板 config.system 改走 settings.persona.file=AGENTS.md + persona 行入集（模板文档随物化落地——adoptShell/createFromTemplate 双路径 skip-if-present），活体 __creator__ 同步迁移】
+- 【cr-811 2026-10-30 贴底跟随丢失排查：自管滚动视口关浏览器滚动锚定（overflow-anchor:none，主容器/思考卡/工具卡三处）——锚定补偿与跟随引擎打架致 scrollTop 被下调误判用户上滚】
+- 【cr-812 2026-10-30 预设模板升级通路（cr-810 后续，copy-on-write）：物化记 origin 指纹（preset-origin），未编辑自动跟随模板新版、已编辑保留+日志提示；剥除词法 materializeConfigOf 三处并源；三预设活体重置为当前模板形态（pristine 基线）】
+- 【cr-813 2026-10-30 restart_host 保壳保 run 回归修复（cr-705 壳收割面误伤）：host.close() 增 reapShells 选项，restartHost 换代路径跳过壳收割——保壳承诺自 cr-705 后被 close() 无差别收割破坏（活体实锤 2026-10-30 两次：run 以 This operation was aborted 误标 error 收束 + 壳 exit 0 非预期 42）】
+- 【cr-814 2026-10-31 fs 检索双缺陷修复：grep include 泄漏（rg --glob 后者胜——include 应先于排除入参）+ glob 深层目录静默丢失（walk 剪枝把字符偏移当段序——第二段起剪枝失效致 MAX_SCAN_FILES 预算被路径序在前的大目录吃满）】
+- 【cr-815 2026-10-31 会话流卡片优化实施（方案 sandbox/cards-gallery/optimization.md）：批次A骨架 CardFrame+五类基准卡+JsonCard/RawCard兜底】
+- 【cr-816 2026-10-31 会话流卡片优化批次B：注入卡族（#2 图标语义化 #3 Markdown渲染 #4 问答卡席位 #5 直播载入态 #6 尾挂归属）】
+- 【cr-817 2026-10-31 会话流卡片优化批次C：工具卡+数据面（A-1~A-5 修复 + #7~#15 视觉优化）】
+- 【cr-818 2026-10-31 会话流卡片优化批次D：代码卡统一（#17A 三卡并 CodeCard #17B controls 插槽 #17C 换行开关）】
+- 【cr-819 2026-10-31 卡片优化首轮测试反馈修复：CodeCard 滚动条/默认换行/return 全展开+KB 计量/JsonCard 换 CodeCard/行号滚动条位/edit 卡换壳/todo-goal 按次快照核查】
+- 【cr-820 2026-10-31 todo/goal 工具返回值优化：write 计数摘要、cancelled 第四态、in_progress at-most-one 校验、goal delete 去复述、前端配套】
+- 【cr-821 2026-10-31 subagent 子 Agent 工具面蒸发修复：tc-* 模式词不再随会话设置/父 config 继承进子 tags（词义错位——子注册面无 run-code 行时 tc-programmatic 使 LLM 面收窄为空集，spawn 授予的工具全丢、子变纯聊天单步收束）；子的交互形态改为结构化合成：子 rows 含 run-code 行 ⇔ 子 tags 合成 tc-programmatic（形态跟随装配），父级 tc-* 词物化时剥除】
+- 【cr-822 2026-10-31 读面搬迁审计：宿主-壳独立后读接口分类盘点与盘直读/poller 镜像/静态化三批改造实施文档（host-shell-read-face-audit.md）】
+- 【cr-823 2026-10-31 读面审计实施文档评审回填：E 类 stats 空集定性修正（已裁决缓冲）+ 批一形状兼容验收项 + 2-1 补 poller 注入桥 + 零壳侧口径修正 + 工时总账】
+- 【cr-824 2026-10-31 读面搬迁实施：批一 goal/todo/interaction 读面盘直读 + subagents 叠加通道 liveShells；批二 stats 接 poller.snapshot】
+- 【cr-825 2026-10-31 读面搬迁批三：tool-catalog 生成器（真装配 dump 入库快照）+ tools/list 冷面零拉起 + agents/tool-defs 静态派生退路】
+- 【cr-826 2026-10-31 读面搬迁批三续：events/listeners·descriptions·policy-list 目录数据化（tool-catalog 生成器扩展 dump 监听器注册面 + aggregate 聚合接线）】
+- 【cr-827 2026-10-31 修复 workspace/open-local 忽略会话/Agent 上下文——相对路径一律按数据根解析致挂载工作区文件打不开；对齐读面 resolveWorkspaceFile 单源（与 open-dir 同款上下文推导）】
+- 【cr-828 2026-10-31 落「打开方式」功能调研与实施计划文档（dsh open-in-app 两轮调研结论 + AgentChat 落地方案，下会话实施）】
+- 【cr-829 2026-10-31 「打开方式」P0：预置应用目录探测 + open-targets/open-with RPC + 前端下拉（open-with-app-plan.md）】
+- 【cr-830 2026-10-31 「打开方式」真实应用图标：exe ExtractAssociatedIcon 提取 + open-target-icons RPC + 前端 img 渲染（lucide 回落）】
+- 【cr-831 2026-11-01 「打开方式」加文件资源管理器条目：fileArgs 扩展（文件=定位选中/目录=打开）+ 图标回落 folder】
+- 【cr-832 2026-11-01 工作区树原生应用图标实施计划文档（workspace-tree-native-icons-plan.md，cr-831 后续 P0 设计稿）】
+- 【cr-833 2026-11-01 工作区树文件节点原生应用图标：file-assoc-icons 纯模块（DefaultIcon 两跳+提取上提）+ workspace/assoc-icons RPC + 树 store 增量收集 + 节点三分支渲染】
+- 【cr-834 2026-11-01 cr-833 微调：目录行改用 HKCR\Directory 文件夹图标（shell32.dll,3）+ 移除树头部打开方式按钮】
+- 【cr-835 2026-11-01 superagent 增量设计档案：Source 行 + Eval/Ticket 域包 + 任务级 Watchdog + superagent 面板入口（依据 dsh-superagent-prototype 调研）】
+- 【cr-836 2026-11-01 cr-835：WorkspaceTree 标题图标改用文件资源管理器原生图标（复用 openWithMenu explorer 条目，线性 SVG 回落）】
+- 【cr-837 2026-11-01 cr-837：修复「打开方式」窗口被藏——runOpenWith spawn 去掉 windowsHide（Win11 stub 转发链继承 CREATE_NO_WINDOW，Store 版 notepad/explorer 桌面进程窗口一并被藏→opened:true 但无窗口）】
+- 【cr-838 2026-11-01 fix(preview): markdown 预览正文散文裸写的 <script 经 html:true 原样进 srcdoc，浏览器当真脚本解析——未闭合开标签把余下整篇文档吞进脚本体（中文即非法 token → about:srcdoc SyntaxError + 预览在提及处截断；桌面 webui 无 CSP 不拦）。修法 = markdownPreviewDoc 文档壳统一中和正文 script 元素（成对连内容剥除、落单开/闭标签剥标签，GitHub markdown 同款语义；壳自带外链复制脚本另注不经此）+ 单测】
+- 【cr-839 2026-11-01 cr-839：face-ops-open-local 测试 mock runNativeOpen——真派发会在跑测试的机器上弹系统默认程序打开沙箱临时文件（文件随 afterEach 删除=打开不存在的文件）；mock 后断言升级为验证定位绝对路径】
+- 【cr-840 2026-11-01 运行状态 dock 细分两个等待相位：connecting（连接 host——wire 断开窗口本地判定）与 spawning（启动 shell——宿主 inflight 拉壳集经 stats 对账面带出），从 waking 窗口拆分】
+- 【cr-841 2026-11-01 usage 弦图会话流量修复：classifyPair 键词表失配 8.9 D4 端点轴——直答/独立会话记账键变 UUID 后 87.5% 用量进不了端点对视图；补 viewer 投影在场判据（user 是会话一端的物理证据）归类 user⇄承载 agent】
+- 【cr-842 2026-11-01 usage 面板柱状图丢计量根因修复：壳 IpcClient 宿主重启后死连接永不重连+ledger 缓存死 client——长活壳 usage 事件信静默丢失（timer 新进程壳正常、直答/singles 长活壳 10-24 起大量丢）；①ledger 发信失败重连重试 ②宿主 usage 行 boot 对账回填（journal 计量 vs audit 流水逐桶差额，reportMeter 补差支持历史时间戳）】
+- 【cr-843 2026-11-01 webui 偶发刷新慢根因修复：/ui-plugin/ 通道静态面（108JS 3.4MB+27CSS 1.7MB）无缓存头无压缩每次全量回源裸传——传输层补 serveFile 公共应答（ETag 协商+br/gzip+content-length）；压缩缓存 64 条上限 vs 实际 ~270 文件整体清空抖动升 LRU；前端 boot-graph fetch 补超时重试】
+- 【cr-844 2026-11-01 fix: feed-core turns 派生的 _version 整对象替换使 bump 跨分区失效（多会话并行流式时活跃视图被无关 delta 逐帧弄脏 → 前端卡顿）——改为 per-dialog ref 字典，bump 只动本分区】
+- 【cr-845 2026-11-01 singles/list 冷启动全量账本扫描慢（1018 会话冷读 12.8s）：摘要索引落盘跨重启复用 + list 分批让出事件循环】
+- 【cr-846 2026-11-01 webui 前端产物更新自动刷新：指纹三源（index ETag+boot-graph body+通道 ETag）WS 重连+轮询双轨校验，流式/后台推迟】
+- 【cr-847 2026-11-01 新会话延迟落盘：新建不再立即写盘（本地幻影会话，首条消息发送时物化落盘）；输入草稿持久化留存（localStorage，跨刷新/重启保留）】
+- 【cr-848 2026-11-01 edit 卡 diff 体两修：CodeCard 默认插槽体撑满卡身宽（flex item 缺省 auto 宽）+ edit-diff-body 滚动条对齐全局标准配方】
+- 【cr-849 2026-11-01 dsh 系统提示词分析：对照 ac-system-prompt 逐条裁决，产出提示词调整文档 docs/design/dsh-system-prompt-analysis.md（不动代码）】
+- 【cr-850 2026-11-01 修复发送后输入框遗留文本：IME 组合定稿 emit 与发送清空竞态——迟到定稿 emit 覆盖已清空 modelValue 且等值守门误判 echo 短路 setContent，PromptEditor 暴露同步 clear()（作废 pending 补发+迟到 emit 抑制窗）断根】
+- 【cr-851 2026-11-01 dsh 分析勘误：输入文件实为组装快照，dsh 是 PromptSection 注册组装架构（官方文档核实）——修正文档背景认知与三处不采纳理由，新增 §7 架构对照】
+- 【cr-852 2026-11-01 dsh 分析二轮：用户四点输入裁决落档——忙轮询/睡眠缺口实锤（用户实测+措辞盲区）、环境锚撞 v3 framework 退役旧案、格式审计结论维持、web 防注入用户确认 P0】
+- 【cr-853 2026-11-01 harness 提示词扩展调研：Codex CLI 全系 + opencode 全系原文抓取入库，逐家对照 ac-system-prompt 裁决落档 docs/design/harness-prompts-survey.md】
+- 【cr-854 2026-11-01 harness 调研补完 Claude Code 2.0.0 全文：四家横向对比落档（关键发现——prompt 层 web 防注入仅 dsh 独有），新增反向清单/不越权等 P2 项】
+- 【cr-855 2026-11-01 提示词调整总方案：四轮调研（dsh/Codex/opencode/Claude Code）收敛为分批实施文档 docs/design/prompt-adjustment-plan.md（不动代码）】
+- 【cr-856 2026-11-01 subagent 三症状根修批：①send/await 换代缺口（sendViaLock 单源抽取，sendOp 对齐 cr-736 锁直投、awaitOp 放宽 ownsChild、send 补归档守卫与 ask watch 重挂）②子壳 spawn 补 detached（对齐 cr-642 orchestrate——R-5 owner 失活子存活不再靠运气）③子域回放 run_code 编排可见性排查与测试锁定④继承面单源收敛（spawn 物化六处写入收拢纯函数）】
+- 【cr-857 2026-11-02 subagent 恢复面预研：崩溃窗口边界矩阵落盘 docs/design/subagent-recovery-matrix.md（九恢复面×判据×缝隙清单——S1 boot 链 replayAnsweredInteractions 未兜 inbox 恢复后竞态双投/S2 换代活子 ask watcher 不重建+S3 asking 永挂无超时兜底 复合成 busy 永真/S4-S5 低危项；裁决建议：不做大一统合并，P1 一行修+P2 活锁扫描重挂 watcher+P3 提醒注入，矩阵文档即统一对账面）】
+- 【cr-858 2026-11-02 subagent 设计批档落盘：①盘面会合通信设计（脱离 host 的 parent↔subagent 与 agent 间通信——锁即路由/信箱即兜底/账本即回音，宿主降级加速器，deliver 对等投递纯库裁决）②post-office 独立进程预研（顺序敏感裁决：盘面化是硬前置，data/control plane 分离，同映像 argv 形态+账本对账重建 registry，三触发线缓行）——docs/design/ 两档案】
+- 【cr-859 2026-11-02 supervisor system 层落地（supervisor-service-plan §五.1/§五.2/§六.1/§六.2）：配方盘面 recipes + system 心跳双证据（AGENTCHAT_SUPERVISED env 退役）+ 根入口纯移动 apps/system/ + pnpm dev 统一 supervised（dev:fg 逃生门）】
+- 【cr-860 2026-11-02 移除 pnpm dev:supervised 别名（cr-859 统一后 dev 已是 supervised，别名无存在价值；历史档案与 CHANGELOG 记录不改）】
+- 【cr-861 2026-11-02 deliver 对等投递纯库（盘面会合 §六.1）：双层会合（锁直投→失败落接收方 inbox 直投）——ipc 传输（IpcClient/listenIpc）从 ac-post-office 移入 ac-envelope-core 断循环依赖；subagent 换轨与 router 拆分的共同前置】
+- 【cr-862 2026-11-02 subagent 投递换轨盘面会合（cr-861 deliver 纯库转正）：sendViaLock/answerOp/deliverToChild 三处内联锁直投退役统一走 deliver()（children 域路径代数）；死子语义从 fail-loud 升级为落 inbox + owner 重拉（信等人→拉起消费，cr-856 换代缺口收口）；修复 deliver.ts DeliverAck 未定义类型（cr-861 遗留 typecheck 红）】
+- 【cr-863 2026-11-02 subagent 通知信封化（盘面会合 §六.3，cr-861/862 第 3 步）：①子壳终稿回执换轨——postReply 对 to=parentId 走 deliver() 双层会合（活锁直投/陈锁落父 inbox 由 recoverPendingInbox 消费），子形态无邮局也回执（hostless 回执断链补全）②子域提问推送双通道——子壳订阅 durable-interaction/opened 主动推 childAsk 信封（断 S2 换代 watcher 蒸发窗），父侧 receiveEnvelope 拦截转 notifyChildAsk 单源（askNotified 门+emit+注入），盘 watch 降级兜底；reconcile 对话锁子顺带 watch 重建（P2）】
+- 【cr-864 2026-11-02 三份设计文档人工验证清单落盘 docs/design/verify-checklist-supervisor-rendezvous.md（发起会话视角：supervisor system 层 B1-B6 / 盘面会合 C1-C4，观察点数值经源码与活体采样实证）】
+- 【cr-865 2026-11-02 修复子 Agent 工作区技能可见性缺口：ac-skill workspaceOf 在 singles 挂载 miss 时回落 settings.security.workdir 锚点（cr-758 同构，子 Agent 继承父挂载工作区的技能可见性）；load_skill 未命中错误信息附三源清单；ask_questions 清除 deadline_ms 废弃参数；测试报告勘误（SDK 声明不含 subagent 等）】
+- 【cr-866 2026-11-02 移除 ToolResult.interrupt 语义化中断通道——插件装卸三件套改即时执行（对齐 restart_shell/restart_host 即时副作用形态），plugin-dev 收束检测/writeReceipt 面退役】
+- 【cr-867 2026-11-02 修复发送后输入框遗留文本（cr-850 残口）：IME 组合滞后下 v-model 仍为旧空值，发送清空赋值空转不触发 watch、doc 不被清——PromptEditor 暴露同步 clear()，send/sendNow 发送出口显式清 doc 断根】
+- 【cr-868 2026-11-02 fresh 场景补充（cr-867 续）：组合期卸载草稿暂存读滞后 v-model 存空丢半截草稿、onUnmounted 时编辑器已销毁——改 onBeforeUnmount 读 flush 现势；补 fresh 重挂载链路测试（真挂 PromptEditor 契约段 + 同构 draftParking 段）】
+- 【cr-869 2026-11-02 singles/list 热路径零读：摘要索引升级清单注册表——装载对账+写点同步维护，list 直吐内存快照（cr-845 延伸第一步；lastActivity 仍 stat 探测，写路径通知留第二步）】
+- 【cr-870 2026-11-02 singles list 消灭全表 stat 活指纹探测：ac-ledger 新增 ledger/viewer-appended 纯通知事件（声明住 service.ts 装配面；UserStub 构造回调 onAppend——send/receive 派生落行后触发；web-api 读前派生与账本管理面同发），singles 行订阅 → 注册表条目摘要惰性失效，list 热路径零 IO（cr-869 第二步）】
+- 【cr-871 2026-11-03 usage 行 cr-842 对账回填改水位线增量扫描——boot 同步全量扫账本（42agent×1175session×282MB 实测 87.6s 卡死事件循环，listen 回调积压 62s）改 journal mtime 水位跳过已覆盖 session + messages.jsonl 懒读（仅补录行取时间戳），稳态 boot 对账零全读】
+- 【cr-872 2026-11-03 system-prompt+goal+web-tools：网络结果防注入条目 + goal blocked 判定防抖 + 后台任务条目改写（prompt-adjustment-plan 第一批 P0）】
+- 【cr-873 2026-11-03 system-prompt：意外改动防护（E_FILE）+ 破坏性命令例举（E_ASK）+ review 心智 findings first（E_SUB 尾句）——prompt-adjustment-plan 第二批 P1】
+- 【cr-874 2026-11-03 system-prompt：第三批 P2 行为策略——todo/subagent 反向清单 + 主动但不越权 + 优先改既有文件（含 <file> 标签教学，dsh §6.4）+ 专业客观 + steering 语义】
+- 【cr-875 2026-11-03 ac-system-prompt：删除指引「系统管理」死码条目——门控词形 system_restart 是 cr-629 工具拆分（restart_shell/restart_host）前旧名，条目自拆分起永不注入（真装配导出证实）；文本引用的 reload 工具亦不存在；语义已被 restart_host 工具描述完整覆盖（分工红线），同步测试基线】
+- 【cr-876 2026-11-03 cr-876 追记：决定性实验实锤用户态裸包名 import 缺口——数据根下插件目录 import 'ac-openai-completions' 必败（Node 向上找不到 node_modules；宿主单文件 bundle 模块已内联不可寻址；全仓无 resolve hook）。AGENTS.md provider 行规约改双形态如实陈述（开发仓库态纯库优先/用户态 fetch 直写 SSE）；A2 留档：宿主 resolve hook 工程项】
+- 【cr-877 2026-11-03 creator 模板人设通用化 A1 落地（用户反馈：开发态/用户态两世界——普通用户在数据根下启动，仓库相对路径必然失效）：AGENTS.md 重写为自包含教学（最小 manifest+apply 骨架，删 apps/catalog/templates 照抄引导）；§4 重启场景通用化（packages/ 特指降为开发仓库条件句）；修 JSON 转义残留 2 处；E_FILE 死词 pwsh 改通用措辞。cr-876 为本批追记】
+- 【cr-878 2026-11-03 creator AGENTS.md 按工具描述覆盖面精简重写：删与 plugin-dev/restart 工具描述逐字重复段（试跑定型/重启场景，-45%），补三处缺失（strip-only 语法边界/provider models 路由清单/ctx.on 订阅形状）；restart_host 工具描述最高频场景开发仓库条件化（用户态两世界收口）】
+- 【cr-879 2026-11-03 creator 插件开发知识技能化：模板携带 skills/（preset-builtin 读面扩展 TemplateSkill + 三物化点写 files/<id>/skills/ skip-if-present + preset-origin 指纹纳入）+ AGENTS.md 收缩为指路残句】
+- 【cr-880 2026-11-03 预设身份判定收敛：词形单源 isPresetId（ac-agents-core）+ preset 字段全链退役 + 创建口保留字闸门 + 词形归一化修正】
+- 【cr-881 2026-11-03 system prompt 去中心化：PromptSection 注册制（具名 order 单源 + agent-loop 组装）+ 三档装配链退役 + 内容拆散至各 owner 包】
+- 【cr-882 2026-11-03 修复 cr-881 残留：根 package.json 漏删 ac-system-prompt 依赖声明致 pnpm install 失败、新行依赖链接缺失】
+- 【cr-883 2026-11-03 cr-881 修正：GUIDELINES_TIMER 注册从宿主 timers 行回退——agentLoop 住壳进程（宿主行集不含 agent-loop 行致 boot 终检 PENDING，且跨进程注册到不了壳 prompt）；当前出厂壳无 timer 工具注册面（恒空串死代码），待 shell 侧 timer 行落地时由 owner 注册】
+- 【cr-884 2026-11-03 cr-881 修正：ENV_MODEL 段注册从 ac-agent-loop 行 apply 挪进 AgentLoopService 构造器——自注册场景 apply 里走 ctx.agentLoop 抛 cannot get property without inject（cr-538 先例：服务实例直引），壳 boot 早退修复】
+- 【cr-885 2026-11-04 outbox 转投触发面修复：poller 周期冲刷 + 转投/出箱失败日志面（滞留信死等偶然事件问题）】
+- 【cr-886 2026-11-04 宿主能力面（host-capability-face）：ipc 契约通道——facts（singles/group）+ collab×7/timer 工具宿主化（双闸）+ 远程段（TERMINOLOGY/COLLAB/REFERENCE_AGENT/GROUP_CONTRACT/TIMER）+ 壳侧 client 代理装配（失效帧刷新）】
+- 【cr-887 2026-11-04 判活单源化：agentInFlight（running ∪ spawning）统一 dock 对账/悬挂探针/发送看门狗判活——切会话 spawning 窗状态卡被权威 miss 误杀的根修】
+- 【cr-888 2026-11-04 singles system prompt 物化设计定稿（四机制：物化/段轴+设置轴 diff/模型切换重算/变化注入）——接力文档 docs/design/single-system-prompt-materialization-plan.md】
+- 【cr-889 2026-11-04 singles system prompt 物化落地（cr-888 方案实施）：快照物化/指纹 diff/模型切换重算/十类变化注入四机制——prefix-snapshot.ts 新文件 + driveRun 接线 + previewSystemPrompt 读快照 + agent-loop sectionsFrozen/materializeSections + ledger context 行回放】
+- 【cr-890 2026-11-04 会话设置变更通知行（cr-889 context+event+label）前端注入卡化——historyApi isInjectionRow 扩判据（带 label+content 的机制行透传 contextContent）+ feed isInjectEvent 同步扩（contextContent 在场即卡片）——十类注入正文此前被分隔符通道丢弃】
+- 【cr-891 2026-11-04 空会话标题回落统一：预设切换不改「新会话」显示（titleOf/identity/header 三处回落以 lastActivity 缺席为统一切面）】
+- 【cr-892 2026-11-04 titleOf 有消息无标题回落去掉「· 创建时间」段（与 identity 头部 cr-33 形状一致；回落窗口创建时间无信息量）】
+- 【cr-893 2026-11-04 工具卡 diff 行底色对齐 FileEditsPanel cr-224 档位（α 0.18）——修 cr-147 漂移】
+- 【cr-894 2026-11-04 幻影壳层退役为单例草稿态（cr-847/848/849/850 四连击的终局收敛）：未发送会话不占列表行、无 id（哨兵 __pending__ 挂 single 视角）；id 改为首次发送时签发并作 create 幂等锚（失败重试同 id）】
+- 【cr-895 2026-11-04 cr-893 续：boot-graph mtime 缓存键只看父目录——build-channel 重建产物不失效（version bump 不进 graph，旧图常驻）。根修：webui-row 目录签名=父+子目录 mtime；build-channel 收尾 touch 输出目录；fs 通道 bump 0.1.1】
+- 【cr-896 2026-11-05 ToolResultEdit split 字面 \\n 双重转义修复——cr-465 CRLF→LF 清理误转义致 diff 恒单行整卡染红（原始 422ea9ab 正确，8748948b 弄坏）；根修 split(\ \n\) + 渲染测试锁分行行为】
+- 【cr-897 2026-11-05 CodeCard 折行态对默认插槽体（diff 卡）不生效——#17C 开关只覆盖内置 cc-code 路径。根修：default slot 下发 wrap slot prop，ToolResultEdit diff 体消费（wrap 态 pre-wrap 软换行）；fs bump 0.1.3 + 行为锁测试】
+- 【cr-898 2026-11-05 插件装载面统一设计档——UI 通道与壳侧行双路径认知负担问题与统一方案】
+- 【cr-899 2026-11-05 插件开发范式重设计设计档（参考 DSH：迭代回路即时化/表达梯度/护栏机械化）】
+- 【cr-900 2026-11-05 插件体系 v2 推翻重设计：包即插件/pnpm 落位/组合树单源/审批与回执治理（取代 cr-898/899 补丁路线）】
+- 【cr-901 2026-11-05 插件体系 v2.1 重写：并入 23 条审计裁决（多物化形态落位/分层合成装配/基座源码化/配置消灭/回执两轴/启动注册表住应用侧）】
+- 【cr-902 2026-11-05 插件体系 v2.1 批1（cr-901 计划）：row-catalog 单表退役起步——host/shell 基座源文档（cordis-plugin-loader 官方方言 + 版本戳头注释）+ row-catalog.json 转生成物 + readCatalog 双读（基座赢）+ host boot 版本戳部署链与对账 fail-loud，行为等价由 e2e 全量锁定】
+- 【cr-903 2026-11-05 插件体系 v2.1 批2 切片一（cr-901 §4.1/4.2）：包即插件描述符层——package.json ac 字段读取（faces/permissions/provides）+ engines 自求值（node/agentchat 双轴，复用 contracts semver 求值器）+ 旧 manifest.json/contracts 字段迁移投影 + installed.patch.yml 读写（name 定位 + owner 锚 + scope）】
+- 【cr-904 2026-11-05 插件体系 v2.1 批2 余项（cr-901 §4.2）：npm 形态落位——profile/ pnpm 根（pnpm add --ignore-scripts 强制）+ 锁文件树指纹定格 + lock diff 审批卡面 + installed.patch.yml 词形分轨（npm 形态 = 裸包名、目录形态 = link:<dir>）；装载接线随批 3/4 分层编译】
+- 【cr-905 2026-11-05 插件体系 v2.1 批3 起批（cr-901 §4.3/批3）：UI 插件形态设计文档（ui-plugin-form.md——web 面包即插件 ac.faces.web 对齐 / 宿主模块表单源与 channelImports 退役 / webui 基座装配文档与分层 / 词法放宽）+ webui 基座源文档 v0（通道清单生成 + 版本戳）】
+- 【cr-906 2026-11-05 插件体系 v2.1 批4 切片一（cr-901 §4.4）：agent.patch.yml 装配 overlay 读写层——AgentConfig 投影（rows/tier/tool-mode/档案面/origin 块；tags 由档位词重建）+ readAgentConfig 双读（patch 在场即赢，config.json 旧读窗口兼容）+ writeAgentConfig 双落（镜像 config.json 保旧读者）；settings 随行窗口（切片二拆 plugin-config/）】
+- 【cr-907 2026-11-05 插件体系 v2.1 批5 切片一（cr-901 §4.6）：作者工具链——ac plugin init（零 PLACEHOLDER 包形态脚手架：ac 字段 + owner 私有工具模板 + keywords 自标）/ publish（门禁复用 admissionOf + npm publish 无构建步 + --dry）/ finalize（定型物化 = 统一安装器代写 installed 行 owner 锚）；agentchat CLI plugin 子命令拦截 + ac 别名】
+- 【cr-908 2026-11-05 插件体系 v2.1 批6 切片一（cr-901 §七.6 前置）：装配菜单合流——installed.patch.yml 进壳行集派生（installedRowDescriptors：owner 锚过滤 + link:/npm 裸名词形解析 + manifest.rows/package provides.tools 投影 + 点名缺席降级语义）+ shell boot 双层合并与装配器注册 + market 人签安装 owner 锚留空（全体候选）；plugin-rows.json 转纯镜像窗口】
+- 【cr-909 2026-11-05 插件体系 v2.1 批6 切片三（cr-901 §4.3）：host/shell-custom.patch.yml 用户偏好层——基座行停用面（custom 层语义：disable；写者 = 设置 UI/用户）+ host boot 派生合流（host-rows.json 镜像窗口 ∪ custom 停用）+ shell boot 基座行减法（点名不在菜单 = 警告跳过）；presets/<name>.patch.yml 变体层裁决：现模板层承担、无行为缺口，登记后继（体量克制）】
+- 【cr-910 2026-11-05 插件体系 v2.1 批6 切片四（cr-901 §4.3/§4.7）：①编译产物快照——shell boot 派生后落 boot-graph.json（审计视图「这个 Agent 实际装了什么」：行集/目录行摘要/warnings，主壳与子壳分域）②进程种类注册表——repo 声明式清单 profile/processes.json（boot 入口/argv 契约/IPC 面/审批归属）+ 部署链随行 + installed scope 词与 DEPLOY 面消费】
+- 【cr-911 2026-11-05 v2.1 验收阻断修复：patch-doc configToPatch 档位词类型谓词窄化（tier/tool-mode string→union，typecheck 红）+ apps/ui 显式声明 ac-client-ui-ask 依赖（seats-boot-audit ask 通道装载失败——依赖声明红线违例）】
+- 【cr-912 2026-11-05 v2.1 收口余项三件：persona 文件选择权核实收口（既有机制全覆盖零码改+定向测试）/ 存量数据根迁移实测执行（67 身份幂等+镜像等价核验）/ webui 独立部署连接协议立档（webui-standalone-protocol.md）——台账勾销、README 指针同步】
+- 【cr-913 2026-11-05 数据根退役窗口件清理：删空镜像 plugin-rows.json（读者缺席=fail-soft 空集已核）+ 4 份 preset-origin.json.migrated（迁移已收口、origin 已并入 patch，--revert 的 origin 还原面随之 forfeit）+ 19 个陈旧 activation.lock（宿主零进程核验后删）】
+- 【cr-914 2026-11-05 数据根整理（用户确认口径）：删陈旧锁 24（含 .stale-* 回收残留与 22:39 短暂启动的死锁）/ .runtime/tmp / exp 实验残留 / 旧开发笔记（note·summary·DONE·TODO——webui P6 时代已收口）/ viewer 渲染快照（可再生）；会话历史与归档 children 按用户选择全保留】
+- 【cr-915 2026-11-05 数据根整理续：sandbox/ 45 个空工作目录清空重建、screenshots/ 开发验证截图 8 张清除；核验保留 memory(groups·remote·timer·usage·conv-settings·credentials·profile·outbox——活跃职责面)与 plugins/(工厂播种可再生+ask 通道为合法 UI 通道非残留)】
+- 【cr-916 2026-11-05 数据根非项目产物甄别清理（代码消费面对照法）：memory/（零代码消费——真实路径 files/<id>/memory，内容为 cr-4 迁移期错位排障笔记）/ sandbox/（代码注释定性死配置产物）/ screenshots/（兜底路径 dev 残留）/ files/_tmp、files/restart-lab（dev 实验遗留）；确认 files/shared 为项目共享桶保留。同轮披露：cr-914 误删 viewer/（实为 ac-ledger singles 会话投影域而非可再生快照——singles 账本 ~1057 条不可恢复，代码侧 fail-soft 自愈，文件编辑史仍存 file-snapshots）】
+- 【cr-917 2026-11-05 webui 独立部署切片一（webui-standalone-protocol §3.1/§3.2）：宿主端点四层发现（?host→localStorage ac.host→__AC_HOST__→location.origin）+ /api/ui/hello 握手端点（协议轴 1 + hostVersion + surfaces）+ 非同源请求前缀化（boot-graph/通道资产/WS/auto-reload；同源逐字节等价）+ web-server 跨源 CORS 放行回显（allowedOrigins 命中）】
+- 【cr-918 2026-11-06 退役窗口件收口：writeAgentConfig 双落 config.json 镜像退役 + preset-origin 并入 origin 块】
+- 【cr-919 2026-11-06 webui 自持通道立档：插件包自管 client 产物、原位服务、数据根免拷贝（探索文档）】
+- 【cr-920 2026-11-06 通道壳退役：build-channel 直构 packages 真身包（ac.faces.web 声明归包），channel/ 生成壳与 gen-domain-channels 退役】
+- 【cr-921 2026-11-06 发布链修复：build-bundle 自构通道（斩数据根依赖）+ esbuild write:false 终写 + e2e-bundle stderr 扫描 + 壳指纹读面迁移 readAgentConfig（cr-918 回归收口）】
+- 【cr-922 2026-11-06 脚本精简：判死/合并/删除（全仓引用求证后收口）】
+- 【cr-923 2026-11-06 webui 装载模型重造立档（webui-v3.md）：推翻裁决——boot graph 锚点从文件系统部署态改宿主活装配态（fiber 打脏/flush 对账 + wire 注入 + SSE，DSH client-modules 实测同构），浏览器装载改 lazy CJS 模块表 + 种子词（退役 importmap/全局注册表/shared-modules），壳重做为最小壳；承继 cr-919 产物裁决（唯一构建器/entry 显式词形/realpath 囚笼/revision URL）；ui-plugin-selfhost.md 归档被取代】
+- 【cr-923 补 2026-11-06 webui-v3 裁决六：wire 获取统一 = GET /api/ui/wire + SSE（同源内联仅为预载优化），壳零宿主假设；独立部署 = 部署选项（静态壳 + 宿主地址单来源 + CORS 放行）非模式非协议，standalone 概念退役——webui-standalone-protocol.md（cr-912/917）归档被取代，四层发现/hello 握手随 cutover 缩水或退役，断连降级态不承诺】
+- 【cr-923 续 2026-11-06 webui-v3.md 规范化重写：拆分架构设计（组件职责/wire schema 与构建流程/模块运行时四支解析序/产物/渲染档/部署形态/裁决与退役清单）、实施流程（三切片+验收判据）、注意事项（风险红线）、参考来源（DSH 行级证据对照表）；整合同日裁决六与 wire/解析序/构建必要性讨论结论】
+- 【cr-923 续 2026-11-06 webui-v3 §4.2 装载域澄清：web 面行经 webui 基座文档装载成宿主进程内独立 webui fiber 域（与 host 基座零混杂，打脏/flush 扫描面收窄）；服务进程不拆（单页需 wire+资产+RPC 三面，独立 webui 宿主=第二 origin 或纯反代，纯 webui 服务场景由裁决六独立部署覆盖）】
+- 【cr-923 续 2026-11-06 webui-v3 自查修订五处：wire schema 补 warnings 域（降级/fail-loud/撞名的上报承载）；壳 v3 职责与总图补 RPC/WS 客户端；flush 步3 落撞名防御（装配层门禁为主 + flush 层防御警告）；退役清单补 build-bundle dist/plugins 拷贝链】
+- 【cr-923 续 2026-11-06 webui-v3 评审反馈六条收口：切片⓪ 分叉决策迷你 CR（SSE/WS 合并与 isolated 种子代理——架构分叉禁止边做边决）；回滚演练提前为切片②前置（无双读窗下唯一安全网先验证）；种子词版本治理（wire 顶层 seeds 表 + 行声明区间对拍，flush 警告 + 物化 throw，跨大版本禁静默炸）；打脏/flush 穿透测试切片一最先写；首版仅 GET 单送达路径（内联预载后继）；__ModuleLoader__ 防御姿态定界（装载协议面非安全边界）；切片②立项单列受影响测试清单】
+- 【cr-924 2026-11-06 webui-v3 slice-0 fork decisions: merge notify channel into existing /ws (wire/graph + wire/rebuilt frames, no SSE endpoint); isolated iframe = independent module table + self-contained bundle. Doc fixes: 30 channel packages count, isolated default flip note, seeds declared at ac.faces.web.seeds; cr-log tail EOL normalized (cr-923 batch left bare LF)】
+- 【cr-925 2026-11-06 webui-v3 slice-1 start: wire schema + synthesis pure functions in ac-webui-core (checkWebFace admission gate, duplicate-id defense, seed major-version parity, inject topo order + cycle/absent degrade, FNV rev hash) with unit tests】
+- 【cr-926 2026-11-06 webui-v3 切片①打脏/flush 穿透：apps/ui webui-graph 注册面——internal/plugin 订阅 → 脏集 microtask flush → loader entries 活态对账（fiber 在场且未停用）→ nearestPackage 定位 ac.faces.web + client/dist manifest → synthesizeWire；装载/卸载/停用三动作 → wire 增删行穿透测试先行】
+- 【cr-927 2026-11-07 webui-v3 切片①构建器 v3 形态：build-channel 缺省产出 factory 注册 bundle（window.__ModuleLoader__.load + CJS 闭包）+ revision 清单（rev=内容哈希/files/seeds 版本区间）落包内 client/dist；isolated:true 自含档（不外部化种子）；--out 旧 ES 形态仅存出厂链（切片③ §4.9 退役）；ac-client-ui-todo entry 词形先切 ./client/dist/index.js（全仓切换属切片②）】
+- 【cr-928 2026-11-07 webui-v3 切片①基座文档接线与行 v3：apps/ui webui-doc（分层求值→loader 行名单：基座−custom 停用∪installed(scope:webui)，link: 词形→模块说明符）+ webui-row-v3（直构 Loader 成 webui fiber 域 + WebuiWireGraph + GET /api/ui/wire + /ui-asset/:id/:rev/* realpath 囚笼路由 + WS wire/graph·rebuilt 帧 + dist stat-poll 懒定时器）——与旧行并存至切片②全量切换】
+- 【cr-929 2026-11-07 webui-v3 切片①壳模块运行时：apps/ui client/module-system——lazy CJS 模块表（①种子词→壳活实例 ②memo ③wire 行→revision URL 取 bundle 注册 factory ④物化；其余 throw loud）+ window.__ModuleLoader__ 装载协议面（load 注册工厂，副作用延迟首物化）；脚本到达经注入点（浏览器 <script>/测试 eval），依赖链按 wire 拓扑序自组织】
+- 【cr-930 2026-11-07 webui-v3 切片②立项（前置回滚演练已过：整批 revert 后旧链 7 文件 55 用例绿）：30 通道包 entry 词形全量切 ./client/dist/index.js + gitignore/files + v3 产物全量构建；壳侧 wire 帧消费（重连重拉 + memo 失效）；isolated 档 iframe 对接。受影响测试清单：apps/ui boot.test / apps/host e2e-webui / apps/shell boot 快照 / packages/ac-webui manifest 断言——cutover 批重写】
+- 【cr-931 2026-11-07 webui-v3 切片②收口：等值验收（服务字节 = 构建期 SHA-256 清单哈希对账，e2e 内嵌）+ 独立部署冒烟（非回环放行源预检 204/wire 200/未放行源 403——CORS 预检即版本面）+ 壳侧 wire/graph 帧消费（boot-v3 reload：重拉全量→差分行失效重物化；行移除卸载面本批不拆件）；isolated 档对接延后裁决：全仓无 isolated:true 行，构建器自含档就位，iframe 运行时对接随首个消费行立项】
+- 【cr-932 2026-11-07 webui-v3 切片③ cutover：宿主 boot 切 webui 行 v3（装配态锚）；壳 main 切 boot-v3 + WS 帧接线；§4.9 退役分批执行（boot-graph 端点/dirSignature/importmap/__ac_channel_modules__/auto-reload/hello 握手/出厂拷贝链——sharedModules 按中间态裁决保留为 v3 种子源）；受影响测试重写；数据根出厂副本清理；全量 e2e + 回滚演练】
+- 【cr-933 2026-11-07 webui-v3 切片③收尾：bootUiClient 旧客户端装载序列退役（defaultLoader/defaultGraph/installChannelImportmap/loadThemeEntry/auditSeats/isolated 装载链删除；骨架件/样式/模块表保留件归 boot-v3 消费）；boot.test.ts 重写为 boot-v3 面；seats-boot-audit 旧链测试随装载序列退役（席位审计面 v3 承接后继立项）；boot 数据根出厂件迁移清理（factory-stamp 名册内目录——cr-918 手法）；README 事实源同步】
+- 【cr-934 2026-11-07 webui-v3 收尾①②——isolated iframe v3 对接（壳侧独立模块表沙盒宿主 + 席位占位）+ 旧 ui-plugin-iframe.html/isolated-runtime 物理删除】
+- 【cr-935 2026-11-07 webui-v3 收尾③——数据根出厂副本清理提纯函数化 + 单测锁定】
+- 【cr-936 2026-11-07 webui-v3 收尾④——数据面主题包 v3 打包（midnight 迁 v3 纯样式行 + 构建器支持）】
+- 【cr-937 2026-11-07 webui-v3 收尾⑤——seat 审计面 v3 承接（全通道 wire 真装载对账门重建）】
+- 【cr-938 2026-11-08 会话面板空白事故修复批（crash-hardening）：markEsmNamespace __esModule 旗标（冻结命名空间浅拷贝替身 + WeakMap 记忆）+ build-channel interop:'auto' + 动态 import() 词形同收 requireSpecs——跨包 .vue 静态引用三视角（single/group/runview）切静态 import；useMarkdown DOM 监听惰性装配；MainViewHost entryVNode 渲染函数化（条目级崩溃边界 + 退位重选举 + deadCellFace 出口崩溃面）+ slots abdicatedOf/lastErrorOf 诊断面；boot.ts 数据根出厂副本清理接线 + auditArmed 门闩与 spec 轴对拍（行名短 id 恒假阳性修复）】
+- 【cr-939 2026-11-08 数据根分层落地（meta/ 第二层迁移批）：会话元数据迁 meta/sessions/<sid>.json（userMetaFile 单源 + 兼容窗回落 viewer 旧位置）；conv-settings 迁 meta/conv-settings/；groups 元数据迁 meta/groups/（读侧双回落）；remote 配对身份 rename 整目录迁移 meta/remote/；data-root-layers.md 分层契约（裁决面）+ data-root-layering-handoff.md 交接档 + data-root-audit boot doctor（顶层未知项 warn）；ac-core-utils workspaces.ts 新增 + package 依赖补登】
+- 【cr-940 2026-11-08 会话缓存与帧有序性改造（B/C 批）：C1/C2 卡片真 id + 累积式建卡门槛；A1 视图停靠 viewParking（滚动锚点泊位 + 思维链折叠位）；A2 feed-core 热集 LRU + 字节预算；B1 行级 seq 持久化（allocSeq 跨实例续接 + 行/页区间携带 + 前端水位）；B2 ledger/step-journaled 落盘后补发（bridge-events 直转 + feed-core 水位补记 + delta 帧去重）；B3 锚点操作按 message_id + durable 确证驱动重拉；C3 中断 run 合成终态（TOOL_NOT_STARTED/OUTCOME_UNKNOWN）；session-cache-and-frame-ordering-plan.md 进展同步】
+- 【cr-941 2026-11-08 subagent 子状态快照引导批：SubagentChildBrief 七态（running/asking/idle/exited/aborted/detached/archived）+ progress 进度统计（journal 现算 steps/tokens/tool_calls/最近步龄）+ hint 下一步；await 落空/send(sync) 无回执附加快照；status 新 action 零等待查单个子状态；注册面 description 补 status 文案（catalog 重生成对账绿）】
+- 【cr-942 2026-11-08 通道产物漂移对账：build-channel 修 publicDir/EISDIR 缺陷 + apps/ui 新增产物对源码一致性门测试（防 cr-938 类混装崩溃）】
+- 【cr-943 2026-11-08 system prompt 段位生态开放与快照漂移修复方案起草（P1 扩展段区+sap-adt hack 退役、P2 指纹段名清单+物化时序、P3 群契约静态化、P4 术语段归位）】
+- 【cr-944 2026-11-08 system prompt 段位生态开放与快照漂移修复方案起草（P1 扩展段区+sap-adt hack 退役、P2 指纹段名清单+物化时序、P3 群契约静态化、P4 术语段归位）】
+- 【cr-945 2026-11-08 cr-944 实施完成：PromptSection 动态注册（name 开放+order∈[0,900)+保留名 owner 白名单+900 上界豁免）；sap-adt before-run hack 退役→sap-adt-guide@500；prepare 缝（run 入口第一拍）；指纹三键 sectionSet/Orders/Texts+diff #11+order 漂移走③重算；段位重排 PTC_SDK 150→450/词汇聚簇 110-122；GROUP_CONTRACT 静态化；TIMER 去 notSingle。验证：typecheck+unit 2858+test 全量 2948+integration 90 全绿】
+- 【cr-946 2026-11-08 会话投影顺序三修：① 壳重启「已重启」通知按机制行（context+event）落账并按事件分隔符投影（新写面 payload.mechanism + 读面存量 restarted-* 兼容）；② buildTurns 增「已出终稿的纯文本步 + run 切换」拆轮判据，防合轮吞掉完整回答；③ 链体承载纯正文中间步（原来只保留思考/工具步）；④ textBeforeTools 补进账本契约与 journal/投影/物化链路（cr-804 回退回归）；⑤ viewer 账本 seq 分配前对账尾行，消除双写者重号】
+- 【cr-947 2026-11-08 安全档位迁移 conv-settings：elevation/tier 词面统一为 access（键、字段、类型、指纹合并单键）】
+- 【cr-948 2026-11-08 WS 重连恢复链修复：WS_READY epoch 代数面（宿主换代可识别）+ healthz 探测快连 + 换代全量 resync（wire/名册/子面板）+ 恢复钩子退避重试】
+- 【cr-949 2026-11-08 cr-948 验证：typecheck + check:deps + webui:typecheck + webui:build + test:unit 2877 + test 全量 2967 全绿（新增用例：epoch 换代触发与同代不触发、resyncRetry 三态、WS_READY epoch 载荷与传输基座 healthz 探活端点）】
+- 【cr-950 2026-11-08 run_code 擦除容错：字符串字面量内嵌裸换行的确定性归一（\n 转义救活）+ 词法归一层整体迁 ac-run-code-core（worker 纯函数零单测的结构性修复）】
+- 【cr-951 2026-11-08 ac-web-server 存量 typecheck 堵门修复：cr-948 测试 connect(new URL(url).port) 传 string 给 number 参数——Number() 收口（解锁全仓 typecheck 验证门）】
+- 【cr-952 2026-11-08 run_code worker 快照降级链修复：快照源码 import 绝对化（相对/裸包名 → file URL，node: 不动）+ 快照后缀 .ts + execArgv 补 strip-types——修复 strip 单文件快照在 tmpdir 无法解析模块依赖、降级候选形同虚设的潜伏 bug（开发会话自锁事故实测证伪）】
+- 【cr-953 2026-11-08 AgentConfig.tags 全链退役（cr-484 终态收口）：档位/模式词换轨结构化 access/toolMode 字段 + requiredTags 门禁退役（授权 = 行装载单闸）+ caps 合成缩减（browser/admin 走 levels）+ 预设模板与消费面换轨 + 存量读侧归一】
+- 【cr-954 2026-11-08 兼容代码全量扫描鉴定：16+1 处「webui re-export 维持旧路径」头注释已随 cr-932 webui-v3 cutover 失真（门面物理消失），逐处改写为迁移叙事；其余 600+ 命中经全仓求证为活代码（数据兼容窗/边界防御/叙事记录），不动】
+- 【cr-955 2026-11-09 死代码全仓审计清理：129 包 6.6 万行经 20 组扫描 + 5 组对抗式复核，269 条候选（confirmed 116、disputed 112、rejected 41），confirmed 约 2461 行按包分批删除，disputed 留档待裁决】
+- 【cr-956 2026-11-09 死代码审计补扫批：32 个未覆盖包（client-ui-* 单文件包 + ac-webui/ac-mcp-core/ac-config 等，含 ac-client-ui-conversation 1.9 万行拆三分）经 6 组扫描 + 3 组对抗式复核，confirmed 24 条按包清理（tags 孤儿链约 620 行、feed-core 活动索引整族、chat-core 死透传、assertDeclarableSlot 滞留防线等）；disputed 154 条留档】
+- 【cr-957 2026-11-09 disputed 第三批处置（用户裁决：仅测试面锁住的删除 其余保留）：16 条纯测试锁定项清理——plugin-core 四导出面收窄/删除（projectLegacyManifest/highRiskSlotsOf/readAudit/installedDocFile）、host-rows 三方法（listAgents/removeEntry/entryKeys/transientConfigOf）、post-office 两面（reachable/inboxDecision）、webui-core 历史读增量面（readLedgerFrom/splitLines/listSessions/readHeaderOnly）、usage.auditFiles、jobs.size、LlmError/classifyLlmHttpStatus 门面收窄；锁定测试同步改写（auditFiles→直读目录、size→list()、增量读→整读）或删用例；约 20 条档案/协议/族约理由的 disputed 保留】
+- 【cr-958 2026-11-09 todo 工具移除 in_progress 至多 1 项限制（at-most-one 校验退役，允许多项并行标记）】
+- 【cr-959 2026-11-09 会话读面注入行投影补全：assembleSessionView 投出 context 直落行（memory-snapshot/memory-delta/skill 等非 event/error 源）——带 run 归口 inject 卡通道（source 原样透传）、无 run 直投，前端注入卡判据已天然覆盖零改动】
+- 【cr-960 2026-11-09 fix(conversation): ask_questions 作答草稿失去响应式——draftsByCard 普通对象致 answered 恒 false（自定义回答无法提交）】
+- 【cr-961 2026-11-09 shell boot 图单文件 bundle 化（随 cr-959~972 批次提交落地）——anchors dev 偏好链（dist/shell.mjs + 指纹旁车 mtime/size 对拍，漂移自动回源码直载）+ pnpm build:shell 双入口 + 测试锁；配套运维项完成:仓库根 Defender 实时防护排除（递归含 node_modules）+ 批后源码漂移重建】
+- 【cr-962 2026-11-09 拉起链冷启韧性三件套:并发上限+排队(冷态互拖消解)、adopt 超时独立定时器+分级预算(首拍 45s 冷启容忍)、adopt 超时有限重试+flushOutbox 不可达滞留目标周期补拉(带冷却窗防风暴)】
+- 【cr-963 2026-11-09 cr-962 补拉回归修复:flushOutbox 转投失败目标 10s 抑制补拉——补拉经 rescue 回 markReachable+flush 与 cr-885 失败摘项在壳 boot 窗口形成 microtask 振荡(现场单秒 600+ 条 W 刷屏,宿主重启后三壳齐发)】
+- 【cr-964 2026-11-09 记录:启动链结构评审存档 docs/design/bootchain-structural-review.md——E1 可达表多写者无 owner(结构性错误,振荡事故族之根)/E2 壳生命周期状态机五层打散(结构性弱点)——未裁决,待新会话讨论立项】
+- 【cr-965 2026-11-09 设计提案:宿主换代完整接管 docs/design/host-generation-takeover.md——socket-only 监护形态 + 判死双源 + 接管流程 + 三决策点(D1 双源判死/D2 让路窗收紧/D3 黑名单退役)+ 三批实施切分;取代同日删除的 cr-964 评审存档(结论已并入 §1)】
+- 【cr-966 2026-11-09 换代接管批1：判死双源喂活——ShellWarden.noteProbe（socket run-state 探测=第二心跳源）+ peek 接线】
+- 【cr-967 2026-11-09 换代接管批2：socket-only 句柄形态 + boot 完整接管 adoptLiveShells（替代 rescue 降级语义）+ 壳侧 system/shutdown 帧】
+- 【cr-968 2026-11-09 换代接管批3：D2 host-revive 让路收紧（system 在场 ∧ 宿主已接管证据 = 免除复活）+ D3 cr-675 老壳黑名单/降级路径退役 + 注释与文档同步】
+- 【cr-969 2026-11-09 换代接管残余评估：E1/E2 批3 后重估结论入设计档 §9（rescue 并源与拉起链时钟并源两收敛项，暂不动代码）】
+- 【cr-970 2026-11-09 换代接管改动面精简：takeover.ts 死注入点（watchPump）与无用防御面（stderrTail 空实现）内联移除 + 测试空转 promise 清理】
+- 【cr-971 2026-11-09 steer 注入落账时机根修：journalInject 从 steer 受理时刻（到达）移到消费点（loop 步边界 splice 时 emit loop/steer-consumed，壳订阅后落账）——修复注入行比模型实际消费点早一步的账本错位（journalInject 注释承诺消费点真序但实现在受理点落账）；崩溃安全 = steer 受理时 inboxStore durable，收束残留 pending 兜底落账】
+- 【cr-972 2026-11-09 登记 session 事件日志统一实施计划（session-event-log-unification-plan.md）：viewer 实时投影+指针索引第一刀；journal 事件化/收束退役/压缩事件化第二刀；run 概念与直播管线影响评估】
+- 【cr-973 2026-11-09 session 事件日志统一 Phase 1（cr-972 第一刀）：ac-session-index 索引服务行 + web-api 读时投影/偏移分页/指纹短路 + viewer 停写与消费方迁移】
+- 【cr-974 2026-11-09 session 事件日志统一 Phase 2（cr-972 第二刀）：事件词汇 v2 + fold 单源 + writer 停物化 + settleOrphan 退役 + 压缩事件化】
+- 【cr-975 2026-11-10 直播管线 B 案立项计划（cr-972 Phase 3 升格独立项目）：直播帧 = 事件日志 append 投影转发——ws-bridge/wire-format/feed-core 合流层全链改造 + 收敛协议重设计（E-2 一次做对）】
+- 【cr-976 2026-11-10 直播管线 B 案 Phase 3 实施（cr-975）：事件投影转发 + feed-core 一次性重构】
+- 【cr-977 2026-11-10 cr-976 Phase 3 落地登记：防御机制逐条重论证——cr-106 身份门/空载门保留（stepId 键控即恒等门）；cr-107 探针与 watchdog 保留；after-run +500ms 兜底退役（可达性保险归重连重拉+探针+watchdog，同因同补）；防自激不变；指纹短路保留；补充裁决：context-injected 帧与 tool/started·progress 流帧保留】
+- 【cr-978 2026-11-10 修 projectUserReplay 对缺 message_id 存量行崩溃（startsWith 未守卫——16 会话 runs/snapshot 恒崩+全根扫描挤占宿主致首屏 17s）+ runs/snapshot 按会话指纹 memo 化】
+- 【cr-979 2026-11-10 性能遗留登记：runs/snapshot 冷启动并发重复扫描（5×8s 无 single-flight）+ 首批 RPC 被冷扫描拖 ~2s + stat 全扫 750ms/次待走索引——docs/design/perf-followups-2026-11-10.md】
+- 【cr-980 2026-11-10 perf-followups #1-#4：runs/snapshot single-flight+boot 预热+时间片让出+session-index 指纹零盘读；singles/list 前端 refresh 单飞+服务端时间片】
+- 【cr-981 2026-11-10 CR 工具 v2 设计立项成文（docs/design/cr-tool-v2.md）：结构化条目/状态机/可追溯索引投影/append 原子化/守门不变量扩展/分卷归档——零依赖与 cr-log.md 单文件事实源不变；顺手修复工作区 cr-log 被 eol=lf 再物化为全 LF 致 append 守门拒绝（恢复 CRLF 约定形态）】
+- 【cr-982 2026-11-10 perf 余量：singles/list 指纹复验走 sessionIndex messages 账面（实测千级条目 ~1.1s/次 → 零盘 IO）；runs 对账补清消失会话目录】
+- 【cr-983 2026-11-10 cr 工具 v2 批1（cr-981 设计实施）：条目尾部结构化元数据块 {status|#scope|→ref}（存量无块视为 done 零迁移）+ 状态机 plan/doing/done/drop + set 子命令 + grep --status/--id/--scope 过滤 + append 长度软门（>200 字警告）+ O_EXCL 锁写前重读写后重验 + 尾部 O(1) 追加写（头行同步等长字节补丁，位数增长才全文重写）+ 全 LF 单态自动修形（cr-981 事故止血）+ cr-log.md 登记格式文档同步】
+- 【cr-984 2026-11-10 cr 工具 v2 批2（cr-981 设计实施）：sync 子命令——git log 全量/增量（投影记 scannedHead，merge-base 验祖代，--rebuild 强制全量）扫 message 引用生成 cr-commits.json 投影（生成物禁手改）+ 悬空引用校验；check 子命令——六锁（头行同步/无重复/目录单调/尾部块语法+引用存在/docs 路径存在/commit 引用存在）fail-loud；理卷——目录区按号重排（消 13 处物理逆序，cr-43 续行随块归属）；selftest 子命令——sandbox 临时副本全命令面自测】
+- 【cr-985 2026-11-10 cr 工具 v2 补修：sync 增量无新 commit 路径（scannedHead === HEAD）漏结转 prev.entries 致投影写空——实锤于 cr-984 提交后首跑 sync 返回 0 键；修复 = 等头分支显式结转，幂等复跑两遍验证 446 键不丢】
+- 【cr-986 2026-11-10 cr 工具 v2 补修二：sync refs 无变化不落盘——消投影自追尾（任何提交令 scannedHead 滞后一格，追平提交又生成新提交死循环）；scannedHead 允许滞后，增量重扫毫秒级】
+- 【cr-987 2026-11-10 placeholder 灰调降一档：tokens.css 立 --placeholder 专令牌（承 cr-150 bg-inset 语义分离先例），消费面收口全局 ::placeholder 单源】
+- 【cr-988 2026-11-10 goal useGoalTracking 可空守卫补漏（p?.subcall——webui:typecheck 存量红，cr-976/977 引入）】
+- 【cr-989 2026-11-10 placeholder 灰调再降一档（暗 #9aa4a9→#939da2 · 亮 #75797e→#7d8186，四底仍 ≥3.0）】
+- 【cr-990 2026-11-10 placeholder 灰调三连调：暗 #939da2→#adb2b8（用户参考值）；亮 #7d8186→#83868d（3.0 线上沿最浅同族档）】
+- 【cr-991 2026-11-10 IpcClient 感知对端关闭（close 摘 socket + reject 在途 waiter）+ PostOffice 连接池拒陈旧客户端——断宿主侧撞死 pipe 刷屏与在途挂死】
+- 【cr-992 2026-11-10 job 完成通知回投链路随迁补齐（cr-453 遗留）：ac-jobs 行内补 job/settled → conversation.deliver 唤醒接线（digest 5s 窗口聚合 / killedBy=owner 且非 failed 跳过 / sub owner 无会话键跳过——旧 ac-job-wakeup cr-696 退役时随迁未落）】
+- 【cr-993 2026-11-10 拉起链观测补全：orchestrate/supervise 的 spawn→三拍→adopted 与 respawn 决策/退避时刻落宿主日志（hostLog）——4 分钟空窗此前不可拆分（事件只进内存编排面，host log 全程空白）；cr-961 bundle 化前的第一步观测】
+- 【cr-994 2026-11-10 restart_shell 重启空窗根修（实测 31 分钟）：接管壳（takeover 锁观察）把 restart 退出恒映射 exit 0 → warden 判 done 不重拉 + 同代宿主 requestShellRespawn 见句柄在池直接 return——双保险同时失效退化为等来件。三层修复：壳侧退出意图优先级（42 晋升后 0 不覆盖）+ takeover 锁观察识别 restart marker（emitExit(42)）+ 宿主重拉请求持续轮询（句柄消失后确保拉起）】
+- 【cr-995 2026-11-10 fix(restart): cr-961 dev 壳 bundle 形态根锚回归——shellSelfRoot 三形态单源（AGENTCHAT_HOME 安装根 / dist 上级仓库根 / apps-shell 上两级）替换 host-revive 与 boot 的裸 ../../ 锚；bundle 壳里 systemAlive 恒假→复活宽限失效抢跑 supervisor 撞 EADDRINUSE 78 监护栈全灭（2026-11-10 18:34 现场：48.598 复活 vs 49.961 快路）】
+- 【cr-996 2026-11-10 fix(webui): webui-v3 出厂审计退场 disarm——restart_host 收面期 loader 拆 wire 触发 onGraphChanged 审计，31 条 error 级「行缺席 wire」误报（17:03-18:34 全程装载正常）；行 dispose 即 auditArmed=false】
+- 【cr-997 2026-11-10 宿主内监护模块日志前缀加 host. 前缀（supervise→host.supervise / orchestrator→host.orchestrator / shell:agent→host.shell:agent）——与独立进程 supervisor（拉宿主）一词之差，实测读日志易误读为另一进程；host-log.ts 头注来源段约定同步】
+- 【cr-998 2026-11-10 cr-972 兼容窗收尾：viewer 存量直读窗（projectUserReplay）/meta 旧路径窗（session.json·prefix-snapshot viewer 寄居位）退役 + v1 写面（writer journal/settle 两阶段/settleMechanism v1 分支/eventsV2 旗标）与 assembleSessionViewLegacy 退役（cr-973/974 收尾，多会话验证后清理）；附带修复 ac-host-face-client SinglesShim 仍读 cr-973 已迁走的 viewer 位注册表（壳侧 singles 判定恒 miss）；存量 meta 迁移归零（session.json 5 + prefix-snapshot 29 → meta/sessions/）后物理删除 workspace/home/viewer/ 投影树（11.7MB 纯派生物，读面冒烟验证通过）】
+- 【cr-999 2026-11-10 发送看门狗两修：single 会话权威键改 singleMeta 真实 agentId（roster 选中恒空→sessionId 匹配 stats 恒 miss，步边界空窗必误杀）+ stats RPC 失败不定罪改重新武装（对齐探针/Dock 口径）】
+- 【cr-1000 2026-11-10 行尾统一 LF 单一真相：工具集归一（read 显示层剥 / write·edit 恒 LF 写回 / str_replace_editor 匹配与写入归一，bat/cmd 例外）+ cr-log 约定迁 LF（normalizeEol 修形翻转 + selftest 断言随迁）+ 存量化石清理（17 包源码/fold-out/mixed 测试文件）】
+- 【cr-1001 2026-11-10 plugin-rows 镜像窗口退役收口】
+- 【cr-1002 2026-11-10 cr sync 增量永不落盘根修（cr-986 回归）：L334 entries = prev.entries 引用赋值致增量扫描同体变异 prev.entries，L359 无变化判定比较的两侧变为同一内容恒相等，sync 自 cr-986 起恒走 unchanged 分支不写盘——投影停在 cr-986 提交（cr-987~1000 缺席）。修复 = 深拷贝隔离比较基准】
+- 【cr-1003 2026-11-11 shell-custom 偏好层词形扩展（cr-909 预留面）：except 停用豁免（全局关单 Agent 开）+ replace 实现替换（id 不变 path 换向，授权住用户域）+ 恒并席位停用护栏（拒绝生效防静默半激活）】
+- 【cr-1004 2026-11-11 agent.patch.yml 差量化改造设计立档：三层身份模型（存在域/Agent 身份/会话）+ DSH 对照勘察结论 + assembly 差量词形与代数 + origin 钉基线 rebase 裁决 + 迁移与写侧归一——动工蓝本】
+- 【cr-1005 2026-11-11 Agent 回复 markdown 本地图片渲染：img src workspace 路径重写为 /api/workspace/raw 直链（files/ 前缀与数据根内绝对路径）——多模态下行表达力最小补齐】
+- 【cr-1006 2026-11-11 插件体系规范重写为纯设计稿：去过度设计——origin.known 与钉住式 rebase 换基座行 adopt 分级领养；except 换「显式胜默认」、replace 归 dev；presets 层不设；台账迁 cr-log；新稿 docs/design/plugin-architecture.md】
+- 【cr-1007 2026-11-11 装配差量精简与基座去预设并集化（→cr-1004）：写侧滤除命中基础集的 no-op 加法条目（§六 只记离差；migrate --rebase 同步瘦身）+ 预设专属行移出基础集（sap-adt→bundle:abap / plugin-dev→bundle:creator / harness-tools·bench→bundle:dev，升 ac-base-version）——空白 Agent 不再恒装预设并集】
+- 【cr-1008 2026-11-11 docs 整理批启动（批0）：文档规范 doc-conventions.md 成文（命名/格式/归档纪律）+ docs/README 目录划分与批次进度板（00-ToRevise 队列 65 篇分 6 批清空）+ 全仓 docs/design 旧路径 interim 重指 00-ToRevise】
+- 【cr-1009 2026-11-11 assembly 域 14 篇落位检阅：状态漂移 5/失效机制路 5/行数账目 2 共 12 处事实修正 + 头部三行全篇规约化；归档建议 5 篇（handoff/face-plan/takeover/read-face-audit/orphan-postmortem）待批 6 裁决】
+- 【cr-1010 2026-11-11 session 域 10 篇落位检阅：14 处事实修正（wrapGroupMsg 退役/waking 两态/router 行数/per-agent 账本换代等）+ 22 处引用修正 + 头部三行 10/10；归档建议 3 篇（session-cache/frame-ordering、event-log-unification、live-pipeline）】
+- 【cr-1011 2026-11-11 docs 整理批补台账：run-status-state-machine.md 入档（原仅存于队列无 CR）——waking 状态细分 connecting/spawning 两态，实作史实在 cr-744~801 各条】
+- 【cr-1012 2026-11-11 docs 整理批补台账：webui-mobile-render-perf-plan.md 入档（原仅存于队列无 CR）】
+- 【cr-1013 2026-11-11 docs 整理批补台账：mic-integrity-sandbox-incident-2026-10-27.md 入档（原仅存于队列无 CR）】
+- 【cr-1014 2026-11-11 docs 整理批补台账：cloud-provider-api-key-adoption.md 入档（原仅存于队列无 CR，cr-98 裁决期成文）】
+- 【cr-1015 2026-11-11 subagent 恢复面 S1 缝隙待修（docs 整理批 2 发现）：apps/shell/boot.ts L986 的 R4 replayAnsweredInteractions 为 void 直调并行、未挂 .then(inboxRecovery) 串行，且上方注释宣称「兜在 inbox 恢复之后」与实现不符——修复= R4 串行化 + 注释对齐；证据见 docs/design/session/subagent-recovery-matrix.md S1 复核注记】
+- 【cr-1016 2026-11-11 plugin 域 7 篇 + llm 域 2 篇落位检阅：子代理撞 5 小时限额断于 6/9，父会话收尾补 3 篇（plugin-dev-skill-plan/plugin-face-unification-plan/preset-identity-convergence-plan）头部三行与引用；9/9 头部合规 + 修全仓 4 处指向 design 根的裸旧路径】
+- 【cr-1017 2026-11-11 webui 域 11 篇落位检阅（子代理撞限额仅完成路径确认，父会话收尾）：11/11 头部三行补齐 + 4 处事实漂移修正（ui-rows-and-slots 行数 61 改 65 与 channel 名册退役与装载链路升 v3；ui-descriptive-text-inventory 范围改 33 前端行包；ui-tree tool 行改包名）——全 63 篇头部合规】
+- 【cr-1018 2026-11-11 ops 域 3 篇 + platform 域 15 篇 + 2 个移动端图件落位检阅：头部三行全篇规约化、事实源与失效路径按现行代码修正、出向引用终指八域目录】
+- 【cr-1019 2026-11-11 cr-1008 独立复核问题全修（P0×2+P1×10+P2×3）：plugin 两篇漏归档补迁 archive/plugin（v2 与 paradigm-plan）+ 反引号死引用 39 处修正（archive 相对路径按域重写）+ archive 索引篇数按实测刷新（assembly8/session16/webui19/plugin5/llm3/ops5/platform29）+ gap-backlog 补状态行与 E2 三批核销 + 裸日期 7 处改真实日历日 + R1/R2 节标题行数 25/40 对齐实测 + webui-standalone 补「部分被取代」注记 + 归档豁免口径入规范；终态 43 篇头部 43/43、md 链接 0 断、代码注释 0 死路径、archive 索引与实测一致】
+- 【cr-1020 2026-11-11 修复 subagents/list 盘读面漏随 cr-1004 批2迁移：face-shell 读子域 config.json 取 name（新物化写 agent.json）——读不到即静默跳过，cr-1004 后新建子 Agent 在前端清单不可见（帧链路正常、list 查不到新子）。改读 owning 包 readAgentProfileAt 单源（v2 档案读面），存量 config.json 窗口保留】
+- 【cr-1021 2026-11-11 tc-programmatic 空面陷阱修复：run-code 行进壳恒并基座 + 无 mode 工具时回退常规工具面（news~news 71 run 静默零工具执行事故根因）】
+- 【cr-1022 2026-11-12 装配菜单代数立项：基座骨架化（shell.yml 瘦身 13 骨架行）+ agent.patch.yml 菜单片段化（行定义取代点名差量，boot 指纹校准）——翻转 cr-1004 差量词形与 cr-1007 bundle 机制】
+- 【cr-1023 2026-11-12 menu-assembly 设计稿修订：requires 立法撤回——能力→能力边合法，依赖闭包由 mergeMenu 图展开承担（展开源 = 出厂能力区 ∪ installed），patch 直读弱化为 patch ∪ 闭包】
+- 【cr-1024 2026-11-12 menu-assembly 设计稿修订 2：requires 语义定裁——完备性校验 fail-loud（缺行报错），非自动注入（弃 expandRequires 闭包语义）；菜单 = 骨架 ∪ patch ∪ installed 无静默展开，patch 直读即全部】
+- 【cr-1025 2026-11-12 "cr-1022 计划修订：菜单合成回归 cordis-loader 原语（行定义词汇白名单 id/name/requires/config——tools/packs/bundle 及一切带内真值的派生词禁入；shell.yml 与 patch.yml 唯一职责 = 合成最终装配清单）；boot 指纹足迹改依赖闭包；校准/物化重写原子化（临时文件+原子 rename+留一代备份）" "#assembly" "→cr-1022"】
+- 【cr-1026 2026-11-12 "doc-conventions：实施计划体裁必含节拆分——「验收标准」分为「测试标准」（过程门，按改动面走验证阶梯）与「验证目标」（目的态断言）；menu-assembly §七 同步双列" "#meta"】
+- 【cr-1027 2026-11-12 cr-1022 批1：mergeMenu 引擎动工】
+- 【cr-1028 2026-11-12 cr-1022 批2：基座双区化 + 行词汇瘦身 + 模板物化换轨 + 指纹写入（旧机制死代码清零）】
+- 【cr-1029 2026-11-12 cr-1022 批3：存量迁移收口（v2 读侧桥删除 + migrate 对账）+ boot 对账校准面 + 指纹足迹依赖闭包】
+- 【cr-1030 2026-11-12 cr-1022 交接档：批1-3 落地状态 + 批4/后继接力入口（menu-assembly-handoff.md）】
+- 【cr-1031 2026-11-12 cr-1022 批4：subagent spawn 词解析换父壳活装配行集（readCatalog 从 ac-shell-subagent 退役）】
+- 【cr-1032 2026-11-12 cr-1022 批4：subagent spawn 词解析换父壳活装配行集（readCatalog 从 ac-shell-subagent 退役）】
+- 【cr-1033 2026-11-12 cr-1022 §六-5 立项：能力定义归包（shell.yml 能力区迁各包 ac.rows + 构建期聚合，B1 立法/B2 换源/B3 基座收缩三批）】
+- 【cr-1034 2026-11-12 restart_shell 换代壳不续跑修复：接管壳锁观察器 marker 消费改 cr-663 领取语义（.claimed 承载原文交接 conversationId——cr-994 误删断链）】
+- 【cr-1035 2026-11-12 仓库卫生：.gitignore 补 %SystemDrive% 与临时产物规则，误入库的 fold-out.txt/subagent-tool-test-report.md 移出索引】
+- 【cr-1036 2026-11-12 链完备性立项：版本化持久形态的换轨器统一为相邻边迁移链 + 校验器（严格相邻/from 无重复/0..current 完整缺环 fail-loud/未来版本拒绝降级——DSH CompiledSessionFormatChain 先例）；新增换档=注册新边，一次性 migrate 脚本禁令〔v2 append 引号事故残留已清理，meta: doing #assembly〕】
+- 【cr-1037 2026-11-12 "config 升级立项：行级 configVersion 戳 + owning 包声明相邻迁移边（纯函数）+ boot 惰性迁移落盘（原子写+备份同源）；无损才迁——语义变化不写边，旧值保 config.legacy + notice 明示手动重设；改键名的 CR 必须同批处理存量" "#assembly" "--status" "plan"】
+- 【cr-1038 2026-11-12 superagent 大计划：对标 dots/dsh 差距研究成文（superagent-master-plan.md，含底稿固化/安全前置/compaction/B1-B4/harness 体验五线）】
+- 【cr-1039 2026-11-12 cr-1036 全批收官：批2 agent.patch 形态链注册（patch-chain v0→v1→v2 + 探测 + 链驱动执行）+ migrate 工具换轨链驱动（换算代码清零）；批3 shell boot 惰性走链 + config.json 读窗退役（残留视同缺席）+ ac-import 写口换 v3 + workspace/home 42 存量收编零残留】
+- 【cr-1040 2026-11-12 cr-1037 参数粘连误登记（v2 append 引号事故，描述空残留）——真实工作见 cr-1037/1039，v3.1 迁移时清理】
+- 【cr-1041 2026-11-12 agentchat-dev 技能同步架构现状：装配差量求值→菜单合成（cr-1022/1025/1033 ac.rows 归包）+ 迁移链（cr-1036/1039）+ 基座文件族/生成物/custom 层词形更新】
+- 【cr-1042 2026-11-12 错误步保真落盘（LLM 流中途失败的部分思考/正文保留渲染）：对齐 cr-766 中断步保真扩展错误路径——ac-llm chat() 流中途失败且已产出内容时返回部分聚合（复用 aborted 标记 + streamError 归因）而非丢弃上抛，loop 错误步照发 after-step 落盘并跳过工具执行，ledger/wire/前端读侧全链带出（失败步 TOOL_NOT_STARTED 合成 + 已中断态渲染）】
+- 【cr-1043 2026-11-12 cr 工具 v3 包化：索引/内容分离（cr-log.md 纯索引 + logs/cr-N.md 详情正本，grep head|detail 双面、get 取详情）+ git 面拆分 cr-git.mjs（sync/check 为可选扩展）+ init（复制本体与 skill、建台账，幂等=升级路径）；本体住 packages/ac-cr，skill 源随包，仓库即分发源】
+- 【cr-1044 2026-11-12 AgentChat 迁移至 cr/ 形态：cr-log.md 与 cr-commits.json 移入 cr/、scripts/cr.mjs 退役、根 package.json 换新路径、现行文档引用面同步（头部引言/cr-tool-v2 v3 段/epoch-marking/doc-conventions/docs README）、agentchat-dev 技能 CR 段收敛指向 cr skill】
+- 【cr-1045 2026-11-13 cr 元数据出索引：尾部块迁至 cr-meta.json（稀疏存储，CLI 维护禁手编）——索引行回归纯净 + 头行「当前号」退役（最大号工具现算）→ cr-log.md 真 append-only；set 只改 meta 不动索引；存量行内块一次性剥离迁移】
+

@@ -1,0 +1,128 @@
+{
+ "_comment": "CR 元数据（v3.1 cr-1045）：status/scopes/refs 稀疏存储，CLI 维护禁手编；无记录 = done 无标签",
+ "entries": {
+  "1015": {
+   "scopes": [
+    "#session",
+    "#fix"
+   ],
+   "refs": [
+    1008
+   ]
+  },
+  "1016": {
+   "scopes": [
+    "#docs"
+   ],
+   "refs": [
+    1008
+   ]
+  },
+  "1017": {
+   "scopes": [
+    "#docs",
+    "#webui"
+   ],
+   "refs": [
+    1008
+   ]
+  },
+  "1018": {
+   "scopes": [
+    "#docs"
+   ],
+   "refs": [
+    1008
+   ]
+  },
+  "1019": {
+   "scopes": [
+    "#docs",
+    "#fix"
+   ],
+   "refs": [
+    1008
+   ]
+  },
+  "1027": {
+   "scopes": [],
+   "refs": [
+    1022
+   ]
+  },
+  "1031": {
+   "status": "drop",
+   "scopes": [
+    "#assembly"
+   ],
+   "refs": [
+    1022
+   ]
+  },
+  "1032": {
+   "scopes": [
+    "#assembly"
+   ],
+   "refs": [
+    1022
+   ]
+  },
+  "1033": {
+   "scopes": [
+    "#assembly"
+   ],
+   "refs": [
+    1022
+   ]
+  },
+  "1034": {
+   "scopes": [
+    "#session",
+    "#ops"
+   ],
+   "refs": []
+  },
+  "1035": {
+   "scopes": [
+    "#ops"
+   ],
+   "refs": []
+  },
+  "1036": {
+   "status": "doing",
+   "scopes": [],
+   "refs": []
+  },
+  "1038": {
+   "status": "plan",
+   "scopes": [],
+   "refs": []
+  },
+  "1040": {
+   "status": "doing",
+   "scopes": [],
+   "refs": []
+  },
+  "1043": {
+   "status": "done",
+   "scopes": [
+    "#meta",
+    "#tool"
+   ]
+  },
+  "1044": {
+   "status": "done",
+   "scopes": [
+    "#meta"
+   ]
+  },
+  "1045": {
+   "status": "done",
+   "scopes": [
+    "#meta",
+    "#tool"
+   ],
+   "refs": []
+  }
+ }
+}
