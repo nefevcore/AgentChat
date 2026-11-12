@@ -11,6 +11,17 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "todo",
+        "description": "待办",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",

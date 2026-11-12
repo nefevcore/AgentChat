@@ -4,6 +4,7 @@
 > 读者：给 Agent 新增可编辑配置（<unit>.json）或积累性状态（目录/账本）的插件作者；装配切面先读 agent-assembly.md。
 > 状态：现行 · cr-1004 2026-11-11 立档（批2/批2b 已落地，见下）——cr-1008 2026-11-11 批1 检阅经代码核实（`agent.json` / `PROFILE_FILE` / 单元机制在 `ac-agents-core/patch-doc.ts` 均在位）。本文讲 **Agent 身份与数据**：
 > 装配之外的 everything else——档案、人设、各插件单元数据、积累性状态。
+> 后继：cr-1022 2026-11-12 立项菜单代数（cr-1025 修订：patch = 行定义菜单片段，词汇白名单）——本文 rebase 相关表述届时随换轨：定义面升级 rebase → 指纹校准（[menu-assembly.md](menu-assembly.md) §2.3）；origin 对账继续服务 config/docs 升级判定。
 > 装配切面（`agent.patch.yml` 的合成代数）见 `agent-assembly.md`；
 > 本文只消费其结果、不管它怎么合成。
 
@@ -50,7 +51,8 @@ agents/<id>/
 
 **origin 与 rebase 策略住这层**（装配文档只带 base 指纹）：模板升级时由
 origin 对账决定是否对 assembly.patch.yml 触发 rebase（agent-assembly.md §五
-的调用方）；docs/skills 指纹继续服务 copy-on-write 升级判定。
+的调用方）；docs/skills 指纹继续服务 copy-on-write 升级判定。（cr-1022 落地后：
+rebase 收窄为定义面指纹校准 + config 保留，origin 策略面只余 config/docs。）
 
 ## 四、插件单元数据（<unit>.json 机制——cr-906 切片二已落）
 
@@ -104,7 +106,7 @@ origin 对账决定是否对 assembly.patch.yml 触发 rebase（agent-assembly.m
 
 | 文档/域 | 写者 |
 |---|---|
-| assembly.patch.yml | 编辑面 / 创建流（preset 物化）/ rebase 策略 |
+| assembly.patch.yml | 编辑面 / 创建流（preset 物化）/ rebase 策略（cr-1022 后：boot 校准，写入走原子纪律） |
 | agent.json | 编辑面 / update_agent_profile |
 | <unit>.json | 各 owning 插件 + 编辑面 |
 | AGENTS.md / 人设文档 | 用户 / persona 行操作面 |

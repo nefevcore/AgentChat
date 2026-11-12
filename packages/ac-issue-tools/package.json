@@ -11,6 +11,17 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "issue-tools",
+        "description": "issue 提交",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",

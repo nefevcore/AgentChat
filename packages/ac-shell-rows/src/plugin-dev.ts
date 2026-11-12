@@ -83,12 +83,14 @@ export function makePluginDevRow(options: PluginDevRowOptions): Plugin {
         return uplink;
       };
 
-      /** 已装载插件的注册面工具名（回执提示用——manifest rows 声明 ∩ 本壳注册面） */
+      /** 已装载插件的注册面工具名（回执提示用——注册面 fiber 归属反查，
+       * cr-1022 批2：manifest rows 的 tools 声明词汇退役） */
       const sessionTools = (name: string): string[] => {
         const rec = sessionLoads.get(name);
         if (rec === undefined) return [];
-        const live = new Set(ctx.tools.list().map((t) => t.name));
-        return rec.rows.flatMap((row) => row.tools ?? []).filter((t) => live.has(t));
+        return ctx.tools.listWithOwner()
+          .filter((t) => t.owner === rec.fiber.name)
+          .map((t) => t.name);
       };
 
       /** 会话级装载（register/install 共用执行体——boot assemblePluginRow 同款链） */

@@ -15,6 +15,7 @@ import { makeEnvelope } from 'ac-envelope-core';
 import { tapShellStream } from 'ac-post-office';
 import { bootShell } from '../../shell/boot.ts';
 import { LedgerWriter, sessionDir, projectUserReplay } from 'ac-ledger';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-webui-e2e-' + process.pid);
 const CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
@@ -30,10 +31,10 @@ afterEach(() => {
 
 
 describe('M7.5 webui 三拆 + 通道 端到端', () => {
+  // v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）
   function seedConfig(agentId: string): void {
-    const dir = path.join(ROOT, 'agents', agentId);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock' }), 'utf-8');
+    fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+    writeAgentConfig(ROOT, { id: agentId, model: 'mock' });
   }
 
   it('① 历史读：真壳会话 → user 账本终稿投影 → webui 读面回放对齐', async () => {

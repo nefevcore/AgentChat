@@ -8,6 +8,17 @@
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "skill",
+        "description": "技能装载",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",

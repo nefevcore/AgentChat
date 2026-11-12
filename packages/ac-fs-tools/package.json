@@ -11,6 +11,17 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "fs-tools",
+        "description": "文件工具（含 file-snapshots 并入——伴生装配经 COMPANION_ROWS，指纹足迹批3依赖闭包）",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",

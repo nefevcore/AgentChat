@@ -11,6 +11,17 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "goal",
+        "description": "目标",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",

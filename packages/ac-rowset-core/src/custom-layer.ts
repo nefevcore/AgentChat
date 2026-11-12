@@ -34,8 +34,20 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import yaml from 'js-yaml';
 import { materializedDirOf, rowDescriptorsOfDir } from './installed-rows.ts';
-import type { AssemblyEntry } from './evaluate.ts';
 import type { RowDescriptor } from './rowset.ts';
+
+/** 差量层条目（cr-1022 批2 起专属用户全局层 <base>.patch.yml——只做停用
+ * 与 config；定义入口禁入。随 cr-1022 批3 存量迁移收口进一步收窄） */
+export interface AssemblyEntry {
+  /** 行 id */
+  id: string;
+  /** 减法（显式排除 = 良定义降级） */
+  disabled?: boolean;
+  /** 停用豁免（仅随 disabled；用户全局层专属否决权词汇） */
+  except?: string[];
+  /** 行内配置（cordis 方言原生） */
+  config?: Record<string, unknown>;
+}
 
 /** 用户全局差量层（disabled/except/config 归 evaluate 消费；replace 由
  * resolveReplacements 先行换向解析——引擎不见 fs） */
@@ -136,7 +148,6 @@ export function resolveReplacements(
     next[index] = {
       ...base,
       path: dir,
-      ...(decl !== undefined && decl.tools !== undefined ? { tools: decl.tools } : {}),
       ...(decl !== undefined && decl.requires !== undefined ? { requires: decl.requires } : {}),
     };
     replacedIds.add(id);

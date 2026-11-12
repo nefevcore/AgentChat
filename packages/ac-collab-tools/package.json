@@ -8,6 +8,18 @@
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "collab-tools",
+        "description": "协作工具",
+        "requires": [
+          "tools",
+          "conversation"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",

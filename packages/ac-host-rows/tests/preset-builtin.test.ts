@@ -6,9 +6,9 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { listTemplates, readTemplate, TEMPLATE_DIR, materializeTemplateSkills, readAgentSkills } from '../src/preset-builtin.ts';
-import { isPresetId } from 'ac-agents-core';
-import { readCatalog, evaluateLegacyShellRows, SEAT_ROW_IDS } from 'ac-rowset-core';
+import { listTemplates, readTemplate, TEMPLATE_DIR, materializeTemplateSkills, readAgentSkills, materializeConfigOf } from '../src/preset-builtin.ts';
+import { isPresetId, rowsToMenuDefs, writeAgentConfig, readAgentConfig } from 'ac-agents-core';
+import { readCatalog } from 'ac-rowset-core';
 
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
 
@@ -27,15 +27,56 @@ describe('内置模板静态配置集（preset-builtin 行数据面）', () => {
     }
   });
 
-  it('模板词形全部命中行集目录：壳行集派生零 warnings（模板↔目录同源）', () => {
+  it('模板词形全部命中行集目录：定义拷贝零死引用（模板↔目录同源）', () => {
     const catalog = readCatalog(CATALOG);
     const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
+    const capabilityDefs = shellRows
+      .filter((r) => r.zone !== 'skeleton')
+      .map((r) => ({
+        id: r.id,
+        ...(r.path !== undefined ? { name: 'link:' + r.path } : {}),
+        ...(r.requires !== undefined ? { requires: r.requires } : {}),
+      }));
     for (const template of listTemplates()) {
-      const derived = evaluateLegacyShellRows(template.config.rows, shellRows, [], SEAT_ROW_IDS);
-      expect(derived.warnings, `模板 ${template.id} 有死引用：${derived.warnings.join('; ')}`).toEqual([]);
-      expect(derived.rowIds.length).toBeGreaterThan(0);
-      // 会话基座不剪：外壳 boot 的账本/会话行恒在（R-5 完整实例组成件）
-      expect(derived.rowIds).not.toContain('memory');
+      const rows = template.config.rows as string[];
+      const { defs } = rowsToMenuDefs(rows, capabilityDefs);
+      // 死引用 = token 不在能力目录（定义拷贝静默丢——逐位比对抓漂移）
+      expect(defs.map((d) => d.id), `模板 ${template.id} 有死引用`).toEqual([...new Set(rows)]);
+      expect(defs.length).toBeGreaterThan(0);
+      // 模板不静默长行：memory 行不被任何模板点名（R-5 组成件由骨架区恒装）
+      expect(defs.map((d) => d.id)).not.toContain('memory');
+    }
+  });
+
+  it('模板物化换轨（cr-1022 批2）：rows 正清单 → 出厂定义拷贝 + v3 落盘 + src-fingerprint', () => {
+    const catalog = readCatalog(CATALOG);
+    const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
+    const capabilityDefs = shellRows
+      .filter((r) => r.zone !== 'skeleton')
+      .map((r) => ({
+        id: r.id,
+        ...(r.path !== undefined ? { name: 'link:' + r.path } : {}),
+        ...(r.requires !== undefined ? { requires: r.requires } : {}),
+      }));
+    const standard = readTemplate('standard')!;
+    // 正清单到定义拷贝：每条 def ∈ 模板 rows（行 id 单一词形，无捆绑/工具名展开）
+    const { defs, fingerprints } = rowsToMenuDefs(standard.config.rows, capabilityDefs);
+    expect(defs.length).toBe((standard.config.rows as string[]).length);
+    for (const def of defs) {
+      expect((standard.config.rows as string[])).toContain(def.id);
+      expect(fingerprints[def.id]).toMatch(/^[0-9a-f]{16}$/);
+    }
+    // v3 物化落盘 + 组合读往返（临时数据根）
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-tpl-v3-'));
+    try {
+      fs.writeFileSync(path.join(root, 'row-catalog.json'), JSON.stringify(catalog), 'utf-8');
+      writeAgentConfig(root, materializeConfigOf(standard.config, 'me-1'));
+      const back = readAgentConfig(root, 'me-1')!;
+      expect(back.rows).toMatchObject({ include: expect.arrayContaining(defs.map((d) => d.id)) });
+      const patchText = fs.readFileSync(path.join(root, 'agents', 'me-1', 'agent.patch.yml'), 'utf-8');
+      expect(patchText).toContain('# ac-menu: 1');
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
     }
   });
 

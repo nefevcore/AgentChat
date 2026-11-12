@@ -11,6 +11,17 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "fs-search",
+        "description": "文件检索",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@vscode/ripgrep": "1.18.0",
     "@agentchat/cordis": "workspace:*",

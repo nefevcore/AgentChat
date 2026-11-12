@@ -35,21 +35,13 @@
       "id": "auth-registry",
       "tree": "host",
       "description": "授权注册表写者：两层 + children 投影 + 凭据授予轮换 + 授权目录",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-auth-core",
-        "packages/ac-credentials-core",
-        "packages/ac-envelope-core"
-      ]
+      "path": "packages/ac-host-rows"
     },
     {
       "id": "agents",
       "tree": "host",
       "description": "身份编辑面：config/entries/文档唯一写口 + 模板目录（活注册表解体）",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-agents-core"
-      ]
+      "path": "packages/ac-host-rows"
     },
     {
       "id": "preset-builtin",
@@ -73,28 +65,19 @@
       "id": "timers",
       "tree": "host",
       "description": "定时唤醒（唤醒 = 投递信）",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-timer-core"
-      ]
+      "path": "packages/ac-host-rows"
     },
     {
       "id": "usage",
       "tree": "host",
       "description": "计费聚合（对账 ledger 自报 + job 观测快照镜像）",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-usage"
-      ]
+      "path": "packages/ac-host-rows"
     },
     {
       "id": "backup",
       "tree": "host",
       "description": "数据轴备份 + 快照链 GFS（分轴共行）",
-      "path": [
-        "packages/ac-backup",
-        "packages/ac-backup-core"
-      ]
+      "path": "packages/ac-backup"
     },
     {
       "id": "web-server",
@@ -112,13 +95,7 @@
       "id": "webui",
       "tree": "host",
       "description": "web 表面（单包：src 服务半边 + client 前端半边；骨架 3 件 in-bundle）",
-      "path": [
-        "apps/ui",
-        "packages/ac-client-ui-ask",
-        "packages/ac-client-ui-layout",
-        "packages/ac-client-ui-renderer",
-        "packages/ac-client-ui-theme"
-      ]
+      "path": "apps/ui"
     },
     {
       "id": "web-api",
@@ -130,10 +107,7 @@
       "id": "plugin-registry",
       "tree": "host",
       "description": "装载裁决 + 熔断闸门 + 动态行集注入 + 急救 RPC + client manifest 注入",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-plugin-core"
-      ]
+      "path": "packages/ac-host-rows"
     },
     {
       "id": "plugin-market",
@@ -157,10 +131,7 @@
       "id": "singles",
       "tree": "host",
       "description": "独立会话元数据（session.json 单写者 + singles/* RPC + 事件广播）",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-ledger"
-      ]
+      "path": "packages/ac-host-rows"
     },
     {
       "id": "session-index",
@@ -172,10 +143,7 @@
       "id": "group",
       "tree": "host",
       "description": "群存储（groups/<gid>/group.json 成员表单写者 + group/* RPC + 信封扇出 + 成员流合并读面）",
-      "path": [
-        "packages/ac-host-rows",
-        "packages/ac-post-office"
-      ]
+      "path": "packages/ac-host-rows"
     },
     {
       "id": "conv-settings",
@@ -184,59 +152,30 @@
       "path": "packages/ac-conv-settings"
     },
     {
-      "id": "archive",
-      "tree": "shell",
-      "description": "归档编排（阈值检测/整理 run/归档重建全链壳内——D11 全壳内裁决；timer archive-all 改批量唤醒信）",
-      "requires": [
-        "ledger",
-        "conversation",
-        "agent-loop"
-      ],
-      "path": [
-        "packages/ac-shell-rows",
-        "packages/ac-archive-core"
-      ]
-    },
-    {
-      "id": "session-query",
-      "tree": "shell",
-      "description": "会话查询（只搜自己：本 agent 账本只读回放——D10 收敛，cr-544）",
-      "tools": [
-        "grep_history",
-        "read_history"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-shell-rows"
-    },
-    {
-      "id": "auto-title",
-      "tree": "shell",
-      "description": "会话命名（首步后 LLM 一句概括 → 信封请求宿主 singles 行落盘——cr-672）",
-      "path": "packages/ac-shell-rows"
-    },
-    {
       "id": "logger-console",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "日志基座（两树各计）",
       "path": "packages/vendor/logger"
     },
     {
       "id": "config",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "配置（两树各计）",
       "path": "packages/ac-config"
     },
     {
       "id": "ledger",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "账本：messages.jsonl + journal + inbox 消费 + settlement + usage 自报",
       "path": "packages/ac-ledger"
     },
     {
       "id": "conversation",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "会话状态机：串行化门 + inbox 双队列 + budget + user 端点桩 + 全量 loop 驱动（M8.2）",
       "requires": [
         "agent-loop",
@@ -247,21 +186,21 @@
     {
       "id": "tools",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "工具注册基座 + 授权门（ac-auth-core 投影，每 run 前重读）",
-      "path": [
-        "packages/ac-tools",
-        "packages/ac-shell-rows"
-      ]
+      "path": "packages/ac-tools"
     },
     {
       "id": "llm",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "模型会话",
       "path": "packages/ac-llm"
     },
     {
       "id": "llm-pool",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "连接池（凭据直读数据根）",
       "requires": [
         "llm",
@@ -272,6 +211,7 @@
     {
       "id": "agent-loop",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "ReAct 编排",
       "requires": [
         "llm",
@@ -282,313 +222,62 @@
     {
       "id": "persona",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "身份数据只读",
       "path": "packages/ac-persona"
     },
     {
-      "id": "host-face-client",
-      "tree": "shell",
-      "description": "宿主能力面（壳侧：代理工具 timer/update_agent_profile + 远程段 + singles/group Shim——运行时懒装配面，非静态注册）",
-      "path": "packages/ac-host-face-client"
-    },
-    {
       "id": "conduct",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "行为基线（专业客观段）",
       "path": "packages/ac-conduct"
     },
     {
-      "id": "memory",
+      "id": "host-face-client",
       "tree": "shell",
-      "description": "经验数据本壳写",
-      "tools": [
-        "memory_grep",
-        "memory_write"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-memory"
-    },
-    {
-      "id": "goal",
-      "tree": "shell",
-      "description": "目标",
-      "tools": [
-        "goal"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-goal"
-    },
-    {
-      "id": "todo",
-      "tree": "shell",
-      "description": "待办",
-      "tools": [
-        "todo"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-todo"
-    },
-    {
-      "id": "fs-tools",
-      "tree": "shell",
-      "description": "文件工具（含 file-snapshots 并入）",
-      "tools": [
-        "read",
-        "write",
-        "edit"
-      ],
-      "bundle": "fs",
-      "requires": [
-        "tools"
-      ],
-      "path": [
-        "packages/ac-fs-tools",
-        "packages/ac-file-snapshots"
-      ]
-    },
-    {
-      "id": "fs-search",
-      "tree": "shell",
-      "description": "文件检索",
-      "tools": [
-        "glob",
-        "grep"
-      ],
-      "bundle": "fs",
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-fs-search"
-    },
-    {
-      "id": "str-replace-editor",
-      "tree": "shell",
-      "description": "精确替换编辑",
-      "tools": [
-        "str_replace_editor"
-      ],
-      "bundle": "fs",
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-str-replace-editor"
-    },
-    {
-      "id": "shell-tools",
-      "tree": "shell",
-      "description": "命令执行",
-      "tools": [
-        "pwsh",
-        "bash",
-        "job"
-      ],
-      "bundle": "infra",
-      "requires": [
-        "tools",
-        "jobs"
-      ],
-      "path": "packages/ac-shell-tools"
-    },
-    {
-      "id": "run-code",
-      "tree": "shell",
-      "description": "代码编排执行（基础集——cr-1021：tc-programmatic 收窄单源依赖 mode 工具在场；捆绑形态下未点名 Agent 空面植物人，news 事故断根）",
-      "tools": [
-        "run_code"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-run-code"
-    },
-    {
-      "id": "math",
-      "tree": "shell",
-      "description": "数学求值",
-      "tools": [
-        "math"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-math"
-    },
-    {
-      "id": "artifacts",
-      "tree": "shell",
-      "description": "产出物引用指引段",
-      "path": "packages/ac-artifacts"
-    },
-    {
-      "id": "web-tools",
-      "tree": "shell",
-      "description": "web 搜索",
-      "tools": [
-        "web_search"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-web-tools"
-    },
-    {
-      "id": "browser",
-      "tree": "shell",
-      "description": "浏览器操作",
-      "tools": [
-        "browser"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-web-tools"
-    },
-    {
-      "id": "issue-tools",
-      "tree": "shell",
-      "description": "issue 提交",
-      "tools": [
-        "submit_issue"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-issue-tools"
-    },
-    {
-      "id": "harness-tools",
-      "tree": "shell",
-      "description": "链路验证/子代理工具（开发域——cr-1007 移出基础集，经 bundle:dev 点名）",
-      "tools": [
-        "run_harness"
-      ],
-      "bundle": "dev",
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-harness-tools"
-    },
-    {
-      "id": "sap-adt",
-      "tree": "shell",
-      "description": "SAP ADT 工具（ABAP 预设专属——cr-1007 移出基础集，经 bundle:abap 点名装载）",
-      "tools": [
-        "adt_activate",
-        "adt_atc_runs",
-        "adt_batch",
-        "adt_check",
-        "adt_cochange",
-        "adt_create_destination",
-        "adt_data_preview",
-        "adt_debug",
-        "adt_dumps",
-        "adt_execute",
-        "adt_export_objects",
-        "adt_list_destinations",
-        "adt_list_gui_connections",
-        "adt_local_check",
-        "adt_lock_info",
-        "adt_object_delete",
-        "adt_object_edit",
-        "adt_object_read",
-        "adt_object_versions",
-        "adt_object_write",
-        "adt_permissions",
-        "adt_ping",
-        "adt_release_gate",
-        "adt_run_atc",
-        "adt_run_unit_tests",
-        "adt_search",
-        "adt_selfcheck",
-        "adt_system_info",
-        "adt_transports",
-        "adt_unlock_all",
-        "adt_version_diff",
-        "adt_where_used"
-      ],
-      "bundle": "abap",
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-sap-adt"
-    },
-    {
-      "id": "datetime",
-      "tree": "shell",
-      "description": "日期时间",
-      "path": "packages/ac-datetime"
-    },
-    {
-      "id": "skill",
-      "tree": "shell",
-      "description": "技能装载",
-      "tools": [
-        "load_skill"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-skill"
-    },
-    {
-      "id": "collab-tools",
-      "tree": "shell",
-      "description": "协作工具",
-      "tools": [
-        "send_agent",
-        "send_group",
-        "list_agents",
-        "list_groups",
-        "list_tools",
-        "read_agent_info"
-      ],
-      "requires": [
-        "tools",
-        "conversation"
-      ],
-      "path": "packages/ac-collab-tools"
-    },
-    {
-      "id": "mcp",
-      "tree": "shell",
-      "description": "MCP client 行（R-12）",
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-mcp"
-    },
-    {
-      "id": "subagent",
-      "tree": "shell",
-      "description": "子 Agent（children 嵌套物化 + spawn ⊆ 投影）",
-      "tools": [
-        "subagent"
-      ],
-      "requires": [
-        "tools"
-      ],
-      "path": "packages/ac-shell-subagent"
+      "zone": "skeleton",
+      "description": "宿主能力面（壳侧：代理工具 timer/update_agent_profile + 远程段 + singles/group Shim——运行时懒装配面，非静态注册）",
+      "path": "packages/ac-host-face-client"
     },
     {
       "id": "durable-interaction",
       "tree": "shell",
+      "zone": "skeleton",
       "description": "交互承重（数据化 boot）",
-      "requires": [],
       "path": "packages/ac-durable-interaction"
+    },
+    {
+      "id": "jobs",
+      "tree": "shell",
+      "zone": "skeleton",
+      "description": "后台任务基座（worker 壳子进程设施）——平台设施裁级行（menu-assembly §三）",
+      "path": "packages/ac-jobs"
+    },
+    {
+      "id": "archive",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "归档编排（阈值检测/整理 run/归档重建全链壳内——D11 全壳内裁决；timer archive-all 改批量唤醒信）",
+      "requires": [
+        "ledger",
+        "conversation",
+        "agent-loop"
+      ],
+      "path": "packages/ac-shell-rows"
+    },
+    {
+      "id": "artifacts",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "产出物引用指引段",
+      "path": "packages/ac-artifacts"
     },
     {
       "id": "ask-questions",
       "tree": "shell",
+      "zone": "capability",
       "description": "提问卡（审批 = user 端点消息）",
-      "tools": [
-        "ask_questions"
-      ],
       "requires": [
         "tools",
         "durable-interaction"
@@ -596,16 +285,17 @@
       "path": "packages/ac-ask-questions"
     },
     {
-      "id": "jobs",
+      "id": "auto-title",
       "tree": "shell",
-      "description": "后台任务基座（worker = 壳子进程）",
-      "path": "packages/ac-jobs"
+      "zone": "capability",
+      "description": "会话命名（首步后 LLM 一句概括 → 信封请求宿主 singles 行落盘——cr-672）",
+      "path": "packages/ac-shell-rows"
     },
     {
       "id": "bench",
       "tree": "shell",
-      "description": "评测域（开发域——cr-1007 移出基础集；影子壳跑 bench 门）",
-      "bundle": "dev",
+      "zone": "capability",
+      "description": "评测域（开发域——影子壳跑 bench 门）",
       "requires": [
         "tools",
         "agent-loop"
@@ -613,15 +303,118 @@
       "path": "packages/ac-bench"
     },
     {
+      "id": "browser",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "浏览器操作",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-web-tools"
+    },
+    {
+      "id": "collab-tools",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "协作工具",
+      "requires": [
+        "tools",
+        "conversation"
+      ],
+      "path": "packages/ac-collab-tools"
+    },
+    {
+      "id": "datetime",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "日期时间",
+      "path": "packages/ac-datetime"
+    },
+    {
+      "id": "fs-search",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "文件检索",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-fs-search"
+    },
+    {
+      "id": "fs-tools",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "文件工具（含 file-snapshots 并入——伴生装配经 COMPANION_ROWS，指纹足迹批3依赖闭包）",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-fs-tools"
+    },
+    {
+      "id": "goal",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "目标",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-goal"
+    },
+    {
+      "id": "harness-tools",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "链路验证/子代理工具（开发域）",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-harness-tools"
+    },
+    {
+      "id": "issue-tools",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "issue 提交",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-issue-tools"
+    },
+    {
+      "id": "math",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "数学求值",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-math"
+    },
+    {
+      "id": "mcp",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "MCP client 行（R-12）",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-mcp"
+    },
+    {
+      "id": "memory",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "经验数据本壳写",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-memory"
+    },
+    {
       "id": "plugin-dev",
       "tree": "shell",
-      "description": "插件开发三件套（创造预设专属——cr-1007 移出基础集；register 会话级壳内装载 / install·uninstall 永久档信封请求宿主——cr-553）",
-      "tools": [
-        "register_plugin",
-        "install_plugin",
-        "unregister_plugin"
-      ],
-      "bundle": "creator",
+      "zone": "capability",
+      "description": "插件开发三件套（创造预设专属——register 会话级壳内装载 / install·uninstall 永久档信封请求宿主——cr-553）",
       "requires": [
         "tools",
         "conversation"
@@ -631,17 +424,104 @@
     {
       "id": "restart",
       "tree": "shell",
+      "zone": "capability",
       "description": "安全重启双件（restart_shell 中止回队续跑 / restart_host 信封请求宿主 graceful 重启——cr-629；创造预设专属 cr-635）",
-      "tools": [
-        "restart_shell",
-        "restart_host"
-      ],
-      "bundle": "creator",
       "requires": [
         "tools",
         "conversation"
       ],
       "path": "packages/ac-shell-rows"
+    },
+    {
+      "id": "run-code",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "代码编排执行（cr-1021：tc-programmatic 收窄单源依赖 mode 工具在场）",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-run-code"
+    },
+    {
+      "id": "sap-adt",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "SAP ADT 工具（ABAP 预设专属）",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-sap-adt"
+    },
+    {
+      "id": "session-query",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "会话查询（只搜自己：本 agent 账本只读回放——D10 收敛，cr-544）",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-shell-rows"
+    },
+    {
+      "id": "shell-tools",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "命令执行",
+      "requires": [
+        "tools",
+        "jobs"
+      ],
+      "path": "packages/ac-shell-tools"
+    },
+    {
+      "id": "skill",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "技能装载",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-skill"
+    },
+    {
+      "id": "str-replace-editor",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "精确替换编辑",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-str-replace-editor"
+    },
+    {
+      "id": "subagent",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "子 Agent（children 嵌套物化 + spawn ⊆ 投影）",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-shell-subagent"
+    },
+    {
+      "id": "todo",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "待办",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-todo"
+    },
+    {
+      "id": "web-tools",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "web 搜索",
+      "requires": [
+        "tools"
+      ],
+      "path": "packages/ac-web-tools"
     }
   ]
 }

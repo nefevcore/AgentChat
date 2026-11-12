@@ -15,19 +15,29 @@ import * as path from 'node:path';
 import { bootShell } from '../boot.ts';
 import { Context, FiberStates, type Plugin } from '@agentchat/cordis';
 import { IMPORTED_ROWS, makeShimsRow } from 'ac-shell-rows';
+import { writeAgentConfig } from 'ac-agents-core';
+import type { AgentConfig } from 'ac-agents-core';
 import type { BenchRunOptions, BenchReport } from 'ac-bench';
 import type {} from 'ac-agent-loop'; // loop/* 事件目录 + 段注册面类型（type-only）
 
 const ROOT = path.join('sandbox', 'test-rows-' + process.pid);
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
-beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
+beforeEach(() => {
+  fs.mkdirSync(ROOT, { recursive: true });
+  // v3 播种经 writeAgentConfig（定义拷贝面读数据根 row-catalog.json——
+  // cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud）
+  fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+});
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
+
+/** v3 播种（rows 点名/裁剪；settings 拆单元文件） */
+function seedAgent(agentId: string, cfg: { rows?: AgentConfig['rows']; settings?: Record<string, unknown> } = {}): void {
+  writeAgentConfig(ROOT, { id: agentId, model: 'mock', ...cfg });
+}
 
 describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
   it('boot 真装配沿用行（tools/persona/memory/goal…经 ctx.plugin 激活）+ dispose 零悬挂', async () => {
-    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'),
-      JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    seedAgent('alpha');
     const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'alpha', catalogFile: CATALOG },
@@ -47,12 +57,7 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
   }, 20_000);
 
   it('装配链效果：persona 块经 loop/before-run 注入 system（主线行真生效 + 垫片直读链全通）', async () => {
-    const dir = path.join(ROOT, 'agents', 'beta');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
-      id: 'beta', model: 'mock',
-      settings: { persona: { text: '你是测试人格' } },
-    }), 'utf-8');
+    seedAgent('beta', { settings: { persona: { text: '你是测试人格' } } });
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'beta', catalogFile: CATALOG },
       { emit: () => {} },
@@ -77,9 +82,7 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
   }, 20_000);
 
   it('第二批：模型编排 3 行服务到位 + 工具面行真注册 + credentials 垫片直读', async () => {
-    const dir = path.join(ROOT, 'agents', 'gamma');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: 'gamma', model: 'mock' }), 'utf-8');
+    seedAgent('gamma');
     // credentials 垫片消费链预置：__global__ 级 github 条目（加密往返）
     const credDir = path.join(ROOT, 'credentials');
     fs.mkdirSync(credDir, { recursive: true });
@@ -103,10 +106,10 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
       expect(names).toContain('web_search'); // web-tools 行
       expect(names).toContain('browser'); // browser 行（同包去重后仍双工具在册）
       expect(names).toContain('submit_issue'); // issue-tools 行
-      // cr-1007 基座去预设并集化：sap-adt（bundle:abap）移出基础集——空白
-      // Agent 不再恒装 32 个 ADT 工具（经 bundle:abap / 点名装载，见 catalog.test）
-      expect(names.some((n) => n.startsWith('adt_'))).toBe(false);
-      // fs-tools/run-code 属 bundle（fs/infra）——不在缺省基础集，点名面下一用例验证
+      // rows 缺省 = 全部能力行（cr-1022 批3 写侧单源——旧差量语义只在
+      // migrate 工具里；sap-adt 在缺省面）
+      expect(names.some((n) => n.startsWith('adt_'))).toBe(true);
+      // 点名裁剪面下一用例验证（不进即不装）
       // ③ credentials 垫片：resolve 链（Agent 级缺席 → 全局级回落）
       const creds = boot.ctx.get('credentials') as { resolve(id: string, p: string): string };
       expect(creds.resolve('gamma', 'github')).toBe('ghp-test-token');
@@ -115,15 +118,10 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
     }
   }, 20_000);
 
-  it('第二批：bundle 点名面（fs/infra）装配 + 伴生行 + 主体指纹盖住新行集', async () => {
-    const dir = path.join(ROOT, 'agents', 'delta');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
-      id: 'delta', model: 'mock',
-      // 点 tools 基座 + fs/infra bundle（infra 含 shell-tools——jobs 行已随第三批
-      // 落地，闭包自动补依赖，不再 PENDING 永续）
-      tools: { include: ['tools', 'fs', 'infra'] },
-    }), 'utf-8');
+  it('第二批：能力行点名面（fs 族 + shell-tools）装配 + 伴生行 + 主体指纹盖住新行集', async () => {
+    // 点名裁剪（正清单定义拷贝）：fs 族 + shell-tools（骨架恒在；requires
+    // 完备性校验——捆绑词 fs/infra 已退役，行 id 直读）
+    seedAgent('delta', { rows: { include: ['fs-tools', 'fs-search', 'str-replace-editor', 'shell-tools'] } });
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'delta', catalogFile: CATALOG },
       { emit: () => {} },
@@ -134,19 +132,16 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
       expect(names).toContain('read'); // fs-tools 行（工具真名 read/write/edit）
       expect(names).toContain('glob'); // fs-search 行
       expect(names).toContain('str_replace_editor'); // str-replace-editor 行（真名）
-      // infra bundle 同批点名：shell-tools（含闭包并入的 jobs）。cr-1021 后
-      // run-code 是基础集行非 infra——旧白名单 B−T 语义下未点名即剔除，不再断言
       expect(boot.rowset.rowIds).toContain('fs-tools');
       expect(boot.rowset.rowIds).toContain('shell-tools');
-      expect(boot.rowset.rowIds).toContain('jobs'); // shell-tools requires 闭包并入
-      expect(names).not.toContain('run_code'); // B−T：未点名的基础集行出局
+      expect(boot.rowset.rowIds).toContain('jobs'); // 骨架行恒在集（tools/jobs）
+      expect(names).not.toContain('run_code'); // B−T：未点名的能力行出局
       expect(boot.ctx.get('fileSnapshots', false)).toBeDefined(); // 伴生行（fs-tools 并入）
-      // 主体指纹：行集派生内全部有 path 行入指纹（含 fs-tools 数组双包）
-      const fpRows = boot.rowset.rowIds
-        .map((id) => boot.rowset.catalogRows.find((r) => r.id === id && r.tree === 'shell'))
-        .filter((r) => r?.path !== undefined);
-      const fsRow = fpRows.find((r) => r!.id === 'fs-tools');
-      expect(Array.isArray(fsRow!.path)).toBe(true); // 跨两包（fs-tools + file-snapshots）
+      // 主体指纹：菜单内全部有 path 行入指纹（cr-1022 批2 path 单包根——
+      // packs 数组退役，file-snapshots 足迹随批3 依赖闭包恢复）
+      const fpRows = boot.rowset.rows.filter((r) => r.path !== undefined);
+      const fsRow = fpRows.find((r) => r.id === 'fs-tools');
+      expect(typeof fsRow!.path).toBe('string');
       expect(boot.fingerprint.root).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       await boot.close();
@@ -156,11 +151,7 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
 
 describe('M8.1 第三批：依赖链行装配（jobs/shell-tools/harness-tools；convSettings 归垫片）', () => {
   it('三行真装配 + 行集闭包自动补依赖（点名 shell-tools/harness-tools → tools/jobs 并入）', async () => {
-    const dir = path.join(ROOT, 'agents', 'eps');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
-      id: 'eps', model: 'mock', tools: { include: ['shell-tools', 'harness-tools'] },
-    }), 'utf-8');
+    seedAgent('eps', { rows: { include: ['shell-tools', 'harness-tools'] } });
     const boot = await bootShell({ dataRoot: ROOT, agentId: 'eps', catalogFile: CATALOG }, { emit: () => {} });
     try {
       // 闭包：依赖行自动并入（含 tools 基座）
@@ -216,24 +207,24 @@ describe('M8.1 第三批：依赖链行装配（jobs/shell-tools/harness-tools�
     }
   }, 20_000);
 
-  it('装配终检 fail-loud：显式排除依赖行（shell-tools exclude jobs）→ boot 拒绝', async () => {
+  it('依赖完备性 fail-loud（cr-1022 批2）：行 requires 缺失 = boot 前拦截（骨架行恒装不可排除——旧 exclude 依赖行→PENDING 终检面退役，PENDING 契约由上一用例直测）', async () => {
+    seedAgent('zet');
     const dir = path.join(ROOT, 'agents', 'zet');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
-      id: 'zet', model: 'mock',
-      tools: { include: ['shell-tools'], exclude: ['jobs'] },
-    }), 'utf-8');
+    // v3 菜单片段点名行 + 缺失依赖（requires ⊆ 菜单——不进即不装，无自动注入）
+    fs.writeFileSync(path.join(dir, 'agent.patch.yml'), [
+      '# ac-menu: 1',
+      '- id: math',
+      '  requires: [ghost-row]',
+      '',
+    ].join('\n'), 'utf-8');
     await expect(bootShell({ dataRoot: ROOT, agentId: 'zet', catalogFile: CATALOG }, { emit: () => {} }))
-      .rejects.toThrow(/未激活|PENDING/);
+      .rejects.toThrow(/requires 缺失/);
   }, 20_000);
 });
 
 describe('M8.1 第四批：交互承重与评测行（durable-interaction / ask-questions / bench）', () => {
   it('durable-interaction + ask-questions 真装配：服务到位 + jsonl 落盘指错数据根 + ask_questions 工具发起-作答闭环', async () => {
-    const dir = path.join(ROOT, 'agents', 'eta');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'),
-      JSON.stringify({ id: 'eta', model: 'mock', tools: { include: ['ask-questions'] } }), 'utf-8');
+    seedAgent('eta', { rows: { include: ['ask-questions'] } });
     const boot = await bootShell({ dataRoot: ROOT, agentId: 'eta', catalogFile: CATALOG }, { emit: () => {} });
     try {
       // 闭包并入：ask-questions requires tools + durable-interaction
@@ -261,10 +252,7 @@ describe('M8.1 第四批：交互承重与评测行（durable-interaction / ask-
   }, 20_000);
 
   it('M8.6 idle-exit 探针：durable pending 阻止收割，答毕且四面空闲 → 可收割', async () => {
-    const dir = path.join(ROOT, 'agents', 'eta');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'),
-      JSON.stringify({ id: 'eta', model: 'mock', tools: { include: ['ask-questions'] } }), 'utf-8');
+    seedAgent('eta', { rows: { include: ['ask-questions'] } });
     const { shellIsIdle } = await import('../boot.ts');
     const boot = await bootShell({ dataRoot: ROOT, agentId: 'eta', catalogFile: CATALOG, mockProvider: true }, { emit: () => {} });
     try {
@@ -291,10 +279,7 @@ describe('M8.1 第四批：交互承重与评测行（durable-interaction / ask-
     }
   }, 20_000);
   it('bench 真装配 + scripted 全链路（mock provider → loop → 临时工具 → 对拍 → 报告）', async () => {
-    const dir = path.join(ROOT, 'agents', 'the');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'),
-      JSON.stringify({ id: 'the', model: 'mock', tools: { include: ['bench'] } }), 'utf-8');
+    seedAgent('the', { rows: { include: ['bench'] } });
     const boot = await bootShell({ dataRoot: ROOT, agentId: 'the', catalogFile: CATALOG }, { emit: () => {} });
     try {
       // 闭包并入：bench requires tools + agent-loop（llm 经 agent-loop requires 链再并入）
@@ -325,10 +310,7 @@ describe('M8.1 第四批：交互承重与评测行（durable-interaction / ask-
 
 describe('M8.3 run 内 spawn 工具面（subagent 行 + 影子嵌套账本）', () => {
   it('subagent 行装配：工具在册 + ctx.subagents 软取（含 tools 闭包）', async () => {
-    const dir = path.join(ROOT, 'agents', 'lamda');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'),
-      JSON.stringify({ id: 'lamda', model: 'mock', tools: { include: ['subagent'] } }), 'utf-8');
+    seedAgent('lamda', { rows: { include: ['subagent'] } });
     const boot = await bootShell({ dataRoot: ROOT, agentId: 'lamda', catalogFile: CATALOG }, { emit: () => {} });
     try {
       for (const id of ['tools', 'subagent']) {
@@ -367,10 +349,7 @@ describe('M8.3 run 内 spawn 工具面（subagent 行 + 影子嵌套账本）', 
 
 describe('M8.2 全量 loop 接线（conversation 域 + collab-tools）', () => {
   it('collab-tools 真装配：send_agent 工具在册 + deliver 方言叶闭环（注入会话真身）', async () => {
-    const dir = path.join(ROOT, 'agents', 'iota');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'),
-      JSON.stringify({ id: 'iota', model: 'mock', tools: { include: ['collab-tools'] } }), 'utf-8');
+    seedAgent('iota', { rows: { include: ['collab-tools'] } });
     const boot = await bootShell({ dataRoot: ROOT, agentId: 'iota', catalogFile: CATALOG }, { emit: () => {} });
     try {
       // 闭包并入：collab-tools requires tools + conversation（agent-loop/llm 经链）

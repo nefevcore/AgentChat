@@ -13,13 +13,27 @@ export function defaultCatalogFile(dataRoot: string): string {
 }
 
 /**
- * 目录双读（cr-902 批1 双读窗口：基座赢）：catalogFile 同目录 profile/
- * 下基座源文档在场 → 读基座投影（单一事实源）；否则回退 JSON 生成物
- *（批 6 退役；缺席 = 空目录——fixture 容错语义原样保留）。
+ * 目录双读 → 合并（cr-1033 B2 定义归包换轨）：基座文档在场 → 骨架/宿主
+ * 行以基座为准（版本戳对账语义保留），能力行以 JSON 投影为准（事实源
+ * = 各包 ac.rows，构建期聚合携带——基座不再自持能力定义）；基座缺席 →
+ * 回退 JSON 整档（缺席 = 空目录——fixture 容错语义原样保留）。
  */
 export function readCatalog(catalogFile: string): RowsetCatalog {
   const base = readBaseCatalog(path.join(path.dirname(catalogFile), 'profile'));
-  if (base !== null) return base;
+  if (base !== null) {
+    const json = readJsonCatalog(catalogFile);
+    return {
+      rows: [
+        ...base.rows.filter((r) => r.tree !== 'shell' || r.zone !== 'capability'),
+        ...json.rows.filter((r) => r.tree === 'shell' && r.zone === 'capability'),
+      ],
+    };
+  }
+  return readJsonCatalog(catalogFile);
+}
+
+/** JSON 投影直读（坏/缺席 = 空目录——不阻断，双读窗口容错语义） */
+function readJsonCatalog(catalogFile: string): RowsetCatalog {
   try {
     const parsed = JSON.parse(fs.readFileSync(catalogFile, 'utf-8')) as Partial<RowsetCatalog>;
     if (Array.isArray(parsed.rows)) return { rows: parsed.rows as RowsetCatalog['rows'] };

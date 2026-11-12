@@ -7,6 +7,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { deriveAndAssertRowset } from '../boot.ts';
+import { writeAgentConfig } from 'ac-agents-core';
+import { readCatalog, assemblyBaseStamp } from 'ac-rowset-core';
 
 const ROOT = path.join('sandbox', 'test-shell-custom-' + process.pid);
 const CATALOG = path.join('sandbox', 'test-shell-custom-cat-' + process.pid + '.json');
@@ -17,22 +19,28 @@ function writeCustom(body: string): void {
 }
 
 function writeFixture(): void {
+  // cr-1022 批3 菜单语义：conversation = 骨架区（恒装席位——停用拒绝
+  // 生效的判据来自 zone，不再来自旧「基础集恒并」词表）
   fs.writeFileSync(CATALOG, JSON.stringify({
     version: 1,
     rows: [
-      { id: 'conversation', tree: 'shell' },
-      { id: 'browser', tree: 'shell', tools: ['browser'] },
-      { id: 'math', tree: 'shell', tools: ['math'] },
-      { id: 'fs-x', tree: 'shell', tools: ['fsx'], bundle: 'fs' },
+      { id: 'conversation', tree: 'shell', zone: 'skeleton' },
+      { id: 'browser', tree: 'shell' },
+      { id: 'math', tree: 'shell' },
+      { id: 'fs-x', tree: 'shell' },
     ],
   }, null, 2) + '\n', 'utf-8');
-  fs.mkdirSync(path.join(ROOT, 'agents', 'a1'), { recursive: true });
-  fs.mkdirSync(path.join(ROOT, 'agents', 'a2'), { recursive: true });
-  for (const id of ['a1', 'a2']) {
-    fs.writeFileSync(path.join(ROOT, 'agents', id, 'config.json'), JSON.stringify({
-      id, model: 'mock', rows: { include: ['conversation', 'browser', 'math'] },
-    }, null, 2) + '\n', 'utf-8');
-  }
+}
+
+// v3 播种（cr-1022 批3）：正清单定义拷贝经 opts.shellRows 注入 fixture
+// 目录；须在 writeCustom 之后调用——基线戳盖 profile/shell.patch.yml，
+// 播种早于用户层落盘则 boot 侧现算戳漂移 fail-loud
+function seedAgent(agentId: string, rows: string[]): void {
+  const shellRows = readCatalog(CATALOG).rows.filter((r) => r.tree === 'shell');
+  // baseStamp 显式现算：writeAgentConfig 缺省「既有戳赢」——同一 agent 在
+  // 用户层变更后重播种须重算基线（模拟 migrate --rebase 面）
+  writeAgentConfig(ROOT, { id: agentId, model: 'mock', rows },
+    { shellRows, baseStamp: assemblyBaseStamp(ROOT, 'shell') });
 }
 
 beforeEach(() => {
@@ -46,29 +54,28 @@ afterEach(() => {
 });
 
 describe('deriveAndAssertRowset × shell-custom（cr-1003）', () => {
-  it('disable + except：豁免 Agent 保留；非豁免 Agent 显式点名被停用行 = fail-loud（cr-1007 精简后：基础集行的 no-op 点名不落条目——用户层停用为静默良定义降级；捆绑行点名是真差量，仍 fail-loud）', () => {
+  it('disable + except：豁免 Agent 保留；非豁免 Agent 点名被停用行 = 良定义降级（cr-1022 批2 菜单语义：用户层停用 = 全局显式意志，行出局不 throw）', () => {
     writeCustom('- { id: browser, disabled: true, except: [a1]}' + String.fromCharCode(10));
+    seedAgent('a1', ['browser', 'math']);
+    seedAgent('a2', ['browser', 'math']);
     const a1 = deriveAndAssertRowset(ROOT, 'a1', CATALOG);
     expect(a1.rowIds).toContain('browser');
-    // 基础集行（browser）：include 点名被精简（no-op 不落条目）→ 非豁免 Agent
-    // 静默降级（行出局、不 throw——用户层停用 = 全局显式意志）
     const a2 = deriveAndAssertRowset(ROOT, 'a2', CATALOG);
     expect(a2.rowIds).not.toContain('browser');
-    // 捆绑行点名（真差量条目）被用户层停用 → 求值 fail-loud（点名不可见非静默丢面）
-    for (const id of ['a1', 'a2']) {
-      fs.writeFileSync(path.join(ROOT, 'agents', id, 'config.json'), JSON.stringify({
-        id, model: 'mock', rows: { include: ['fs-x'] },
-      }, null, 2) + String.fromCharCode(10), 'utf-8');
-    }
+    // 点名行被用户层停用 → 良定义降级（行出局、不 throw；豁免 Agent 保留）
     writeCustom('- { id: fs-x, disabled: true, except: [a1]}' + String.fromCharCode(10));
+    seedAgent('a1', ['fs-x']);
+    seedAgent('a2', ['fs-x']);
     expect(deriveAndAssertRowset(ROOT, 'a1', CATALOG).rowIds).toContain('fs-x'); // 豁免
-    expect(() => deriveAndAssertRowset(ROOT, 'a2', CATALOG)).toThrow(/fs-x/);
+    expect(deriveAndAssertRowset(ROOT, 'a2', CATALOG).rowIds).not.toContain('fs-x'); // 降级出局
   });
 
   it('恒并席位停用拒绝生效：行保留 + 派生不含席位缺席', () => {
     writeCustom('- { id: conversation, disabled: true}\n');
+    seedAgent('a1', ['math']);
     const rowset = deriveAndAssertRowset(ROOT, 'a1', CATALOG);
-    expect(rowset.rowIds).toContain('conversation'); // 恒并席位照常在场
+    expect(rowset.rowIds).toContain('conversation'); // 恒并席位照常在场（骨架区恒装）
+    expect(rowset.rowIds).toContain('math'); // 点名能力行照常
   });
 
   it('replace：基座行 path 换向 + replacedIds 标记（装配面绕出厂实现的锚）', () => {
@@ -79,11 +86,11 @@ describe('deriveAndAssertRowset × shell-custom（cr-1003）', () => {
       rows: [{ id: 'math', tools: ['math', 'math_pro'] }],
     }), 'utf-8');
     writeCustom('- { id: math, replace: \'link:' + dir + '\'}\n');
+    seedAgent('a1', ['math']);
     const rowset = deriveAndAssertRowset(ROOT, 'a1', CATALOG);
-    const math = rowset.catalogRows.find((r) => r.id === 'math')!;
+    // 换向锚 = path + replacedIds（tools 声明词汇退役——工具面经注册面观测）
+    const math = rowset.rows.find((r) => r.id === 'math')!;
     expect(math.path).toBe(dir);
-    expect(math.tools).toEqual(['math', 'math_pro']);
     expect(rowset.replacedIds.has('math')).toBe(true);
-    expect(rowset.toolNames).toContain('math_pro');
   });
 });

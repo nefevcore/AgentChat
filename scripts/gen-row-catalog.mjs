@@ -1,47 +1,33 @@
 #!/usr/bin/env node
 // ============================================================
-// scripts/gen-row-catalog.mjs —— row-catalog.json 生成器（cr-902 / cr-901
-// v2.1 批1）
+// scripts/gen-row-catalog.mjs —— row-catalog.json 生成器（cr-902；cr-1022
+// 批2 投影逻辑并源 base-docs.ts；cr-1033 B2 能力定义归包：能力行事实源
+// = 各包 package.json ac.rows（aggregatePackageRows 聚合），基座文档只
+// 供宿主行 + 壳骨架）。
 //
-// 单一事实源 = apps/catalog/profile/{host,shell}.yml（基座源文档，
-// cordis-plugin-loader 官方方言；cr-1004 文件族改名：「patch」中缀专属
-// 差量文档——基座不是差量）；本脚本把它们投影回旧消费面仍在读的
-// apps/catalog/row-catalog.json（生成物，禁止手改——漂移由
-// ac-rowset-core/tests/base-docs.test.ts 的投影等价测试锁定）。
-//
-// 投影规则（与 ac-rowset-core/src/base-docs.ts 同源）：
-//   tree    ← 所在文档（host.yml → host；shell.yml → shell）
-//   path    ← packs（多包行）∨ name 去 link: 前缀（单包行）
-//   其余词汇（description / tools / bundle / requires）原样透传。
+// 产物 apps/catalog/row-catalog.json（生成物，禁止手改——漂移由
+// ac-rowset-core/tests 的投影等价测试锁定）。B1-B2 窗口期：包聚合与
+// shell.yml 能力区双源等价锁在 package-rows.test.ts（B3 删能力区随窗
+// 退役）。
 //
 // 用法：node scripts/gen-row-catalog.mjs（幂等；写前比对，无差异零写入）
 // ============================================================
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import yaml from 'js-yaml';
+import { readBaseCatalog, projectBaseEntry } from '../packages/ac-rowset-core/src/base-docs.ts';
+import { aggregatePackageRows } from '../packages/ac-rowset-core/src/package-rows.ts';
 
-const HERE = fileURLToPath(new URL('.', import.meta.url));
-const PROFILE_DIR = new URL('../apps/catalog/profile/', import.meta.url);
-const OUT = new URL('../apps/catalog/row-catalog.json', import.meta.url);
+const OUT = fileURLToPath(new URL('../apps/catalog/row-catalog.json', import.meta.url));
+const PROFILE_DIR = fileURLToPath(new URL('../apps/catalog/profile/', import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
 
-const rows = [];
-for (const proc of ['host', 'shell']) {
-  const file = new URL(proc + '.yml', PROFILE_DIR);
-  const entries = yaml.load(fs.readFileSync(file, 'utf-8'));
-  if (!Array.isArray(entries)) throw new Error(proc + '.yml 顶层必须是条目数组');
-  for (const e of entries) {
-    const packs = e.packs ?? (e.name !== undefined ? [e.name.replace(/^link:/, '')] : undefined);
-    rows.push({
-      id: e.id,
-      tree: proc,
-      ...(e.description !== undefined ? { description: e.description } : {}),
-      ...(e.tools !== undefined ? { tools: e.tools } : {}),
-      ...(e.bundle !== undefined ? { bundle: e.bundle } : {}),
-      ...(e.requires !== undefined ? { requires: e.requires } : {}),
-      ...(packs !== undefined ? { path: packs.length === 1 ? packs[0] : packs } : {}),
-    });
-  }
-}
+const base = readBaseCatalog(PROFILE_DIR);
+if (base === null) throw new Error('基座源文档残缺（host/shell 须成对在场）');
+// 宿主行 + 壳骨架来自基座；能力行 = 包聚合（id 排序稳定）
+const skeletonAndHost = base.rows.filter((r) => r.tree === 'host' || r.zone === 'skeleton');
+const capability = aggregatePackageRows(REPO_ROOT)
+  .map((e) => projectBaseEntry({ ...e, zone: 'capability' }, 'shell'));
+const rows = [...skeletonAndHost, ...capability];
 
 const next = JSON.stringify({ version: 1, rows }, null, 2) + '\n';
 const prev = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf-8') : '';
@@ -51,5 +37,5 @@ if (next === prev) {
   fs.writeFileSync(OUT, next, 'utf-8');
   console.log('row-catalog.json 已重生成：' + rows.length + ' 行（host '
     + rows.filter((r) => r.tree === 'host').length + ' + shell '
-    + rows.filter((r) => r.tree === 'shell').length + '）');
+    + rows.filter((r) => r.tree === 'shell').length + '；能力行源 = 包 ac.rows 聚合）');
 }

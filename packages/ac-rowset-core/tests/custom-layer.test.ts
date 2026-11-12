@@ -61,36 +61,35 @@ describe('resolveReplacements（cr-1003：replace 先行换向）', () => {
   const CATALOG: RowsetCatalog = { rows: [
     { id: 'backup', tree: 'host' },
     { id: 'conversation', tree: 'shell' },
-    { id: 'browser', tree: 'shell', tools: ['browser'] },
-    { id: 'math', tree: 'shell', tools: ['math'] },
+    { id: 'browser', tree: 'shell' },
+    { id: 'math', tree: 'shell', requires: ['ledger'] },
   ] };
   const IMPL_DIR = path.join(ROOT, 'my-math');
   beforeEach(() => {
     fs.mkdirSync(IMPL_DIR, { recursive: true });
     fs.writeFileSync(path.join(IMPL_DIR, 'manifest.json'), JSON.stringify({
       name: 'my-math', version: '1.0.0',
-      rows: [{ id: 'math', tools: ['math', 'math_pro'], requires: ['conversation'] }],
+      rows: [{ id: 'math', requires: ['conversation'] }],
     }), 'utf-8');
   });
 
-  it('replace：id 不变 path 换向 + 同 id 声明覆盖 tools/requires', () => {
+  it('replace：id 不变 path 换向 + 同 id 声明覆盖 requires（tools 派生词已随 cr-1022 批2 退役）', () => {
     const replace = new Map([['math', 'link:' + IMPL_DIR.replace(/\\/g, '/')]]);
     const out = resolveReplacements(CATALOG.rows, replace, ROOT);
     const math = out.rows.find((r) => r.id === 'math')!;
     expect(math.path).toBe(IMPL_DIR.replace(/\\/g, '/'));
-    expect(math.tools).toEqual(['math', 'math_pro']);
     expect(math.requires).toEqual(['conversation']);
     expect(out.replacedIds).toEqual(new Set(['math']));
     expect(out.warnings).toEqual([]);
   });
 
-  it('replace 物化缺席 = 警告 + 保留基座行；点名不在菜单 = 警告跳过', () => {
+  it('replace 物化缺席 = 警告 + 保留基座行（requires 不被改写）；点名不在菜单 = 警告跳过', () => {
     const replace = new Map([
       ['math', 'link:' + path.join(ROOT, 'no-such').replace(/\\/g, '/')],
       ['ghost', 'link:/x'],
     ]);
     const out = resolveReplacements(CATALOG.rows, replace, ROOT);
-    expect(out.rows.find((r) => r.id === 'math')!.tools).toEqual(['math']); // 基座面保留
+    expect(out.rows.find((r) => r.id === 'math')!.requires).toEqual(['ledger']); // 基座面保留
     expect(out.warnings.join(NL)).toMatch(/物化缺席/);
     expect(out.warnings.join(NL)).toMatch(/不在基座菜单/);
   });

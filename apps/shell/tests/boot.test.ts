@@ -9,22 +9,37 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
-  parseShellArgs, deriveAndAssertRowset, bootShell, assembleRows, seedPlaceholderAssemblers,
+  parseShellArgs, deriveAndAssertRowset, bootShell, assembleRows, seedPlaceholderAssemblers, workspaceClosureRoots,
 } from '../boot.ts';
 import { subjectFingerprint } from 'ac-fingerprint-core';
-import { readAgentConfig } from 'ac-agents-core';
+import { readAgentConfig, writeAgentConfig, writeAgentProfileAt, writeAgentPatchV3At, rowsToMenuDefs } from 'ac-agents-core';
+import { readCatalog } from 'ac-rowset-core';
+import { COMPANION_ROW_ROOTS } from 'ac-shell-rows';
 
 const ROOT = path.join('sandbox', 'test-shell-' + process.pid);
 const CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
-beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
+beforeEach(() => {
+  fs.mkdirSync(ROOT, { recursive: true });
+  // v3 播种经 writeAgentConfig（定义拷贝面读数据根 row-catalog.json）
+  fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+});
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-function seedAgent(agentId: string, tools?: string[]): void {
-  const dir = path.join(ROOT, 'agents', agentId);
+/** v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud） */
+function seedAgent(agentId: string, rows?: string[]): void {
+  writeAgentConfig(ROOT, { id: agentId, model: 'test-model', ...(rows !== undefined ? { rows } : {}) });
+}
+
+/** children 域 v3 播种（writeAgentConfig 只写顶层 agents/<id>/——子域手装） */
+function seedChild(parentId: string, childId: string, rows?: string[]): void {
+  const dir = path.join(ROOT, 'agents', parentId, 'children', childId);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({
-    id: agentId, model: 'test-model', ...(tools !== undefined ? { tools } : {}),
-  }), 'utf-8');
+  const capability = readCatalog(path.join(ROOT, 'row-catalog.json')).rows
+    .filter((r) => r.tree === 'shell' && r.zone !== 'skeleton')
+    .map((r) => ({ id: r.id, ...(r.path !== undefined ? { name: 'link:' + r.path } : {}), ...(r.requires !== undefined ? { requires: r.requires } : {}) }));
+  writeAgentProfileAt(dir, { model: 'mock' });
+  const { defs, fingerprints } = rowsToMenuDefs(rows, capability);
+  writeAgentPatchV3At(dir, defs, fingerprints);
 }
 
 describe('M6.5 影子 boot（--parent-id，P2③ 影子不撞锁）', () => {
@@ -36,8 +51,7 @@ describe('M6.5 影子 boot（--parent-id，P2③ 影子不撞锁）', () => {
     );
     // 影子物化（R-5）
     const childDir = path.join(ROOT, 'agents', 'w', 'children', 'w-s1');
-    fs.mkdirSync(childDir, { recursive: true });
-    fs.writeFileSync(path.join(childDir, 'config.json'), JSON.stringify({ id: 'w-s1', model: 'mock' }), 'utf-8');
+    seedChild('w', 'w-s1');
     const shadow = await bootShell(
       { dataRoot: ROOT, agentId: 'w-s1', catalogFile: CATALOG, parentId: 'w' },
       { emit: () => {} },
@@ -71,17 +85,19 @@ describe('M6.2 主体指纹自报（R-7 两形态同源）', () => {
     const ready = signals.find((s) => s.startsWith('boot.ready'))!;
     expect(ready.split('\t')).toHaveLength(4); // signal + bootId + hint + root
     expect(ready.split('\t')[3]).toBe(boot.fingerprint.root);
-    // 宿主侧 verify：同输入同函数（config + catalog + 有 path 的行）
+    // 宿主侧 verify：同输入同函数（config + catalog + 菜单行包根 × 依赖闭包）
     const hostSide = subjectFingerprint({
       configJson: JSON.stringify(readAgentConfig(ROOT, 'fp1')), // cr-918：与 boot.ts 同读面（patch 赢）
       catalogJson: fs.readFileSync(CATALOG, 'utf-8'),
-      rows: boot.rowset.rowIds
-        // 树限定：基座行跨树双计（host 版无 path），壳行集只认 shell 版——与 boot.ts 同口径
-        .map((id) => boot.rowset.catalogRows.find((r) => r.id === id && r.tree === 'shell'))
-        .filter((r) => r?.path !== undefined)
-        // path 数组适配与 boot.ts 同口径（一行跨多包 = 多指纹项）
-        .flatMap((r) => (Array.isArray(r!.path) ? r!.path : [r!.path!])
-          .map((p, i) => ({ id: Array.isArray(r!.path) ? r!.id + '/' + i : r!.id, root: path.resolve(p) }))),
+      // cr-1022 批3 与 boot.ts 同口径：包根 × workspace 依赖闭包 + 伴生根
+      rows: boot.rowset.rows
+        .filter((row) => row.path !== undefined)
+        .flatMap((row) => {
+          const roots = [...workspaceClosureRoots(path.resolve(row.path!))];
+          const companion = COMPANION_ROW_ROOTS[row.id];
+          if (companion !== undefined) roots.push(...workspaceClosureRoots(path.resolve(companion)));
+          return roots.map((root, i) => ({ id: i === 0 ? row.id : row.id + '/' + path.basename(root), root }));
+        }),
     });
     expect(hostSide.root).toBe(boot.fingerprint.root);
   });
@@ -152,12 +168,17 @@ describe('argv 解析', () => {
 });
 
 describe('rowset 派生断言', () => {
-  it('tools 缺省 → 基础壳行集；未命中条目 fail-loud', () => {
+  it('rows 缺省 → 全能力菜单；requires 缺失条目 fail-loud（不进即不装）', () => {
     seedAgent('a1');
     const r = deriveAndAssertRowset(ROOT, 'a1', CATALOG);
-    expect(r.warnings).toEqual([]);
+    expect(r.errors).toEqual([]);
     expect(r.rowIds.length).toBeGreaterThan(0);
-    seedAgent('a2', ['no-such-thing']);
+    // 死点名在写侧定义拷贝即静默丢——boot 侧 fail-loud 面 = 菜单 requires
+    // 完备性校验（缺依赖列名，不做自动注入）
+    const dir = path.join(ROOT, 'agents', 'a2');
+    fs.mkdirSync(dir, { recursive: true });
+    writeAgentProfileAt(dir, { model: 'mock' });
+    writeAgentPatchV3At(dir, [{ id: 'math', requires: ['ghost-row'] }], {});
     expect(() => deriveAndAssertRowset(ROOT, 'a2', CATALOG)).toThrow(/静态断言失败/);
   });
   it('agent 配置缺席 fail-loud', () => {
@@ -170,11 +191,8 @@ describe('rowset 派生断言', () => {
     let named = false;
     for (const rows of [undefined, ['subagent', 'math']] as Array<string[] | undefined>) {
       named = rows !== undefined;
-      const childDir = path.join(ROOT, 'agents', 'w3', 'children', 'w3-k');
-      fs.mkdirSync(childDir, { recursive: true });
-      fs.writeFileSync(path.join(childDir, 'config.json'), JSON.stringify({
-        id: 'w3-k', model: 'mock', ...(rows !== undefined ? { rows } : {}),
-      }), 'utf-8');
+      fs.rmSync(path.join(ROOT, 'agents', 'w3', 'children', 'w3-k'), { recursive: true, force: true });
+      seedChild('w3', 'w3-k', rows);
       const r = deriveAndAssertRowset(ROOT, 'w3-k', CATALOG, 'w3');
       expect(r.rowIds).not.toContain('subagent');
       if (named) expect(r.rowIds).toContain('math'); // 同批其他行不受波及
@@ -192,7 +210,7 @@ describe('boot 编排（emit spy）', () => {
     const exits: Array<() => void> = [];
     // 占位装配器：基础行集全部可装配
     const r = deriveAndAssertRowset(ROOT, 'b1', CATALOG);
-    seedPlaceholderAssemblers(r.catalogRows);
+    seedPlaceholderAssemblers(r.rows);
     const res = await bootShell(
       { dataRoot: ROOT, agentId: 'b1', catalogFile: CATALOG },
       { emit: (s, ...f) => signals.push([s, ...f].join('\t')), onExit: (h) => exits.push(h) },
@@ -210,9 +228,9 @@ describe('boot 编排（emit spy）', () => {
   }, 20_000);
 
   it('缺装配器 fail-loud（目录外行 id——seed 不覆盖）', async () => {
-    seedAgent('b2', ['read']);
+    seedAgent('b2', ['math']); // 行 id（工具名词形随 byTool 退役）
     const r = deriveAndAssertRowset(ROOT, 'b2', CATALOG);
-    seedPlaceholderAssemblers(r.catalogRows);
+    seedPlaceholderAssemblers(r.rows);
     // 目录外 id 直测 fail-loud 分支（真实场景 = 行集清单引用了不存在的行——
     // 已被静态断言拦截；此处的防线 = 装配器注册表完备性自检）
     await expect(assembleRows(['no-such-row'], null)).rejects.toThrow(/无装配器/);
@@ -262,8 +280,7 @@ describe('进程级冒烟（真起 boot.ts）', () => {
 
 describe('编译产物快照（cr-910 批6 切片四：审计视图）', () => {
   it('boot 后 agents/<id>/boot-graph.json 落盘（行集 + 目录行摘要）', async () => {
-    fs.mkdirSync(path.join(ROOT, 'agents', 'snap1'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'snap1', 'config.json'), JSON.stringify({ id: 'snap1', model: 'mock' }));
+    writeAgentConfig(ROOT, { id: 'snap1', model: 'mock' });
     const boot = await bootShell({ dataRoot: ROOT, agentId: 'snap1', catalogFile: CATALOG }, { emit: () => {} });
     const snapPath = path.join(ROOT, 'agents', 'snap1', 'boot-graph.json');
     expect(fs.existsSync(snapPath)).toBe(true);
@@ -271,7 +288,8 @@ describe('编译产物快照（cr-910 批6 切片四：审计视图）', () => {
     expect(snap.agentId).toBe('snap1');
     expect(Array.isArray(snap.rows)).toBe(true);
     expect(snap.rows.length).toBeGreaterThan(0);
-    expect(snap.catalogRows.some((r: { id: string }) => r.id === 'tools')).toBe(true);
+    expect(snap.rows).toContain('tools'); // 骨架行恒在集
+    expect(Array.isArray(snap.tools)).toBe(true); // 注册面 dump（cr-1022 批2 形状：rows/tools/rowTools）
     await boot.close();
   });
 });

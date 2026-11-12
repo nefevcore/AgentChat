@@ -18,6 +18,7 @@ import { bootShell } from '../boot.ts';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { McpConnection, McpToolDef } from 'ac-mcp-core';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-gate-' + process.pid);
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
@@ -46,9 +47,10 @@ const ECHO: McpToolDef = {
 
 /** 装配带 mcp 行 + 假服务器 alpha 的壳，注册假 MCP 工具 */
 async function bootWithMcp(agentId: string, writeAuth?: (root: string) => void) {
-  fs.mkdirSync(path.join(ROOT, 'agents', agentId), { recursive: true });
-  fs.writeFileSync(path.join(ROOT, 'agents', agentId, 'config.json'),
-    JSON.stringify({ id: agentId, model: 'mock' }), 'utf-8');
+  // v3 播种（cr-1022 批3）：正清单定义拷贝——mcp/math 点名才装
+  //（骨架行恒装不进 rows；旧「基础集恒并 mcp」语义随正清单退役）
+  fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+  writeAgentConfig(ROOT, { id: agentId, model: 'mock', rows: ['mcp', 'math'] });
   writeAuth?.(ROOT);
   const boot = await bootShell({ dataRoot: ROOT, agentId, catalogFile: CATALOG }, { emit: () => {} });
   const mcp = boot.ctx.get('mcp', false) as {

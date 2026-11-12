@@ -1,12 +1,13 @@
 // ============================================================
 // base-docs.ts —— 基座源文档读取/投影/部署链（cr-902 / cr-901 v2.1 批1）
 //
-// 基座源文档（apps/catalog/profile/{host,shell}.patch.yml）是行→包映射
-// 的单一事实源：cordis-plugin-loader 官方方言条目数组（顶层必须数组——
-// include 装载器同款约束），tree 字段由所在文档隐含（id 仅基座内唯一，
-// 跨基座同名合法——config/logger-console 双计）。row-catalog.json 是本档
-// 的生成投影（scripts/gen-row-catalog.mjs），旧消费面经 readCatalog 双读
-// 过渡（基座在场即基座赢，JSON 是批 6 退役前的兼容读路径）。
+// 基座源文档（apps/catalog/profile/{host,shell}.patch.yml）是骨架/宿主
+// 行→包映射的单一事实源（cr-1033 B3 起能力定义归各包 ac.rows——本档
+// 不再自持能力区）：cordis-plugin-loader 官方方言条目数组（顶层必须
+// 数组——include 装载器同款约束），tree 字段由所在文档隐含（id 仅基座内
+// 唯一，跨基座同名合法——config/logger-console 双计）。row-catalog.json
+// 是生成投影（scripts/gen-row-catalog.mjs：基座 ∪ 包聚合），消费面经
+// readCatalog 合并语义读（骨架归基座 / 能力归投影）。
 //
 // 版本戳 = 文档头注释 `# ac-base-version: N`（官方方言顶层数组不容元数据
 // 字段；注释位是 DSH patch 文档先例）。编辑基座必须升戳。
@@ -24,6 +25,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import yaml from 'js-yaml';
 import type { RowDescriptor, RowsetCatalog } from './rowset.ts';
+import type { MenuEntry } from './menu.ts';
 
 /** 进程种类（行集投影面 = host/shell；webui 基座非行集——部署面专用） */
 export type BaseProc = 'host' | 'shell' | 'webui';
@@ -32,17 +34,14 @@ export const BASE_PROCS: readonly Exclude<BaseProc, 'webui'>[] = ['host', 'shell
 /** 部署链面（materializeBaseDocs——批 3 起 webui 基座随行部署，cr-905） */
 export const DEPLOY_PROCS: readonly BaseProc[] = ['host', 'shell', 'webui'];
 
-/** 基座文档内一条目（官方 EntryOptions 骨架 + 本档派生词汇挂载） */
+/** 基座文档内一条目（cordis-plugin-loader 条目词汇——cr-1022 批2 瘦身：
+ * 派生词 packs/tools/bundle 退役，包足迹指纹面批3 换依赖闭包） */
 export interface BaseEntry {
   /** 稳定行 id（基座内唯一） */
   id: string;
-  /** 行定位（link: 仓库相对路径；多包行 = 首包） */
+  /** 行定位（link: 仓库相对路径） */
   name?: string;
-  /** 多包行指纹面全集（单包行省略——name 即全集） */
-  packs?: string[];
   description?: string;
-  tools?: string[];
-  bundle?: string;
   requires?: string[];
 }
 
@@ -68,12 +67,17 @@ function legacyBaseDocFile(profileDir: string, proc: BaseProc): string {
   return path.join(profileDir, proc + '.patch.yml');
 }
 
-/** 读单份基座文档（新名缺席时回退旧名——改名窗口兼容读） */
+/** 读单份基座文档（新名缺席时回退旧名——改名窗口兼容读）。
+ * cr-1033 B3 起顶层唯认条目数组（双区映射形态退役——存量数据根 v4
+ * 副本经宿主部署链版本戳对账重物化收敛，直读旧副本 fail-loud 指路）。 */
 function readBaseDocEither<P extends BaseProc>(profileDir: string, proc: P): { doc: BaseDoc<P>; file: string } | null {
+  const parse = (file: string): { doc: BaseDoc<P>; file: string } | null => {
+    return { doc: readBaseDoc(file, proc), file };
+  };
   const file = baseDocFile(profileDir, proc);
-  if (fs.existsSync(file)) return { doc: readBaseDoc(file, proc), file };
+  if (fs.existsSync(file)) return parse(file);
   const legacy = legacyBaseDocFile(profileDir, proc);
-  if (fs.existsSync(legacy)) return { doc: readBaseDoc(legacy, proc), file: legacy };
+  if (fs.existsSync(legacy)) return parse(legacy);
   return null;
 }
 
@@ -102,19 +106,18 @@ export function readBaseDoc<P extends BaseProc>(file: string, proc: P): BaseDoc<
   return { proc, version: Number(stamped[1]), entries };
 }
 
-/** 条目 → 行描述符（tree 由文档隐含；path 由 packs/name 还原；webui 基座
- * 非行集面——projectBaseEntry 不消费，仅部署链物化） */
-export function projectBaseEntry(entry: BaseEntry, tree: 'host' | 'shell'): RowDescriptor {
-  const packs = entry.packs
-    ?? (entry.name !== undefined ? [entry.name.replace(/^link:/, '')] : undefined);
+/** 条目 → 行描述符（tree 由文档隐含；path 由 name 还原；zone：显式
+ * 透传（包聚合能力行）∥ 壳基座行派生 skeleton（分区 = 文档归属面）；
+ * webui 基座非行集面——projectBaseEntry 不消费，仅部署链物化） */
+export function projectBaseEntry(entry: BaseEntry & { zone?: 'skeleton' | 'capability' }, tree: 'host' | 'shell'): RowDescriptor {
+  const zone = entry.zone ?? (tree === 'shell' ? 'skeleton' as const : undefined);
   return {
     id: entry.id,
     tree,
+    ...(zone !== undefined ? { zone } : {}),
     ...(entry.description !== undefined ? { description: entry.description } : {}),
-    ...(entry.tools !== undefined ? { tools: entry.tools } : {}),
-    ...(entry.bundle !== undefined ? { bundle: entry.bundle } : {}),
     ...(entry.requires !== undefined ? { requires: entry.requires } : {}),
-    ...(packs !== undefined ? { path: packs.length === 1 ? packs[0] : packs } : {}),
+    ...(entry.name !== undefined ? { path: entry.name.replace(/^link:/, '') } : {}),
   };
 }
 
@@ -137,6 +140,14 @@ export function readBaseCatalog(profileDir: string): RowsetCatalog | null {
     throw new Error('基座源文档残缺（host/shell 须成对部署）：' + profileDir);
   }
   return { rows: docs.flatMap((d) => d.entries.map((e) => projectBaseEntry(e, d.proc))) };
+}
+
+// —— 包聚合条目形状（cr-1033 B3：能力定义归包后唯一消费形状） ——
+
+/** 聚合能力行条目 = 菜单行定义 + description（文档词——人类可读面，无带内
+ * 真值，不属派生词，不进菜单合成词汇；package-rows 聚合产物） */
+export interface MenuBaseEntry extends MenuEntry {
+  description?: string;
 }
 
 export interface MaterializeReport {
@@ -162,7 +173,7 @@ export function materializeBaseDocs(profileDir: string, dataRoot: string): Mater
     if (proc === 'webui' && srcHit === null) continue;
     const srcFile = srcHit!.file;
     const srcText = fs.readFileSync(srcFile, 'utf-8');
-    const srcVersion = srcHit!.doc.version;
+    const srcVersion = srcHit!.doc.version; // 单区/双区同携版本戳
     const dstFile = baseDocFile(path.join(dataRoot, 'profile'), proc);
     let dstText: string | null = null;
     try {
@@ -208,6 +219,20 @@ export function materializeBaseDocs(profileDir: string, dataRoot: string): Mater
           fs.rmSync(legacyDst, { force: true });
         }
       } catch { /* 不可读 = 留置（不冒进出手） */ }
+    }
+  }
+  // 行集目录投影随行部署（cr-1033 B2 定义归包）：能力行事实源 = 包
+  // ac.rows 构建期聚合 → row-catalog.json 携带；数据根默认读面
+  //（defaultCatalogFile）经 readCatalog 合并语义消费——生成物随行
+  // 物化（字节比对幂等，无版本戳对账面——非手写文档）
+  const catalogSrc = path.join(profileDir, '..', 'row-catalog.json');
+  if (fs.existsSync(catalogSrc)) {
+    const catalogDst = path.join(dataRoot, 'row-catalog.json');
+    const catalogText = fs.readFileSync(catalogSrc, 'utf-8');
+    if (!fs.existsSync(catalogDst) || fs.readFileSync(catalogDst, 'utf-8') !== catalogText) {
+      const tmp = catalogDst + '.' + process.pid + '.' + Date.now() + '.tmp';
+      fs.writeFileSync(tmp, catalogText, 'utf-8');
+      fs.renameSync(tmp, catalogDst);
     }
   }
   // 进程种类注册表随行部署（cr-910 批6 切片四 / cr-901 §4.7：repo 声明式

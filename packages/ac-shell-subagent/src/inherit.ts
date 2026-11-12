@@ -12,25 +12,26 @@
 // ============================================================
 import type { AgentConfig } from 'ac-agents-core';
 import { ACCESS_RANK, accessOf, toolModeOf, type AccessLevel } from 'ac-agents-core';
-import { expandAssemblyTokens, evaluateLegacyShellRows, SEAT_ROW_IDS, type RowsetCatalog } from 'ac-rowset-core';
+import { resolveToolNames } from 'ac-agents-core';
 import { splitModelRef } from 'ac-llm';
 
 /**
  * spawn 工具词过滤（spawn ⊆ 父授权投影）：
- *   · 未命中目录 / warnings（cr-616——击穿子壳行集静态断言）；
+ *   · 未命中父壳活装配行集（cr-616——击穿子壳行集静态断言；cr-1022
+ *     批4 词面从静态目录换轨为 bootShell 注入的活行集）；
  *   · subagent 行（cr-762——防子孙无限增长）；
  *   · run-code 行（cr-763——子域程序化形态会收窄掉全部授予工具）；
  *   · 不属父行集的词。
  * 三者皆拒（filtered 回报）；过滤后空集 = 纯推理子 Agent。
+ * cr-1022 批2：词形 = 行 id 单一（工具名/捆绑词随 tools 声明退役）；
+ * 批4 落地：词面 = 父壳活装配行集（bootShell 注入——静态目录不查）。
  */
-export function filterSpawnTools(tokens: string[], parentRowIds: Set<string>, catalog: RowsetCatalog): { granted: string[]; rejected: string[] } {
-  const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
+export function filterSpawnTools(tokens: string[], parentRowIds: Set<string>, shellRowIds: ReadonlySet<string>): { granted: string[]; rejected: string[] } {
   const granted: string[] = [];
   const rejected: string[] = [];
   for (const token of tokens) {
-    const derived = expandAssemblyTokens([token], shellRows);
-    if (derived.rowIds.includes('subagent') || derived.rowIds.includes('run-code')
-      || derived.warnings.length > 0 || !derived.rowIds.every((id) => parentRowIds.has(id))) {
+    if (!shellRowIds.has(token) || token === 'subagent' || token === 'run-code'
+      || !parentRowIds.has(token)) {
       rejected.push(token);
     } else {
       granted.push(token);
@@ -89,14 +90,16 @@ export interface SpawnInheritInput {
  * + workdir / model 覆盖快照。产物经 materializeChild 落盘（其剥减层补
  * id/preset）。cr-953：tags 轴删除——授权继承 = access 字段与 levels。
  */
-export function spawnChildConfigOf(input: SpawnInheritInput, catalog: RowsetCatalog): AgentConfig {
+export function spawnChildConfigOf(input: SpawnInheritInput): AgentConfig {
   const { parent, tools, name, system, inherit, workdirAnchor, modelOverride, effectiveRows } = input;
   // 形态合成（cr-821 / cr-1021 修正）：子的 toolMode = 父形态 ∧ 子行集含
   // run-code 行。run-code 进基础集（cr-1021）后「行集含 run-code」对缺省
   // 继承恒真——仅凭行集判定会把所有 spawn 子翻转成程序化模式；父级
   // tc-* 不继承的语义保留在「父非程序化 → 子恒常规」分支。
-  const childTokens = tools ?? effectiveRows ?? parent.rows ?? [];
-  const childRowIds = new Set(evaluateLegacyShellRows(childTokens, catalog.rows.filter((r) => r.tree === 'shell'), [], SEAT_ROW_IDS).rowIds);
+  // cr-1022 批2：词形 = 行 id 单一——正清单直读（组合读已含骨架行；
+  // 捆绑/工具名词形与闭包展开随差量引擎退役）
+  const childTokens = tools ?? effectiveRows ?? resolveToolNames(parent.rows) ?? [];
+  const childRowIds = new Set(childTokens);
   const parentProgrammatic = toolModeOf(parent) === 'tc-programmatic';
   // 档位继承：会话覆盖与父 access 取高（只升不降）
   const parentAccess = accessOf(parent);

@@ -13,6 +13,7 @@ import { PostOffice } from 'ac-post-office';
 import { UserStub } from '../user-stub.ts';
 import { Context } from '@agentchat/cordis';
 import { makeUsageHostRow, HostInbox } from 'ac-host-rows';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-usage-e2e-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
@@ -44,9 +45,9 @@ async function spawnShell(agentId: string): Promise<{ hint: string }> {
 
 describe('usage 自报链 e2e（壳 run 收束 → 事件信 → 宿主聚合并）', () => {
   it('mock run 收束后宿主 byAgent 入账 + journal 计量在场', async () => {
-    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'),
-      JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    // v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）
+    fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' });
     const po = new PostOffice({ dataRoot: ROOT });
     await po.listen();
     const ctx = new Context();

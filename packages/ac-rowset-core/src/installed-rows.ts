@@ -96,8 +96,7 @@ export function rowDescriptorsOfDir(entry: InstalledMenuEntry, dir: string, warn
     const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf-8')) as {
       ac?: { provides?: { tools?: string[] }; faces?: { node?: { entry?: string } } };
     };
-    const tools = pkg.ac?.provides?.tools ?? [];
-    return [{ id: entry.id, tree: 'shell' as const, ...(tools.length > 0 ? { tools } : {}), path: dir }];
+    return [{ id: entry.id, tree: 'shell' as const, path: dir }];
   } catch {
     warnings.push(entry.id + '：manifest/package 声明均缺席——跳过');
     return [];

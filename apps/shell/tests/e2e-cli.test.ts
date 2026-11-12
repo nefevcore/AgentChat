@@ -11,6 +11,7 @@ import { bootShell, deriveAndAssertRowset } from '../boot.ts';
 import { LedgerWriter, sessionDir, readLedger, projectUserReplay } from 'ac-ledger';
 import { ConversationMachine } from 'ac-shell-conversation';
 import { AdmissionGate } from 'ac-envelope-core';
+import { writeAgentConfig, writeAgentProfileAt, writeAgentPatchV3At, readAgentPatchV3At } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-e2e-' + process.pid);
 const CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
@@ -59,9 +60,9 @@ async function cliTurn(
 describe('M3.5 级联验收：CLI 直连多轮会话', () => {
   it('boot 骨架拉起 + 多轮 user 会话 + 账本重读续跑（宿主不在线）', async () => {
     // —— 壳 boot（锁 + rowset + 三节拍）——
-    fs.mkdirSync(path.join(ROOT, 'agents', 'alpha'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'config.json'),
-      JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    // v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）
+    fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' });
     const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'alpha', catalogFile: CATALOG },
@@ -103,13 +104,20 @@ describe('M3.5 级联验收：CLI 直连多轮会话', () => {
     expect(projectUserReplay(ROOT, uuid).map((r) => r.role)).toEqual(['user', 'peer', 'user', 'peer']);
   }, 20_000);
 
-  it('行集静态断言拦错：AgentConfig 引用不存在工具 → boot 拒启', async () => {
-    fs.mkdirSync(path.join(ROOT, 'agents', 'bad'), { recursive: true });
-    fs.writeFileSync(path.join(ROOT, 'agents', 'bad', 'config.json'),
-      JSON.stringify({ id: 'bad', model: 'm', tools: ['hammer'] }), 'utf-8');
+  it('坏引用两副面孔：rows 正清单静默丢（定义拷贝面）+ 菜单 requires 缺失 fail-loud（boot 拒启）', async () => {
+    fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+    // ① 写侧：rows 里的 token 不在能力目录 → rowsToMenuDefs 静默丢（正清单
+    // 定义拷贝——目录不可见即不可点名，坏引用活不到 boot）
+    writeAgentConfig(ROOT, { id: 'bad', model: 'm', rows: ['hammer'] });
+    expect(readAgentPatchV3At(path.join(ROOT, 'agents', 'bad'))!.defs).toEqual([]);
+    // ② boot 侧 fail-loud 面 = 菜单 requires 完备性校验：手写 v3 菜单片段
+    // 点名一行 + requires 引用 ghost 行 → mergeMenu 报「requires 缺失」
+    const dir = path.join(ROOT, 'agents', 'bad');
+    writeAgentProfileAt(dir, { model: 'm' });
+    writeAgentPatchV3At(dir, [{ id: 'math', requires: ['ghost-row'] }], {});
     await expect(bootShell(
       { dataRoot: ROOT, agentId: 'bad', catalogFile: CATALOG },
       { emit: () => {} },
-    )).rejects.toThrow(/静态断言失败/);
+    )).rejects.toThrow(/requires 缺失/);
   });
 });

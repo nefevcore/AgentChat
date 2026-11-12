@@ -8,6 +8,14 @@
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "datetime",
+        "description": "日期时间"
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*"

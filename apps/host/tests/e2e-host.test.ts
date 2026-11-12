@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { makeEnvelope } from 'ac-envelope-core';
 import { ConversationRegistry, ReachabilityTable, routeEnvelope } from 'ac-post-office';
 import { adoptShell } from '../orchestrate.ts';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-host2-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
@@ -51,10 +52,10 @@ function readLedgerRows(agentId: string, uuid: string): Array<{ role: string; co
 }
 
 describe('M5.4 药丸形端到端（D9 三步合一）', () => {
+  // v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）
   function seedConfig(agentId: string): void {
-    const dir = path.join(ROOT, 'agents', agentId);
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock' }), 'utf-8');
+    fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+    writeAgentConfig(ROOT, { id: agentId, model: 'mock' });
   }
 
   it('全链：spawn 壳常驻 → adopt（hint 真值）→ 直投 → conversation 全链（mock run + 账本终稿）→ shutdown 释放锁', async () => {

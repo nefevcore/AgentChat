@@ -22,7 +22,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import yaml from 'js-yaml';
-import { legacyRowsToAgentPatch, SEAT_ROW_IDS, type AssemblyEntry, type RowDescriptor } from 'ac-rowset-core';
+import { menuDefinitionFingerprint, type AssemblyEntry, type MenuEntry, type RowDescriptor } from 'ac-rowset-core';
 import type { AgentConfig } from './config.ts';
 import { accessOf, normalizeLegacyTags, toolModeOf } from './config.ts';
 import { agentDir, assertAgentId } from './tree.ts';
@@ -192,6 +192,7 @@ export const RESERVED_UNIT_NAMES: ReadonlySet<string> = new Set([
   'agent', // agent.json（cr-1004 批2：档案数据——非插件单元）
   'agent.patch', // agent.patch.yml
   'preset-origin', // preset-origin.json（cr-812 模板升级通路——切片三并入 origin 块）
+  'boot-graph', // boot-graph.json（cr-909 审计快照——含时间戳，进 settings 即污染主体指纹）
 ]);
 
 /** 插件配置单元名校验（param-case；保留字/路径组件拒绝） */
@@ -279,13 +280,6 @@ export interface AgentProfile {
   origin?: PatchOrigin;
 }
 
-/** v2 装配差量文档（顶层 = 纯 cordis 条目数组 + `# ac-base` 基线戳注释） */
-export interface AgentPatchV2 {
-  /** 基线戳（存在合成指纹——求值恒对戳对应快照执行，漂移 = rebase） */
-  base?: string;
-  entries: AssemblyEntry[];
-}
-
 const BASE_STAMP_RE = /^#\s*ac-base:\s*(\S+)\s*$/m;
 
 /** 读 agent.json（缺席 = null；损坏 = throw——档案代写文档） */
@@ -312,43 +306,6 @@ export function writeAgentProfileAt(dir: string, profile: AgentProfile): void {
   fs.renameSync(tmp, file);
 }
 
-/** 读 v2 装配差量（顶层数组形态；映射/缺席 = null——迁移窗口走旧读面） */
-export function readAgentPatchV2At(dir: string): AgentPatchV2 | null {
-  let text: string;
-  try {
-    text = fs.readFileSync(path.join(dir, PATCH_FILE), 'utf-8');
-  } catch {
-    return null;
-  }
-  const data = yaml.load(text) as unknown;
-  if (!Array.isArray(data)) return null;
-  const entries = data.filter((e): e is AssemblyEntry =>
-    e !== null && typeof e === 'object' && typeof (e as AssemblyEntry).id === 'string');
-  const stamped = BASE_STAMP_RE.exec(text);
-  return { ...(stamped !== null ? { base: stamped[1] } : {}), entries };
-}
-
-/** 写 v2 装配差量（原子写；基线戳 = 传入值 ∨ 既有戳保真〔写侧归一：与
- * 基线一致 = 删条目——文档只记离差，§六〕） */
-export function writeAgentPatchV2At(dir: string, entries: AssemblyEntry[], base?: string): void {
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, PATCH_FILE);
-  let stamp = base;
-  if (stamp === undefined) {
-    try {
-      const prev = BASE_STAMP_RE.exec(fs.readFileSync(file, 'utf-8'));
-      if (prev !== null) stamp = prev[1];
-    } catch { /* 首写无戳可保 */ }
-  }
-  const header = '# agent.patch —— 装配差量（cr-1004 批2）：纯 cordis 条目数组（加法/disabled/config）；档案与 origin 在 agent.json。' + String.fromCharCode(10)
-    + (stamp !== undefined ? '# ac-base: ' + stamp + String.fromCharCode(10) : '');
-  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
-  fs.writeFileSync(tmp, header + yaml.dump(entries, { lineWidth: 120, noRefs: true }), 'utf-8');
-  fs.renameSync(tmp, file);
-}
-
-
-
 // —— levels → 装配条目 config 归位（cr-1004 批2b / agent-assembly §四） ——
 
 /** 行内档位单元 → 行 id（存储归位映射单源：levels.<unit> 落差量条目
@@ -362,29 +319,105 @@ export const LEVELS_UNIT_OF: Record<string, string | undefined> = Object.fromEnt
   Object.entries(LEVELS_ROW_OF).map(([unit, row]) => [row, unit]),
 );
 
-/** levels 并入差量条目（写侧单源：同 id 条目 config 合并；停用条目不挂） */
-export function mergeLevelsIntoEntries(entries: AssemblyEntry[], levels: Record<string, string | boolean> | undefined): AssemblyEntry[] {
+/** levels 并入菜单定义（写侧单源：同 id 定义 config 合并；行不在菜单 =
+ * 不进即不装，不因档位静默长行——cr-1022 哲学） */
+export function mergeLevelsIntoEntries(entries: MenuEntry[], levels: Record<string, string | boolean> | undefined): MenuEntry[] {
   if (levels === undefined) return entries;
   for (const [unit, value] of Object.entries(levels)) {
     const row = LEVELS_ROW_OF[unit];
     if (row === undefined) continue; // 退役词（dev-tools 等）——消费面已亡
     const hit = entries.find((e) => e.id === row);
-    if (hit !== undefined && hit.disabled !== true) {
-      hit.config = { ...(hit.config ?? {}), level: value };
-    } else if (hit === undefined) {
-      entries.push({ id: row, config: { level: value } });
-    }
+    if (hit !== undefined) hit.config = { ...(hit.config ?? {}), level: value };
   }
   return entries;
 }
 
-/** 差量条目 config.level → levels（组合读面；档案 levels 为批2b 前存量窗口） */
-export function levelsOfEntries(entries: AssemblyEntry[] | null, profileLevels: Record<string, string | boolean> | undefined): Record<string, string | boolean> | undefined {
+// —— cr-1022 批2：agent.patch.yml v3 菜单片段（行定义 + src-fingerprint） ——
+
+/** v3 菜单片段文档：顶层数组 = 行定义（id/name/requires/config——白名单
+ * §2.1），src-fingerprint 为溯源元数据（§2.3 定义副本是缓存——读侧剥离，
+ * 不进菜单合成词汇）。批3 boot 对账校准面消费。 */
+export interface AgentPatchV3 {
+  /** 菜单标记（头注释 ac-menu: 1——v2/v3 同为数组形态的判别位） */
+  menu: true;
+  /** 基线戳（沿用 v2 词汇——存在合成指纹，漂移 = rebase） */
+  base?: string;
+  defs: MenuEntry[];
+  /** 行 id → 定义指纹（写入时随行；批3 校准面对账） */
+  fingerprints: Record<string, string>;
+}
+
+const MENU_MARK_RE = /^#\s*ac-menu:\s*1\s*$/m;
+
+/** 读 v3 菜单片段（标记缺席/文件缺席 = null——v2 与旧形态走各自读面；
+ * 损坏 = throw fail-loud：编辑面/迁移脚本代写文档） */
+export function readAgentPatchV3At(dir: string): AgentPatchV3 | null {
+  let text: string;
+  try {
+    text = fs.readFileSync(path.join(dir, PATCH_FILE), 'utf-8');
+  } catch {
+    return null;
+  }
+  if (!MENU_MARK_RE.test(text)) return null;
+  const data = yaml.load(text) as unknown;
+  if (!Array.isArray(data)) {
+    throw new Error('agent.patch.yml v3 顶层必须是行定义数组：' + dir);
+  }
+  const defs: MenuEntry[] = [];
+  const fingerprints: Record<string, string> = {};
+  for (const raw of data) {
+    const e = raw as Record<string, unknown> | null;
+    if (typeof e?.id !== 'string') {
+      throw new Error('agent.patch.yml v3 条目缺 id：' + dir);
+    }
+    const fp = e['src-fingerprint'];
+    delete (e as Record<string, unknown>)['src-fingerprint'];
+    if (typeof fp === 'string') fingerprints[e.id] = fp;
+    defs.push(e as unknown as MenuEntry);
+  }
+  const stamped = BASE_STAMP_RE.exec(text);
+  return { menu: true, ...(stamped !== null ? { base: stamped[1] } : {}), defs, fingerprints };
+}
+
+/** 写 v3 菜单片段（cr-1025 重写原子纪律：临时文件 + fsync + 原子 rename，
+ * 重写前留一代备份 agent.patch.yml.bak——保护行集合与 config，非旧定义） */
+export function writeAgentPatchV3At(
+  dir: string,
+  defs: MenuEntry[],
+  fingerprints: Record<string, string>,
+  base?: string,
+): void {
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, PATCH_FILE);
+  const dump = defs.map((def) => ({
+    ...def,
+    ...(def.id in fingerprints ? { 'src-fingerprint': fingerprints[def.id] } : {}),
+  }));
+  const header = '# agent.patch v3 —— 菜单片段（cr-1022 批2）：行定义数组（id/name/requires/config + src-fingerprint 溯源）；档案与 origin 在 agent.json。' + String.fromCharCode(10)
+    + '# ac-menu: 1' + String.fromCharCode(10)
+    + (base !== undefined ? '# ac-base: ' + base + String.fromCharCode(10) : '');
+  const body = header + yaml.dump(dump, { lineWidth: 120, noRefs: true });
+  try {
+    fs.copyFileSync(file, file + '.bak'); // 留一代备份（成功后可清——批3 校准面接手）
+  } catch { /* 首写无备份源 */ }
+  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
+  const fd = fs.openSync(tmp, 'w');
+  try {
+    fs.writeSync(fd, body);
+    fs.fsyncSync(fd);
+  } finally {
+    fs.closeSync(fd);
+  }
+  fs.renameSync(tmp, file);
+}
+
+/** 菜单定义 config.level → levels（组合读面；档案 levels 为批2b 前存量窗口） */
+export function levelsOfEntries(entries: MenuEntry[] | null, profileLevels: Record<string, string | boolean> | undefined): Record<string, string | boolean> | undefined {
   const levels: Partial<Record<string, string | boolean>> = {};
   for (const e of entries ?? []) {
     const unit = LEVELS_UNIT_OF[e.id];
     const level = e.config?.level;
-    if (unit !== undefined && (typeof level === 'string' || typeof level === 'boolean') && e.disabled !== true) levels[unit] = level;
+    if (unit !== undefined && (typeof level === 'string' || typeof level === 'boolean')) levels[unit] = level;
   }
   for (const [k, v] of Object.entries(profileLevels ?? {})) {
     if (levels[k] === undefined && LEVELS_ROW_OF[k] !== undefined) levels[k] = v; // 存量窗口
@@ -392,18 +425,28 @@ export function levelsOfEntries(entries: AssemblyEntry[] | null, profileLevels: 
   return Object.keys(levels).length > 0 ? levels as Record<string, string | boolean> : undefined;
 }
 
-/** AgentConfig.rows → v2 差量条目（写侧单源）：两种形态统一走 §七
- * 确定性转换（白名单意图 = B−T 减法条目承载；{exclude} 缺 include =
- * 全集减法——只落 exclude 条目）。需要 shell 行目录算 B−T——缺席 fail-loud */
-export function rowsToPatchEntries(
+/** AgentConfig.rows → v3 菜单片段定义（cr-1022 批2 写侧单源）：正清单
+ * 从出厂能力区拷贝定义 + src-fingerprint（§2.2 模板物化语义）；rows
+ * 缺席 = 全部能力行（与旧基础集 ∩ 能力行逐位等价）。能力目录缺席
+ * fail-loud。{include}/{exclude} 形态照 resolveToolNames 词形归一。 */
+export function rowsToMenuDefs(
   rows: AgentConfig['rows'],
-  shellRows?: RowDescriptor[],
-): AssemblyEntry[] {
-  if (rows === undefined) return [];
-  if (shellRows === undefined) {
-    throw new Error('rows 白名单转差量需要 shell 行目录（B−T 减法）——调用方注入 shellRows');
+  capability: MenuEntry[],
+): { defs: MenuEntry[]; fingerprints: Record<string, string> } {
+  const byId = new Map(capability.map((d) => [d.id, d] as const));
+  const tokens = Array.isArray(rows) ? rows : rows?.include;
+  const excludes = new Set(Array.isArray(rows) ? [] : rows?.exclude ?? []);
+  // 缺省面 = 全部能力行（AgentConfig.rows 缺省 = 行集全集——正清单直落）
+  const picked = tokens === undefined
+    ? capability
+    : tokens.filter((t) => !excludes.has(t)).map((t) => byId.get(t)).filter((d): d is MenuEntry => d !== undefined);
+  const defs: MenuEntry[] = [];
+  const fingerprints: Record<string, string> = {};
+  for (const def of picked) {
+    defs.push({ id: def.id, ...(def.name !== undefined ? { name: def.name } : {}), ...(def.requires !== undefined ? { requires: def.requires } : {}) });
+    fingerprints[def.id] = menuDefinitionFingerprint(def);
   }
-  return legacyRowsToAgentPatch(rows, shellRows, [], SEAT_ROW_IDS);
+  return { defs, fingerprints };
 }
 
 /** 写 agent.patch.yml（原子写；header 注释 = 形态说明） */

@@ -11,8 +11,8 @@ import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { subjectFingerprint } from 'ac-fingerprint-core';
-import { materializeChild, readAgentConfig } from 'ac-agents-core';
-import { evaluateLegacyShellRows, SEAT_ROW_IDS, type RowsetCatalog } from 'ac-rowset-core';
+import { materializeChild, readAgentConfig, readAgentPatchV3At, writeAgentConfig, agentDir } from 'ac-agents-core';
+import type { RowsetCatalog } from 'ac-rowset-core';
 import { evolveShell, defaultCollectProtectedFiles } from '../evolve.ts';
 import { takeSnapshot } from 'ac-snapshot-core';
 import { validateReceiptPayload } from 'ac-envelope-core';
@@ -20,7 +20,11 @@ import { validateReceiptPayload } from 'ac-envelope-core';
 const ROOT = path.join('sandbox', 'test-rsi-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
 const CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
-beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
+beforeEach(() => {
+  fs.mkdirSync(ROOT, { recursive: true });
+  // v3 播种与指纹对拍都需数据根内目录（writeAgentConfig 定义拷贝面）
+  fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+});
 // 收割兜底（cr-513 纪律）：只按 spawn 句柄精确 pid，禁扫进程表
 const spawned: ChildProcess[] = [];
 afterEach(() => {
@@ -30,10 +34,11 @@ afterEach(() => {
   fs.rmSync(ROOT, { recursive: true, force: true });
 });
 
+// 播种 = v3 菜单片段（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud
+// ——「先迁移」；变更标记用 name〔system 已退役，name 随 agent.json 档案
+// 进指纹输入〕）
 function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
-  const dir = path.join(ROOT, 'agents', agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock', ...extra }), 'utf-8');
+  writeAgentConfig(ROOT, { id: agentId, model: 'mock', ...extra } as Parameters<typeof writeAgentConfig>[1]);
 }
 
 /** 真壳 adopt：spawn boot.ts → 等三节拍 → 取第四域（指纹根）→ shutdown 面 */
@@ -67,62 +72,100 @@ function realShell(dataRoot: string, agentId: string, parentId?: string) {
   };
 }
 
-/** 宿主侧同函数现算根（R-7 对拍半边——与 bootShell 同输入面：config + catalog + 行集派生内 path 行） */
+/** 伴生行包根（boot.ts 指纹面的装配代码真值镜像——ac-shell-rows
+ * COMPANION_ROW_ROOTS 冻结副本：host 测试不引 shell 行包依赖） */
+const COMPANION_ROW_ROOTS: Record<string, string> = {
+  'fs-tools': 'packages/ac-file-snapshots',
+};
+
+/** workspace 依赖闭包（boot.ts workspaceClosureRoots 的冻结镜像：包根 +
+ * 递归 dependencies 中 workspace:/link: 协议包——运行时足迹） */
+function closureRoots(pkgRoot: string): string[] {
+  const out: string[] = [];
+  const visited = new Set<string>();
+  const walk = (dir: string): void => {
+    const resolved = path.resolve(dir);
+    if (visited.has(resolved)) return;
+    visited.add(resolved);
+    out.push(resolved);
+    let deps: Record<string, string> = {};
+    try {
+      deps = (JSON.parse(fs.readFileSync(path.join(resolved, 'package.json'), 'utf-8')) as { dependencies?: Record<string, string> }).dependencies ?? {};
+    } catch { /* 坏 package.json——包根本身仍在指纹面 */ }
+    for (const spec of Object.values(deps)) {
+      const m = /^(?:workspace|link):(.+)$/.exec(spec);
+      if (m !== null) walk(path.resolve(resolved, '..', m[1]!));
+    }
+  };
+  walk(pkgRoot);
+  return out;
+}
+
+/** 宿主侧同函数现算根（R-7 对拍半边——与 bootShell 同输入面：config +
+ * catalog + 菜单行〔骨架 ∪ v3 定义〕包根 × 依赖闭包，cr-1022 批3 口径） */
 function hostSideRoot(dataRoot: string, agentId: string): string {
   const catalog = JSON.parse(fs.readFileSync(CATALOG, 'utf-8')) as RowsetCatalog;
-  const config = JSON.parse(fs.readFileSync(path.join(dataRoot, 'agents', agentId, 'config.json'), 'utf-8')) as { tools?: unknown };
-  // 行集派生走真函数（缺省 = 基础壳行集 = 非 bundle 行）——与 boot.ts 同口径，
-  // 不再用「全部有 path 行」极简面（M8.1 第二批起 bundle 行也有 path，口径必须含 rowIds 过滤）
-  const derived = evaluateLegacyShellRows(config.tools as string[] | undefined, catalog.rows.filter((r) => r.tree === 'shell'), [], SEAT_ROW_IDS);
+  const v3 = readAgentPatchV3At(agentDir(dataRoot, agentId))!;
+  const menuIds = new Set([
+    ...catalog.rows.filter((r) => r.tree === 'shell' && r.zone === 'skeleton').map((r) => r.id),
+    ...v3.defs.map((d) => d.id),
+  ]);
   const rows = catalog.rows
-    .filter((r) => r.tree === 'shell' && derived.rowIds.includes(r.id) && r.path !== undefined);
+    .filter((r) => r.tree === 'shell' && r.path !== undefined && menuIds.has(r.id))
+    .flatMap((r) => {
+      const roots = closureRoots(r.path as string);
+      const companion = COMPANION_ROW_ROOTS[r.id];
+      if (companion !== undefined) roots.push(...closureRoots(companion));
+      return roots.map((root, i) => ({ id: i === 0 ? r.id : r.id + '/' + path.basename(root), root: path.resolve(root) }));
+    });
   const fp = subjectFingerprint({
     configJson: JSON.stringify(readAgentConfig(dataRoot, agentId)), // cr-918：与 shell boot 同读面（patch 赢）
     catalogJson: fs.readFileSync(CATALOG, 'utf-8'),
-    // path 数组适配与 boot.ts 同口径（一行跨多包 = 多指纹项）
-    rows: rows.flatMap((r) => (Array.isArray(r.path) ? r.path : [r.path!])
-      .map((p, i) => ({ id: Array.isArray(r.path) ? r.id + '/' + i : r.id, root: path.resolve(p) }))),
+    rows,
   });
   return fp.root;
 }
 
 describe('M6.6 RSI 影子闭环（级联验收）', () => {
   it('换装成功线：对拍 → 变更 → 真新壳 boot → 快照点 + 成功回执', async () => {
-    seedAgent('w', { system: 'v1' });
+    seedAgent('w', { name: 'v1' });
     const inc = await realShell(ROOT, 'w').adopt();
     expect(inc.fingerprintRoot).toBe(hostSideRoot(ROOT, 'w')); // 两形态同源断言（真进程）
     await inc.shutdown();
     const out = await evolveShell({
       dataRoot: ROOT, agentId: 'w',
       incumbentRoot: inc.fingerprintRoot, expectedRoot: inc.fingerprintRoot,
-      mutations: [{ rel: 'agents/w/config.json', content: JSON.stringify({ id: 'w', model: 'mock', system: 'v2' }) }],
+      mutations: [{ rel: 'agents/w/agent.json', content: JSON.stringify({ model: 'mock', name: 'v2' }) }],
       spawnShell: () => realShell(ROOT, 'w'),
     });
     expect(out.outcome).toBe('upgraded');
     expect(validateReceiptPayload(out.receipt)).toEqual([]);
     expect(out.receipt.rollbackTargets[0].root).toBe(out.root);
-    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'w', 'config.json'), 'utf-8')).system).toBe('v2');
+    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'w', 'agent.json'), 'utf-8')).name).toBe('v2');
   }, 45_000);
 
   it('换装失败线：验收拒 → restore 回退旧内容 + 旧内容壳续跑 + 失败回执', async () => {
-    seedAgent('w', { system: 'v1' });
+    seedAgent('w', { name: 'v1' });
     const inc = await realShell(ROOT, 'w').adopt();
     await inc.shutdown();
     takeSnapshot(ROOT, { root: inc.fingerprintRoot, evidence: 'boot-smoke' }, defaultCollectProtectedFiles(ROOT, 'w'));
     const out = await evolveShell({
       dataRoot: ROOT, agentId: 'w',
       incumbentRoot: inc.fingerprintRoot, expectedRoot: inc.fingerprintRoot,
-      mutations: [{ rel: 'agents/w/config.json', content: JSON.stringify({ id: 'w', model: 'mock', system: 'BAD' }) }],
+      mutations: [{ rel: 'agents/w/agent.json', content: JSON.stringify({ model: 'mock', name: 'BAD' }) }],
       spawnShell: () => realShell(ROOT, 'w'),
       acceptance: { check: async () => ({ ok: false, reason: 'mock run 未收束' }) },
     });
     expect(out.outcome).toBe('rolled-back');
-    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'w', 'config.json'), 'utf-8')).system).toBe('v1');
+    expect(JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'w', 'agent.json'), 'utf-8')).name).toBe('v1');
     expect(validateReceiptPayload(out.receipt)).toEqual([]);
     expect(out.receipt.rolledBackTo!.root).toBe(inc.fingerprintRoot);
     // 旧内容壳续跑（回退后 boot 仍可拉起——rollback 非 retry）
     const again = await realShell(ROOT, 'w').adopt();
-    expect(again.fingerprintRoot).toBe(inc.fingerprintRoot);
+    // 跨 boot 的指纹恒等不可达：boot-graph.json 审计快照（at 时间戳）在
+    // 指纹求值前落盘并经单元文件读并进 config——每次 boot 的根必含新时戳。
+    // 断言换两形态同源面（自报根 == 宿主侧同函数现算根——R-7 不变量本体）
+    expect(again.fingerprintRoot).toBe(hostSideRoot(ROOT, 'w'));
     await again.shutdown();
   }, 45_000);
 

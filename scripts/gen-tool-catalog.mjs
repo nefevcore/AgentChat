@@ -30,10 +30,10 @@ const DATA_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-catalog-'));
 const { bootShell } = await import('../apps/shell/boot.ts');
 
 const catalog = JSON.parse(fs.readFileSync(CATALOG, 'utf-8'));
-// 全点名：全部声明了 tools 的行 + mcp（动态注册面，静态目录不含其工具，
-// 但装配无副作用）——行集闭包自动补依赖（tools/jobs/conversation 等）
+// cr-1022 批2：行词汇瘦身后无 tools 声明可作寻址——全行点名（skeleton ∪
+// capability；requires 完备性由菜单合成保证，依赖随行）
 const toolRowIds = catalog.rows
-  .filter((r) => r.tree === 'shell' && (r.tools !== undefined || r.id === 'mcp'))
+  .filter((r) => r.tree === 'shell')
   .map((r) => r.id);
 // 平台分支差集：shell-tools 的 bash/pwsh 按 process.platform 二选一注册——
 // 本机 dump 只见其一，对账基线剔除；缺席侧从在场侧克隆补条目（同注册
@@ -56,13 +56,15 @@ const boot = await bootShell(
 );
 try {
   const tools = boot.ctx.get('tools');
-  // sap-adt apply 尾部异步 init（demo 引擎拉起）晚于行 ACTIVE——轮询有界等待
-  const deadline = Date.now() + 30_000;
-  const want = new Set();
-  for (const r of catalog.rows.filter((x) => x.tree === 'shell' && x.tools !== undefined)) {
-    for (const t of r.tools) if (!PLATFORM_SWAP.has(t) || t === (process.platform === 'win32' ? 'pwsh' : 'bash')) want.add(t);
-  }
+  // 收敛判据 = 注册面稳定（连续 3 轮同形）∧ 最短窗口（sap-adt apply 尾部
+  // 异步 init 晚于行 ACTIVE——cr-1022 批2 起 tools 声明退役，无声明全集
+  // 可对账，改为稳定性 + 有界等待）
+  const deadline = Date.now() + 45_000;
+  const minWait = Date.now() + 5_000;
+  const project = (list) => JSON.stringify(list.map((t) => t.name).sort());
   let entries = [];
+  let stable = 0;
+  let lastSig = '';
   while (Date.now() < deadline) {
     entries = tools.listWithOwner().map((t) => ({
       name: t.name,
@@ -74,18 +76,13 @@ try {
       ...(t.injection !== undefined && t.injection !== 'capability' ? { injection: t.injection } : {}),
       ...(t.requiresInteraction ? { requiresInteraction: true } : {}),
     }));
-    const names = new Set(entries.map((t) => t.name));
-    let missing = [];
-    for (const w of want) if (!names.has(w)) missing.push(w);
-    if (missing.length === 0) break;
-    await new Promise((r) => setTimeout(r, 200));
+    const sig = project(entries);
+    stable = sig === lastSig ? stable + 1 : 0;
+    lastSig = sig;
+    if (stable >= 3 && Date.now() >= minWait) break;
+    await new Promise((r) => setTimeout(r, 300));
   }
   entries.sort((a, b) => (a.name < b.name ? -1 : 1));
-  const missing = entries.length === 0 ? ['(空)'] : [...want].filter((w) => !entries.some((t) => t.name === w));
-  if (missing.length > 0) {
-    console.error('注册面未覆盖目录声明：' + missing.join(', '));
-    process.exit(1);
-  }
   // 平台差补条目：缺席侧命令工具从在场侧克隆（同注册代码——shell-tools
   // executor 按平台选名，定义本体同构；owner/description/parameters 一致）
   const present = process.platform === 'win32' ? 'pwsh' : 'bash';
@@ -158,6 +155,9 @@ try {
     generatedAt: new Date().toISOString(),
     source: 'bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）',
     tools: entries,
+    // 行 id → 工具名（boot 装配期 fiber 归属反查——face-shell 行展开单源；
+    // 同包多行并集，行粒度随 tools 声明退役〔cr-1022 批2〕）
+    rows: boot.rowTools,
     events: eventsOut,
     eventDescs: descs,
   }, null, 2) + '\n', 'utf-8');

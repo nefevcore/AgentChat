@@ -11,6 +11,20 @@ import * as path from 'node:path';
 import { adoptShell, type SpawnFn } from '../orchestrate.ts';
 import { readAgentConfig } from 'ac-agents-core';
 import { ReachabilityTable } from 'ac-post-office';
+import { fileURLToPath } from 'node:url';
+
+// 仓库行目录投影（cr-1022 批2 v3 物化链需能力目录：定义拷贝面 = 数据根
+// row-catalog.json——宿主 boot 物化后恒在场；测试数据根预置同款投影）
+const REPO_CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
+const CATALOG_TEXT = fs.readFileSync(REPO_CATALOG, 'utf-8');
+const SHELL_IDS = (JSON.parse(CATALOG_TEXT) as { rows: Array<{ tree: string; id: string }> })
+  .rows.filter((r) => r.tree === 'shell').map((r) => r.id);
+
+function seedDataRoot(): string {
+  const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-orchestrate-preset-'));
+  fs.writeFileSync(path.join(dataRoot, 'row-catalog.json'), CATALOG_TEXT, 'utf-8');
+  return dataRoot;
+}
 
 const fakeSpawn: SpawnFn = () => ({
   pid: 4300,
@@ -26,7 +40,7 @@ const fakeSpawn: SpawnFn = () => ({
 
 describe('adoptShell 预设身份模板物化（cr-615）', () => {
   it('__standard__ 首启兜底写 = 模板 config（preset 剥除 + tools 全量）', async () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-orchestrate-preset-'));
+    const dataRoot = seedDataRoot();
     await adoptShell({
       agentId: '__standard__',
       dataRoot,
@@ -50,7 +64,7 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
   });
 
   it('__creator__ 首启物化 = 人设指路 AGENTS.md + 技能落地 files/<id>/skills（cr-810/879）', async () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-orchestrate-preset-'));
+    const dataRoot = seedDataRoot();
     await adoptShell({
       agentId: '__creator__',
       dataRoot,
@@ -76,8 +90,8 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
     expect(skill).toContain('迭代铁律');
   });
 
-  it('非预设身份首启兜底写 = 裸 {id}（cr-561 语义不动）', async () => {
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-orchestrate-preset-'));
+  it('非预设身份首启兜底写 = 裸档案（cr-561 语义：无模板字段；cr-1022 批2 v3 组合读口径：rows 面 = 骨架正清单）', async () => {
+    const dataRoot = seedDataRoot();
     await adoptShell({
       agentId: 'alpha',
       dataRoot,
@@ -87,7 +101,11 @@ describe('adoptShell 预设身份模板物化（cr-615）', () => {
       spawnFn: fakeSpawn,
       timeoutMs: 5_000,
     });
-    const cfg = readAgentConfig(dataRoot, 'alpha') as unknown as Record<string, unknown>;
-    expect(cfg).toEqual({ id: 'alpha' });
+    const cfg = readAgentConfig(dataRoot, 'alpha') as unknown as { id: string; rows?: { include: string[] } };
+    expect(cfg.id).toBe('alpha');
+    expect(Object.keys(cfg).filter((k) => k !== 'id' && k !== 'rows')).toEqual([]); // 无模板字段
+    // v3 组合读：裸身份 rows 面 = 骨架 ∪ 全部能力行（rowsToMenuDefs 写侧
+    // 单源：rows 缺省 = 行集全集——批3 起旧差量语义只存在于迁移工具）
+    expect(new Set(cfg.rows?.include ?? [])).toEqual(new Set(SHELL_IDS));
   });
 });

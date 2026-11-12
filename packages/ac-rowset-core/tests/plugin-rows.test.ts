@@ -23,24 +23,24 @@ describe('插件行集条目 schema', () => {
         { id: 'demo-extra', bundle: 'demo', requires: ['demo-tools'], description: '演示' },
       ],
     });
-    expect(warnings).toEqual([]);
+    expect(warnings).toEqual([]); // tools/bundle 派生词退役——登记在场容忍忽略，不告警
     expect(rows).toEqual([
-      { id: 'demo-tools', tree: 'shell', tools: ['demo_hello'], path: INSTALL_DIR },
-      { id: 'demo-extra', tree: 'shell', bundle: 'demo', requires: ['demo-tools'], description: '演示', path: INSTALL_DIR },
+      { id: 'demo-tools', tree: 'shell', path: INSTALL_DIR },
+      { id: 'demo-extra', tree: 'shell', requires: ['demo-tools'], description: '演示', path: INSTALL_DIR },
     ]);
   });
 
-  it('非法条目 fail-soft：id 词法 / tools 形态 / 非对象条目各自告警跳过', () => {
+  it('非法条目 fail-soft：id 词法 / requires 形态 / 非对象条目各自告警跳过', () => {
     expect(readPluginRowDeclarations({ rows: 'nope' }).warnings).toEqual(['manifest.rows 必须是数组——已忽略']);
     const read = readPluginRowDeclarations({
       rows: [
         { id: 'Bad Id' },
-        { id: 'ok-row', tools: ['x', 1] },
-        { id: 'ok-row-2' },
+        { id: 'ok-row', requires: 'nope' },
+        { id: 'ok-row-2', tools: ['x', 1] },
         'not-an-object',
       ],
     });
-    expect(read.decls).toEqual([{ id: 'ok-row' }, { id: 'ok-row-2' }]);
+    expect(read.decls).toEqual([{ id: 'ok-row' }, { id: 'ok-row-2' }]); // tools 不再是合法词汇——静默忽略
     expect(read.warnings.length).toBe(3);
     // 未声明 rows = 无行集条目（插件只提供工具时不必声明）
     expect(readPluginRowDeclarations({ name: 'x' }).decls).toEqual([]);

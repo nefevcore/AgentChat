@@ -16,36 +16,45 @@ import {
   materializeBaseDocs, projectBaseEntry,
 } from '../src/base-docs.ts';
 import { readCatalog } from '../src/disk.ts';
-import { evaluateAssembly, deriveHostRowset, type RowsetCatalog } from '../src/rowset.ts';
+import { deriveHostRowset, type RowsetCatalog } from '../src/rowset.ts';
 
 const PROFILE_DIR = fileURLToPath(new URL('../../../apps/catalog/profile/', import.meta.url));
 const REPO_CATALOG = fileURLToPath(new URL('../../../apps/catalog/row-catalog.json', import.meta.url));
 const GENERATED = JSON.parse(fs.readFileSync(REPO_CATALOG, 'utf-8')) as RowsetCatalog;
 
-describe('投影等价（基座 = 单一事实源）', () => {
-  it('基座投影 == row-catalog.json 生成物（逐行 deep equal）', () => {
-    const base = readBaseCatalog(PROFILE_DIR)!;
-    expect(base.rows).toHaveLength(GENERATED.rows.length);
-    expect(base.rows).toEqual(GENERATED.rows);
+describe('投影等价（cr-1033 B2 合并语义：骨架归基座 / 能力归包聚合）', () => {
+  it('readCatalog 合并 == row-catalog.json 生成物（逐行 deep equal——gen 再现锁）', () => {
+    expect(readCatalog(REPO_CATALOG)).toEqual({ rows: GENERATED.rows });
   });
 
-  it('派生等价：壳/宿主行集派生与生成物侧一致', () => {
+  it('能力行新鲜度锁：JSON 能力区 == 包 ac.rows 聚合投影（gen 忘跑即红）', async () => {
+    const { aggregatePackageRows } = await import('../src/package-rows.ts');
+    const { projectBaseEntry } = await import('../src/base-docs.ts');
+    const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+    const aggregated = aggregatePackageRows(REPO_ROOT)
+      .map((e) => projectBaseEntry({ ...e, zone: 'capability' }, 'shell'));
+    expect(GENERATED.rows.filter((r) => r.zone === 'capability')).toEqual(aggregated);
+  });
+
+  it('派生等价：壳骨架面/宿主行集派生与生成物侧一致', () => {
     const base = readBaseCatalog(PROFILE_DIR)!;
-    const shells = (c: RowsetCatalog) => evaluateAssembly({ base: c.rows.filter((r) => r.tree === 'shell') });
-    expect(shells(base)).toEqual(shells(GENERATED));
+    const skeletonIds = (c: RowsetCatalog) =>
+      c.rows.filter((r) => r.tree === 'shell' && r.zone === 'skeleton').map((r) => r.id);
+    expect(skeletonIds(base)).toEqual(skeletonIds(GENERATED));
     expect(deriveHostRowset([], base)).toEqual(deriveHostRowset([], GENERATED));
   });
 
-  it('两份基座各带版本戳且条目 id 基座内唯一', () => {
-    for (const proc of ['host', 'shell'] as const) {
-      const doc = readBaseDoc(baseDocFile(PROFILE_DIR, proc), proc);
-      expect(doc.version).toBeGreaterThanOrEqual(1);
-      const ids = doc.entries.map((e) => e.id);
-      expect(new Set(ids).size, proc + ' 基座内 id 重复').toBe(ids.length);
-    }
+  it('两份基座各带版本戳且条目 id 基座内唯一（cr-1033 B3 起均单区数组）', () => {
+    const host = readBaseDoc(baseDocFile(PROFILE_DIR, 'host'), 'host');
+    expect(host.version).toBeGreaterThanOrEqual(1);
+    expect(new Set(host.entries.map((e) => e.id)).size).toBe(host.entries.length);
+    const shell = readBaseDoc(baseDocFile(PROFILE_DIR, 'shell'), 'shell');
+    expect(shell.version).toBeGreaterThanOrEqual(5);
+    expect(shell.entries.map((e) => e.id)).toHaveLength(13); // 骨架单区（menu-assembly §三）
+    expect(new Set(shell.entries.map((e) => e.id)).size).toBe(shell.entries.length);
   });
 
-  it('缺版本戳 → throw；顶层非数组 → throw', () => {
+  it('缺版本戳 → throw；顶层非数组 → throw（host 单区约束——shell 已双区化）', () => {
     const ROOT = path.join('sandbox', 'test-base-docs-' + process.pid);
     fs.mkdirSync(ROOT, { recursive: true });
     try {
@@ -60,18 +69,49 @@ describe('投影等价（基座 = 单一事实源）', () => {
     }
   });
 
-  it('projectBaseEntry：packs 单包折标量 / name 去 link: / 无包行无 path', () => {
+  it('shell v5 单区骨架 13 行 + 投影派生 zone（能力行归包——cr-1033 B3）', () => {
+    const doc = readBaseDoc(baseDocFile(PROFILE_DIR, 'shell'), 'shell');
+    expect(doc.entries.map((e) => e.id)).toEqual([
+      'logger-console', 'config', 'ledger', 'conversation', 'tools', 'llm', 'llm-pool',
+      'agent-loop', 'persona', 'conduct', 'host-face-client', 'durable-interaction', 'jobs',
+    ]);
+    const projected = doc.entries.map((e) => projectBaseEntry(e, 'shell'));
+    expect(projected.every((r) => r.zone === 'skeleton')).toBe(true);
+  });
+
+  it('projectBaseEntry：name 去 link: 单 path / zone 注入 / 无包行无 path', () => {
     expect(projectBaseEntry({ id: 'a', name: 'link:packages/x' }, 'shell'))
-      .toEqual({ id: 'a', tree: 'shell', path: 'packages/x' });
-    expect(projectBaseEntry({ id: 'b', name: 'link:packages/x', packs: ['packages/x', 'packages/y'] }, 'host'))
-      .toEqual({ id: 'b', tree: 'host', path: ['packages/x', 'packages/y'] });
-    expect(projectBaseEntry({ id: 'c' }, 'shell')).toEqual({ id: 'c', tree: 'shell' });
+      .toEqual({ id: 'a', tree: 'shell', zone: 'skeleton', path: 'packages/x' }); // 壳基座行派生 skeleton（cr-1033 B3）
+    expect(projectBaseEntry({ id: 'b', name: 'link:packages/x', zone: 'capability' }, 'shell'))
+      .toEqual({ id: 'b', tree: 'shell', zone: 'capability', path: 'packages/x' }); // 显式 zone 透传（包聚合能力行）
+    expect(projectBaseEntry({ id: 'c' }, 'host')).toEqual({ id: 'c', tree: 'host' });
   });
 });
 
-describe('readCatalog 双读（基座赢）', () => {
-  it('仓库目录：基座在场 → 基座投影', () => {
+describe('readCatalog 双读 → 合并（cr-1033 B2）', () => {
+  it('仓库目录：基座在场 → 宿主/骨架取基座 + 能力取 JSON 投影', () => {
     expect(readCatalog(REPO_CATALOG)).toEqual({ rows: GENERATED.rows });
+  });
+
+  it('合并语义：基座骨架赢 + JSON 能力区并入', () => {
+    const ROOT = path.join('sandbox', 'test-base-docs-merge-' + process.pid);
+    fs.mkdirSync(path.join(ROOT, 'profile'), { recursive: true });
+    try {
+      fs.writeFileSync(path.join(ROOT, 'profile', 'host.yml'), '# ac-base-version: 1\n- id: h1\n  name: link:packages/x\n');
+      fs.writeFileSync(path.join(ROOT, 'profile', 'shell.yml'), '# ac-base-version: 1\n- id: s1\n  name: link:packages/x\n');
+      fs.writeFileSync(path.join(ROOT, 'row-catalog.json'), JSON.stringify({
+        rows: [
+          { id: 'h1', tree: 'host' },
+          { id: 's1', tree: 'shell', zone: 'skeleton' },
+          { id: 'json-cap', tree: 'shell', zone: 'capability' },
+        ],
+      }));
+      const rows = readCatalog(path.join(ROOT, 'row-catalog.json')).rows;
+      expect(rows.map((r) => r.id)).toEqual(['h1', 's1', 'json-cap']); // yml 能力区被 JSON 赢（归包换轨）
+      expect(readCatalog(path.join(ROOT, 'row-catalog.json')).rows).toHaveLength(3);
+    } finally {
+      fs.rmSync(ROOT, { recursive: true, force: true });
+    }
   });
 
   it('基座缺席 → 回退 JSON；目录缺席 → 空目录（fixture 容错原样）', () => {
@@ -114,6 +154,9 @@ describe('版本戳部署链', () => {
     }
     const again = materializeBaseDocs(PROFILE_DIR, DATA);
     expect(again.every((r) => !r.updated)).toBe(true);
+    // cr-1033 B2：行集目录投影随行物化（数据根默认读面合并语义的携带面）
+    expect(fs.readFileSync(path.join(DATA, 'row-catalog.json'), 'utf-8'))
+      .toBe(fs.readFileSync(REPO_CATALOG, 'utf-8'));
   });
 
   it('源目录缺席（JSON-only 旧式数据根）→ 空报告', () => {
@@ -130,7 +173,7 @@ describe('版本戳部署链', () => {
   it('同版本内容漂移（编辑未升戳）→ throw；升戳后重物化', () => {
     materializeBaseDocs(PROFILE_DIR, DATA);
     const dst = baseDocFile(path.join(DATA, 'profile'), 'shell');
-    fs.writeFileSync(dst, fs.readFileSync(dst, 'utf-8').replace('- id: math', '- id: math2'));
+    fs.writeFileSync(dst, fs.readFileSync(dst, 'utf-8').replace('- id: ledger', '- id: ledger2'));
     expect(() => materializeBaseDocs(PROFILE_DIR, DATA)).toThrow('未升版本戳');
   });
 

@@ -9,6 +9,18 @@
     "./src/*": "./src/*",
     "./data/*": "./data/*"
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "bench",
+        "description": "评测域（开发域——影子壳跑 bench 门）",
+        "requires": [
+          "tools",
+          "agent-loop"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",

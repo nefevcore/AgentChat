@@ -123,6 +123,12 @@ export const COMPANION_ROWS: Record<string, { plugin: Plugin; optionsKey: string
   'fs-tools': { plugin: fileSnapshotsRow as unknown as Plugin, optionsKey: 'file-snapshots' },
 };
 
+/** 伴生行包根（cr-1022 批3 指纹足迹面——伴生 = 装配代码真值〔cr-1025
+ * 裁决〕，非 package.json 依赖，闭包walk 不可达；与 COMPANION_ROWS 同源维护） */
+export const COMPANION_ROW_ROOTS: Record<string, string> = {
+  'fs-tools': 'packages/ac-file-snapshots',
+};
+
 /**
  * 数据根行 options 工厂：行 id → config（构造参数注入——root 显式传，
  * 不走 AGENTCHAT_DATA_ROOT 环境变量缺省，preview 数据根隔离红线）。

@@ -1,8 +1,9 @@
 # Agent 装配文档（agent-assembly）
 
 > 性质：域深设计——装配合成代数（两段式求值引擎如何把基座、安装事实与差量层合成为一份装配）。
-> 状态：现行 · cr-1004 2026-11-11 立档分批实施（批1 / 批2 / 批2b / cr-1007 增量均已落地，见下）——cr-1008 2026-11-11 批1 检阅：状态自「分批实施中」更新为「现行」，`evaluate.ts` / `migrate-agent-patch.mjs` / 基座版本戳均经代码核实。
+> 状态：已被 [menu-assembly.md](menu-assembly.md) 取代 · cr-1022 批2 2026-11-12 换轨完成（差量求值引擎 evaluate.ts 退役，菜单合成 mergeMenu 就位——本文差量词形自该日起不再是运行现状；cr-1004 批1 / 批2 / 批2b / cr-1007 增量落地史实见下）。
 > 读者：改装配求值、写装配文档（差量层）或做插件安装适配的人；身份/数据切面先读 agent-data.md，管控裁决先读 assembly-governance.md。
+> 后继：cr-1022 2026-11-12 立项装配第二模型（菜单代数取代差量词形；cr-1025 修订：合成回归 cordis-loader 原语 + 行词汇白名单）——设计稿 [menu-assembly.md](menu-assembly.md)（plan 态）；实施落地前本文描述的差量模型仍为运行现状。
 > 分批落地史实（原状态行保留）：**批1 已落地（2026-11-11）**：统一求值
 > 引擎 `ac-rowset-core` `evaluate.ts`（两段式 + 席位护栏注入 + 告警分级
 > warnings/notices/errors）、文件族改名（`<base>.yml` / `installed.yml` /

@@ -5,12 +5,13 @@
 > v3（设计 / 裁决分离重写，v2 废弃）。依据：per-agent-instance-architecture.md
 > （R-1…R-12）+ shell-model-unification.md（S0–S5、M1–M6）。
 > 读者：新增/移动/退役任何一行的人（R0 判据 + R8 对账 + catalog 同批纪律）。
-> 状态：现行 · **现状事实源 = `apps/catalog/profile/{host,shell,webui}.yml` 基座源文档
+> 状态：现行 · **现状事实源 = `apps/catalog/profile/{host,shell,webui}.yml` 基座源文档（cr-1033 起壳能力行定义归各包 package.json `ac.rows`，构建期聚合进 row-catalog.json）
 > （cr-902/904 起，cordis-plugin-loader 方言 + `# ac-base-version` 戳）+ 统一求值引擎
 > `packages/ac-rowset-core`（`evaluateAssembly`，cr-1004）；旧 `row-catalog.json`
 > 是生成投影（`scripts/gen-row-catalog.mjs`，双读窗口内兼容读；**现行 65 行 = 宿主 25 +
 > 壳 40**，cr-1008 2026-11-11 批1 检阅实测）**。原「src/cordis.yml + ac-app TREE」
 > 双事实源已随 cr-696/cr-703 退役。行集口径：基座行两树各计；拆分件按「面」计。
+> 后继：cr-1022 批2 2026-11-12 换轨完成——行集口径已转为骨架/能力双区（shell.yml v4）+ 行词汇白名单（tools/packs/bundle 退役）；现行口径见 [menu-assembly.md](menu-assembly.md)，本文行表保留为沿革史册（tools/packs/bundle 字段退役、parity 锁退役、spawn 词运行时解析、boot 指纹足迹改依赖闭包）。本文在实施批落地前仍为**运行现状事实源**，落地时行表与 R 条目同步换轨（menu-assembly.md §七 批 4）；论据见裁决簿〈菜单合成原语与行词汇纪律〉。
 
 # R0. 分类判据
 

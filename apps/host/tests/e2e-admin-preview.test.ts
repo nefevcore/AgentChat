@@ -19,6 +19,8 @@ import * as path from 'node:path';
 import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { bootHost, type HostBootResult } from '../boot.ts';
+import { writeAgentConfig } from 'ac-agents-core';
+import { materializeBaseDocs, profileDirOf } from 'ac-rowset-core';
 
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
 let tmp: string;
@@ -26,12 +28,16 @@ let host: HostBootResult | null = null;
 
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-e2e-admin-preview-'));
-  const agentDir = path.join(tmp, 'agents', 'alpha');
-  fs.mkdirSync(agentDir, { recursive: true });
-  fs.writeFileSync(path.join(agentDir, 'config.json'), JSON.stringify({
-    id: 'alpha', name: '甲', model: 'mock', system: '我是甲的基底',
-    tools: { include: ['math'] },
-  }));
+  fs.copyFileSync(CATALOG, path.join(tmp, 'row-catalog.json'));
+  // 基座文档先物化（bootHost 部署链同款）：播种若早于物化，v3 基线戳按
+  // 空 profile 求值 → 宿主物化后壳 boot 现算戳漂移 fail-loud
+  materializeBaseDocs(profileDirOf(CATALOG), tmp);
+  // v3 播种（cr-1022 批3）；system 退役——persona 块承载基底提示词
+  writeAgentConfig(tmp, {
+    id: 'alpha', name: '甲', model: 'mock',
+    rows: { include: ['math'] },
+    settings: { persona: { text: '我是甲的基底' } },
+  });
 });
 afterEach(async () => {
   if (host !== null) { await host.close(); host = null; }

@@ -8,6 +8,17 @@
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "sap-adt",
+        "description": "SAP ADT 工具（ABAP 预设专属）",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/schemastery": "workspace:*",

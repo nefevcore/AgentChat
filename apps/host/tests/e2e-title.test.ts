@@ -14,6 +14,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 // e2e-admin-preview；此前靠 afterEach 先杀壳才没炸）。
 import { fileURLToPath } from 'node:url';
 import { socketPathFor } from 'ac-envelope-core';
+import { writeAgentConfig } from 'ac-agents-core';
+import { materializeBaseDocs, profileDirOf } from 'ac-rowset-core';
 import { bootHost } from '../boot.ts';
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-e2e-title-'));
@@ -29,10 +31,13 @@ afterEach(() => {
   fs.rmSync(ROOT, { recursive: true, force: true });
 });
 
+// v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）。
+// 基座文档先物化进数据根：bootHost 部署链会写 profile/shell.yml，若播种
+// 早于物化则基线戳漂移——播种与 boot 两侧 stamp 须对同一 profile 态求值。
 function seedConfig(agentId: string): void {
-  const dir = path.join(ROOT, 'agents', agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock' }), 'utf-8');
+  materializeBaseDocs(profileDirOf(CATALOG), ROOT);
+  fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+  writeAgentConfig(ROOT, { id: agentId, model: 'mock' });
 }
 
 async function spawnShell(agentId: string): Promise<string> {

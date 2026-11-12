@@ -27,7 +27,7 @@ describe('fitInstalledRows 反向适配（cr-1004）', () => {
     }));
     seedInstalled([{ id: 'ac-plugin-x', name: 'link:' + dir, owner: 'me' }]);
     const mine = fitInstalledRows(ROOT, 'shell', 'me');
-    expect(mine.rows).toEqual([{ id: 'x-row', tree: 'shell', tools: ['x-tool'], requires: ['tools'], path: dir }]);
+    expect(mine.rows).toEqual([{ id: 'x-row', tree: 'shell', requires: ['tools'], path: dir }]);
     const other = fitInstalledRows(ROOT, 'shell', 'someone-else');
     expect(other.rows).toEqual([]); // owner 锚
     // 无 owner = 全体候选（市场人签安装）
@@ -43,7 +43,7 @@ describe('fitInstalledRows 反向适配（cr-1004）', () => {
     }));
     seedInstalled([{ id: 'npm-pkg', name: 'npm-pkg' }]);
     const r = fitInstalledRows(ROOT, 'shell', 'me');
-    expect(r.rows).toEqual([{ id: 'npm-pkg', tree: 'shell', tools: ['npm-tool'], path: dir }]);
+    expect(r.rows).toEqual([{ id: 'npm-pkg', tree: 'shell', path: dir }]);
   });
 
   it('face 反向适配：web-only 包不进 shell 基座；host 面 fail-closed；旧文件名兼容读', () => {

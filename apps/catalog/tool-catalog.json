@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-10T07:52:27.344Z",
+  "generatedAt": "2026-11-12T03:46:23.972Z",
   "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
   "tools": [
     {
@@ -2525,6 +2525,111 @@
       "needPermission": true
     }
   ],
+  "rows": {
+    "fs-search": [
+      "glob",
+      "grep"
+    ],
+    "harness-tools": [
+      "run_harness"
+    ],
+    "math": [
+      "math"
+    ],
+    "plugin-dev": [
+      "register_plugin",
+      "install_plugin",
+      "unregister_plugin"
+    ],
+    "restart": [
+      "restart_shell",
+      "restart_host"
+    ],
+    "session-query": [
+      "grep_history",
+      "read_history"
+    ],
+    "str-replace-editor": [
+      "str_replace_editor"
+    ],
+    "ask-questions": [
+      "ask_questions"
+    ],
+    "browser": [
+      "web_search",
+      "browser"
+    ],
+    "fs-tools": [
+      "read",
+      "write",
+      "edit"
+    ],
+    "issue-tools": [
+      "submit_issue"
+    ],
+    "memory": [
+      "memory_write",
+      "memory_grep"
+    ],
+    "run-code": [
+      "run_code"
+    ],
+    "shell-tools": [
+      "pwsh",
+      "job"
+    ],
+    "todo": [
+      "todo"
+    ],
+    "subagent": [
+      "subagent"
+    ],
+    "collab-tools": [
+      "send_agent",
+      "send_group",
+      "list_agents",
+      "list_groups",
+      "list_tools",
+      "read_agent_info"
+    ],
+    "goal": [
+      "goal"
+    ],
+    "sap-adt": [
+      "adt_list_destinations",
+      "adt_system_info",
+      "adt_ping",
+      "adt_list_gui_connections",
+      "adt_create_destination",
+      "adt_search",
+      "adt_activate",
+      "adt_check",
+      "adt_run_unit_tests",
+      "adt_run_atc",
+      "adt_atc_runs",
+      "adt_object_versions",
+      "adt_transports",
+      "adt_batch",
+      "adt_export_objects",
+      "adt_local_check",
+      "adt_where_used",
+      "adt_data_preview",
+      "adt_lock_info",
+      "adt_unlock_all",
+      "adt_version_diff",
+      "adt_release_gate",
+      "adt_permissions",
+      "adt_dumps",
+      "adt_execute",
+      "adt_selfcheck",
+      "adt_debug",
+      "adt_cochange",
+      "adt_object_write",
+      "adt_object_read",
+      "adt_object_edit",
+      "adt_object_delete"
+    ]
+  },
   "events": [
     {
       "name": "config/changed",
@@ -2705,6 +2810,12 @@
           "global": false
         },
         {
+          "owner": "shell-archive-row",
+          "prepend": false,
+          "global": false,
+          "description": "归档阈值检测（run 收束后回放估算）"
+        },
+        {
           "owner": "SkillsService",
           "row": "ac-skill",
           "prepend": false,
@@ -2748,6 +2859,12 @@
           "prepend": false,
           "global": false,
           "description": "MCP 懒建连 + 工具发现注册 + per-Agent 暴露面收敛"
+        },
+        {
+          "owner": "ac-datetime",
+          "prepend": false,
+          "global": false,
+          "description": "独立会话每日 user 快照行（singles）"
         },
         {
           "owner": "ac-host-face-client",

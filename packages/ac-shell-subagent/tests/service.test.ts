@@ -17,6 +17,9 @@ import { listenIpc, type IpcServer } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-subagent-' + process.pid);
 const CATALOG = path.join(process.env.AGENTCHAT_REPO_ROOT ?? process.cwd(), 'apps', 'catalog', 'row-catalog.json');
+// cr-1022 批4：活装配行集替身（bootShell 注入面的测试直供——词面/物化定义源）
+const SHELL_ROWS = ['fs-tools', 'fs-search', 'shell-tools', 'subagent', 'run-code']
+  .map((id) => ({ id, tree: 'shell' as const, zone: 'capability' as const }));
 
 beforeEach(() => {
   fs.mkdirSync(path.join(ROOT, 'agents', 'papa'), { recursive: true });
@@ -65,7 +68,7 @@ async function makeService(spawn: SpawnShellFn) {
   const loopFiber = ctx.plugin(loopRow as unknown as Parameters<Context['plugin']>[0]);
   await loopFiber;
   const fiber = ctx.plugin(makeSubagentRow({
-    dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: spawn,
+    dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, shellRows: SHELL_ROWS, spawnShell: spawn,
   }));
   await fiber;
   const svc = ctx.get('subagents', false) as unknown as {
@@ -177,15 +180,16 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  it('spawn tools 词过滤（cr-616）：未命中目录的词滤除并回报，子 config 只剩有效词', async () => {
+  it('spawn tools 词过滤（cr-616 / cr-1022 批2 行 id 词形）：未命中/工具名词形滤除并回报，子 config 只剩有效行', async () => {
     const fake = fakeShell();
     const { svc, dispose } = await makeService(fake.spawn);
     try {
+      // 'read' 是工具名非行 id——词形退役后与 'healthz' 同为未命中拒绝
       const out = await svc.spawnOp({ task: 't', tools: ['read', 'healthz', 'fs-search'] });
-      expect(out.filtered).toEqual(['healthz']);
+      expect(out.filtered).toEqual(['read', 'healthz']);
       const cfg = readChildConfig(ROOT, 'papa', out.childId);
-      // cr-1004 批2：子物化 v2 差量——rows 投影 {include}（B−T 减法面在 exclude）
-      expect((cfg?.rows as { include?: string[] })?.include).toEqual(['read', 'fs-search']); // healthz 不再击穿子壳行集静态断言
+      // cr-1022 批2：子物化 v3 菜单片段——rows = 骨架 ∪ 定义正清单
+      expect((cfg?.rows as { include?: string[] })?.include).toEqual(['fs-search']); // 未命中词不再击穿子壳行集静态断言
     } finally { await dispose(); }
   });
 
@@ -195,10 +199,10 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     const fake = fakeShell();
     const { svc, dispose } = await makeService(fake.spawn);
     try {
-      const out = await svc.spawnOp({ task: 't', tools: ['read', 'subagent'] });
+      const out = await svc.spawnOp({ task: 't', tools: ['fs-tools', 'subagent'] });
       expect(out.filtered).toEqual(['subagent']);
       const cfg = readChildConfig(ROOT, 'papa', out.childId);
-      expect((cfg?.rows as { include?: string[] })?.include).toEqual(['read']);
+      expect((cfg?.rows as { include?: string[] })?.include).toEqual(['fs-tools']);
     } finally { await dispose(); }
   });
 
@@ -495,19 +499,20 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const tools = ctx.get('tools') as unknown as {
         execute(call: { name: string; args: Record<string, unknown>; conversationId?: string }): Promise<{ ok: boolean; output?: { subagent_id?: string; filtered?: string[]; note?: string } }>;
       };
-      // ① 缺省继承（不传 tools）：程序化父 + 子行集闭包含 run-code → 合成
-      // tc-programmatic。cr-1021 后 run-code 是基础集行——落盘差量瘦身滤掉
-      // 它的 no-op 点名（rows.include 不再含 run-code，行为靠基础集恒装承载）
+      // ① 缺省继承（不传 tools）：程序化父 + 子行集含 run-code → 合成
+      // tc-programmatic。cr-1022 批2：子物化 v3 正清单——rows = 骨架 ∪ 父
+      // 行集定义（childTokens 直取，无闭包/no-op 滤除——run-code 显式在场）
       const inherit = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '缺省继承' } });
       const inheritId = (inherit.output as { subagent_id: string }).subagent_id;
       const inheritCfg = readChildConfig(ROOT, 'papa', inheritId);
-      expect((inheritCfg?.rows as { include?: string[] })?.include ?? []).not.toContain('run-code'); // 基础集行点名 = no-op 滤除
+      expect((inheritCfg?.rows as { include?: string[] })?.include ?? []).toEqual(expect.arrayContaining(['fs-tools', 'run-code', 'subagent']));
       expect(inheritCfg?.toolMode).toBe('tc-programmatic'); // 父程序化 ∧ 子行集含 run-code
       expect(inheritCfg?.access).toBe('full-access'); // 档位继承面不受影响
-      // ② 显式点名子集（不含 run-code）：无模式词——工具面照常（tc-base）
+      // ② 显式点名子集（工具名词形全拒 → 空授予 = 纯推理子）：无模式词
       const subset = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '子集', tools: ['read', 'write'] } });
       const subsetId = ((subset.output as { subagent_id: string })).subagent_id;
       const subsetCfg = readChildConfig(ROOT, 'papa', subsetId);
+      expect((subsetCfg?.rows as { include?: string[] })?.include ?? []).toEqual([]);
       expect(subsetCfg?.toolMode).toBeUndefined();
       // ③ 点名 run_code 词显式拒绝（cr-763：防子域程序化形态自废 spawn 授予面）
       const rejected = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '拒 run_code', tools: ['run_code', 'read'] } });
@@ -518,7 +523,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
         JSON.stringify({ id: 'papa', model: 'mock', access: 'full-access', tools: ['run-code', 'fs-tools', 'subagent'] }), 'utf-8');
       const plain = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '常规父' } });
       const plainCfg = readChildConfig(ROOT, 'papa', (plain.output as { subagent_id: string }).subagent_id);
-      expect((plainCfg?.rows as { include?: string[] })?.include ?? []).not.toContain('run-code'); // 基础集行点名 = no-op 滤除
+      expect((plainCfg?.rows as { include?: string[] })?.include ?? []).toContain('run-code'); // v3 正清单直读
       expect(plainCfg?.toolMode).toBeUndefined(); // 常规父的子恒常规
     } finally { await dispose(); }
   });
@@ -732,7 +737,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     const loopFiber2 = ctx.plugin(loopRow as unknown as Parameters<Context['plugin']>[0]);
     await loopFiber2;
     const fiber = ctx.plugin(makeSubagentRow({
-      dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: fakeShell().spawn,
+      dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, shellRows: SHELL_ROWS, spawnShell: fakeShell().spawn,
     }));
     await fiber;
     try {
@@ -780,7 +785,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     const loopFiber3 = ctx.plugin(loopRow as unknown as Parameters<Context['plugin']>[0]);
     await loopFiber3;
     const fiber = ctx.plugin(makeSubagentRow({
-      dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: fakeShell().spawn,
+      dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, shellRows: SHELL_ROWS, spawnShell: fakeShell().spawn,
     }));
     await fiber;
     try {
@@ -814,7 +819,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     await loopFiber4;
     // conversation 此刻缺席（模拟行序后装）——subagent 行先起，对账空转
     const fiber = ctx.plugin(makeSubagentRow({
-      dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, spawnShell: fakeShell().spawn,
+      dataRoot: ROOT, agentId: 'papa', bootFile: 'boot.ts', catalogFile: CATALOG, shellRows: SHELL_ROWS, spawnShell: fakeShell().spawn,
     }));
     await fiber;
     let offConv: (() => void) | undefined;

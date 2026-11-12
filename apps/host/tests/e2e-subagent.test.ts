@@ -13,12 +13,15 @@ import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readLedger } from 'ac-ledger';
-import { readChildConfig } from 'ac-agents-core';
+import { readChildConfig, writeAgentConfig, type AgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-sub-e2e-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
 const CATALOG = fileURLToPath(new URL('../../catalog/row-catalog.json', import.meta.url));
-beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
+beforeEach(() => {
+  fs.mkdirSync(ROOT, { recursive: true });
+  fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+});
 // 收割兜底（cr-513 纪律）：只按 spawn 句柄精确 pid
 const spawned: ChildProcess[] = [];
 afterEach(() => {
@@ -28,10 +31,15 @@ afterEach(() => {
   fs.rmSync(ROOT, { recursive: true, force: true });
 });
 
+// v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud）——
+// 旧 tools 键归一为 rows（读侧 cr-691 同款）
 function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
-  const dir = path.join(ROOT, 'agents', agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock', ...extra }), 'utf-8');
+  const { tools, ...rest } = extra as { tools?: unknown };
+  writeAgentConfig(ROOT, {
+    id: agentId, model: 'mock',
+    ...rest,
+    ...(tools !== undefined ? { rows: tools as AgentConfig['rows'] } : {}),
+  } as AgentConfig);
 }
 
 /** 拉起父壳（真进程）并取 control 面（stdin 控制帧 + stdout TSV 回执） */
@@ -144,9 +152,10 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
       expect(spawnOut.ok, spawnOut.error).toBe(true);
       const childId = spawnOut.output!.subagent_id!;
       // 子 config：无 tc-* 词（形态跟随装配 cr-1021：程序化父 ∧ 子行集含
-      // run-code → 合成 tc-programmatic；rows 落盘差量瘦身滤掉基础集行点名）
+      // run-code → 合成 tc-programmatic）。cr-1022 批2 v3 正清单：子 rows =
+      // 父行集原样落盘（行 id 词形——差量瘦身/no-op 滤除随 v2 退役）
       const childCfg = readChildConfig(ROOT, 'coder', childId);
-      expect((childCfg?.rows as { include?: string[] }).include ?? []).not.toContain('run-code'); // 基础集行点名 = no-op 滤除
+      expect((childCfg?.rows as { include?: string[] }).include ?? []).toContain('run-code');
       expect(childCfg?.toolMode).toBe('tc-programmatic'); // 父程序化（会话覆盖）∧ 子行集闭包
       expect(childCfg?.access).toBe('full-access'); // 会话 access 继承（水位取高）
       // 子壳 LLM 工具面（toolDefs —— 与真实 run 单源）：mode 集 = ['run_code']，
@@ -154,16 +163,18 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
       const defs = await childToolDefs(childId);
       expect(defs.names).toEqual(['run_code']);
       await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'delete', subagent_id: childId } });
-      // 对照组：spawn 点名工具子集（不含 run_code）——修复前的蒸发形态。
-      // 无 tc-* 词 → resolved 面直出（web_search 等授予词在场）。
+      // 对照组：spawn 点名行子集（不含 run-code 行）——修复前的蒸发形态。
+      // cr-1022 批2：点名词形 = 行 id 单一（工具名词形随 tools 声明退役，
+      // 批4 换父壳活注册面运行时解析）；无 tc-* 词 → resolved 面直出。
       const subsetOut = await parent.control({ ctrl: 'tool', name: 'subagent', conversationId: 'user~coder',
-        args: { action: 'spawn', task: '子集', tools: ['web_search', 'read', 'write'] } }) as { ok: boolean; output?: { subagent_id: string }; error?: string };
+        args: { action: 'spawn', task: '子集', tools: ['web-tools', 'fs-tools'] } }) as { ok: boolean; output?: { subagent_id: string }; error?: string };
       expect(subsetOut.ok, subsetOut.error).toBe(true);
       const subsetId = subsetOut.output!.subagent_id!;
       const subsetDefs = await childToolDefs(subsetId);
-      // 工具名点名透传语义（resolveToolNames）：授予词原样生效（保点名序），
-      // edit 未点名不在面。修复前此形态 = 空集（tc-* 继承把面收窄没了）。
-      expect(subsetDefs.names).toEqual(['web_search', 'read', 'write']);
+      // 行 id 点名 → 该行全部工具在面（web-tools → web_search + browser；
+      // fs-tools → read/write/edit）；run_code 行未点名不在面。修复前此
+      // 形态 = 空集（tc-* 继承把面收窄没了）。
+      expect([...subsetDefs.names].sort()).toEqual(['browser', 'edit', 'read', 'web_search', 'write']);
       const subsetCfg = readChildConfig(ROOT, 'coder', subsetId);
       expect(subsetCfg?.toolMode).toBeUndefined();
       await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'delete', subagent_id: subsetId } });

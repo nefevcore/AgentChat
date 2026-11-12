@@ -17,6 +17,7 @@ import { socketPathFor, makeEnvelope } from 'ac-envelope-core';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from '../user-stub.ts';
 import { readLedger } from 'ac-ledger';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-user-e2e-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
@@ -30,10 +31,10 @@ afterEach(() => {
   fs.rmSync(ROOT, { recursive: true, force: true });
 });
 
+// v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）
 function seedConfig(agentId: string): void {
-  const dir = path.join(ROOT, 'agents', agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id: agentId, model: 'mock' }), 'utf-8');
+  fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+  writeAgentConfig(ROOT, { id: agentId, model: 'mock' });
 }
 
 async function spawnShell(agentId: string): Promise<{ child: ChildProcess; hint: string }> {

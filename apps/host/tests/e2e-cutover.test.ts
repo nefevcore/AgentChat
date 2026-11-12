@@ -16,6 +16,8 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { importRoot } from 'ac-import';
+import { readAgentConfig, writeAgentConfig } from 'ac-agents-core';
+import { materializeBaseDocs, profileDirOf } from 'ac-rowset-core';
 import { readLedger, projectUserReplay, LedgerWriter, sessionDir } from 'ac-ledger';
 import { bootHost, type HostBootResult } from '../boot.ts';
 import { adoptShell } from '../orchestrate.ts';
@@ -67,6 +69,15 @@ function seedLegacy(): void {
   // majority 归属需要 alpha 行占多数（majorityAgentId 无 exclude——user 行同计入）
   mk('s-one', [['user', '问一'], ['assistant', '答一'], ['assistant', '补充'], ['user', '追问'], ['assistant', '终答']]);
   mk('s-two', [['user', '单问'], ['assistant', '单答'], ['assistant', '再答']]);
+}
+
+/** cr-1022 批3：importRoot 产物仍是旧形态 config.json（ac-import 域），
+ * 而壳 boot 对旧形态 fail-loud（「先迁移」）。宿主/壳消费前测试内走同款
+ * 换轨：物化基座（bootHost 部署链同款——基线戳两侧一致）→ 经
+ * writeAgentConfig 落 agent.json + v3 菜单片段（config.json 原样保留）。 */
+function migrateTargetAgent(): void {
+  materializeBaseDocs(profileDirOf(CATALOG), targetRoot);
+  writeAgentConfig(targetRoot, readAgentConfig(targetRoot, 'alpha')!);
 }
 
 function connect(port: number): Promise<WebSocket> {
@@ -137,6 +148,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
   it('宿主 boot 读新账本回放对齐（agents/list + singles/list + session/history）', async () => {
     seedLegacy();
     await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true });
+    migrateTargetAgent();
     // cr-973：viewer 物化退役——singles 身份元数据（引用/覆盖配置，非消息
     // 派生物）由 importRoot 自 legacy singles/<sid>/session.json 迁
     // meta/sessions/<sid>.json（清单身份源；消息流与回放走 agent 域读时投影）
@@ -184,6 +196,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
   it('壳半边全链：adoptShell 真子进程 mock 壳 → user deliver → run 终稿 → 双账本回链（8.8 级联收口）', async () => {
     seedLegacy();
     await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true });
+    migrateTargetAgent();
     host = await bootHost({ dataRoot: targetRoot, catalogFile: CATALOG });
     // 拉起导入身份的真子进程壳（mock provider + 邮局接线——argv 经 adoptShell 透传）
     const adopted = await adoptShell({

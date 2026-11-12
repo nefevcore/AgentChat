@@ -125,6 +125,15 @@ function stubPreview(systemPrompt = '预览结果') {
 
 async function boot(options?: { adminPreview?: boolean }): Promise<{ web: StubWebServer; ctx: Context }> {
   fs.rmSync(ROOT, { recursive: true, force: true });
+  fs.mkdirSync(ROOT, { recursive: true });
+  // 目录 fixture（cr-1022 批2：写面 v3——定义拷贝需 shell 能力目录）
+  fs.writeFileSync(path.join(ROOT, 'row-catalog.json'), JSON.stringify({
+    rows: [
+      { id: 'ledger', tree: 'shell', zone: 'skeleton' },
+      { id: 'math', tree: 'shell' },
+      { id: 'fs', tree: 'shell' },
+    ],
+  }), 'utf-8');
   const ctx = new Context();
   // 桩先装（agent-admin inject ['webServer','agents']——两服务就位后本行才激活）
   const webFiber = ctx.plugin(class extends StubWebServer { constructor(c: Context) { super(c); } });
@@ -239,7 +248,8 @@ describe('agent-admin 装配面（cr-552 跨进程 dry-run 编排）', () => {
     }) as { changed: string[] };
     expect(up.changed.sort()).toEqual(['rows', 'settings']);
     const after = readAgentConfig(ROOT, 'w');
-    expect(after?.rows).toEqual({ include: ['math', 'fs'] });
+    // v3 组合读：rows = 骨架 ∪ 定义清单（正清单直读——math/fs 定义拷贝在场）
+    expect(after?.rows).toEqual({ include: ['ledger', 'math', 'fs'] });
     expect(after?.settings?.persona).toEqual({ enabled: false, maxTokens: 9 }); // 浅合并保字段
     // 零变更不落盘
     const file = path.join(ROOT, 'agents', 'w', 'agent.patch.yml');

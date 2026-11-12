@@ -14,6 +14,7 @@ import {
   readAgentConfig, writeAgentConfig, listAgentIds,
   readChildConfig, listChildIds, materializedChildIds, agentDir,
 } from '../src/tree.ts';
+import { readAgentPatchV3At } from '../src/patch-doc.ts';
 
 describe('词汇纯函数（语义平移自 ac-agents）', () => {
   const base: AgentConfig = { id: 'a' };
@@ -69,21 +70,45 @@ describe('词汇纯函数（语义平移自 ac-agents）', () => {
 
 describe('agents/<id>/ 树直读', () => {
   const ROOT = path.join('sandbox', 'test-agents-' + process.pid);
-  beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
+  // 目录 fixture（cr-1022 批2：writeAgentConfig 写 v3 需 shell 能力目录——定义拷贝面）
+  const CATALOG = { rows: [
+    { id: 'ledger', tree: 'shell', zone: 'skeleton' },
+    { id: 'fs', tree: 'shell' },
+    { id: 'math', tree: 'shell' },
+  ] };
+  beforeEach(() => {
+    fs.mkdirSync(ROOT, { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'row-catalog.json'), JSON.stringify(CATALOG), 'utf-8');
+  });
   afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-  it('写读往返：v2 差量 + agent.json 档案还原（cr-1004 批2；id 一致性校验）', () => {
+  it('写读往返：v3 菜单片段 + agent.json 档案还原（cr-1022 批2；id 一致性校验）', () => {
     const cfg: AgentConfig = { id: 'alpha', model: 'gpt-x', access: 'sandbox-access', settings: { memory: { depth: 2 } } };
     writeAgentConfig(ROOT, cfg);
-    // 落盘形态：agent.patch.yml = 顶层数组（差量）；档案在 agent.json
+    // 落盘形态：agent.patch.yml = v3 行定义数组（ac-menu 头 + 基线戳）；档案在 agent.json
     const patchText = fs.readFileSync(path.join(agentDir(ROOT, 'alpha'), 'agent.patch.yml'), 'utf-8');
+    expect(patchText).toMatch(/# ac-menu: 1/);
     expect(patchText).toMatch(/# ac-base: /);
-    expect(readAgentConfig(ROOT, 'alpha')).toEqual(cfg);
+    const v3 = readAgentPatchV3At(agentDir(ROOT, 'alpha'))!;
+    expect(v3.defs.map((d) => d.id)).toEqual(['fs', 'math']); // rows 缺省 = 全部能力行
+    for (const def of v3.defs) expect(v3.fingerprints[def.id]).toMatch(/^[0-9a-f]{16}$/);
+    // 读面投影：rows = 骨架 ∪ 定义清单（正清单直读）
+    expect(readAgentConfig(ROOT, 'alpha')).toEqual({
+      ...cfg, rows: { include: ['ledger', 'fs', 'math'] },
+    });
   });
 
-  it('v2 差量词形：include/exclude 投影回 rows；档案字段经 agent.json', () => {
-    writeAgentConfig(ROOT, { id: 'delta', model: 'gpt-x', rows: { include: ['fs'], exclude: ['math'] } });
-    expect(readAgentConfig(ROOT, 'delta')).toEqual({ id: 'delta', model: 'gpt-x', rows: { include: ['fs'], exclude: ['math'] } });
+  it('v2 差量读窗口已退役（cr-1022 批3）：手写 v2 不再组合读——指路迁移', () => {
+    fs.mkdirSync(agentDir(ROOT, 'delta'), { recursive: true });
+    fs.writeFileSync(path.join(agentDir(ROOT, 'delta'), 'agent.patch.yml'),
+      '# agent.patch —— 装配差量（cr-1004 批2）' + String.fromCharCode(10)
+      + '# ac-base: abc123def4567890' + String.fromCharCode(10)
+      + '- id: fs' + String.fromCharCode(10)
+      + '- id: math' + String.fromCharCode(10)
+      + '  disabled: true' + String.fromCharCode(10), 'utf-8');
+    fs.writeFileSync(path.join(agentDir(ROOT, 'delta'), 'agent.json'), JSON.stringify({ model: 'gpt-x' }), 'utf-8');
+    // v2 差量读窗口已退役（批3）：不组合读——身份缺席语义，指路 migrate
+    expect(readAgentConfig(ROOT, 'delta')).toBeNull();
   });
 
   it('存量 config.json 带 tags：读侧归一（档位词结构化、能力词丢弃）', () => {
@@ -98,10 +123,11 @@ describe('agents/<id>/ 树直读', () => {
     fs.mkdirSync(agentDir(ROOT, 'beta'), { recursive: true });
     fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
     expect(readAgentConfig(ROOT, 'beta')).toBeNull(); // 旧路径：id 不符
-    // v2 在场即赢（config.json 镜像坏不拖累 patch 读面）
+    // v3 在场即赢（config.json 镜像坏不拖累 patch 读面）——组合读恒带
+    // rows（rows 缺省写全部能力行：正清单）
     writeAgentConfig(ROOT, cfg);
     fs.writeFileSync(path.join(agentDir(ROOT, 'beta'), 'config.json'), JSON.stringify({ ...cfg, id: 'mismatch' }), 'utf-8');
-    expect(readAgentConfig(ROOT, 'beta')).toEqual(cfg);
+    expect(readAgentConfig(ROOT, 'beta')).toEqual({ ...cfg, rows: { include: ['ledger', 'fs', 'math'] } });
     expect(readAgentConfig(ROOT, 'ghost')).toBeNull();
     fs.mkdirSync(agentDir(ROOT, 'broken'), { recursive: true });
     fs.writeFileSync(path.join(agentDir(ROOT, 'broken'), 'config.json'), '{nope', 'utf-8');

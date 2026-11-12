@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { socketPathFor } from 'ac-envelope-core';
 import { bootHostWeb, type HostWebResult } from 'ac-host-webui';
+import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-stream-e2e-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../../apps/shell/boot.ts', import.meta.url));
@@ -62,10 +63,9 @@ async function waitFor(frames: RecvFrame[], predicate: (f: RecvFrame) => boolean
 
 describe('8.5d ws-bridge 旁带接线（壳 → 宿主 → webui 流式全链）', () => {
   it('真壳 mock run 流式全链：tapAgent → broadcast → WS 客户端收前端帧形', async () => {
-    // 种 agent 配置（model mock）
-    const agentDir = path.join(ROOT, 'agents', 'alpha');
-    fs.mkdirSync(agentDir, { recursive: true });
-    fs.writeFileSync(path.join(agentDir, 'config.json'), JSON.stringify({ id: 'alpha', model: 'mock' }), 'utf-8');
+    // v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）
+    fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' });
 
     // 宿主 web 面（邮局 + user 桩 + webServer + broadcast 面）
     const host: HostWebResult = await bootHostWeb({ dataRoot: ROOT });

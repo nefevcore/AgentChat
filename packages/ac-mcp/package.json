@@ -8,6 +8,17 @@
     ".": "./src/index.ts",
     "./src/*": "./src/*"
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "mcp",
+        "description": "MCP client 行（R-12）",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "@agentchat/schemastery": "workspace:*",

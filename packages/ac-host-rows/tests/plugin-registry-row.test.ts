@@ -105,7 +105,7 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
   it('staging 人审全链：stage → 暂存清单/只读代理 → approve → 安装态 + 插件行集物化', async () => {
     const h = await boot();
     try {
-      const dir = makePluginDir('demo-plugin', [{ id: 'demo-tools', tools: ['demo_hello'], description: '演示工具行' }]);
+      const dir = makePluginDir('demo-plugin', [{ id: 'demo-tools', tools: ['demo_hello'], description: '演示工具行' }]); // tools 声明容忍忽略（cr-1022 批2 派生词退役）
       const staging = await h.registry.stage(dir, 'user');
       expect(staging.manifest.name).toBe('demo-plugin');
       expect(h.registry.stagingRecords().map((r) => r.id)).toEqual([staging.id]);
@@ -122,7 +122,6 @@ describe('宿主 plugin-registry 行（装载裁决 + 编排）', () => {
       expect(approved.rows).toEqual([{
         id: 'demo-tools',
         tree: 'shell',
-        tools: ['demo_hello'],
         description: '演示工具行',
         path: path.join(path.resolve(ROOT), 'plugins', 'demo-plugin'),
       }]);

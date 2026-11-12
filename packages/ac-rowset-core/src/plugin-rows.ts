@@ -15,14 +15,11 @@
 // ============================================================
 import type { RowDescriptor, RowsetCatalog } from './rowset.ts';
 
-/** manifest.rows 条目（插件自述的行集条目） */
+/** manifest.rows 条目（插件自述的行集条目——cr-1022 批2 词汇白名单：
+ * tools/bundle 派生词退役，登记在场 = 容忍忽略） */
 export interface PluginRowDeclaration {
   /** 行 id（两树同命名域；param-case） */
   id: string;
-  /** 行提供的工具名清单 */
-  tools?: string[];
-  /** 捆绑词（fs / infra 类按组消解） */
-  bundle?: string;
   /** 硬依赖行 id 清单（行集闭包） */
   requires?: string[];
   /** 一句话描述 */
@@ -73,11 +70,8 @@ export function readPluginRowDeclarations(manifestRaw: unknown): {
       continue;
     }
     const decl: PluginRowDeclaration = { id };
-    const tools = stringsOf(obj.tools, 'tools', id, warnings);
-    if (tools !== undefined) decl.tools = tools;
     const requires = stringsOf(obj.requires, 'requires', id, warnings);
     if (requires !== undefined) decl.requires = requires;
-    if (typeof obj.bundle === 'string' && obj.bundle !== '') decl.bundle = obj.bundle;
     if (typeof obj.description === 'string' && obj.description !== '') decl.description = obj.description;
     decls.push(decl);
   }
@@ -97,8 +91,6 @@ export function pluginRowsOf(
   const rows: RowDescriptor[] = decls.map((decl) => ({
     id: decl.id,
     tree: 'shell',
-    ...(decl.tools !== undefined ? { tools: decl.tools } : {}),
-    ...(decl.bundle !== undefined ? { bundle: decl.bundle } : {}),
     ...(decl.requires !== undefined ? { requires: decl.requires } : {}),
     ...(decl.description !== undefined ? { description: decl.description } : {}),
     path: installDir,

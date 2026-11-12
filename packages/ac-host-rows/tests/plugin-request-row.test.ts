@@ -8,7 +8,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Context, FiberStates, Service, type Fiber } from '@agentchat/cordis';
 import { makePluginRegistryRow, PluginRegistryHostService, HostInbox } from '../src/index.ts';
-import { readPluginRows } from 'ac-rowset-core';
 import type { Envelope } from 'ac-envelope-core';
 import { isPluginRequest, makePluginRequestEnvelope, makePluginReceiptEnvelope } from 'ac-envelope-core';
 
@@ -103,7 +102,7 @@ async function boot(po: StubPostOffice) {
 }
 
 describe('装卸请求信受理面（cr-553）', () => {
-  it('install：免审安装全链——安装态写入 + plugin-rows.json 物化 + 回执 + 续跑信', async () => {
+  it('install：免审安装全链——安装态写入 + 行集现算可见 + 回执 + 续跑信', async () => {
     const dir = makePluginDir('dev-hello', [{ id: 'dev-hello-row', tools: ['dev_hello'] }]);
     const po = new StubPostOffice();
     const h = await boot(po);
@@ -120,9 +119,9 @@ describe('装卸请求信受理面（cr-553）', () => {
     expect(isPluginRequest(env)).toBe(true);
     // 经 inbox 收信面投递（handler 串行面真实跑）
     await h.deliver(env);
-    // 安装态 + 行集物化
+    // 安装态 + 行集现算可见
     expect(h.registry.listInstalled().map((r) => r.manifest.name)).toContain('dev-hello');
-    expect(readPluginRows(ROOT).map((r) => r.id)).toContain('dev-hello-row');
+    expect(h.registry.pluginRows().rows.map((r) => r.id)).toContain('dev-hello-row');
     // 两信：回执（receipt）+ 续跑（message）
     expect(po.dispatched).toHaveLength(2);
     const [receipt, retrigger] = po.dispatched;
@@ -178,7 +177,7 @@ describe('装卸请求信受理面（cr-553）', () => {
     const po = new StubPostOffice();
     const h = await boot(po);
     await h.registry.installFromDir(dir, 'creator-1');
-    expect(readPluginRows(ROOT).map((r) => r.id)).toContain('dev-hello-row');
+    expect(h.registry.pluginRows().rows.map((r) => r.id)).toContain('dev-hello-row');
     po.dispatched.length = 0;
     const env = makePluginRequestEnvelope({
       uuid: 'user~creator-1', requestId: 'plugin-r3', sender: 'creator-1',
@@ -186,7 +185,7 @@ describe('装卸请求信受理面（cr-553）', () => {
     });
     await h.deliver(env);
     expect(h.registry.listInstalled().map((r) => r.manifest.name)).not.toContain('dev-hello');
-    expect(readPluginRows(ROOT).map((r) => r.id)).not.toContain('dev-hello-row');
+    expect(h.registry.pluginRows().rows.map((r) => r.id)).not.toContain('dev-hello-row');
     const receipt = po.dispatched.find((e) => e.kind === 'receipt')!;
     expect((receipt.payload as { subject: string }).subject).toBe('plugin-uninstalled');
     expect((receipt.payload as { backupDir?: string }).backupDir).toBeDefined();

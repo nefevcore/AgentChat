@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readAgentConfig, writeAgentConfig, agentDir } from '../src/tree.ts';
-import { readAgentPatch, patchToConfig, configToPatch, writeAgentPatch, readAgentPatchV2At, readAgentProfileAt, PATCH_FILE, readPluginConfig, writePluginConfig, readPluginConfigs, pluginConfigFile } from '../src/patch-doc.ts';
+import { readAgentPatch, patchToConfig, configToPatch, writeAgentPatch, readAgentPatchV3At, readAgentProfileAt, PATCH_FILE, readPluginConfig, writePluginConfig, readPluginConfigs, pluginConfigFile } from '../src/patch-doc.ts';
 import type { AgentConfig } from '../src/config.ts';
 
 const ROOT = path.join('sandbox', 'test-agent-patch-' + process.pid);
@@ -18,24 +18,38 @@ const cfg: AgentConfig = {
   name: 'Helper', description: '演示',
   settings: { 'run-code': { mode: 'observe' } },
 };
-beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
+// 目录 fixture（cr-1022 批2：writeAgentConfig 写 v3——定义拷贝需 shell 能力目录）
+const CATALOG = { rows: [
+  { id: 'fs', tree: 'shell' },
+  { id: 'web-tools', tree: 'shell' },
+  { id: 'sap-adt', tree: 'shell' },
+  { id: 'math', tree: 'shell' },
+  { id: 'browser', tree: 'shell' },
+  { id: 'collab-tools', tree: 'shell' },
+] };
+/** v3 组合读期望（rows 差量换正清单：include = 定义清单，exclude 语义消亡） */
+const cfgV3: AgentConfig = { ...cfg, rows: { include: ['fs', 'web-tools'] } };
+beforeEach(() => {
+  fs.mkdirSync(ROOT, { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'row-catalog.json'), JSON.stringify(CATALOG), 'utf-8');
+});
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-describe('agent.patch.yml v2 + agent.json（cr-1004 批2）', () => {
-  it('写拆落：差量〔数组+基线戳〕+ 档案 agent.json；读面投影回 AgentConfig（结构化档位）', () => {
+describe('agent.patch.yml v3 菜单片段 + agent.json（cr-1022 批2）', () => {
+  it('写拆落：行定义数组〔ac-menu 头+基线戳+src-fingerprint〕+ 档案 agent.json；读面投影回 AgentConfig', () => {
     writeAgentConfig(ROOT, cfg);
     const dir = agentDir(ROOT, ID);
-    const v2 = readAgentPatchV2At(dir);
-    expect(v2).not.toBeNull();
-    expect(v2!.base).toMatch(/^[0-9a-f]{16}$/);
-    expect(v2!.entries).toContainEqual({ id: 'fs' });
-    expect(v2!.entries).toContainEqual({ id: 'sap-adt', disabled: true });
+    const v3 = readAgentPatchV3At(dir);
+    expect(v3).not.toBeNull();
+    expect(v3!.base).toMatch(/^[0-9a-f]{16}$/);
+    expect(v3!.defs.map((d) => d.id)).toEqual(['fs', 'web-tools']); // exclude 词形消亡——不进即不装
+    for (const def of v3!.defs) expect(v3!.fingerprints[def.id]).toMatch(/^[0-9a-f]{16}$/);
     const profile = readAgentProfileAt(dir)!;
     expect(profile.tier).toBe('full-access');
     expect(profile['tool-mode']).toBe('tc-programmatic');
     expect(fs.existsSync(path.join(dir, 'config.json'))).toBe(false); // 镜像退役
     const reread = readAgentConfig(ROOT, ID);
-    expect(reread).toEqual(cfg); // v2 组合读投影等价
+    expect(reread).toEqual(cfgV3); // v3 组合读投影等价（正清单直读）
   });
 
   it('旧存量（仅 config.json）读路径不变——窗口兼容', () => {
@@ -81,23 +95,21 @@ describe('agent.patch.yml v2 + agent.json（cr-1004 批2）', () => {
     expect(readAgentPatch(ROOT, ID)).toBeNull();
   });
 
-  it('坏档案（agent.json 非映射）→ throw fail-loud；v2 差量坏形读 null', () => {
-    fs.mkdirSync(agentDir(ROOT, ID), { recursive: true });
+  it('坏档案（agent.json 非映射）→ throw fail-loud（v3 在场才进档案读面）', () => {
+    writeAgentConfig(ROOT, cfg);
     fs.writeFileSync(path.join(agentDir(ROOT, ID), 'agent.json'), '[1,2]' + String.fromCharCode(10));
-    fs.writeFileSync(path.join(agentDir(ROOT, ID), PATCH_FILE), '- a' + String.fromCharCode(10));
-    expect(readAgentPatchV2At(agentDir(ROOT, ID))?.entries).toEqual([]); // 坏条目滤除（fail-soft 面）
     expect(() => readAgentConfig(ROOT, ID)).toThrow('顶层必须是映射');
   });
 });
 
 describe('插件配置拆分（cr-906 批4 切片二）', () => {
-  it('写拆分：settings → <unit>.json 文件；差量/档案不随行；读合成等价', () => {
+  it('写拆分：settings → <unit>.json 文件；定义/档案不随行；读合成等价', () => {
     writeAgentConfig(ROOT, cfg);
     const dir = agentDir(ROOT, ID);
     expect(fs.existsSync(path.join(dir, 'run-code.json'))).toBe(true);
     expect(readAgentProfileAt(dir)?.levels).toBeUndefined(); // 档案不随行 settings
     expect(readPluginConfig(ROOT, ID, 'run-code')).toEqual({ mode: 'observe' });
-    expect(readAgentConfig(ROOT, ID)).toEqual(cfg);
+    expect(readAgentConfig(ROOT, ID)).toEqual(cfgV3);
   });
 
   it('单元文件赢过旧映射 patch 内联 settings（窗口存量兜底）；readPluginConfigs 扫全量', () => {
@@ -121,18 +133,27 @@ describe('插件配置拆分（cr-906 批4 切片二）', () => {
   });
 });
 
-describe('levels 档位（cr-1004 批2b：归位装配条目 config——存储随差量条目走）', () => {
-  it('写侧：levels → 条目 config.level（browser/collab 行锚定；dev-tools 键退役）；读侧投影回 levels', () => {
+describe('levels 档位（cr-1004 批2b / cr-1022 批2：归位菜单定义 config——不进即不装）', () => {
+  it('写侧：levels → def.config.level（browser/collab 行锚定——行不在菜单则跳过；dev-tools 键退役）；读侧投影回 levels', () => {
+    // rows 未点名 browser/collab-tools：levels 合并只对在场 def 生效（跳过，不静默长行）
     const withLevels: AgentConfig = {
       ...cfg,
       levels: { browser: 'inject', collab: 'admin', 'dev-tools': true },
     };
     writeAgentConfig(ROOT, withLevels);
     const dir = agentDir(ROOT, ID);
-    const v2 = readAgentPatchV2At(dir)!;
-    expect(v2.entries).toContainEqual({ id: 'browser', config: { level: 'inject' } });
-    expect(v2.entries).toContainEqual({ id: 'collab-tools', config: { level: 'admin' } });
-    expect(v2.entries.some((e) => e.id === 'dev-tools')).toBe(false); // 退役键不落
+    const v3Miss = readAgentPatchV3At(dir)!;
+    expect(v3Miss.defs.map((d) => d.id)).toEqual(['fs', 'web-tools']); // 不因档位长行
+    expect(readAgentConfig(ROOT, ID)!.levels).toBeUndefined(); // 无锚定行 = 档位不落
+    // rows 点名 browser/collab-tools：config.level 随定义落盘
+    writeAgentConfig(ROOT, {
+      ...withLevels,
+      rows: { include: ['fs', 'web-tools', 'browser', 'collab-tools'] },
+    });
+    const v3 = readAgentPatchV3At(dir)!;
+    expect(v3.defs).toContainEqual({ id: 'browser', config: { level: 'inject' } });
+    expect(v3.defs).toContainEqual({ id: 'collab-tools', config: { level: 'admin' } });
+    expect(v3.defs.some((d) => d.id === 'dev-tools')).toBe(false); // 退役键不落
     expect(readAgentProfileAt(dir)?.levels).toBeUndefined(); // 档案不再携带
     const back = readAgentConfig(ROOT, ID)!;
     expect(back.levels).toEqual({ browser: 'inject', collab: 'admin' });

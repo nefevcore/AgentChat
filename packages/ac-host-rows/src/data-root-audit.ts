@@ -42,6 +42,7 @@ const KNOWN_FILES = new Set([
   'config.json', // 全局配置（留根级）
   'workspaces.json', // 兼容窗旧位置（新 = meta/workspaces.json）
   'host-rows.json', // 宿主行集偏好
+  'row-catalog.json', // 行集目录投影（cr-1033 B2 部署链随行物化——能力行归包携带面）
 ]);
 
 /**

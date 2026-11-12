@@ -21,9 +21,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
-import { materializeChild, listChildIds, readAgentConfig, readPluginConfigsAt, childIsArchived, ARCHIVED_FILE, writePluginConfigAt } from 'ac-agents-core';
+import { materializeChild, listChildIds, readAgentConfig, readPluginConfigsAt, childIsArchived, ARCHIVED_FILE, writePluginConfigAt, resolveToolNames } from 'ac-agents-core';
 import { readGlobalAuth, readAgentAuth, deriveChildAuth } from 'ac-auth-core';
-import { evaluateLegacyShellRows, fitInstalledRows, readCatalog, SEAT_ROW_IDS } from 'ac-rowset-core';
+import { fitInstalledRows, type RowDescriptor } from 'ac-rowset-core';
 import { filterSpawnTools, convInheritOf, spawnChildConfigOf } from './inherit.ts';
 import { makeEnvelope, deliver, readActivationLock, IpcClient, type DeliverResult, type RendezvousPaths, type Envelope } from 'ac-envelope-core';
 import { runAddress } from 'ac-core-utils';
@@ -57,6 +57,9 @@ export interface SubagentRowOptions {
   /** 子壳 boot 入口与 catalog（boot 装配显式注入——preview 标准路径） */
   bootFile: string;
   catalogFile: string;
+  /** 父壳活装配行集（cr-1022 批4：bootShell 装配产物注入——spawn 词面与子
+   * 物化定义拷贝不查静态目录；bootGraph/行集校准同源事实） */
+  shellRows: RowDescriptor[];
   /** 子壳 spawn 注入面（测试替身）；缺省 = 真子进程 */
   spawnShell?: SpawnShellFn;
   /** 邮局地址（子壳跨壳回信线；缺席 = 直投形态） */
@@ -151,6 +154,7 @@ export class ShellSubagentService extends Service {
   private agentId: string;
   private bootFile: string;
   private catalogFile: string;
+  private shellRows: RowDescriptor[];
   private spawnShell: SpawnShellFn;
   private postOfficeAddress: string | undefined;
   private children = new Map<string, ShellProcess>();
@@ -162,6 +166,7 @@ export class ShellSubagentService extends Service {
     this.agentId = options.agentId;
     this.bootFile = options.bootFile;
     this.catalogFile = options.catalogFile;
+    this.shellRows = options.shellRows;
     this.spawnShell = options.spawnShell ?? defaultSpawnShell;
     this.postOfficeAddress = options.postOfficeAddress;
     this.registerTool();
@@ -290,15 +295,16 @@ export class ShellSubagentService extends Service {
     const childId = this.newChildId();
     const parent = readAgentConfig(this.dataRoot, this.agentId, { catalogFile: this.catalogFile });
     if (parent === null) throw new Error('父 agent 配置缺席：' + this.agentId);
-    const catalog = readCatalog(this.catalogFile);
-    const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
-    const installed = fitInstalledRows(this.dataRoot, 'shell', this.agentId).rows;
-    const parentRowset = evaluateLegacyShellRows(parent.rows, shellRows, installed, SEAT_ROW_IDS);
+    // cr-1022 批4：父授权投影 = 组合读正清单 ∪ installed（行 id 词形）；
+    // 词面 = 父壳活装配行集（bootShell 注入——readCatalog 静态目录依赖退役）
+    const shellRowIds = new Set(this.shellRows.map((r) => r.id));
+    const installedIds = fitInstalledRows(this.dataRoot, 'shell', this.agentId).rows.map((r) => r.id);
+    const parentRowIds = new Set([...(resolveToolNames(parent.rows) ?? []), ...installedIds]);
     // spawn ⊆ 授权投影：过滤词表单源（inherit.ts——cr-616/762/763 判据收拢）
     let tools: string[] | undefined;
     let filtered: string[] | undefined;
     if (input.tools !== undefined) {
-      const { granted, rejected } = filterSpawnTools(input.tools, new Set(parentRowset.rowIds), catalog);
+      const { granted, rejected } = filterSpawnTools(input.tools, parentRowIds, shellRowIds);
       tools = granted;
       if (rejected.length > 0) filtered = rejected;
     }
@@ -326,14 +332,16 @@ export class ShellSubagentService extends Service {
     const childConfig = spawnChildConfigOf({
       parent,
       ...(tools !== undefined ? { tools } : {}),
-      ...(tools === undefined ? { effectiveRows: parentRowset.rowIds } : {}),
+      ...(tools === undefined ? { effectiveRows: [...parentRowIds] } : {}),
       ...(input.name !== undefined ? { name: input.name } : {}),
       ...(input.system !== undefined ? { system: input.system } : {}),
       inherit,
       ...(typeof anchor === 'string' && anchor !== '' ? { workdirAnchor: anchor } : {}),
       ...(modelOverride !== undefined ? { modelOverride } : {}),
-    }, catalog);
-    materializeChild(this.dataRoot, this.agentId, childId, childConfig, { shellRows });
+    });
+    materializeChild(this.dataRoot, this.agentId, childId, childConfig, {
+      shellRows: this.shellRows,
+    });
     // 子授权层物化（R-5 物化即快照 + spawn ⊆ 投影）：父投影快照内联 grants，
     // 此后父授权变更不传播（M6.5 deriveChildAuth 接线——cr-527）。子壳门读
     // 自己域 auth.json（children 不做运行时投影）。
@@ -343,7 +351,7 @@ export class ShellSubagentService extends Service {
       parentEnv: {
         global: readGlobalAuth(this.dataRoot),
         agent: readAgentAuth(this.dataRoot, this.agentId) ?? undefined,
-        rowset: new Set(parentRowset.rowIds),
+        rowset: parentRowIds,
       },
       materializedAt: new Date().toISOString(),
     });

@@ -117,7 +117,7 @@ function staticToolCatalog(deps: ShellFaceDeps): Array<Record<string, unknown>> 
  *  同口径的静态数据源版——config.rows 盘读（readAgentConfig）× tool-catalog
  *  快照；mode 收窄复用 ac-agents 纯函数（估算与真实 run 同口径的既定
  *  纪律）。caps 门禁/form 终滤不在本面（llmToolFace 同口径——那是 router
- *  执行面）。行展开词形映射 = row-catalog row.tools（与壳内 rowTools 同源）。 */
+ *  执行面）。行展开词形映射 = tool-catalog rows 段（boot fiber 归属 dump，与壳内 rowTools 同源——cr-1022 批2）。 */
 function staticToolDefs(
   ctx: Context,
   deps: ShellFaceDeps,
@@ -127,7 +127,7 @@ function staticToolDefs(
   const defs = staticToolCatalog(deps);
   const visible = defs.filter((t) => (t as { injection?: unknown }).injection !== 'mode');
   const config = readAgentConfig(deps.dataRoot, agentId) ?? undefined;
-  // 行 id → 工具名展开（壳内 rowTools 同源数据 = row-catalog row.tools）
+  // 行 id → 工具名展开（壳内 rowTools 同源数据 = tool-catalog rows 段）
   const rowTools = readRowTools(deps);
   const resolved = resolveToolNames(config?.rows);
   const names = resolved === undefined
@@ -158,20 +158,21 @@ function staticToolDefs(
   };
 }
 
-/** row-catalog 行 id → 工具名清单（壳内 rowTools 同源；目录缺席 = 空映射） */
+/** 行 id → 工具名清单（cr-1022 批2：row-catalog 的 tools 声明退役——
+ * 数据源换 tool-catalog.json 的 rows 段（boot 真装配 fiber 归属反查 dump，
+ * 与壳内 rowTools 同源）；快照缺席 = 空映射） */
 let rowToolsCache: { file: string; at: number; map: Record<string, string[]> } | null = null;
 function readRowTools(deps: ShellFaceDeps): Record<string, string[]> {
   const file = deps.catalogFile !== undefined
-    ? deps.catalogFile
-    : fileURLToPath(new URL('../../../apps/catalog/row-catalog.json', import.meta.url));
+    ? path.join(path.dirname(deps.catalogFile), 'tool-catalog.json')
+    : fileURLToPath(new URL('../../../apps/catalog/tool-catalog.json', import.meta.url));
   try {
     const st = fs.statSync(file);
     if (rowToolsCache !== null && rowToolsCache.file === file && rowToolsCache.at === st.mtimeMs) return rowToolsCache.map;
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { rows?: Array<{ id?: unknown; tree?: unknown; tools?: unknown }> };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { rows?: Record<string, unknown> };
     const map: Record<string, string[]> = {};
-    for (const r of parsed.rows ?? []) {
-      if (r.tree !== 'shell' || typeof r.id !== 'string' || !Array.isArray(r.tools)) continue;
-      map[r.id] = r.tools.filter((t): t is string => typeof t === 'string');
+    for (const [id, tools] of Object.entries(parsed.rows ?? {})) {
+      if (Array.isArray(tools)) map[id] = tools.filter((t): t is string => typeof t === 'string');
     }
     rowToolsCache = { file, at: st.mtimeMs, map };
     return map;

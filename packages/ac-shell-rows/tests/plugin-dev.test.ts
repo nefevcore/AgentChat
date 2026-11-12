@@ -12,19 +12,21 @@ import { makePluginDevRow } from '../src/plugin-dev.ts';
 const ROOT = path.resolve('sandbox', 'test-plugin-dev-' + process.pid);
 const AGENT = 'creator-1';
 
-/** tools 基座桩（本行 inject [tools]）——主线 ac-tools 最小面 */
+/** tools 基座桩（本行 inject [tools]）——主线 ac-tools 最小面
+ * （cr-1022 批2：listWithOwner 归属面——注册方 fiber 名即 owner） */
 interface ToolDef { name: string; description?: string; parameters?: unknown; execute?: (args: unknown, call?: unknown) => Promise<unknown> }
 class StubToolsService extends Service {
-  readonly tools = new Map<string, ToolDef>();
+  readonly tools = new Map<string, ToolDef & { owner: string }>();
   constructor(ctx: Context) { super(ctx, 'tools'); }
   register(tool: ToolDef) {
-    this.tools.set(tool.name, tool);
+    this.tools.set(tool.name, { ...tool, owner: this.ctx.fiber.name });
     // 注册即归属（主线 ac-tools 语义）：注册方 fiber dispose 自动回收
     this.ctx.fiber.effect(() => () => {
       this.tools.delete(tool.name);
     }, 'tools.register(' + tool.name + ')');
   }
   list() { return [...this.tools.values()]; }
+  listWithOwner() { return this.list(); }
   execute(name: string, args: unknown) {
     const tool = this.tools.get(name);
     if (tool === undefined) throw new Error('unknown tool: ' + name);

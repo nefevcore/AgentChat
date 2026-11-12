@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import type { AgentConfig } from './config.ts';
 import { normalizeLegacyTags, accessOf, toolModeOf } from './config.ts';
 import { readCatalog, defaultCatalogFile, assemblyBaseStamp, type AssemblyEntry } from 'ac-rowset-core';
-import { readAgentPatch, patchToConfig, readPluginConfigs, readPluginConfigsAt, writePluginConfig, readAgentPatchV2At, readAgentProfileAt, writeAgentProfileAt, writeAgentPatchV2At, rowsToPatchEntries, levelsOfEntries, mergeLevelsIntoEntries, writePluginConfigAt as writePluginConfigAt2, PATCH_FILE, type AgentProfile } from './patch-doc.ts';
+import { readAgentPatch, patchToConfig, readPluginConfigs, readPluginConfigsAt, writePluginConfig, readAgentPatchV3At, readAgentProfileAt, writeAgentProfileAt, writeAgentPatchV3At, rowsToMenuDefs, levelsOfEntries, mergeLevelsIntoEntries, writePluginConfigAt as writePluginConfigAt2, PATCH_FILE, type AgentProfile } from './patch-doc.ts';
 
 /** 树内文件名常量（读写双面共用单源） */
 export const CONFIG_FILE = 'config.json';
@@ -53,39 +53,25 @@ export function isAgentIdentity(id: string): boolean {
   return id !== '' && !id.includes('~');
 }
 
-/** v2 组合（cr-1004 批2 / cr-1007）：agent.json 档案 + agent.patch.yml 数组差量 →
- * AgentConfig 投影（rows 不投影——face = 行集面，cr-1007 终态） */
-function profileToConfig(agentId: string, profile: AgentProfile, entries: AssemblyEntry[] | null, baseRowIds: readonly string[] = []): AgentConfig {
-  const additions: string[] = [];
-  const excludes: string[] = [];
-  for (const e of entries ?? []) {
-    if (e.disabled === true) excludes.push(e.id);
-    else additions.push(e.id);
-  }
-  // rows 投影 = 承重白名单（工具面每 run 重读——热更新语义保持）：face =
-  // 基础集 − disabled + 加法。差量文档只记离差（§六），白名单在组合读
-  // 重建（无工具行 id 由会话面 toolFaceOf 滤除——conversation allRowIds）
-  const excludeSet = new Set(excludes);
-  const include = [...new Set([...baseRowIds.filter((id) => !excludeSet.has(id)), ...additions])];
+/** v3 菜单组合（cr-1022 批2/批3——唯一组合读面）：agent.json 档案 + 菜单
+ * 片段定义 → AgentConfig 投影（rows = 骨架 ∪ 定义清单——正清单直读） */
+function profileToMenuConfig(agentId: string, profile: AgentProfile, defs: import("ac-rowset-core").MenuEntry[], skeletonIds: readonly string[]): AgentConfig {
+  const lv = levelsOfEntries(defs, profile.levels);
   return normalizeLegacyTags({
     id: agentId,
     ...(profile.model !== undefined ? { model: profile.model } : {}),
     ...(profile.provider !== undefined ? { provider: profile.provider } : {}),
-    ...(profile['llm-params'] !== undefined ? { llmParams: profile['llm-params'] } : {}),
-    ...(profile['max-steps'] !== undefined ? { maxSteps: profile['max-steps'] } : {}),
+    ...(profile["llm-params"] !== undefined ? { llmParams: profile["llm-params"] } : {}),
+    ...(profile["max-steps"] !== undefined ? { maxSteps: profile["max-steps"] } : {}),
     ...(profile.tier !== undefined ? { access: profile.tier } : {}),
-    ...(profile['tool-mode'] !== undefined ? { toolMode: profile['tool-mode'] } : {}),
+    ...(profile["tool-mode"] !== undefined ? { toolMode: profile["tool-mode"] } : {}),
     ...(profile.name !== undefined ? { name: profile.name } : {}),
     ...(profile.description !== undefined ? { description: profile.description } : {}),
     ...(profile.virtual === true ? { virtual: true } : {}),
-    // levels 归位装配条目 config（cr-1004 批2b——档案 levels 存量窗口）
-    ...(() => { const lv = levelsOfEntries(entries, profile.levels); return lv !== undefined ? { levels: lv } : {}; })(),
-    ...((additions.length > 0 || excludes.length > 0)
-      ? { rows: { include, ...(excludes.length > 0 ? { exclude: excludes } : {}) } }
-      : {}),
+    ...(lv !== undefined ? { levels: lv } : {}),
+    rows: { include: [...new Set([...skeletonIds, ...defs.map((d) => d.id)])] },
   });
 }
-
 /**
  * 直读 Agent 定义（cr-906 批4 双读 + cr-1004 批2 三读：v2 差量〔数组
  * agent.patch.yml + agent.json〕赢 → 旧映射 patch → config.json 存量窗口）。
@@ -93,13 +79,13 @@ function profileToConfig(agentId: string, profile: AgentProfile, entries: Assemb
  */
 export function readAgentConfig(dataRoot: string, agentId: string, opts: { catalogFile?: string } = {}): AgentConfig | null {
   const dir = agentDir(dataRoot, agentId);
-  const v2 = readAgentPatchV2At(dir);
-  if (v2 !== null) {
+  // v3 菜单片段（cr-1022 批3 起唯一装配读面——v2 差量组合读退役）
+  const v3 = readAgentPatchV3At(dir);
+  if (v3 !== null) {
     const profile = readAgentProfileAt(dir) ?? {};
-    // 白名单重建面：显式 catalogFile 赢 ∨ 数据根自动解析（宿主 boot 物化后恒在场）
-    const baseRowIds = readCatalog(opts.catalogFile ?? defaultCatalogFile(dataRoot)).rows
-      .filter((r) => r.tree === 'shell' && r.bundle === undefined).map((r) => r.id);
-    const config = profileToConfig(agentId, profile, v2.entries, baseRowIds);
+    const skeletonIds = readCatalog(opts.catalogFile ?? defaultCatalogFile(dataRoot)).rows
+      .filter((r) => r.tree === 'shell' && r.zone === 'skeleton').map((r) => r.id);
+    const config = profileToMenuConfig(agentId, profile, v3.defs, skeletonIds);
     const unitFiles = readPluginConfigs(dataRoot, agentId);
     if (Object.keys(unitFiles).length === 0) return config;
     return { ...config, settings: { ...(config.settings ?? {}), ...unitFiles } };
@@ -166,17 +152,24 @@ export function writeAgentConfig(
     ...(prevOrigin !== undefined ? { origin: prevOrigin } : {}),
   };
   writeAgentProfileAt(dir, profile);
-  // shell 行目录（B−T 确定性转换面）：显式注入赢；缺省自动解析数据根目录
-  //（profile/shell.yml 基座 ∨ row-catalog.json——宿主 boot 物化后恒在场）
+  // shell 能力目录（定义拷贝面）：显式注入赢；缺省自动解析数据根目录
+  //（profile/shell.yml 基座投影 ∨ row-catalog.json——宿主 boot 物化后恒在场）
   const shellRows = opts.shellRows !== undefined
     ? opts.shellRows
     : readCatalog(defaultCatalogFile(dataRoot)).rows.filter((r) => r.tree === 'shell');
-  // levels → 行内条目 config（cr-1004 批2b 归位——档位词随行走，档案不再携带）
-  const entries = mergeLevelsIntoEntries(rowsToPatchEntries(config.rows, shellRows), config.levels);
-  // 基线戳（§五：写面随差量重写时负责保留——既有戳赢，新写才现算；
-  // 基座演化的追新 = rebase，归身份层显式触发，编辑写不静默传导）
-  const existingStamp = readAgentPatchV2At(dir)?.base;
-  writeAgentPatchV2At(dir, entries,
+  const capability = shellRows
+    .filter((r) => r.zone !== 'skeleton')
+    .map((r) => ({
+      id: r.id,
+      ...(r.path !== undefined ? { name: 'link:' + r.path } : {}),
+      ...(r.requires !== undefined ? { requires: r.requires } : {}),
+    }));
+  // v3 菜单片段（cr-1022 批2）：正清单定义拷贝 + src-fingerprint + levels
+  // 归 config；基线戳保真语义沿用（既有戳赢，新写才现算）
+  const { defs, fingerprints } = rowsToMenuDefs(config.rows, capability);
+  mergeLevelsIntoEntries(defs, config.levels);
+  const existingStamp = readAgentPatchV3At(dir)?.base;
+  writeAgentPatchV3At(dir, defs, fingerprints,
     opts.baseStamp ?? existingStamp ?? assemblyBaseStamp(dataRoot, 'shell'));
 }
 
@@ -202,12 +195,12 @@ export function readChildConfig(parentDataRoot: string, parentId: string, childI
   assertAgentId(childId);
   const dir = path.join(agentDir(parentDataRoot, parentId), 'children', childId);
   // v2 差量（cr-1004 批2：children 随 migrate 同形迁移）→ 组合读；
-  // 缺席走 config.json 旧路径（物化即快照——readAgentPatchV2At 缺席 = null）
-  const v2 = readAgentPatchV2At(dir);
-  if (v2 !== null) {
-    const baseRowIds = readCatalog(opts.catalogFile ?? defaultCatalogFile(parentDataRoot)).rows
-      .filter((r) => r.tree === 'shell' && r.bundle === undefined).map((r) => r.id);
-    const config = profileToConfig(childId, readAgentProfileAt(dir) ?? {}, v2.entries, baseRowIds);
+  // 缺席走 config.json 旧路径（物化即快照——v3 缺席 = null）
+  const v3 = readAgentPatchV3At(dir);
+  if (v3 !== null) {
+    const skeletonIds = readCatalog(opts.catalogFile ?? defaultCatalogFile(parentDataRoot)).rows
+      .filter((r) => r.tree === 'shell' && r.zone === 'skeleton').map((r) => r.id);
+    const config = profileToMenuConfig(childId, readAgentProfileAt(dir) ?? {}, v3.defs, skeletonIds);
     const unitFiles = readPluginConfigsAt(dir);
     if (Object.keys(unitFiles).length === 0) return config;
     return { ...config, settings: { ...(config.settings ?? {}), ...unitFiles } };
@@ -301,7 +294,15 @@ export function materializeChild(
     ...(child.virtual === true ? { virtual: true } : {}),
     ...(child.levels !== undefined ? { levels: child.levels } : {}),
   });
-  const entries = mergeLevelsIntoEntries(rowsToPatchEntries(child.rows, shellRows), child.levels);
-  writeAgentPatchV2At(dir, entries, assemblyBaseStamp(dataRoot, 'shell'));
+  const capability = shellRows
+    .filter((r) => r.zone !== 'skeleton')
+    .map((r) => ({
+      id: r.id,
+      ...(r.path !== undefined ? { name: 'link:' + r.path } : {}),
+      ...(r.requires !== undefined ? { requires: r.requires } : {}),
+    }));
+  const { defs, fingerprints } = rowsToMenuDefs(child.rows, capability);
+  mergeLevelsIntoEntries(defs, child.levels);
+  writeAgentPatchV3At(dir, defs, fingerprints, assemblyBaseStamp(dataRoot, 'shell'));
   return dir;
 }

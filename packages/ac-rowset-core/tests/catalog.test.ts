@@ -1,22 +1,29 @@
 // ============================================================
-// 行集目录对账单测（M3.1 验收）：两树行数恒等式 + 命名域唯一 +
-// 目录可派生（shell/host 各自非空）。M8.1 第二批（cr-520）：壳树 35→34
-// ——dev-tools 行剔除；cr-566 singles 全新增（83 = 47+36）；
-// cr-576 group 全新增（84 = 48+36——宿主群存储行）；cr-629 restart
-// 全新增（85 = 48+37——安全重启双件行）；cr-672 auto-title 全新增
-// （86 = 48+38——会话命名行）；cr-701 B4 宿主树 ui 组终态清空
-// （62 = 23+39——cr-881：system-prompt 行退役、conduct/artifacts 两行新增（净 +1）；
-// 此前 61 = 23+38——25 ui 域行撤除：通道包物理迁出后 manifest 声明面
-// 随旧装配口径退役，装载面恒在 webui 行 boot graph）。
+// 行集目录对账单测（M3.1 验收 / cr-1022 批3 收口）：两树行数恒等式 +
+// 命名域唯一 + 目录可派生（骨架面 mergeMenu——存量差量换算面已迁
+// migrate 脚本，见 ac-agents-core/tests/migrate-agent-patch.test）。
+// 行数史：62 = 23+39（cr-881）；cr-973：session-index 宿主新增（65 = 25+40）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { deriveHostRowset, evaluateAssembly, evaluateLegacyShellRows, SEAT_ROW_IDS, type RowsetCatalog } from '../src/rowset.ts';
+import { deriveHostRowset, type RowsetCatalog, type RowDescriptor } from '../src/rowset.ts';
+import { mergeMenu, type MenuEntry } from '../src/menu.ts';
 
 const catalog = JSON.parse(
   readFileSync(fileURLToPath(new URL('../../../apps/catalog/row-catalog.json', import.meta.url)), 'utf-8'),
 ) as RowsetCatalog;
+
+const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
+const skeletonRows = shellRows.filter((r) => r.zone === 'skeleton');
+const capabilityRows = shellRows.filter((r) => r.zone !== 'skeleton');
+const toDef = (r: RowDescriptor): MenuEntry => ({
+  id: r.id,
+  ...(r.path !== undefined ? { name: 'link:' + r.path } : {}),
+  ...(r.requires !== undefined ? { requires: r.requires } : {}),
+});
+const skeletonDefs = skeletonRows.map(toDef);
+const capabilityDefs = capabilityRows.map(toDef);
 
 describe('行集目录对账（manifest R8 恒等式）', () => {
   it('总行数 65 = 宿主 25 + 壳 40（cr-973：session-index 宿主新增；cr-886：host-face 双树）', () => {
@@ -37,25 +44,40 @@ describe('行集目录对账（manifest R8 恒等式）', () => {
     expect(both).toHaveLength(4); // 各树各一
   });
 
-  it('目录可派生：壳基础行集与宿主全集均非空', () => {
-    const shellRows = catalog.rows.filter((r) => r.tree === 'shell');
-    const base = () => evaluateAssembly({ base: shellRows });
-    expect(base().rowIds.length).toBeGreaterThan(0);
-    expect(base().rowIds).not.toContain('dev-tools'); // 勘误剔除行不在目录
+  it('双区完备：壳行恰分骨架/能力两区（menu-assembly §2.1 分层立法）', () => {
+    expect(skeletonRows.length).toBeGreaterThan(0);
+    expect(capabilityRows.length).toBeGreaterThan(0);
+    // 骨架区无 zone 残缺（双区化后壳行必带 zone——host 行单区无标记合法）
+    expect(shellRows.length).toBe(skeletonRows.length + capabilityRows.length);
+  });
+
+  it('目录可派生：骨架面 mergeMenu + 宿主全集；能力行不进即不装', () => {
+    const menu = () => mergeMenu({ skeleton: skeletonDefs });
+    expect(menu().entries.length).toBeGreaterThan(0);
+    expect(menu().entries.map((e) => e.id)).not.toContain('dev-tools'); // 勘误剔除行不在目录
     expect(deriveHostRowset([], catalog).rowIds).toHaveLength(25); // cr-973：session-index 新增
-    // cr-1007 基座去预设并集化：plugin-dev（creator）/sap-adt（abap）/
-    // harness-tools·bench（dev）移出基础集——点名可入、空白 Agent 不恒装
-    expect(base().rowIds).not.toContain('plugin-dev');
-    expect(base().rowIds).not.toContain('sap-adt');
-    expect(base().rowIds).not.toContain('harness-tools');
-    expect(base().rowIds).not.toContain('bench');
-    // cr-672 命名行恒并席位（点名形态也在——legacy 桥 target 恒含席位）
-    expect(evaluateLegacyShellRows([], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('auto-title');
-    expect(base().rowIds).not.toContain('restart'); // bundle 化离开基础集（cr-635 创造预设专属）
-    expect(evaluateLegacyShellRows(['restart'], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('restart'); // 点名引入
-    expect(evaluateLegacyShellRows(['creator'], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('restart'); // creator 捆绑词命中
-    expect(evaluateLegacyShellRows(['creator'], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('plugin-dev'); // cr-1007：plugin-dev 随 creator 捆绑词
-    expect(evaluateLegacyShellRows(['abap'], shellRows, [], SEAT_ROW_IDS).rowIds).toContain('sap-adt'); // cr-1007：sap-adt 随 abap 捆绑词
+    // cr-1022 批2：骨架 = 恒装面——能力目录行不进骨架菜单（成组选择由
+    // patch/模板物化承担，取代 cr-1007 bundle 摘出语义）
+    expect(menu().entries.map((e) => e.id)).not.toContain('plugin-dev');
+    expect(menu().entries.map((e) => e.id)).not.toContain('sap-adt');
+    expect(menu().entries.map((e) => e.id)).not.toContain('harness-tools');
+    expect(menu().entries.map((e) => e.id)).not.toContain('bench');
+    expect(menu().entries.map((e) => e.id)).not.toContain('restart');
+    expect(menu().errors).toEqual([]);
+  });
+
+  it('点名引入（mergeMenu patch——行 id 单一词形）：能力行显式点名', () => {
+    // 能力行行 id 直取（工具名/捆绑词词形退役——fs/creator/abap 随 tools
+    // 声明消亡；成组选择由模板物化承担）
+    const byId = new Map(capabilityDefs.map((d) => [d.id, d] as const));
+    const picked = mergeMenu({
+      skeleton: skeletonDefs,
+      patch: ['restart', 'plugin-dev', 'sap-adt'].map((id) => byId.get(id)!),
+    });
+    expect(picked.errors).toEqual([]);
+    expect(picked.entries.map((e) => e.id)).toEqual(expect.arrayContaining(['restart', 'plugin-dev', 'sap-adt']));
+    // 不进即不装：未点名能力行不在菜单
+    expect(picked.entries.map((e) => e.id)).not.toContain('math');
   });
 
   it('requires 词表自洽（cr-521；cr-551 宿主行首用）：引用 id 均为同树内行（垫片服务不标注）', () => {

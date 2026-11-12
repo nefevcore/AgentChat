@@ -11,6 +11,24 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "web-tools",
+        "description": "web 搜索",
+        "requires": [
+          "tools"
+        ]
+      },
+      {
+        "id": "browser",
+        "description": "浏览器操作",
+        "requires": [
+          "tools"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",

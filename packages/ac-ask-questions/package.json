@@ -11,6 +11,18 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "ac": {
+    "rows": [
+      {
+        "id": "ask-questions",
+        "description": "提问卡（审批 = user 端点消息）",
+        "requires": [
+          "tools",
+          "durable-interaction"
+        ]
+      }
+    ]
+  },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-core-utils": "workspace:*",

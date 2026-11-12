@@ -16,8 +16,7 @@
     "skill",
     "mcp",
     "plugin-dev",
-    "restart",
-    "persona"
+    "restart"
   ],
   "levels": {
     "browser": "observe"

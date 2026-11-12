@@ -36,6 +36,7 @@
 | `plugins/` `skills/` | 能力目录 | UI 插件 / 技能直读面 |
 | `config.json` | 全局配置 | 留根级 |
 | `host-rows.json` | 行集偏好 | 宿主行集派生输入 |
+| `row-catalog.json` | 装配投影 | 行集目录生成物（cr-1033 B2 部署链随行物化——能力行归包 ac.rows 的携带面，宿主/壳 boot 重物化覆写） |
 
 ### meta/ 内部（第二层主存储）
 
