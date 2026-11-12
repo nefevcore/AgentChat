@@ -43,6 +43,11 @@ describe('cr-1033 包自述能力行聚合', () => {
     try {
       write('pkg-a', { rows: [{ id: 'x', name: 'link:packages/pkg-a' }] });
       expect(() => aggregatePackageRows(ROOT)).toThrow('白名单外字段');
+      // configKeys（cr-1037 批3b）：键面自述聚合——字符串数组透传、非字符串拒
+      write('pkg-a', { rows: [{ id: 'x', configKeys: ['level', 'headless'] }] });
+      expect(aggregatePackageRows(ROOT)[0]?.configKeys).toEqual(['level', 'headless']);
+      write('pkg-a', { rows: [{ id: 'x', configKeys: ['ok', 3] }] });
+      expect(aggregatePackageRows(ROOT)[0]?.configKeys).toBeUndefined(); // 非全字符串 = 视同未声明
       write('pkg-a', { rows: [{ id: 'x' }, { id: 'x' }] });
       expect(() => aggregatePackageRows(ROOT)).toThrow('撞名');
       write('pkg-a', { rows: [{ description: '无 id' }] });

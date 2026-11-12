@@ -22,6 +22,8 @@
 //   check   六锁守门（fail-loud）：①头行=全目录最大号 ②无重复号
 //           ③目录区按号单调 ④尾部块语法合法且引用存在 ⑤条目内
 //           docs/**.md 路径存在 ⑥commit 引用面无悬空（经 sync）。
+//           劝告锁（不阻断）：⑤路径回退链 miss 提示；⑦cr-1037 行级
+//           config 键面变更信号提示（迁移边红线核对）。
 //   stats   计数面：按状态/近 14 活跃日 + plan/doing 欠账清单。
 //   selftest sandbox 临时副本上命令面自测（测试数据根住 sandbox/）。
 //
@@ -429,12 +431,22 @@ function cmdCheck() {
   } catch (e) {
     errs.push('锁6：sync 不可用（' + e.message + '）');
   }
+  // 锁7（劝告锁，cr-1037 红线守门）：在途（plan/doing）条目描述含行级
+  // config 键名变更信号——提示核对迁移边登记（登记边 or 显式「存量作废
+  // + notice」二选一；自由文本无法精确判定，只提示不阻断；已收尾历史不追。
+  // 详见 docs/design/assembly/config-upgrade.md §2.3）
+  for (const e of p.entries) {
+    if ((e.tail?.status === 'plan' || e.tail?.status === 'doing')
+      && /键名|config.*键|configKeys|改名/.test(e.desc)) {
+      softWarns.push('cr-' + e.n + ' 描述含行级 config 键面变更信号——确认已按 cr-1037 红线处理存量（登记迁移边 or 显式作废 + notice）');
+    }
+  }
   if (errs.length) {
     console.error('check 失败（' + errs.length + ' 项）：\n  ' + errs.join('\n  '));
     process.exit(1);
   }
   for (const w of softWarns) console.log('  提示（不阻断）：' + w);
-  console.log('check 通过：六锁全绿（' + nums.length + ' 条，当前号 cr-' + Math.max(...nums) + '，历史路径消亡 ' + softWarns.length + ' 处）');
+  console.log('check 通过：六锁全绿（' + nums.length + ' 条，当前号 cr-' + Math.max(...nums) + '，劝告提示 ' + softWarns.length + ' 处〔含锁5 路径 / 锁7 cr-1037 键面红线〕）');
 }
 
 // —— stats ————————————————————————————————————————

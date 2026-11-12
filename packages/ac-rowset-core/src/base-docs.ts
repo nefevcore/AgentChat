@@ -109,7 +109,7 @@ export function readBaseDoc<P extends BaseProc>(file: string, proc: P): BaseDoc<
 /** 条目 → 行描述符（tree 由文档隐含；path 由 name 还原；zone：显式
  * 透传（包聚合能力行）∥ 壳基座行派生 skeleton（分区 = 文档归属面）；
  * webui 基座非行集面——projectBaseEntry 不消费，仅部署链物化） */
-export function projectBaseEntry(entry: BaseEntry & { zone?: 'skeleton' | 'capability' }, tree: 'host' | 'shell'): RowDescriptor {
+export function projectBaseEntry(entry: BaseEntry & { zone?: 'skeleton' | 'capability'; configKeys?: string[] }, tree: 'host' | 'shell'): RowDescriptor {
   const zone = entry.zone ?? (tree === 'shell' ? 'skeleton' as const : undefined);
   return {
     id: entry.id,
@@ -118,6 +118,7 @@ export function projectBaseEntry(entry: BaseEntry & { zone?: 'skeleton' | 'capab
     ...(entry.description !== undefined ? { description: entry.description } : {}),
     ...(entry.requires !== undefined ? { requires: entry.requires } : {}),
     ...(entry.name !== undefined ? { path: entry.name.replace(/^link:/, '') } : {}),
+    ...(entry.configKeys !== undefined ? { configKeys: entry.configKeys } : {}),
   };
 }
 

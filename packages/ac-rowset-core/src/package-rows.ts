@@ -15,14 +15,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { MenuBaseEntry } from './base-docs.ts';
 
-/** 包自述行声明（ac.rows 条目——词汇白名单：id/description/requires） */
+/** 包自述行声明（ac.rows 条目——词汇白名单：id/description/requires/configKeys） */
 export interface PackageRowDecl {
   id: string;
   description?: string;
   requires?: string[];
+  /** 行内 config 键面自述（cr-1037 批3：编辑面未知键 warn 的比对单源） */
+  configKeys?: string[];
 }
 
-const PACKAGE_ROW_KEYS: readonly string[] = ['id', 'description', 'requires'];
+const PACKAGE_ROW_KEYS: readonly string[] = ['id', 'description', 'requires', 'configKeys'];
 
 /**
  * 扫 repoRoot 下各包 package.json（packages 目录）的 ac.rows → 能力区条目
@@ -70,6 +72,9 @@ export function aggregatePackageRows(repoRoot: string): MenuBaseEntry[] {
         name: 'link:packages/' + name.name,
         ...(typeof e.description === 'string' ? { description: e.description } : {}),
         ...(Array.isArray(e.requires) ? { requires: e.requires as string[] } : {}),
+        ...(Array.isArray(e.configKeys) && e.configKeys.every((k) => typeof k === 'string')
+          ? { configKeys: e.configKeys as string[] }
+          : {}),
       });
     }
   }

@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-1039**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-1040**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1058,4 +1058,5 @@
 - 【cr-1037 2026-11-12 "config 升级立项：行级 configVersion 戳 + owning 包声明相邻迁移边（纯函数）+ boot 惰性迁移落盘（原子写+备份同源）；无损才迁——语义变化不写边，旧值保 config.legacy + notice 明示手动重设；改键名的 CR 必须同批处理存量" "#assembly" "--status" "plan"】
 - 【cr-1038 2026-11-12 superagent 大计划：对标 dots/dsh 差距研究成文（superagent-master-plan.md，含底稿固化/安全前置/compaction/B1-B4/harness 体验五线）】{plan}
 - 【cr-1039 2026-11-12 cr-1036 全批收官：批2 agent.patch 形态链注册（patch-chain v0→v1→v2 + 探测 + 链驱动执行）+ migrate 工具换轨链驱动（换算代码清零）；批3 shell boot 惰性走链 + config.json 读窗退役（残留视同缺席）+ ac-import 写口换 v3 + workspace/home 42 存量收编零残留】
+- 【cr-1040 2026-11-12 --id cr-1037】{doing}
 

@@ -30,7 +30,7 @@ import * as net from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis';
 import { readCatalog, fitInstalledRows, readAssemblyPatch, resolveReplacements, assemblyBaseStamp, mergeMenu, applyAssemblyLayer, menuDefinitionFingerprint, type RowDescriptor, type MenuEntry } from 'ac-rowset-core';
-import { readAgentConfig, readChildConfig, readAgentPatchV3At, writeAgentPatchV3At, migrateAgentPatchAt } from 'ac-agents-core';
+import { readAgentConfig, readChildConfig, readAgentPatchV3At, writeAgentPatchV3At, migrateAgentPatchAt, needsConfigMigration, runConfigMigration, aggregateConfigChains, type ConfigMigrationEdge } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { IMPORTED_ROWS, COMPANION_ROWS, COMPANION_ROW_ROOTS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow } from 'ac-shell-rows';
 import { makeHostFaceClientRow } from 'ac-host-face-client';
@@ -140,6 +140,18 @@ export function parseShellArgs(argv: string[]): ShellBootArgs {
 /** 快照落盘（原子写；审计视图——装配链快照非承重面，写失败仅警告）。
  * cr-1022 批2：工具面 = 装配后注册面 dump（行→工具归属经 fiber 名反查——
  * tools 声明词汇退役）。 */
+/** 仓库根定位（config 迁移链聚合锚——上溯找 pnpm-workspace.yaml；8 层未中 = 起点自身） */
+function repoRootOf(moduleUrl: string): string {
+  let dir = path.dirname(fileURLToPath(moduleUrl));
+  for (let i = 0; i < 8; i++) {
+    if (fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return dir;
+}
+
 function writeBootGraphSnapshot(
   dataRoot: string,
   agentId: string,
@@ -245,6 +257,7 @@ export function deriveAndAssertRowset(
   agentId: string,
   catalogFile: string | undefined,
   parentId?: string,
+  configChains?: Record<string, ConfigMigrationEdge[]>,
 ): ShellMenuRowset {
   // cr-1022 批2：菜单合成（mergeMenu）——骨架 ∪ patch 定义 ∪ installed；
   // 用户全局层只做停用与 config（replace 先行换向）；存量 v2 差量/config.rows
@@ -309,11 +322,12 @@ export function deriveAndAssertRowset(
   // 来源消亡的孤儿定义丢弃——行定义无保守升级语义，保留旧定义是漂移
   const calibrationNotices: string[] = [];
   let defs = v3.defs;
+  // 来源定义全集（校准与 config 迁移共用——指纹重算面）
+  const sources = new Map<string, MenuEntry>();
+  for (const src of [...capability, ...installedDefs]) {
+    if (!sources.has(src.id)) sources.set(src.id, src);
+  }
   if (defs.some((d) => d.id in v3.fingerprints)) {
-    const sources = new Map<string, MenuEntry>();
-    for (const src of [...capability, ...installedDefs]) {
-      if (!sources.has(src.id)) sources.set(src.id, src);
-    }
     let dirty = false;
     const next: MenuEntry[] = [];
     for (const def of defs) {
@@ -346,13 +360,47 @@ export function deriveAndAssertRowset(
       writeAgentPatchV3At(agentDirAbs, defs, fingerprints, v3.base ?? currentStamp);
     }
   }
+  // 行内 config 惰性迁移（cr-1037 批2——config 面有策略，与定义面指纹校准
+  // 同节奏）：stored configVersion < 链 current → 逐边应用 → 原子落盘（同
+  // writeAgentPatchV3At 备份纪律）；链缺边/不可迁 → config.legacy + notice
+  // 明示手动重设（显式麻烦用户，不静默猜）。链注入缺省空 = 零迁移（无声明
+  // 行的合法零态）。
+  const configMigrationNotices: string[] = [];
+  if (configChains !== undefined) {
+    const migrated: MenuEntry[] = [];
+    for (const def of defs) {
+      if (!(def.id in configChains)) { migrated.push(def); continue; }
+      const chain = configChains[def.id];
+      if (!needsConfigMigration(chain, def.config)) { migrated.push(def); continue; }
+      const out = runConfigMigration(chain, def.config, def.id);
+      if (out.reports.length > 0) {
+        const trail = out.reports.map((r) => 'v' + r.from + '→v' + r.to).join(' ');
+        configMigrationNotices.push('config 迁移：行 ' + def.id + ' ' + trail + '——已自动升级（cr-1037）');
+      }
+      configMigrationNotices.push(...out.notices); // legacy 路径 notice（手动重设明示）
+      migrated.push({ ...def, config: out.config });
+    }
+    if (migrated.some((d, i) => d !== defs[i])) {
+      defs = migrated;
+      const fingerprints: Record<string, string> = {};
+      for (const def of defs) {
+        const source = sources.get(def.id);
+        if (source !== undefined) fingerprints[def.id] = menuDefinitionFingerprint(source);
+      }
+      writeAgentPatchV3At(agentDirAbs, defs, fingerprints, v3.base ?? currentStamp);
+    }
+  }
   const menu = mergeMenu({ skeleton, patch: defs, installed: installedDefs });
   if (menu.errors.length > 0) {
     throw new Error('行集静态断言失败：\n  ' + menu.errors.join('\n  '));
   }
-  // 用户全局层应用（停用/config；骨架区 = 恒装面——批3 起骨架即席位护栏本体）
+  // 用户全局层应用（停用/config；骨架区 = 恒装面——批3 起骨架即席位护栏本体）。
+  // 键面自述（cr-1037 批3）：目录行 configKeys → 未知键 warn 比对源
   const seatIds = skeletonRows.map((r) => r.id);
-  const applied = applyAssemblyLayer(menu, layer.entries, agentId, seatIds);
+  const rowConfigKeys = new Map(replaced.rows
+    .filter((r) => r.configKeys !== undefined)
+    .map((r) => [r.id, r.configKeys as string[]]));
+  const applied = applyAssemblyLayer(menu, layer.entries, agentId, seatIds, rowConfigKeys);
   // cr-762：子壳行集恒剔 subagent 行（防子孙无限增长）——子壳没有 spawn 面
   //（孙辈授权语义未定义；缺省继承/显式点名/存量子 config 三路同断）。子壳仍可
   // 经 list 查父面板等读面，但永不能再 spawn。
@@ -370,7 +418,9 @@ export function deriveAndAssertRowset(
   return {
     rowIds: rows.map((r) => r.id),
     rows,
-    notices: [...lazyNotices, ...menu.notices, ...applied.notices],
+    // notice 单通道（cr-1037 裁决 #2）：惰性迁移/校准/config 迁移/用户层全部
+    // 汇聚 rowset.notices（calibrationNotices 此前漏汇入——顺手修正）
+    notices: [...lazyNotices, ...calibrationNotices, ...configMigrationNotices, ...menu.notices, ...applied.notices],
     errors: [],
     replacedIds: replaced.replacedIds,
   };
@@ -599,7 +649,10 @@ export async function bootShell(
     }
   } catch { /* 无标记目录 */ }
 
-  const rowset = deriveAndAssertRowset(args.dataRoot, args.agentId, args.catalogFile, args.parentId);
+  // 行内 config 迁移链聚合（cr-1037 批2：仓库内声明扫描——dev/部署态同树）。
+  // 聚合失败（坏声明/坏模块）= boot fail-loud：链声明是构建物的一部分。
+  const configChains = (await aggregateConfigChains(repoRootOf(import.meta.url))).chains;
+  const rowset = deriveAndAssertRowset(args.dataRoot, args.agentId, args.catalogFile, args.parentId, configChains);
   // 编译产物快照（cr-909 批6 切片四 / cr-901 §4.3 审计视图）：派生终态
   // 落盘「这个 Agent 实际装了什么」——行集 + 目录行摘要 + 警告，主壳
   // agents/<id>/ 与子壳 children/<parentId>/<id>/ 分域；每 boot 覆写。

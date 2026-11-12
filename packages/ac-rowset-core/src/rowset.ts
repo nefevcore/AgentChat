@@ -24,6 +24,8 @@ export interface RowDescriptor {
   requires?: string[];
   /** 一句话描述（目录的人类可读面） */
   description?: string;
+  /** 行内 config 键面自述（cr-1037 批3：包 ac.rows 声明聚合——编辑面未知键 warn 比对源） */
+  configKeys?: string[];
 }
 
 /** 全局行集目录（静态全集——两树同源单表） */

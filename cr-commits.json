@@ -1,6 +1,6 @@
 {
- "scannedHead": "d3053211770df264b19ff417f7515ca5b084f955",
- "generatedAt": "2026-11-12T10:43:40.008Z",
+ "scannedHead": "95d9376005556077ae278cc2b82844a048dfdac7",
+ "generatedAt": "2026-11-12T13:00:02.079Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -4451,6 +4451,20 @@
     "sha": "83eafccd3eef6e5dcfa2d8ad90e7e22d4898edfe",
     "date": "2026-11-12",
     "subject": "chore(cr): cr-commits.json 投影同步（cr-1035 收录）"
+   }
+  ],
+  "1036": [
+   {
+    "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
+    "date": "2026-11-12",
+    "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
+   }
+  ],
+  "1039": [
+   {
+    "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
+    "date": "2026-11-12",
+    "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
    }
   ]
  }

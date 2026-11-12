@@ -1,7 +1,7 @@
 # 迁移链完备性（migration-chain-completeness）
 
 > 性质：域深设计——版本化持久形态的换轨器统一组织：相邻边迁移链 + 完备性校验立法。
-> 状态：现行 · cr-1036 2026-11-12 立项，同日全批落地（批 1 链纯库 `ac-migration-core` + 批 2 agent.patch 链注册与 migrate 换轨 + 批 3 boot 惰性迁移与 config.json 收编退役）。下游依赖：[config-upgrade.md](config-upgrade.md) 的迁移边复用本链立法。
+> 状态：现行 · cr-1036 2026-11-12 立项，同日全批落地（批 1 链纯库 `ac-migration-core` + 批 2 agent.patch 链注册与 migrate 换轨 + 批 3 boot 惰性迁移与 config.json 收编退役）；cr-1037 批 1-2 增第二消费方（行内 config 迁移链——见 [config-upgrade.md](config-upgrade.md)）。下游依赖：[config-upgrade.md](config-upgrade.md) 的迁移边复用本链立法。
 > 读者：给任何持久形态（agent.patch.yml / 基座文档 / installed / 单元 config）做版本演进、写换轨器、跑 migrate 工具的人。
 
 ## 一、设计目标

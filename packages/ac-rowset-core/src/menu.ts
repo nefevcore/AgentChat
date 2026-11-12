@@ -84,12 +84,15 @@ export function menuDefinitionFingerprint(def: MenuEntry): string {
 }
 
 /** 用户全局层（<base>.patch.yml）应用到菜单：停用（骨架 = 恒装面，停用
- * 拒绝生效；except 豁免）+ config 合并。fail-soft：未命中/护栏 = notice。 */
+ * 拒绝生效；except 豁免）+ config 合并。fail-soft：未命中/护栏 = notice。
+ * rowConfigKeys（cr-1037 批3）：行 id → 包自述 config 键面——在场时未知
+ * 键 warn 不阻断（键改名提示；缺席 = 行未自述，不校验）。 */
 export function applyAssemblyLayer(
   menu: Menu,
   layer: AssemblyEntry[],
   agentId: string | undefined,
   skeletonIds: readonly string[],
+  rowConfigKeys?: ReadonlyMap<string, readonly string[]>,
 ): { entries: MenuEntry[]; notices: string[] } {
   const notices: string[] = [];
   const byId = new Map(menu.entries.map((e) => [e.id, e] as const));
@@ -114,7 +117,21 @@ export function applyAssemblyLayer(
       notices.push('用户层 config 条目未命中菜单（跳过）：' + entry.id);
       continue;
     }
-    if (entry.config !== undefined) hit.config = { ...(hit.config ?? {}), ...entry.config };
+    if (entry.config !== undefined) {
+      // 键面校验（cr-1037 批3：以包自述为准——configKeys 缺席不校验；
+      // 未知键 warn 不阻断——前向兼容回退场景）；机制保留键豁免
+      //（'configVersion'/'legacy' 字面量与 ac-agents-core config-chain 常量同义——
+      // 依赖方向禁引，改动须两处同步）
+      const known = rowConfigKeys?.get(entry.id);
+      if (known !== undefined) {
+        const unknown = Object.keys(entry.config)
+          .filter((k) => !known.includes(k) && k !== 'configVersion' && k !== 'legacy');
+        if (unknown.length > 0) {
+          notices.push('行 ' + entry.id + ' config 未知键（不在包自述键面——可能已改名，请核对）：' + unknown.join(', '));
+        }
+      }
+      hit.config = { ...(hit.config ?? {}), ...entry.config };
+    }
   }
   const entries = menu.entries.filter((e) => !disabled.has(e.id));
   return { entries, notices };

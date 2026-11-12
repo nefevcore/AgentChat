@@ -1,7 +1,7 @@
 # 行集设计 · 裁决簿（host-shell-decisions）
 
 > 性质：裁决簿——host-shell-row-manifest.md（设计规格）的裁决与论据档案（推导过程、定向理由、判例、账目修正史、批次演进索引）。正文只陈述终态，「为什么」住本簿。
-> 状态：现行 · 2026-10-15 建立（v3 设计 / 裁决分离），随裁决持续演进——最新条目 cr-1025（2026-11-12〈菜单合成原语与行词汇纪律〉）；现行行数账目见 host-shell-row-manifest.md R8。
+> 状态：现行 · 2026-10-15 建立（v3 设计 / 裁决分离），随裁决持续演进——最新条目 cr-1037（2026-11-12〈config 键面自述与守门〉）；现行行数账目见 host-shell-row-manifest.md R8。
 > 读者：想推翻或追溯任一条行集/装配裁决的人——正文按篇名引用。
 
 # 〈行资格判例〉（2026-10-15，v2 立）
@@ -519,3 +519,28 @@ menu-assembly.md §四/§七。
 - 探索档案（explore/）：裁决簿随正文同批演进——新定向先入簿（论据全文），正文
   只改终态行与状态板。
 - 引用规则：母档案依据写 R-n / D-n / S-n；本簿条目按篇名引用。
+
+# 〈config 键面自述与守门〉（2026-11-12 立项定向，cr-1037 全批落地）
+
+行内 config（用户数据）的升级机制裁决，全文见 config-upgrade.md；本簿记两条
+横切裁决：
+
+1. **键面自述走静态投影，不走运行时聚合**：ExtensionMeta.fields（settings
+   弹窗形状自述）的运行时聚合链路不在场——ac-extension-core 头注提及的
+   「ac-web-api 扫描 cordis registry」面已不存在（契约注释漂移）。编辑面
+   未知键 warn 的比对单源 = 包 `ac.rows[].configKeys` 静态声明 →
+   aggregatePackageRows 聚合 → row-catalog 投影 → applyAssemblyLayer
+   （rowConfigKeys 入参）。机制保留键（configVersion/legacy）豁免；未自述
+   行不校验（前向兼容）。
+2. **守门 = 劝告锁，不做语义判定**：cr check 锁7 对在途（plan/doing）条目
+   描述含键面变更信号（键名/config 键/configKeys/改名）时提示核对 cr-1037
+   红线——自由文本无法精确判定「CR 是否改了行级 config 键名」，硬锁必误伤；
+   提示不阻断，判定归审核人。
+
+附带发现的潜伏坑（登记待裁，非本批修）：`profile/<proc>.patch.yml` 同名双义
+——基座文档旧名（readBaseDocEither 兼容回退读，cr-1004 改名窗口）与用户
+差量层现名（custom-layer 读）撞名。生产数据根基座新名恒在场（部署链物化）
+不触发；数据根基座缺席 + 差量层在场时基座读面回退旧名误吞差量层文件
+（缺版本戳 → throw）。修法涉及存量迁移裁决（差量层避名 or 基座旧名回退
+退役窗口收口），留待专门 CR。先例：apps/shell/tests/config-migration.test.ts
+端到端用例注释。

@@ -16,6 +16,8 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readBaseCatalog, projectBaseEntry } from '../packages/ac-rowset-core/src/base-docs.ts';
 import { aggregatePackageRows } from '../packages/ac-rowset-core/src/package-rows.ts';
+import { aggregateConfigChains } from '../packages/ac-agents-core/src/config-chain.ts';
+import { validateChain } from '../packages/ac-migration-core/src/chain.ts';
 
 const OUT = fileURLToPath(new URL('../apps/catalog/row-catalog.json', import.meta.url));
 const PROFILE_DIR = fileURLToPath(new URL('../apps/catalog/profile/', import.meta.url));
@@ -28,6 +30,17 @@ const skeletonAndHost = base.rows.filter((r) => r.tree === 'host' || r.zone === 
 const capability = aggregatePackageRows(REPO_ROOT)
   .map((e) => projectBaseEntry({ ...e, zone: 'capability' }, 'shell'));
 const rows = [...skeletonAndHost, ...capability];
+
+// config 迁移链完备性构建期校验（cr-1037 批1）：声明即可校验——缺环/
+// 跳边的链 gen 即红，不待运行时碰运气
+const configChains = await aggregateConfigChains(REPO_ROOT);
+for (const [rowId, chain] of Object.entries(configChains.chains)) {
+  const errs = validateChain(chain);
+  if (errs.length > 0) {
+    throw new Error('config 迁移链不完备（行 ' + rowId + '，包 '
+      + configChains.owners[rowId] + '）：' + errs.map((e) => e.message).join('；'));
+  }
+}
 
 const next = JSON.stringify({ version: 1, rows }, null, 2) + '\n';
 const prev = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf-8') : '';
