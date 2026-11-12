@@ -506,9 +506,9 @@ function resumeFromFacts(rf: RunFactsV2): { messages: LlmMessage[]; committedSte
     const s = acc.get(ev.step)!;
     const content = s.content.join('');
     const meter = rf.meters.get(ev.step);
-    // 中止步（cr-766）：调用从未执行且参数可能截断——整调用剔除（不合成
-    // UNCOMMITTED——那是「结果未知」的语义；aborted 是明确未执行）。
-    // 部分正文如实保留（携带面），不计入 committedSteps。
+    // 中止/错误步（cr-766 / cr-1042）：调用从未执行且参数可能截断——整
+    // 调用剔除（不合成 UNCOMMITTED——那是「结果未知」的语义；aborted 是
+    // 明确未执行）。部分正文如实保留（携带面），不计入 committedSteps。
     if (meter?.aborted === true) {
       if (content.trim() !== '') out.push({ role: 'assistant', content });
       continue;

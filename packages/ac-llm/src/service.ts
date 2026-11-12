@@ -321,13 +321,17 @@ export class LlmService extends Service {
     // 正文相位计时（cr-766）：首个正文 delta 到达 → 流末（正常收束/中止）。
     let textStartAt = 0;
     this.ctx.emit('llm/delta-start', input, input.meta);
-    // 中止收敛（cr-766）：AbortError 不再丢弃已聚合内容上抛——部分聚合
-    // （aborted: true）返回，调用方（loop）据此构造中断步记录。已产出
-    // 任何 chunk 后流被 abort 是用户中断的常态形态，丢弃 = 中断前模型
-    // 已流出的思考/正文整段蒸发。
+    // 中止/错误收敛（cr-766 / cr-1042）：AbortError 与流中途失败均不再
+    // 丢弃已聚合内容上抛——部分聚合（aborted: true）返回，调用方（loop）
+    // 据此构造保真步记录。已产出任何 chunk 后流中断是用户中断的常态
+    // 形态；流中途失败（断连/断流）同样带出中断前模型已流出的思考/
+    // 正文——丢弃 = 半截输出整段蒸发。首块前失败无内容可保真，照常上抛。
     let aborted = false;
+    let streamError: string | undefined;
+    let produced = false;
     try {
       for await (const chunk of this.run(call)) {
+        produced = true;
         this.ctx.emit('llm/delta', input, chunk, input.meta);
         if (chunk.delta) {
           closeReasoningPhase(Date.now());
@@ -355,8 +359,12 @@ export class LlmService extends Service {
         if (chunk.thinkingSignature !== undefined) thinkingSignature = chunk.thinkingSignature;
       }
     } catch (err) {
-      if (!(input.signal?.aborted && (err instanceof Error ? err.name === 'AbortError' : String(err).includes('abort')))) throw err;
-      aborted = true;
+      const isAbort = input.signal?.aborted && (err instanceof Error ? err.name === 'AbortError' : String(err).includes('abort'));
+      if (isAbort) aborted = true;
+      // 错误收敛（cr-1042）：流中途失败且已产出内容 → 部分聚合返回
+      //（streamError 供调用方归因中断/错误）；首块前失败照常上抛。
+      else if (produced) { aborted = true; streamError = describeError(err); }
+      else throw err;
     } finally {
       this.ctx.emit('llm/delta-end', input, input.meta);
     }
@@ -378,6 +386,7 @@ export class LlmService extends Service {
       text,
       ...(reasoning ? { reasoning } : {}),
       ...(aborted ? { aborted: true } : {}),
+      ...(streamError !== undefined ? { streamError } : {}),
       ...(calls.length ? { toolCalls: calls } : {}),
       ...(calls.length && text ? { textBeforeTools: textBeforeTools ?? false } : {}),
       ...(reasoningMs !== undefined ? { reasoningMs } : {}),

@@ -107,7 +107,9 @@ export function foldStepsOf(f: RunFactsV2, subcalls: JournalToolResult[]): { ste
       const content = s.content.join('');
       const reasoning = s.reasoning.join('');
       const calls = s.calls.map((tc) => {
-        const synth = finish === 'interrupted'
+        // 中止/错误步同判（cr-1042）：aborted = 流不完整（中止或中途失败），
+        // 调用从未开始；interrupted/error 收束下的完整步 = 结果未知
+        const synth = finish !== undefined && finish !== 'completed'
           ? (s.meter?.aborted === true ? { ok: false, error: 'TOOL_NOT_STARTED' } : { ok: false, error: 'TOOL_OUTCOME_UNKNOWN' })
           : { ok: true };
         const result = results.get(tc.id) ?? (f.end !== undefined ? synth : null);

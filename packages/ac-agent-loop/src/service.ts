@@ -477,15 +477,22 @@ export class AgentLoopService extends Service {
         const step = await this.step(request, index, messages, specs, steerQueue);
         steps.push(step);
         if (step.usage) usage = mergeUsage(usage, step.usage, step.elapsedMs);
-        // 中止步保真收束（cr-766）：本步 LLM 流被 abort——步记录（部分
-        // text/reasoning）已照常入 steps 并发 after-step（journal 落盘），
-        // 此处跳过工具执行（toolCalls 可能不完整——参数 JSON 截断）直接
-        // 以 interrupted 收束。abortText 取 signal reason（与步边界检查
-        // 同源）；无 reason 时如实缺省。
+        // 中止/错误步保真收束（cr-766 / cr-1042）：本步 LLM 流不完整
+        // （被 abort 或中途失败）——步记录（部分 text/reasoning）已照常
+        // 入 steps 并发 after-step（journal 落盘），此处跳过工具执行
+        // （toolCalls 可能不完整——参数 JSON 截断）直接收束。收束归因：
+        // streamError 在场 = 流中途失败 → error + 原因；否则 signal 中止
+        // → interrupted + user-abort（abortText 取 signal reason，与步边界
+        // 检查同源；无 reason 时如实缺省）。
         if (step.aborted === true) {
-          finish = 'interrupted';
-          const text = request.signal ? abortText(request.signal) : undefined;
-          interruptReason = { type: 'user-abort', ...(text ? { reason: text } : {}) };
+          if (step.streamError !== undefined) {
+            finish = 'error';
+            error = step.streamError;
+          } else {
+            finish = 'interrupted';
+            const text = request.signal ? abortText(request.signal) : undefined;
+            interruptReason = { type: 'user-abort', ...(text ? { reason: text } : {}) };
+          }
           break;
         }
 
@@ -770,9 +777,11 @@ export class AgentLoopService extends Service {
         stepId,
         text: res.text,
         ...(res.reasoning ? { reasoning: res.reasoning } : {}),
-        // 中止步保真（cr-766）：aborted 标记 + 相位时长透传——中断步的
-        // 部分聚合照常入档（textMs/reasoningMs 均以最后片时刻收口）
+        // 中止/错误步保真（cr-766 / cr-1042）：aborted 标记 + 失败原因 +
+        // 相位时长透传——不完整步的部分聚合照常入档（textMs/reasoningMs
+        // 均以最后片时刻收口）
         ...(res.aborted ? { aborted: true } : {}),
+        ...(res.streamError !== undefined ? { streamError: res.streamError } : {}),
         toolCalls: res.toolCalls ?? [],
         toolResults: [] as LoopStepRecord['toolResults'],
         ...(res.textBeforeTools !== undefined ? { textBeforeTools: res.textBeforeTools } : {}),

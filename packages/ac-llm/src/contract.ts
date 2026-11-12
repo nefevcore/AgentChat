@@ -199,11 +199,17 @@ export interface LlmChatResult {
   text: string;
   reasoning?: string;
   /**
-   * 调用方 signal 中止（cr-766）：流已产出部分内容后被 abort——text/
-   * reasoning 是中止时刻的部分聚合（非完整 turn），消费方（loop）据此
-   * 构造中断步记录而非丢弃。非中止路径缺省。
+   * 流不完整标记（cr-766 中止 / cr-1042 错误收敛）：流被 abort 或流中途
+   * 失败（已产出内容）——text/reasoning 是终态时刻的部分聚合（非完整
+   * turn），消费方（loop）据此构造保真步记录而非丢弃。完整收束缺省。
    */
   aborted?: boolean;
+  /**
+   * 流失败原因（cr-1042 错误步保真）：aborted 由流中途失败（非 signal
+   * 中止）收敛时携带——调用方据此区分中断与错误并透传失败文案。
+   * signal 中止路径缺省（原因在 signal.reason）。
+   */
+  streamError?: string;
   /** 本轮聚合出的工具调用（无则空） */
   toolCalls?: LlmToolCall[];
   /**

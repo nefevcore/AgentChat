@@ -44,6 +44,24 @@ describe('C3：中断 run 的合成收尾（v1 存量读面）', () => {
     expect(aborted.result).toEqual({ ok: false, error: 'TOOL_NOT_STARTED' });
   });
 
+  it('error 收束（cr-1042）：aborted 步合成 TOOL_NOT_STARTED，完整步合成 TOOL_OUTCOME_UNKNOWN', () => {
+    // 错误步保真（cr-1042）：流中途失败的步带 aborted 标记照落——error
+    // 收束下的合成收尾与 interrupted 同判
+    const dir = seedJournal('delta', [
+      { type: 'journal-step', run: 'run1', step: 0, content: '', reasoning: '思考', ts: 1,
+        toolCalls: [{ id: 'c-full', name: 'read', arguments: '{}' }],
+      },
+      { type: 'journal-step', run: 'run1', step: 1, content: '半截正文', aborted: true, ts: 2,
+        toolCalls: [{ id: 'c-fail', name: 'write', arguments: '{"path":"x"' }],
+      },
+      { type: 'journal-settled', run: 'run1', finish: 'error', seq: 3 },
+    ]);
+    const p = stepsOfRun(readJournal(dir), 'run1')!;
+    expect(p.partial).toBe(false);
+    expect(p.steps[0].toolCalls![0].result).toEqual({ ok: false, error: 'TOOL_OUTCOME_UNKNOWN' });
+    expect(p.steps[1].toolCalls![0].result).toEqual({ ok: false, error: 'TOOL_NOT_STARTED' });
+  });
+
   it('ok 收束：无结果存量步行仍合成空成功（现状保持）', () => {
     const dir = seedJournal('beta', [
       { type: 'journal-step', run: 'run1', step: 0, content: '', ts: 1,

@@ -209,13 +209,14 @@ function projectStep(line: JournalStep, facts: RunFacts, opts: { subcalls?: bool
         // 恢复时确定性计算）：
         //   · finish=ok（含 cr-596 前存量步行）→ 合成空成功，不留给前端
         //     「永恒运行中」的假在途态；
-        //   · finish=interrupted + aborted 步 → 调用未开始，合成
-        //     TOOL_NOT_STARTED（LLM 流被 abort，参数可能截断、从未执行）；
-        //   · finish=interrupted + 完整步 → 工具已发出但结果未回，合成
-        //     TOOL_OUTCOME_UNKNOWN（副作用是否已产生不确定——与
+        //   · finish=interrupted/error + aborted 步 → 调用未开始，合成
+        //     TOOL_NOT_STARTED（LLM 流被 abort/中途失败，参数可能截断、
+        //     从未执行——cr-1042 错误步并入同判）；
+        //   · finish=interrupted/error + 完整步 → 工具已发出但结果未回，
+        //     合成 TOOL_OUTCOME_UNKNOWN（副作用是否已产生不确定——与
         //     resumeContextOfRun 的 UNCOMMITTED_TOOL_ERROR 同语义的 UI 面）。
         // UI 兜底链（spinHold/悬挂探针）对此降级为纯保险。
-        const synth = facts.finish === 'interrupted'
+        const synth = facts.finish !== undefined && facts.finish !== 'ok'
           ? (facts.abortedSteps.has(line.step)
               ? { ok: false, error: 'TOOL_NOT_STARTED' }
               : { ok: false, error: 'TOOL_OUTCOME_UNKNOWN' })

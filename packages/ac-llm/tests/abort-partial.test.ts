@@ -3,10 +3,11 @@ import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmProvider, LlmStreamChunk } from 'ac-llm';
 import * as llmRow from '../src/index';
 
-// ---- chat() 中止收敛（cr-766）：abort 不再丢弃已聚合内容 ----
-// 中断时已流出的思考/正文是会话事实——部分聚合（aborted: true）返回，
-// 调用方（loop）据此构造中断步记录（落盘保真）。reasoningMs 在中止时
-// 以最后 reasoning 片时刻收口（不把 abort 往返延迟计入思考时长）。
+// ---- chat() 中止/错误收敛（cr-766 / cr-1042）：流不完整不再丢弃已聚合内容 ----
+// 中断/失败时已流出的思考/正文是会话事实——部分聚合（aborted: true）返回，
+// 调用方（loop）据此构造保真步记录（落盘）。流中途失败（cr-1042）额外带
+// streamError 供归因。reasoningMs 在中止时以最后 reasoning 片时刻收口
+//（不把 abort 往返延迟计入思考时长）。
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
@@ -91,15 +92,31 @@ describe('chat 聚合：中止收敛（cr-766）', () => {
     expect(result.text).toBe('');
   });
 
-  it('非中止错误照常上抛（收敛只认 signal.aborted + AbortError）', async () => {
+  it('流中途失败（已产出内容）→ 部分聚合返回（aborted + streamError），不上抛（cr-1042）', async () => {
     const failing: LlmProvider = {
       stream: async function* (): AsyncIterable<LlmStreamChunk> {
-        yield { delta: '部分' };
+        yield { delta: '', reasoning: '想了一半' };
+        yield { delta: '部分正文' };
         throw new Error('ECONNRESET 网络故障');
       },
     };
     const ctx = await boot([providerRow('failing', failing)]);
-    await expect(ctx.llm.chat({ provider: 'failing', model: 'failing', messages: USER }))
+    const result = await ctx.llm.chat({ provider: 'failing', model: 'failing', messages: USER });
+    // 失败前模型已流出的思考/正文不蒸发；streamError 供调用方归因错误
+    expect(result.aborted).toBe(true);
+    expect(result.streamError).toContain('ECONNRESET');
+    expect(result.reasoning).toBe('想了一半');
+    expect(result.text).toBe('部分正文');
+  });
+
+  it('首块前失败（无内容可保真）→ 照常上抛', async () => {
+    const failing: LlmProvider = {
+      stream: async function* (): AsyncIterable<LlmStreamChunk> {
+        throw new Error('ECONNRESET 网络故障');
+      },
+    };
+    const ctx = await boot([providerRow('early-fail', failing)]);
+    await expect(ctx.llm.chat({ provider: 'early-fail', model: 'early-fail', messages: USER }))
       .rejects.toThrow('ECONNRESET');
   });
 

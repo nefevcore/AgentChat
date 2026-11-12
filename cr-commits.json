@@ -1,6 +1,6 @@
 {
- "scannedHead": "6e938873f045959ea4bf00d3fbabc0951df5ab4b",
- "generatedAt": "2026-11-12T13:19:46.304Z",
+ "scannedHead": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
+ "generatedAt": "2026-11-12T13:45:29.006Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -3817,6 +3817,13 @@
     "subject": "docs: cr-1008 整理批——docs 全域重组八域目录 + 20 篇归档 + 文档规范成文"
    }
   ],
+  "835": [
+   {
+    "sha": "b45eef7618d1de6af7630d26d7f34d0ca6a800c5",
+    "date": "2026-11-12",
+    "subject": "docs(platform): cr-1038 super-agent 大计划成文——对标 OpenAI Dots 与 DeepSeek dsh/dsh-superagent-prototype 的差距研究收敛为八线分批路线（P0 底稿固化 sandbox/research 两份入库解 gap-backlog §五.8 挂账 → P1 按 source 降档安全前置〔gap-backlog §A.1，seam 现成〕 → P2 compaction 会话压缩硬前提〔ac-compaction-core + epoch 语义〕 → P3-P6 cr-835 域层 B1-B4 既定序 → P7 体验线 E1 渐进披露/E2 PTY 持久 shell/E3 plan mode）；§二底座已覆盖八项勿重复建设（Worker 层/异步全双工/KV-cache 纪律/事件溯源账本/审批链路等）；§四 Dots 差异五项标有意取舍，Spaces 形态共享产物空间为唯一真空白进开放裁决；批次表按 cr-1026 两层验收（测试标准过程门 + 验证目标目的态）；不动底层（信封路由/状态机/编排零改动）；cr check 六锁全绿"
+   }
+  ],
   "864": [
    {
     "sha": "b3515e74b242d940e04959a2007d1406ae95f827",
@@ -4415,6 +4422,20 @@
     "subject": "fix(assembly): cr-1021 tc-programmatic 空面陷阱修复（news~news 71 run 静默零工具执行事故）——run-code 行去 bundle:infra 进壳基础集（升 ac-base-version 3：mode 工具恒在场，未点名 Agent 不再空面植物人）+ narrowToolsByMode 无 mode 工具回退常规面（推翻旧「空面不回落」裁决——静默植物人危害大于悄悄变常规档，llmToolFace/staticToolDefs 双调用方 warn 留痕）+ cr-821 形态合成信号修正（spawnChildConfigOf：程序化 = 父形态 ∧ 子行集含 run-code——基础集化后行集信号对缺省继承恒真，防常规父 spawn 子被翻转程序化）；测试断言对齐（差量瘦身滤基础集行点名/infra 捆绑缩围/回退面）+ 全量 424 文件 3041 用例绿"
    }
   ],
+  "1022": [
+   {
+    "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
+    "date": "2026-11-12",
+    "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
+   }
+  ],
+  "1026": [
+   {
+    "sha": "b45eef7618d1de6af7630d26d7f34d0ca6a800c5",
+    "date": "2026-11-12",
+    "subject": "docs(platform): cr-1038 super-agent 大计划成文——对标 OpenAI Dots 与 DeepSeek dsh/dsh-superagent-prototype 的差距研究收敛为八线分批路线（P0 底稿固化 sandbox/research 两份入库解 gap-backlog §五.8 挂账 → P1 按 source 降档安全前置〔gap-backlog §A.1，seam 现成〕 → P2 compaction 会话压缩硬前提〔ac-compaction-core + epoch 语义〕 → P3-P6 cr-835 域层 B1-B4 既定序 → P7 体验线 E1 渐进披露/E2 PTY 持久 shell/E3 plan mode）；§二底座已覆盖八项勿重复建设（Worker 层/异步全双工/KV-cache 纪律/事件溯源账本/审批链路等）；§四 Dots 差异五项标有意取舍，Spaces 形态共享产物空间为唯一真空白进开放裁决；批次表按 cr-1026 两层验收（测试标准过程门 + 验证目标目的态）；不动底层（信封路由/状态机/编排零改动）；cr check 六锁全绿"
+   }
+  ],
   "1027": [
    {
     "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
@@ -4432,6 +4453,11 @@
     "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
+   },
+   {
+    "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
+    "date": "2026-11-12",
+    "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
    }
   ],
   "1034": [
@@ -4458,6 +4484,11 @@
     "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
+   },
+   {
+    "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
+    "date": "2026-11-12",
+    "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
    }
   ],
   "1037": [
@@ -4465,6 +4496,18 @@
     "sha": "6e938873f045959ea4bf00d3fbabc0951df5ab4b",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1037 config 升级机制全批落地——行内 config（用户数据）版本化升级：批1 声明面 ac.configMigrations（模块路径发现面单源——函数进不了 JSON，边住包内 src/config-migrations.ts）+ config-chain.ts（声明解析/aggregateConfigChains 聚合器/runConfigMigration 执行语义——无损逐边、缺边 config.legacy、未来版本拒绝三路径）+ gen 链构建期四断言校验（缺环/跳边 gen 即红）；批2 执行面 boot 校准面同节奏惰性迁移（configVersion 机制键 + 原子落盘 + notice 单通道——顺手修正 calibrationNotices 漏汇入既有缺口）；批3 纪律收口 cr check 锁7 劝告锁（在途条目键面变更信号提示）+ ac.rows[].configKeys 键面自述（聚合→row-catalog 投影→applyAssemblyLayer 未知键 warn 不阻断、机制键豁免）+ 端到端演练；裁决簿新增〈config 键面自述与守门〉篇（ExtensionMeta 运行时聚合链路不在场→静态投影单源；守门劝告锁不做语义判定）+ 潜伏坑登记（profile/<proc>.patch.yml 同名双义——基座旧名回退撞差量层，留待专门 CR）；全量 418 文件 3003 绿 + integration 89 绿 + typecheck + check:deps + 六锁全绿"
+   },
+   {
+    "sha": "fd7c8525f60beabe6e8439448aa90b96807cf10b",
+    "date": "2026-11-12",
+    "subject": "chore: cr-1037 提交后 sync 投影（cr-commits.json）"
+   }
+  ],
+  "1038": [
+   {
+    "sha": "b45eef7618d1de6af7630d26d7f34d0ca6a800c5",
+    "date": "2026-11-12",
+    "subject": "docs(platform): cr-1038 super-agent 大计划成文——对标 OpenAI Dots 与 DeepSeek dsh/dsh-superagent-prototype 的差距研究收敛为八线分批路线（P0 底稿固化 sandbox/research 两份入库解 gap-backlog §五.8 挂账 → P1 按 source 降档安全前置〔gap-backlog §A.1，seam 现成〕 → P2 compaction 会话压缩硬前提〔ac-compaction-core + epoch 语义〕 → P3-P6 cr-835 域层 B1-B4 既定序 → P7 体验线 E1 渐进披露/E2 PTY 持久 shell/E3 plan mode）；§二底座已覆盖八项勿重复建设（Worker 层/异步全双工/KV-cache 纪律/事件溯源账本/审批链路等）；§四 Dots 差异五项标有意取舍，Spaces 形态共享产物空间为唯一真空白进开放裁决；批次表按 cr-1026 两层验收（测试标准过程门 + 验证目标目的态）；不动底层（信封路由/状态机/编排零改动）；cr check 六锁全绿"
    }
   ],
   "1039": [
@@ -4472,6 +4515,20 @@
     "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
+   }
+  ],
+  "1041": [
+   {
+    "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
+    "date": "2026-11-12",
+    "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
+   }
+  ],
+  "1042": [
+   {
+    "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
+    "date": "2026-11-12",
+    "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
    }
   ]
  }

@@ -416,7 +416,7 @@ describe('ac-llm 瞬时网络错误重试（2026-09-05 nana 事故）', () => {
     expect(seen).toHaveLength(1);
   });
 
-  it('已产出 chunk 后的失败不重试：重放会重复输出已聚合文本', async () => {
+  it('已产出 chunk 后的失败不重试：重放会重复输出已聚合文本（cr-1042：部分聚合返回而非上抛）', async () => {
     const calls = { attempts: 0 };
     const row = {
       name: 'mock-midstream',
@@ -436,8 +436,13 @@ describe('ac-llm 瞬时网络错误重试（2026-09-05 nana 事故）', () => {
       },
     };
     const { ctx } = await bootFast([row]);
-    await expect(ctx.llm.chat({ model: 'm-1', messages: USER })).rejects.toThrow('fetch failed');
+    // 不重试（重放会重复输出）；已聚合的「半」不再丢弃——aborted +
+    // streamError 部分返回（错误步保真，cr-1042）
+    const result = await ctx.llm.chat({ model: 'm-1', messages: USER });
     expect(calls.attempts).toBe(1);
+    expect(result.aborted).toBe(true);
+    expect(result.text).toBe('半');
+    expect(result.streamError).toContain('fetch failed');
   });
 
   it('非瞬时错误（HTTP/业务）不重试：一次即败', async () => {

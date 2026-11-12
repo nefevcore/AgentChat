@@ -168,11 +168,18 @@ export interface LoopStepRecord {
    */
   textMs?: number;
   /**
-   * 本步 LLM 流被中止（cr-766）：text/reasoning 是中止时刻的部分聚合
-   * ——工具调用可能不完整（参数 JSON 截断），loop 跳过其执行。落盘
-   * 透传——读侧（续跑/轨迹重建）据此剔除不完整 tool_calls。
+   * 本步 LLM 流不完整（cr-766 中止 / cr-1042 错误）：text/reasoning 是
+   * 终态时刻的部分聚合——工具调用可能不完整（参数 JSON 截断），loop
+   * 跳过其执行。落盘透传——读侧（续跑/轨迹重建）据此剔除不完整
+   * tool_calls。
    */
   aborted?: boolean;
+  /**
+   * 流失败原因（cr-1042 错误步保真）：aborted 由流中途失败（非 signal
+   * 中止）收敛时携带——run 收束归因错误（error + 原因）的判据。
+   * signal 中止路径缺省。
+   */
+  streamError?: string;
   /**
    * 本步 API 调用耗时（毫秒；源自 llm 的 LlmChatResult.elapsedMs——
    * 请求发起→流末的纯流时间，不含工具执行与编排）。落盘透传，
