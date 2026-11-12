@@ -40,12 +40,13 @@ function depsOf(dir: string, marker: string) {
   };
 }
 
-describe('takeover 锁观察器 restart 意图（cr-994）', () => {
-  it('锁消失 + marker 在场 → exit 42 + marker 被消费（快路 respawn 责任链）', async () => {
+describe('takeover 锁观察器 restart 意图（cr-994 / cr-1034 领取语义）', () => {
+  it('锁消失 + marker 在场 → exit 42 + marker 领取成 .claimed（原文交接 cr-658 会话键——快路 respawn 责任链）', async () => {
     const { dir, marker, lockFile } = mkDeps();
     // 活锁状态（本壳 pid，假想常驻）
+    const markerBody = JSON.stringify({ agentId: 'a1', conversationId: 'u1~a1', at: new Date().toISOString() });
     writeLock(dir, process.pid, 'boot-1');
-    fs.writeFileSync(marker, JSON.stringify({ agentId: 'a1', at: new Date().toISOString() }), 'utf-8');
+    fs.writeFileSync(marker, markerBody, 'utf-8');
     const shell = adoptSocketShell({ agentId: 'a1', bootId: 'boot-1', pid: process.pid, hint: 'pipe-x' }, depsOf(dir, marker));
     const exits: Array<[number | null, string | null]> = [];
     shell.onExit((code, signal) => exits.push([code, signal]));
@@ -53,7 +54,11 @@ describe('takeover 锁观察器 restart 意图（cr-994）', () => {
     fs.rmSync(lockFile);
     await new Promise((r) => setTimeout(r, 2_500));
     expect(exits).toEqual([[42, null]]);
-    expect(fs.existsSync(marker)).toBe(false); // 消费——不留滞留
+    expect(fs.existsSync(marker)).toBe(false); // .json 已领取——不留滞留
+    // 领取形态承载原文：换代壳 boot 自清读取 conversationId 注入「已重启」
+    const claimed = marker.replace(/\.json$/, '.claimed');
+    expect(fs.existsSync(claimed)).toBe(true);
+    expect(fs.readFileSync(claimed, 'utf-8')).toBe(markerBody);
   });
 
   it('锁消失 + marker 缺席 → exit 0（idle 自杀/正常退出——不重拉）', async () => {

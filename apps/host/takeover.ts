@@ -76,12 +76,18 @@ export function adoptSocketShell(lock: LiveShellLock, deps: SocketOnlyDeps): Ado
 
   // 锁观察器（退出感知——接管壳无进程退出事件，锁 = 生命周期投影）。
   // restart 意图识别（cr-994）：锁消失时读 restart marker——在场 = 壳因
-  // restart_shell 退出，映射 42（warden 快路 respawn）并消费 marker；
-  // 缺席才是正常退出/idle 自杀（0 不重拉）。marker 消费放观察器：42 语义
+  // restart_shell 退出，映射 42（warden 快路 respawn）并领取 marker；
+  // 缺席才是正常退出/idle 自杀（0 不重拉）。marker 领取放观察器：42 语义
   // 单点成立（boot 扫描面只管宿主换代场景，同代不扫——marker 滞留是
   // 既有缺口，此处一并收口）。
+  // 领取 = rename 成 .claimed 承载原文（cr-663 语义），不删——换代壳
+  // boot 自清读取 conversationId 注入「已重启」续跑（cr-658 链路；
+  // cr-994 曾实现成删除断链，cr-1034 修正）。观察器只探 .json 精确名，
+  // 滞留 .claimed 不参与 42 判定（陈旧领取由宿主 boot 扫描面 TTL 清扫）。
   const consumeRestartMarker = (): boolean => {
     try {
+      const raw = fs.readFileSync(deps.restartMarkerFile, 'utf-8');
+      fs.writeFileSync(deps.restartMarkerFile.replace(/\.json$/, '.claimed'), raw, 'utf-8');
       fs.rmSync(deps.restartMarkerFile, { force: true });
       return true;
     } catch {
