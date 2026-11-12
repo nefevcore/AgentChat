@@ -36,6 +36,9 @@ release/
 .DS_Store
 Thumbs.db
 
+# 脚本路径变量未展开产物（非 PowerShell 环境原样建目录；本机已见 %SystemDrive%\ProgramData 空链）
+/%SystemDrive%/
+
 # Logs
 *.log
 npm-debug.log*
@@ -58,6 +61,10 @@ workspace/
 
 # 测试输出残留
 /vitest-out.txt
+# 一次性测试产物（cr-1035 移出索引：fold-out.txt = vitest 输出重定向转储〔cr-974 误入库〕；
+# subagent-tool-test-report.md = 子 Agent 工具链路测试报告〔cr-941 误入库〕）
+/fold-out.txt
+/subagent-tool-test-report.md
 
 # 品牌身份 exe（cr-620 make-node-identity 本机产物，不入库；cr-621 补齐）
 /bin/

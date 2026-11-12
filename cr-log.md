@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-1034**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-1035**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1053,4 +1053,5 @@
 - 【cr-1032 2026-11-12 cr-1022 批4：subagent spawn 词解析换父壳活装配行集（readCatalog 从 ac-shell-subagent 退役）】{#assembly|→cr-1022}
 - 【cr-1033 2026-11-12 cr-1022 §六-5 立项：能力定义归包（shell.yml 能力区迁各包 ac.rows + 构建期聚合，B1 立法/B2 换源/B3 基座收缩三批）】{#assembly|→cr-1022}
 - 【cr-1034 2026-11-12 restart_shell 换代壳不续跑修复：接管壳锁观察器 marker 消费改 cr-663 领取语义（.claimed 承载原文交接 conversationId——cr-994 误删断链）】{#session|#ops}
+- 【cr-1035 2026-11-12 仓库卫生：.gitignore 补 %SystemDrive% 与临时产物规则，误入库的 fold-out.txt/subagent-tool-test-report.md 移出索引】{#ops}
 
