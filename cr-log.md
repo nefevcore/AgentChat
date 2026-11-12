@@ -2,7 +2,7 @@
 > 一切变更（含日常 bugfix）动手前**先登记一条 CR**（`node scripts/cr.mjs append '一句话描述' [#标签] [→cr-引用] [--status plan|doing|drop]`——自动取号/当日日期/同步下行；查询 `grep`（`--status/--id/--scope` 维度过滤）；守门 `check` 六锁；投影 `sync`；欠账 `stats`；v2 = cr-982~984），再动代码。
 > 规约背景见 `epoch-marking-convention.md`（cr-1 起 CR 制度建立）。
 >
-> **当前号：cr-1021**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
+> **当前号：cr-1034**（`cr.mjs append` 自动同步本行——须与本目录最大号一致）。
 ## 登记格式
 ```
 【cr-序号 yyyy-mm-dd 一句话描述】
@@ -1040,4 +1040,17 @@
 - 【cr-1019 2026-11-11 cr-1008 独立复核问题全修（P0×2+P1×10+P2×3）：plugin 两篇漏归档补迁 archive/plugin（v2 与 paradigm-plan）+ 反引号死引用 39 处修正（archive 相对路径按域重写）+ archive 索引篇数按实测刷新（assembly8/session16/webui19/plugin5/llm3/ops5/platform29）+ gap-backlog 补状态行与 E2 三批核销 + 裸日期 7 处改真实日历日 + R1/R2 节标题行数 25/40 对齐实测 + webui-standalone 补「部分被取代」注记 + 归档豁免口径入规范；终态 43 篇头部 43/43、md 链接 0 断、代码注释 0 死路径、archive 索引与实测一致】{#docs|#fix|→cr-1008}
 - 【cr-1020 2026-11-11 修复 subagents/list 盘读面漏随 cr-1004 批2迁移：face-shell 读子域 config.json 取 name（新物化写 agent.json）——读不到即静默跳过，cr-1004 后新建子 Agent 在前端清单不可见（帧链路正常、list 查不到新子）。改读 owning 包 readAgentProfileAt 单源（v2 档案读面），存量 config.json 窗口保留】
 - 【cr-1021 2026-11-11 tc-programmatic 空面陷阱修复：run-code 行进壳恒并基座 + 无 mode 工具时回退常规工具面（news~news 71 run 静默零工具执行事故根因）】
+- 【cr-1022 2026-11-12 装配菜单代数立项：基座骨架化（shell.yml 瘦身 13 骨架行）+ agent.patch.yml 菜单片段化（行定义取代点名差量，boot 指纹校准）——翻转 cr-1004 差量词形与 cr-1007 bundle 机制】
+- 【cr-1023 2026-11-12 menu-assembly 设计稿修订：requires 立法撤回——能力→能力边合法，依赖闭包由 mergeMenu 图展开承担（展开源 = 出厂能力区 ∪ installed），patch 直读弱化为 patch ∪ 闭包】
+- 【cr-1024 2026-11-12 menu-assembly 设计稿修订 2：requires 语义定裁——完备性校验 fail-loud（缺行报错），非自动注入（弃 expandRequires 闭包语义）；菜单 = 骨架 ∪ patch ∪ installed 无静默展开，patch 直读即全部】
+- 【cr-1025 2026-11-12 "cr-1022 计划修订：菜单合成回归 cordis-loader 原语（行定义词汇白名单 id/name/requires/config——tools/packs/bundle 及一切带内真值的派生词禁入；shell.yml 与 patch.yml 唯一职责 = 合成最终装配清单）；boot 指纹足迹改依赖闭包；校准/物化重写原子化（临时文件+原子 rename+留一代备份）" "#assembly" "→cr-1022"】
+- 【cr-1026 2026-11-12 "doc-conventions：实施计划体裁必含节拆分——「验收标准」分为「测试标准」（过程门，按改动面走验证阶梯）与「验证目标」（目的态断言）；menu-assembly §七 同步双列" "#meta"】
+- 【cr-1027 2026-11-12 cr-1022 批1：mergeMenu 引擎动工】{→cr-1022}
+- 【cr-1028 2026-11-12 cr-1022 批2：基座双区化 + 行词汇瘦身 + 模板物化换轨 + 指纹写入（旧机制死代码清零）】
+- 【cr-1029 2026-11-12 cr-1022 批3：存量迁移收口（v2 读侧桥删除 + migrate 对账）+ boot 对账校准面 + 指纹足迹依赖闭包】
+- 【cr-1030 2026-11-12 cr-1022 交接档：批1-3 落地状态 + 批4/后继接力入口（menu-assembly-handoff.md）】
+- 【cr-1031 2026-11-12 cr-1022 批4：subagent spawn 词解析换父壳活装配行集（readCatalog 从 ac-shell-subagent 退役）】{doing|#assembly|→cr-1022}
+- 【cr-1032 2026-11-12 cr-1022 批4：subagent spawn 词解析换父壳活装配行集（readCatalog 从 ac-shell-subagent 退役）】{#assembly|→cr-1022}
+- 【cr-1033 2026-11-12 cr-1022 §六-5 立项：能力定义归包（shell.yml 能力区迁各包 ac.rows + 构建期聚合，B1 立法/B2 换源/B3 基座收缩三批）】{#assembly|→cr-1022}
+- 【cr-1034 2026-11-12 restart_shell 换代壳不续跑修复：接管壳锁观察器 marker 消费改 cr-663 领取语义（.claimed 承载原文交接 conversationId——cr-994 误删断链）】{#session|#ops}
 

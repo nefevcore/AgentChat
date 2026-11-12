@@ -1,6 +1,6 @@
 {
- "scannedHead": "02fbd0ff7fe7b65f43c9980ff06019e6ec31b629",
- "generatedAt": "2026-11-11T14:03:18.545Z",
+ "scannedHead": "2c41e889880fc98a87843d9453862770b4bdcaeb",
+ "generatedAt": "2026-11-12T09:12:35.196Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -3455,6 +3455,11 @@
     "sha": "beba2e55a452964eb06fbd957de95219aea61cb7",
     "date": "2026-10-25",
     "subject": "fix(preview): cr-663/665/670/671/673/675/676/677 宿主编排与 web 面——控制面统一入口、workspace 四端点、job/subagents 帧链、badge.css"
+   },
+   {
+    "sha": "2c41e889880fc98a87843d9453862770b4bdcaeb",
+    "date": "2026-11-12",
+    "subject": "fix(session): cr-1034 restart_shell 换代壳不续跑修复——接管壳锁观察器 marker 消费改 cr-663 领取语义（原文 rename 成 .claimed 交接 conversationId，换代壳 boot 自清读取注入「已重启」续跑；cr-994 收口滞留缺口时实现成删除断链）——触发序：restart_host 换代收养活壳后 restart_shell 走观察器路径，壳重拉成功但会话键丢失不续跑；42 判定不受影响（观察器只探 .json 精确名，陈旧领取由宿主 boot 扫描面 TTL 清扫）；takeover-restart 回归锁更新（.claimed 在场 + 原文逐字节相等）"
    }
   ],
   "672": [
@@ -4290,6 +4295,11 @@
     "sha": "de261eb849c44197f77ebe9dbae60e6a93be5b6a",
     "date": "2026-11-10",
     "subject": "fix(restart): cr-994 restart_shell 重启空窗根修——接管壳锁观察器识别 restart marker（锁消失+marker 在场 → exit 42 快路 respawn + marker 消费，替代恒 0 判 done）；壳侧退出意图优先级 decideExit（42 设立后 0 不再覆盖——system shutdown 帧竞态防护）；宿主 requestShellRespawn 句柄在池不再永久放弃（持续轮询确保拉起）；takeover-restart 测试 3 例锁定"
+   },
+   {
+    "sha": "2c41e889880fc98a87843d9453862770b4bdcaeb",
+    "date": "2026-11-12",
+    "subject": "fix(session): cr-1034 restart_shell 换代壳不续跑修复——接管壳锁观察器 marker 消费改 cr-663 领取语义（原文 rename 成 .claimed 交接 conversationId，换代壳 boot 自清读取注入「已重启」续跑；cr-994 收口滞留缺口时实现成删除断链）——触发序：restart_host 换代收养活壳后 restart_shell 走观察器路径，壳重拉成功但会话键丢失不续跑；42 判定不受影响（观察器只探 .json 精确名，陈旧领取由宿主 boot 扫描面 TTL 清扫）；takeover-restart 回归锁更新（.claimed 在场 + 原文逐字节相等）"
    }
   ],
   "995": [
@@ -4384,6 +4394,11 @@
     "sha": "08426ba86e9bb790a709d950b218041968fecb6b",
     "date": "2026-11-11",
     "subject": "fix(webui): cr-1020 subagents/list 盘读面补随 cr-1004 批2迁移——name 读 agent.json（owning 包档案读面单源，config.json 存量回落），此前只读 config.json 致新物化子整条目静默丢弃（帧链路正常、list 查不到，前端新建子不可见）；档案缺席/损坏不再丢条目（name 空串保留行）；回归锁三形态（仅 agent.json / 仅 config.json / 双缺席）"
+   },
+   {
+    "sha": "66ac564ebe8a169431968765ba22433c4bb68602",
+    "date": "2026-11-11",
+    "subject": "chore(cr): cr-commits.json 投影同步（cr-1020~1021 收录）"
    }
   ],
   "1021": [
@@ -4391,6 +4406,27 @@
     "sha": "02fbd0ff7fe7b65f43c9980ff06019e6ec31b629",
     "date": "2026-11-11",
     "subject": "fix(assembly): cr-1021 tc-programmatic 空面陷阱修复（news~news 71 run 静默零工具执行事故）——run-code 行去 bundle:infra 进壳基础集（升 ac-base-version 3：mode 工具恒在场，未点名 Agent 不再空面植物人）+ narrowToolsByMode 无 mode 工具回退常规面（推翻旧「空面不回落」裁决——静默植物人危害大于悄悄变常规档，llmToolFace/staticToolDefs 双调用方 warn 留痕）+ cr-821 形态合成信号修正（spawnChildConfigOf：程序化 = 父形态 ∧ 子行集含 run-code——基础集化后行集信号对缺省继承恒真，防常规父 spawn 子被翻转程序化）；测试断言对齐（差量瘦身滤基础集行点名/infra 捆绑缩围/回退面）+ 全量 424 文件 3041 用例绿"
+   }
+  ],
+  "1027": [
+   {
+    "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
+    "date": "2026-11-12",
+    "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
+   }
+  ],
+  "1033": [
+   {
+    "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
+    "date": "2026-11-12",
+    "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
+   }
+  ],
+  "1034": [
+   {
+    "sha": "2c41e889880fc98a87843d9453862770b4bdcaeb",
+    "date": "2026-11-12",
+    "subject": "fix(session): cr-1034 restart_shell 换代壳不续跑修复——接管壳锁观察器 marker 消费改 cr-663 领取语义（原文 rename 成 .claimed 交接 conversationId，换代壳 boot 自清读取注入「已重启」续跑；cr-994 收口滞留缺口时实现成删除断链）——触发序：restart_host 换代收养活壳后 restart_shell 走观察器路径，壳重拉成功但会话键丢失不续跑；42 判定不受影响（观察器只探 .json 精确名，陈旧领取由宿主 boot 扫描面 TTL 清扫）；takeover-restart 回归锁更新（.claimed 在场 + 原文逐字节相等）"
    }
   ]
  }
