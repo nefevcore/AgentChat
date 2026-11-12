@@ -1,6 +1,6 @@
 {
- "scannedHead": "2c41e889880fc98a87843d9453862770b4bdcaeb",
- "generatedAt": "2026-11-12T09:12:35.196Z",
+ "scannedHead": "3c77d76fe7a494d119a63cae4444e44726db509c",
+ "generatedAt": "2026-11-12T09:20:32.697Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -4413,6 +4413,11 @@
     "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
+   },
+   {
+    "sha": "4938fc1f65adc449ac81ef2c5c5660a46baed2a5",
+    "date": "2026-11-12",
+    "subject": "chore(cr): cr-commits.json 投影同步（cr-1027~1034 收录）"
    }
   ],
   "1033": [
@@ -4427,6 +4432,13 @@
     "sha": "2c41e889880fc98a87843d9453862770b4bdcaeb",
     "date": "2026-11-12",
     "subject": "fix(session): cr-1034 restart_shell 换代壳不续跑修复——接管壳锁观察器 marker 消费改 cr-663 领取语义（原文 rename 成 .claimed 交接 conversationId，换代壳 boot 自清读取注入「已重启」续跑；cr-994 收口滞留缺口时实现成删除断链）——触发序：restart_host 换代收养活壳后 restart_shell 走观察器路径，壳重拉成功但会话键丢失不续跑；42 判定不受影响（观察器只探 .json 精确名，陈旧领取由宿主 boot 扫描面 TTL 清扫）；takeover-restart 回归锁更新（.claimed 在场 + 原文逐字节相等）"
+   }
+  ],
+  "1035": [
+   {
+    "sha": "3c77d76fe7a494d119a63cae4444e44726db509c",
+    "date": "2026-11-12",
+    "subject": "chore(ops): cr-1035 仓库卫生——.gitignore 补 %SystemDrive% 与一次性测试产物规则 + 误入库的 fold-out.txt/subagent-tool-test-report.md 移出索引"
    }
   ]
  }
