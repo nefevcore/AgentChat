@@ -1,6 +1,6 @@
 {
- "scannedHead": "95d9376005556077ae278cc2b82844a048dfdac7",
- "generatedAt": "2026-11-12T13:00:02.079Z",
+ "scannedHead": "6e938873f045959ea4bf00d3fbabc0951df5ab4b",
+ "generatedAt": "2026-11-12T13:19:46.304Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -4458,6 +4458,13 @@
     "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
+   }
+  ],
+  "1037": [
+   {
+    "sha": "6e938873f045959ea4bf00d3fbabc0951df5ab4b",
+    "date": "2026-11-12",
+    "subject": "feat(assembly): cr-1037 config 升级机制全批落地——行内 config（用户数据）版本化升级：批1 声明面 ac.configMigrations（模块路径发现面单源——函数进不了 JSON，边住包内 src/config-migrations.ts）+ config-chain.ts（声明解析/aggregateConfigChains 聚合器/runConfigMigration 执行语义——无损逐边、缺边 config.legacy、未来版本拒绝三路径）+ gen 链构建期四断言校验（缺环/跳边 gen 即红）；批2 执行面 boot 校准面同节奏惰性迁移（configVersion 机制键 + 原子落盘 + notice 单通道——顺手修正 calibrationNotices 漏汇入既有缺口）；批3 纪律收口 cr check 锁7 劝告锁（在途条目键面变更信号提示）+ ac.rows[].configKeys 键面自述（聚合→row-catalog 投影→applyAssemblyLayer 未知键 warn 不阻断、机制键豁免）+ 端到端演练；裁决簿新增〈config 键面自述与守门〉篇（ExtensionMeta 运行时聚合链路不在场→静态投影单源；守门劝告锁不做语义判定）+ 潜伏坑登记（profile/<proc>.patch.yml 同名双义——基座旧名回退撞差量层，留待专门 CR）；全量 418 文件 3003 绿 + integration 89 绿 + typecheck + check:deps + 六锁全绿"
    }
   ],
   "1039": [
