@@ -1,0 +1,25 @@
+{
+  "name": "ac-cr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CR 变更登记台账 CLI——本地零依赖（Node 内置模块 only）：索引/内容分离（cr-log.md 纯索引 + logs/cr-N.md 详情），git 面拆分 cr-git.mjs 可选扩展",
+  "exports": {
+    ".": "./src/cr.mjs",
+    "./src/*": "./src/*",
+    "./skill/*": "./skill/*"
+  },
+  "bin": {
+    "cr": "src/cr.mjs",
+    "cr-git": "src/cr-git.mjs"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

@@ -2,6 +2,10 @@
 node_modules/
 .pnpm-store/
 
+# CR 台账锁（cr.mjs O_EXCL 运行时残留，cr-1043）
+cr/*.lock
+packages/*.lock
+
 # Build output
 dist/
 *.tsbuildinfo

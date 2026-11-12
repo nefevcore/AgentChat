@@ -4,7 +4,7 @@
 > 状态：现行 · cr-1008 2026-11-11 成文；整理批（00-ToRevise 清空）期间兼作各批次验收基准。
 > 读者：本仓库写文档的人（含 Agent 会话）——新文档落笔前、整理归档前读一遍。
 
-日期与变更登记红线（正文日期一律真实日历日 YYYY-MM-DD、动手前先登记 CR）见仓库根 cr-log.md 头部引言与 [design/meta/epoch-marking-convention.md](design/meta/epoch-marking-convention.md)——本档不重复，只补文档域细则。
+日期与变更登记红线（正文日期一律真实日历日 YYYY-MM-DD、动手前先登记 CR）见 `cr/cr-log.md` 头部引言与 [design/meta/epoch-marking-convention.md](design/meta/epoch-marking-convention.md)——本档不重复，只补文档域细则。
 
 ## 一、命名规范
 

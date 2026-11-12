@@ -31,7 +31,7 @@
     "dev": "node apps/system/supervisor.mjs",
     "dev:fg": "node --experimental-strip-types apps/host/boot.ts --data-root workspace/home --port 3830",
     "bench": "node packages/ac-bench/src/cli.ts",
-    "cr": "node scripts/cr.mjs",
+    "cr": "node cr/cr.mjs",
     "sync:office-vendor": "node scripts/sync-office-vendor.mjs",
     "webui": "pnpm --filter ac-ui-app dev",
     "webui:build": "pnpm --filter ac-ui-app build",
