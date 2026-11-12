@@ -154,7 +154,7 @@
 
 | # | 域 | 条目 | 状态 | 出处 |
 |---|---|---|---|---|
-| 1 | session | **S1 恢复面缝隙**：`apps/shell/boot.ts` 的 R4 `replayAnsweredInteractions` 为 void 直调并行、未挂 `.then(inboxRecovery)` 串行，注释与实现不符 | ☐ cr-1015 | `session/subagent-recovery-matrix.md` §S1 |
+| 1 | session | ~~S1 恢复面缝隙~~ 已修（cr-1015，2026-11-12）：R4 改挂 `inboxRecovery` 串行链 + 回归锁 | ☑ cr-1015 | `session/subagent-recovery-matrix.md` §S1 |
 | 2 | platform | **protocol-spec A9 口径冲突**：「cordis.patch.yml 全链退役」vs 根 README「行级启停走 patch.yml 行偏好层」——需确认 boot 读链现行为后收口一侧 | ☐ | `platform/protocol-spec-envelope-lock-guardian.md` §A9 |
 | 3 | platform | **D1 规格字段滞后**：run.started/settled 的 TSV 列定义早于 cr-740 实现（实现多出 source/model/steps/totalTokens/elapsedMs） | ☐ | 同上 §D1 |
 | 4 | platform | **remote-plan 引用残留 3 处**：`src/README.md:895` 已随单轨失效、cr-log 两处只读、`ac-remote-link/src/service.ts` 注释指向应改为本文附录 B | ☐ | `platform/remote-client-relay-plan.md` |

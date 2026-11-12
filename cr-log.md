@@ -1024,7 +1024,7 @@
 - 【cr-1003 2026-11-11 shell-custom 偏好层词形扩展（cr-909 预留面）：except 停用豁免（全局关单 Agent 开）+ replace 实现替换（id 不变 path 换向，授权住用户域）+ 恒并席位停用护栏（拒绝生效防静默半激活）】
 - 【cr-1004 2026-11-11 agent.patch.yml 差量化改造设计立档：三层身份模型（存在域/Agent 身份/会话）+ DSH 对照勘察结论 + assembly 差量词形与代数 + origin 钉基线 rebase 裁决 + 迁移与写侧归一——动工蓝本】
 - 【cr-1005 2026-11-11 Agent 回复 markdown 本地图片渲染：img src workspace 路径重写为 /api/workspace/raw 直链（files/ 前缀与数据根内绝对路径）——多模态下行表达力最小补齐】
-- 【cr-1006 2026-11-11 插件体系规范重写为纯设计稿：去过度设计——origin.known 与钉住式 rebase 换基座行 adopt 分级领养；except 换「显式胜默认」、replace 归 dev；presets 层不设；台账迁 cr-log；新稿 docs/design/plugin-architecture.md】{plan}
+- 【cr-1006 2026-11-11 插件体系规范重写为纯设计稿：去过度设计——origin.known 与钉住式 rebase 换基座行 adopt 分级领养；except 换「显式胜默认」、replace 归 dev；presets 层不设；台账迁 cr-log；新稿 docs/design/plugin-architecture.md】
 - 【cr-1007 2026-11-11 装配差量精简与基座去预设并集化（→cr-1004）：写侧滤除命中基础集的 no-op 加法条目（§六 只记离差；migrate --rebase 同步瘦身）+ 预设专属行移出基础集（sap-adt→bundle:abap / plugin-dev→bundle:creator / harness-tools·bench→bundle:dev，升 ac-base-version）——空白 Agent 不再恒装预设并集】
 - 【cr-1008 2026-11-11 docs 整理批启动（批0）：文档规范 doc-conventions.md 成文（命名/格式/归档纪律）+ docs/README 目录划分与批次进度板（00-ToRevise 队列 65 篇分 6 批清空）+ 全仓 docs/design 旧路径 interim 重指 00-ToRevise】
 - 【cr-1009 2026-11-11 assembly 域 14 篇落位检阅：状态漂移 5/失效机制路 5/行数账目 2 共 12 处事实修正 + 头部三行全篇规约化；归档建议 5 篇（handoff/face-plan/takeover/read-face-audit/orphan-postmortem）待批 6 裁决】
@@ -1033,7 +1033,7 @@
 - 【cr-1012 2026-11-11 docs 整理批补台账：webui-mobile-render-perf-plan.md 入档（原仅存于队列无 CR）】
 - 【cr-1013 2026-11-11 docs 整理批补台账：mic-integrity-sandbox-incident-2026-10-27.md 入档（原仅存于队列无 CR）】
 - 【cr-1014 2026-11-11 docs 整理批补台账：cloud-provider-api-key-adoption.md 入档（原仅存于队列无 CR，cr-98 裁决期成文）】
-- 【cr-1015 2026-11-11 subagent 恢复面 S1 缝隙待修（docs 整理批 2 发现）：apps/shell/boot.ts L986 的 R4 replayAnsweredInteractions 为 void 直调并行、未挂 .then(inboxRecovery) 串行，且上方注释宣称「兜在 inbox 恢复之后」与实现不符——修复= R4 串行化 + 注释对齐；证据见 docs/design/session/subagent-recovery-matrix.md S1 复核注记】{plan|#session|#fix|→cr-1008}
+- 【cr-1015 2026-11-11 subagent 恢复面 S1 缝隙待修（docs 整理批 2 发现）：apps/shell/boot.ts L986 的 R4 replayAnsweredInteractions 为 void 直调并行、未挂 .then(inboxRecovery) 串行，且上方注释宣称「兜在 inbox 恢复之后」与实现不符——修复= R4 串行化 + 注释对齐；证据见 docs/design/session/subagent-recovery-matrix.md S1 复核注记】{#session|#fix|→cr-1008}
 - 【cr-1016 2026-11-11 plugin 域 7 篇 + llm 域 2 篇落位检阅：子代理撞 5 小时限额断于 6/9，父会话收尾补 3 篇（plugin-dev-skill-plan/plugin-face-unification-plan/preset-identity-convergence-plan）头部三行与引用；9/9 头部合规 + 修全仓 4 处指向 design 根的裸旧路径】{#docs|→cr-1008}
 - 【cr-1017 2026-11-11 webui 域 11 篇落位检阅（子代理撞限额仅完成路径确认，父会话收尾）：11/11 头部三行补齐 + 4 处事实漂移修正（ui-rows-and-slots 行数 61 改 65 与 channel 名册退役与装载链路升 v3；ui-descriptive-text-inventory 范围改 33 前端行包；ui-tree tool 行改包名）——全 63 篇头部合规】{#docs|#webui|→cr-1008}
 - 【cr-1018 2026-11-11 ops 域 3 篇 + platform 域 15 篇 + 2 个移动端图件落位检阅：头部三行全篇规约化、事实源与失效路径按现行代码修正、出向引用终指八域目录】{#docs|→cr-1008}
@@ -1049,7 +1049,7 @@
 - 【cr-1028 2026-11-12 cr-1022 批2：基座双区化 + 行词汇瘦身 + 模板物化换轨 + 指纹写入（旧机制死代码清零）】
 - 【cr-1029 2026-11-12 cr-1022 批3：存量迁移收口（v2 读侧桥删除 + migrate 对账）+ boot 对账校准面 + 指纹足迹依赖闭包】
 - 【cr-1030 2026-11-12 cr-1022 交接档：批1-3 落地状态 + 批4/后继接力入口（menu-assembly-handoff.md）】
-- 【cr-1031 2026-11-12 cr-1022 批4：subagent spawn 词解析换父壳活装配行集（readCatalog 从 ac-shell-subagent 退役）】{doing|#assembly|→cr-1022}
+- 【cr-1031 2026-11-12 cr-1022 批4：subagent spawn 词解析换父壳活装配行集（readCatalog 从 ac-shell-subagent 退役）】{drop|#assembly|→cr-1022}
 - 【cr-1032 2026-11-12 cr-1022 批4：subagent spawn 词解析换父壳活装配行集（readCatalog 从 ac-shell-subagent 退役）】{#assembly|→cr-1022}
 - 【cr-1033 2026-11-12 cr-1022 §六-5 立项：能力定义归包（shell.yml 能力区迁各包 ac.rows + 构建期聚合，B1 立法/B2 换源/B3 基座收缩三批）】{#assembly|→cr-1022}
 - 【cr-1034 2026-11-12 restart_shell 换代壳不续跑修复：接管壳锁观察器 marker 消费改 cr-663 领取语义（.claimed 承载原文交接 conversationId——cr-994 误删断链）】{#session|#ops}

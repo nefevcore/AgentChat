@@ -1,6 +1,6 @@
 {
- "scannedHead": "3c77d76fe7a494d119a63cae4444e44726db509c",
- "generatedAt": "2026-11-12T09:20:32.697Z",
+ "scannedHead": "83eafccd3eef6e5dcfa2d8ad90e7e22d4898edfe",
+ "generatedAt": "2026-11-12T09:20:35.586Z",
  "_comment": "生成物：node scripts/cr.mjs sync——禁手改（cr-984，同 row-catalog 纪律）",
  "entries": {
   "1": [
@@ -4439,6 +4439,11 @@
     "sha": "3c77d76fe7a494d119a63cae4444e44726db509c",
     "date": "2026-11-12",
     "subject": "chore(ops): cr-1035 仓库卫生——.gitignore 补 %SystemDrive% 与一次性测试产物规则 + 误入库的 fold-out.txt/subagent-tool-test-report.md 移出索引"
+   },
+   {
+    "sha": "83eafccd3eef6e5dcfa2d8ad90e7e22d4898edfe",
+    "date": "2026-11-12",
+    "subject": "chore(cr): cr-commits.json 投影同步（cr-1035 收录）"
    }
   ]
  }

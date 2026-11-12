@@ -514,6 +514,25 @@ export type ControlFrame =
  * 壳 boot 编排（可测半边——emit/onExit 注入）。锁拒绝/断言失败 = 抛错
  *（调用方转退出码）。
  */
+/** ③ answered 交互重放（cr-636）：壳换代后无人消费的作答——重投开新 run。
+ * 兜在 R2 inbox 恢复之后（排队在途的答案信不在重放面，不双投）；cr-1015
+ * S1 断根：并行直调时 R4 的队列在途跳过快照早于 R2 重投 → 同一答案双投
+ * 双跑——R4 起跑必须晚于 inboxRecovery 兑现（回归锁在 boot.test.ts）。
+ * fire-and-forget：恢复 run 走正常事件面，不阻塞 boot 返回。 */
+export function replayAnsweredAfterInbox(
+  convSvc: { replayAnsweredInteractions?(): Promise<number> } | undefined,
+  inboxRecovery: Promise<void>,
+  emit: (signal: string, ...fields: string[]) => void,
+): void {
+  if (convSvc?.replayAnsweredInteractions !== undefined) {
+    void inboxRecovery.then(() => convSvc.replayAnsweredInteractions!()).then((n) => {
+      if (n > 0) emit('interaction.replayed', String(n));
+    }).catch((err: unknown) => {
+      process.stderr.write('[shell] answered 交互重放失败：' + String(err) + '\n');
+    });
+  }
+}
+
 export async function bootShell(
   args: ShellBootArgs,
   opts: {
@@ -1116,15 +1135,7 @@ export async function bootShell(
         process.stderr.write('[shell] 「已重启」注入失败：' + String(err) + '\n');
       });
   }
-  // ③ answered 交互重放（cr-636）：壳换代后无人消费的作答——重投开新 run
-  //（兜在 inbox 恢复之后：排队在途的答案信不在重放面，不双投）。
-  if (convSvc?.replayAnsweredInteractions !== undefined) {
-    void convSvc.replayAnsweredInteractions().then((n) => {
-      if (n > 0) emit('interaction.replayed', String(n));
-    }).catch((err: unknown) => {
-      process.stderr.write('[shell] answered 交互重放失败：' + String(err) + '\n');
-    });
-  }
+  replayAnsweredAfterInbox(convSvc, inboxRecovery, emit);
   // run 节拍订阅（cr-740 运维面）：loop 事件 → stdout TSV（emit 注入面——纯域
   // 可测）。字段语义：
   //   run.started  <runId> <conversationId> <source> <model>

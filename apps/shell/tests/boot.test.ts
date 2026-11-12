@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import {
   parseShellArgs, deriveAndAssertRowset, bootShell, assembleRows, seedPlaceholderAssemblers, workspaceClosureRoots,
+  replayAnsweredAfterInbox,
 } from '../boot.ts';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { readAgentConfig, writeAgentConfig, writeAgentProfileAt, writeAgentPatchV3At, rowsToMenuDefs } from 'ac-agents-core';
@@ -94,12 +95,60 @@ describe('M6.2 主体指纹自报（R-7 两形态同源）', () => {
         .filter((row) => row.path !== undefined)
         .flatMap((row) => {
           const roots = [...workspaceClosureRoots(path.resolve(row.path!))];
-          const companion = COMPANION_ROW_ROOTS[row.id];
+          const companion = COMPANION_ROW_ROOTS[row.id] as string | undefined;
           if (companion !== undefined) roots.push(...workspaceClosureRoots(path.resolve(companion)));
           return roots.map((root, i) => ({ id: i === 0 ? row.id : row.id + '/' + path.basename(root), root }));
         }),
     });
     expect(hostSide.root).toBe(boot.fingerprint.root);
+  });
+});
+
+describe('boot 恢复链 R4 串行锁（cr-1015 S1 断根）', () => {
+  it('replayAnsweredAfterInbox：R4 重放起跑晚于 inboxRecovery 兑现（不双投）', async () => {
+    const events: string[] = [];
+    let releaseInbox: (() => void) | undefined;
+    const inboxRecovery = new Promise<void>((resolve) => { releaseInbox = resolve; });
+    const replayStarted = new Promise<void>((resolve) => {
+      const svc = {
+        replayAnsweredInteractions: () => new Promise<number>((resolveReplay) => {
+          events.push('replay-start');
+          resolve();
+          resolveReplay(1);
+        }),
+      };
+      replayAnsweredAfterInbox(svc, inboxRecovery, () => {});
+    });
+    await Promise.resolve(); // 微任务排空一轮——直调并行形态会在此后即已起跑
+    expect(events).toEqual([]); // R4 未随 boot 同步起跑（旧形态此处已 push）
+    releaseInbox!();
+    await replayStarted;
+    expect(events).toEqual(['replay-start']); // R4 只在 inbox 恢复兑现后起跑一次
+  });
+
+  it('重放计数 > 0 → interaction.replayed 信号；异常落 stderr 不外抛', async () => {
+    const signals: string[] = [];
+    const errWrite = process.stderr.write;
+    const chunks: string[] = [];
+    process.stderr.write = ((chunk: unknown) => { chunks.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    try {
+      replayAnsweredAfterInbox(
+        { replayAnsweredInteractions: async () => 1 },
+        Promise.resolve(),
+        (s, ...f) => signals.push([s, ...f].join('\t')),
+      );
+      await new Promise((r) => setTimeout(r, 0));
+      expect(signals).toEqual(['interaction.replayed\t1']);
+      replayAnsweredAfterInbox(
+        { replayAnsweredInteractions: async () => { throw new Error('boom'); } },
+        Promise.resolve(),
+        () => {},
+      );
+      await new Promise((r) => setTimeout(r, 0));
+      expect(chunks.join('')).toContain('answered 交互重放失败');
+    } finally {
+      process.stderr.write = errWrite;
+    }
   });
 });
 

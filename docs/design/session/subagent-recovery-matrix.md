@@ -4,7 +4,7 @@
 > 结论是**不合并**，理由与替代方案见 §四。下次任何恢复面改动前先读本文对齐窗口边界。
 > 目标形态对照：docs/design/session/subagent-disk-rendezvous.md（盘面会合——多数恢复面的消解方向，
 > 其 §五 含对本文的对账表；post-office 独立进程见 docs/design/session/post-office-detach-plan.md）。
-> 状态：现行 · cr-857 2026-11-02 立档 · cr-1008 2026-11-11 整理批归位（R1/R1' 已随 cr-974 退役、S2 已断根 cr-863 就地补注；S1/S3 缝隙仍开放）。
+> 状态：现行 · cr-857 2026-11-02 立档 · cr-1008 2026-11-11 整理批归位（R1/R1' 已随 cr-974 退役、S2 已断根 cr-863 就地补注；S1 已断根 cr-1015；S3 缝隙仍开放）。
 
 ## §零 一句话
 
@@ -66,7 +66,7 @@ boot.ts L920-928（现行 apps/shell/boot.ts 恢复链段）：R4（replayAnswer
 快照为空 → 已在 inbox 的答案信会被 R4 重放（R2 随后又消费）→ 同一答案双投双跑。
 触发条件：boot 时 inbox 有在途信 ∧ durable-interaction 有 answered 记录 ∧ 两者
 同 id。修复成本：一行（R4 改 .then(inboxRecovery) 串行，与 R3 同款）。
-**2026-11-11 复核：仍未修**——现行 boot.ts 中 R4 仍是 `void convSvc.replayAnsweredInteractions()` 直调并行（注释宣称「兜在 inbox 恢复之后」与实现不符），缝隙开放如初。
+**2026-11-12 断根（cr-1015）**：R4 改挂 `inboxRecovery` 串行链（与 R3 同款），抽 `replayAnsweredAfterInbox` 可测面（boot.ts 导出 + boot.test.ts 回归锁——断言 R4 起跑晚于 inbox 恢复兑现）。
 
 ### S2+S3（复合中危）换代后「活子」的 ask 推送面蒸发 → busy 永真
 
