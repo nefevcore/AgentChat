@@ -6,6 +6,11 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Fixed（邮局 dispatch 失败静默吞 + ipc 无超时：done-reply 回信永挂、三壳 busy 泄漏「假运行中」，cr-1046）
+- 现场：「运行跟踪」三个会话（designer~news / neko~neko / news~news）运行中十余小时——run 早已 settle（同 run 同时在 runs 与 recentSettled），news 积压 20 封轮巡信无人消费。三层根因叠加：① 子 Agent 完成回执唤醒的 run，终稿 `postReply(to=user)` 信封 uuid 沿用原会话键，邮局 registry 参与者校验判 conflict（[designer,news] 已登记 vs [news,user] 换集）→ dispatch throw；② `listenIpc` 的 onFrame reject 静默吞错不回帧（注释自称「发送方超时重发兜底」但该超时从未实现）；③ `IpcClient.request` 无超时。三层叠加 = postReply 永挂 → `driveRun` finally 永不执行 → `activeRuns` 泄漏、busy 永真、链跑队列死寂。
+- 修法断根三处：① `ipc.ts` onFrame 失败（含同步 throw——原裸调直接炸 data handler）回 `__ipcReject` 错误帧 + request 识别转 reject + 缺省 15s 超时（`timeoutMs` 覆盖；orchestrator manageCall 显式传管理帧拍长，防长帧误杀）；② `postReply` 投 user 的通知 uuid 改 `pairKey(agentId,'user')` 对桶键（user⇄agent 通道语义正确；1v1 会话两键同值行为不变，registry 防线语义不动）；③ 回归锚 ipc-cr1046（错误帧/超时/谓词穿透 4 例）+ registry-cr1046（conflict 防线不放宽 3 例）+ service cr-1046（对桶键 e2e）。
+- 传输层面自此闭环：任何 dispatch 失败可达发送方，`sendEnvelope` 的 10×2s 重试面真正生效。
+
 ### Fixed（发送看门狗误杀活 run：独立会话步边界空窗闪「连接可能已中断」，cr-999）
 - 两根因：① single 分区权威键取 `feed.activeAgentId || sessionId`——进入独立会话时 roster 选中被显式清空（SessionList.selectSingle 互斥），回落 sessionId 匹配 `conversation/stats` 的 agentId 恒 miss，30s 采样落进步边界空窗（after-step 已关占位、下一步 delta 未到、hasLive=false）即误杀活 run + 弹红条 6s + 强制重拉，下一帧 delta 到达又自愈——「偶尔闪现又恢复」的全部形态；② stats RPC 失败按断链杀，网络瞬断同样闪红条，而悬挂探针/Dock 对账同场景均不定罪。修复：① single 键改 `singleMeta` 激活时登记的目标 Agent（agentKeyOf 同口径）；② RPC 失败不定罪、重新武装下一轮（真死 run 由探针 3min + Dock 20s 静默判死兜底收敛，行为不弱化）。回归：`send-watchdog-single-key.test.ts` 3 例（权威命中不杀 / 双空仍杀 / 拒答不杀），突变验证旧代码 2 红新代码全绿。
 

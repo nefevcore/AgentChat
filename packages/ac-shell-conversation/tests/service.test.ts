@@ -1495,6 +1495,36 @@ describe('cr-712 跨壳投递与完成回执', () => {
       await server.close();
     }
   }, 15_000);
+
+  // cr-1046：跨壳/自会话 run 的终稿通知投 user 时 uuid 用 user 对桶键——
+  // 原键（beta 任务在 alpha~beta 桶跑完）投 user 会撞邮局 registry 参与者
+  // 校验（[alpha,beta] 已登记 vs [alpha,user] 判 conflict throw），叠加传输层
+  // 吞错（已修）曾致三壳 postReply 永挂、activeRuns 泄漏。
+  it('cr-1046 终稿通知投 user：uuid 用 user 对桶键（不撞 registry 参与者校验）', async () => {
+    seedAgent('alpha');
+    const address = socketPathFor(path.resolve(ROOT), 'po-c1046');
+    const frames: Envelope[] = [];
+    const server = await listenIpc(address, (frame) => {
+      frames.push(frame as Envelope);
+      return { dispatched: true };
+    });
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, undefined, address);
+    try {
+      const task = makeEnvelope({
+        uuid: 'alpha~beta', requestId: 'reply-u1', sender: 'beta', to: 'alpha', budget: 2,
+        replyTo: 'user',
+        payload: { text: '跨壳任务（终稿回 user）' },
+      });
+      expect(await conv.receiveEnvelope(task, { fresh: true })).toBe('settled');
+      // 回信投 user：uuid = user⇄alpha 对桶键（不是 run 的会话键 alpha~beta）
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({ to: 'user', sender: 'alpha', uuid: 'alpha~user' });
+      expect(frames[0]!.requestId).toBe('reply-reply-u1');
+    } finally {
+      await dispose(fibers);
+      await server.close();
+    }
+  }, 15_000);
 });
 
 describe('cr-863 盘面会合第 3 步：子壳回执换轨 deliver() + childAsk 信封', () => {

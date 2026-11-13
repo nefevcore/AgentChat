@@ -362,8 +362,10 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     const id = 'manage-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
     await client.connect(hint);
     try {
+      // cr-1046：request 缺省 15s 超时会先于长管理帧（preview 干跑等）误杀——
+      // 超时传 ms 与外层 withDeadline 同拍（内层先到即内层语义）
       const reply = await withDeadline(
-        client.request(makeManageRequest(id, frame), (f) => isManageReply(f, id)),
+        client.request(makeManageRequest(id, frame), (f) => isManageReply(f, id), ms),
         ms, 'manage 回执',
       ) as ManageReply;
       if (reply.manage.ok !== true) throw new Error(reply.manage.error ?? 'manage 帧执行失败');

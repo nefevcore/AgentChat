@@ -1538,8 +1538,13 @@ export class ConversationService extends Service {
       return;
     }
     const replyConversation = replyConversationOf(orig);
+    // 投 user 的终稿通知键 = user⇄本 agent 对桶（cr-1046）：原会话键在跨壳/
+    // 自会话 run（如 designer~news 的 done-reply）上投 user 会撞 registry 参与者
+    // 校验（[designer,news] 已登记，[news,user] 判 conflict throw——曾配合传输
+    // 层吞错致 activeRuns 泄漏）。1v1 会话对桶键与原键同值，行为不变。
+    const replyUuid = to === 'user' ? pairKey(this.agentId, 'user') : uuid;
     const reply = {
-      uuid,
+      uuid: replyUuid,
       requestId: 'reply-' + orig.requestId,
       sender: this.agentId,
       to,

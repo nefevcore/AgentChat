@@ -6,9 +6,25 @@
 //（信封或控制帧——载荷语义归上层）。cr-861 自 ac-post-office 移入：
 // 传输层是信封协议通道面（B1），deliver 对等投递纯库（deliver.ts）与
 // 邮局同为消费者——归协议库断「deliver → post-office」循环依赖。
+//
+// cr-1046 失败面闭环：onFrame reject 不再静默吞（旧注释自称「发送方
+// 超时重发兜底」但 request 无超时实现——兜底从未存在）：回 __ipcReject
+// 错误帧让发送方明确失败；request 缺省 15s 超时兜半死连接。现场：邮局
+// dispatch 的 uuid 登记冲突 throw 被吞 → 壳 postReply 永挂 → activeRuns
+// 泄漏（三壳 busy 永真、前端「运行中」假象十余小时）。
 // ============================================================
 import * as net from 'node:net';
 import { encodeFrame, FrameDecoder } from './frame.ts';
+
+/** 传输层错误回帧（onFrame reject 的 wire 形——发送方 IpcClient 转 reject） */
+export interface IpcRejectFrame {
+  __ipcReject: string;
+}
+
+/** 错误帧判定 */
+export function isIpcRejectFrame(frame: unknown): frame is IpcRejectFrame {
+  return typeof (frame as { __ipcReject?: unknown } | null)?.__ipcReject === 'string';
+}
 
 export interface IpcServer {
   address: string;
@@ -53,7 +69,16 @@ export function listenIpcConns(
           return;
         }
         for (const frame of frames) {
-          void Promise.resolve(onFrame(frame)).then((reply) => {
+          // cr-1046：onFrame 失败（同步 throw 或异步 reject）统一回 __ipcReject
+          // 错误帧（不静默吞——吞 = 发送方永等）。同步 throw 需在此捕获：裸调会
+          // 炸 socket data handler（uncaught exception）。
+          let handled: Promise<unknown>;
+          try {
+            handled = Promise.resolve(onFrame(frame));
+          } catch (err) {
+            handled = Promise.reject(err);
+          }
+          void handled.then((reply) => {
             if (reply !== undefined && reply !== null) {
               try {
                 socket.write(encodeFrame(reply));
@@ -61,7 +86,13 @@ export function listenIpcConns(
                 socket.destroy();
               }
             }
-          }, () => { /* 回调失败不回帧——发送方超时重发兜底 */ });
+          }, (err: unknown) => {
+            try {
+              socket.write(encodeFrame({ __ipcReject: String(err instanceof Error ? err.message : err) } satisfies IpcRejectFrame));
+            } catch {
+              socket.destroy();
+            }
+          });
         }
       });
       socket.on('error', () => socket.destroy());
@@ -141,8 +172,12 @@ export class IpcClient {
   /**
    * 请求-回执（谓词等待）：发送 payload 后等第一帧满足 isReply 的
    * 回复；不满足的帧丢弃继续等。与 send 同为单飞。
+   *
+   * cr-1046 双失败面：①对端回 __ipcReject 错误帧 → reject（onFrame
+   * 失败的 wire 表达）；②超时（缺省 15s，timeoutMs 覆盖——对端半死/
+   * 回帧丢失的自愈兜底）。两路径都让上层重试面真正可达。
    */
-  request(payload: unknown, isReply: (frame: unknown) => boolean): Promise<unknown> {
+  request(payload: unknown, isReply: (frame: unknown) => boolean, timeoutMs = 15_000): Promise<unknown> {
     if (this.socket === null) throw new Error('ipc 未连接');
     return new Promise<unknown>((resolve, reject) => {
       if (this.waiter !== null) {
@@ -150,34 +185,53 @@ export class IpcClient {
         return;
       }
       let settled = false;
+      const finish = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
       const consume = (frame: unknown): boolean => {
         if (this.waiter === null) return true; // 已决——吞帧
+        if (isIpcRejectFrame(frame)) {
+          const message = frame.__ipcReject;
+          this.waiter = null;
+          this.pendingReject = null;
+          finish(() => reject(new Error('对端处理失败：' + message)));
+          return true;
+        }
         if (!isReply(frame)) return false; // 非回复帧——丢弃继续等
         this.waiter = null;
         this.pendingReject = null;
-        settled = true;
-        resolve(frame);
+        finish(() => resolve(frame));
         return true;
       };
+      const timer = setTimeout(() => {
+        this.waiter = null;
+        this.pendingReject = null;
+        finish(() => reject(new Error('ipc 回帧超时（' + timeoutMs + 'ms）——对端未应答')));
+      }, timeoutMs);
       // 队列内已有帧先行试配（send 间隙到达的）；未消费完则挂 waiter 等后续帧
       this.waiter = consume;
-      this.pendingReject = reject;
+      this.pendingReject = (err: Error) => finish(() => reject(err));
       for (const frame of this.queue.splice(0)) {
         if (consume(frame)) break;
       }
+      // 写总执行（含队列先行命中——迟到旧帧错配时真载荷已在对端，requestId
+      // 幂等去重兜底；不写 = 队列命中即静默丢信）
       this.socket!.write(encodeFrame(payload), (err) => {
         // named pipe 路径成功回调 err 实测可为 null——判真值（成功 = null/undefined 均放行）
         if (err != null) {
           this.waiter = null;
           this.pendingReject = null;
-          reject(err);
+          finish(() => reject(err));
           return;
         }
         // close 抢决即吞（双保险——close 回调先于 write 回调到达的窗口）
         if (!settled && this.socket === null) {
           this.waiter = null;
           this.pendingReject = null;
-          reject(new Error('ipc 连接已关闭——写入后对端断连'));
+          finish(() => reject(new Error('ipc 连接已关闭——写入后对端断连')));
         }
       });
     });
