@@ -1,6 +1,6 @@
 {
- "scannedHead": "6ae7e5fa6c517c496621459bcfbea1cd22513747",
- "generatedAt": "2026-11-13T07:32:38.397Z",
+ "scannedHead": "55624da3d3eec3d86ff687fd2d34526be305bf81",
+ "generatedAt": "2026-11-13T07:54:24.322Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4616,6 +4616,30 @@
     "sha": "6ae7e5fa6c517c496621459bcfbea1cd22513747",
     "date": "2026-11-13",
     "subject": "chore(cr): cr-1049 台账登记"
+   }
+  ],
+  "1050": [
+   {
+    "sha": "40fc34668298cbaf0615fd177ab96d1fbec3f3b0",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1050 台账登记"
+   },
+   {
+    "sha": "a12c7475f460ac4b97d4884e8dfddcf5a402c8ab",
+    "date": "2026-11-13",
+    "subject": "fix(goal): cr-1050 goal 驱动两修——壳侧 conversation meta 贯通（deliver→信封 payload→LoopRunRequest.meta，goal-round 轮次记账恒 1 根修）+ 等待态门（收束时有活跃 job/busy 子 Agent 暂缓开轮，完成通知唤醒后续推；owner 自杀形态由 job/settled 补位）；ac-goal 驱动测试 8 用例 + 壳侧贯通端到端 2 用例"
+   }
+  ],
+  "1051": [
+   {
+    "sha": "55624da3d3eec3d86ff687fd2d34526be305bf81",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1051 台账登记"
+   },
+   {
+    "sha": "3e70b57bf205a00c0755caa277305a9735291933",
+    "date": "2026-11-13",
+    "subject": "fix(subagent): cr-1051 await 引导修正——等待动词改查询语义（本质短超时收取）：主描述/timeout_s 参数/running hint 三面 + run_code SDK 提示词同口径，勿长阻塞干等（后台子完成终稿自动回投，pending 即收手）；同步重生成 tool-catalog 投影"
    }
   ]
  }
