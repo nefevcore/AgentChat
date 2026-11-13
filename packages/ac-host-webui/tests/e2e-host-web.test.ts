@@ -105,7 +105,9 @@ describe('8.5a 宿主 web 面接线', () => {
       agentId: 'alpha', message: '第一问', requestId: 'rq-w1',
     });
     expect(outcome.kind).toBe('run');
-    expect(typeof outcome.uuid).toBe('string');
+    // cr-1059：无显式 conversationId 的直答归一对桶键（此前 UserStub 新签发
+    // uuid → 直答会话碎化）；显式入参（single sid）仍原样透传
+    expect(outcome.uuid).toBe('alpha~user');
     const landWriter = new LedgerWriter(sessionDir(ROOT, 'alpha', outcome.uuid), { participants: ['alpha', 'user'], kind: 'user' });
     const landUserRow = async (text: string, requestId: string): Promise<boolean> =>
       landWriter.deliver({ role: 'agent', content: text, agent_id: 'user', requestId, uuid: outcome.uuid });

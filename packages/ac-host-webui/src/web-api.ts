@@ -167,7 +167,12 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
             : '';
         if (text === '') throw new Error('参数 message 缺失或无 content');
         const requestId = optStr(p.requestId);
-        const conversationId = optStr(p.conversationId);
+        // 会话键归一（cr-1059）：显式入参（single sid）优先；缺省 = 1v1 直答对桶键
+        // pairKey('user', agentId)——与 ac-conversation deliver 的对桶缺省（D3：
+        // 边界算则前端透传）及前端 pair 历史读键同口径。此前缺省透传 undefined →
+        // UserStub 每次新签发 uuid，直答会话碎化成一次性 uuid 会话（Agent 页发
+        // 送即蒸发，历史恒空）。
+        const conversationId = optStr(p.conversationId) ?? pairKey('user', agentId);
         // 忙态投递方式（cr-575 队列产品化）：白名单窄化后随信透传——
         // 前端运行中 Enter = lane next-turn（QueueDock 排队面），显式 steer = 注入
         const laneRaw = optStr(p.lane);
@@ -176,10 +181,9 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const placement = placementRaw === 'steer' || placementRaw === 'next-run' ? placementRaw : undefined;
         // 会话级模型覆盖合并点（cr-565；主线 web-api deliver 同构 P6/D4）：
         // 显式入参优先（single 会话前端随消息带 ctx.model——临时换模不回写），
-        // 缺省查 conv-settings（1v1 直答键 = pairKey(viewer, agent)——前端
-        // 不传 conversationId 时边界显式计算）。覆盖随信投递：壳无从查表也生效。
-        const model = optStr(p.model)
-          ?? storedModelOf(conversationId ?? pairKey('user', agentId));
+        // 缺省查 conv-settings（conversationId 已归一——cr-1059 前此处自算对桶键）。
+        // 覆盖随信投递：壳无从查表也生效。
+        const model = optStr(p.model) ?? storedModelOf(conversationId);
         // 单次投递安全档位（cr-626；cr-947 前名 elevation——词面统一 access）：
         // 输入框档位选择随信投递——主线 loop request.access 同词汇。
         const elevRaw = optStr(p.access);

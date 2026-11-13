@@ -221,7 +221,9 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
       const outcome = await rpc<{ kind: string; uuid: string }>(ws, 'conversation/deliver', {
         agentId: 'alpha', message: '壳半边全链问',
       });
-      expect(outcome.uuid).toMatch(/-7/); // 新会话 R-1 签发
+      // cr-1059：无显式 conversationId 的直答归一对桶键（此前新签发 uuid——
+      // 直答会话碎化的根因；断言从「/-7/ 新签发」改为对桶键语义）
+      expect(outcome.uuid).toBe('alpha~user');
       // 等 mock run 终稿落账（cr-973：终稿行落 agent 域——终稿层读时投影）
       const deadline = Date.now() + 15_000;
       for (;;) {
