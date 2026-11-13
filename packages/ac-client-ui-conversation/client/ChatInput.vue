@@ -155,8 +155,10 @@ const inputDisabled = computed(() => props.disabled || presetRetired.value || fr
  *  均解锁。挂载时序：草稿身份在 ChatInput 挂载前就位（startDraft 即写
  *  pending），首帧 selWorkspace 即终值，门禁无闪锁。 */
 const freshWsGate = computed(() => {
+  // s 可能 undefined（prop 可选）—— != null 同除两空态（cr-1058 首发漏了
+  // undefined 分支，vue-tsc 18048）
   const s = props.single;
-  return s !== null
+  return s != null
     && s.id === PENDING_SINGLE_ID
     && props.fresh === true
     && singlesBoard?.isPending() === true
@@ -870,8 +872,12 @@ async function send() {
   if (!text && attachedFiles.value.length === 0) return;
   // 草稿发送（延迟落盘，cr-894）：首条消息出门前把会话落到服务端（id
   // 首次签发，失败重试同 id 幂等）。失败 = 消息不出门（草稿保留）——比
-  // 「发出去了但会话没建」更可恢复。
-  if (props.single && singlesBoard?.isPending()) {
+  // 「发出去了但会话没建」更可恢复。判据 = 正站在草稿位上（cr-1060）：
+  // isPending 是全局单例草稿态（cr-848/894 裁决——未发送草稿跨切换保留），
+  // 用户切去别的会话后它仍为真；此前只看「single 形态 + 有草稿」会把
+  // 在其他会话里的发送误派发成新会话（上下文被 dispatchDraft 切走，
+  // 消息进了新会话而非所选会话）。
+  if (props.single?.id === PENDING_SINGLE_ID && singlesBoard?.isPending()) {
     try { await singlesBoard.dispatchDraft(); } catch { return; }
   }
 
@@ -900,8 +906,9 @@ async function send() {
 async function sendNow() {
   const text = promptFace.takeText().trim(); // 与 send 同款（cr-850）
   if (!text && attachedFiles.value.length === 0) return;
-  // 草稿发送（与 send 同款——草稿位的任何首条消息都先落会话）
-  if (props.single && singlesBoard?.isPending()) {
+  // 草稿发送（与 send 同款——草稿位的任何首条消息都先落会话；判据
+  // 同 cr-1060：只在草稿位上派发，全局草稿态不牵连其他会话的发送）
+  if (props.single?.id === PENDING_SINGLE_ID && singlesBoard?.isPending()) {
     try { await singlesBoard.dispatchDraft(); } catch { return; }
   }
 

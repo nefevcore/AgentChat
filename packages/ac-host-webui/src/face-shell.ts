@@ -267,13 +267,18 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     return { todos: todoListOf(readEntryRaw(deps.dataRoot, agentId, 'todo'), conversationId) };
   });
 
-  // 运行中断（stop 按钮）：壳 conversation 服务的中止面（ADR-2 步边界检查）
+  // 运行中断（stop 按钮）：壳 conversation 服务的中止面（ADR-2 步边界检查）。
+  // conversationId 透传（cr-1060）：前端按当前视角算好会话键（single sid /
+  // 1v1 对桶键，与 web-api deliver 键归一同口径），壳侧 interrupt 键命中即
+  // 只中止该会话的 run；此前参数被丢弃 → 壳缺省全中止，同 Agent 其他正在
+  // 运行的会话被牵连停止。缺席 = 全中止（旧语义，向后兼容）。
   web.registerRpc('conversation/interrupt', async (params) => {
     const p = obj(params);
     const agentId = reqStr(p, 'agentId');
+    const conversationId = optStr(p.conversationId);
     const port = deps.port();
     if (port === null) throw new Error('编排面未就绪（orchestrate:false 或 boot 未完成）——中断面不可用');
-    return shellCall(agentId, { ctrl: 'interrupt' });
+    return shellCall(agentId, { ctrl: 'interrupt', ...(conversationId !== undefined ? { conversationId } : {}) });
   });
 
   // 活壳枚举（interaction/jobs 这类无 agentId 入参的聚合面）：优先盘上活壳

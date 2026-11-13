@@ -94,12 +94,14 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     }
   });
 
-  it('conversation/interrupt：走既有 interrupt 帧', async () => {
+  it('conversation/interrupt：走既有 interrupt 帧，conversationId 透传（cr-1060 键命中 = 会话级精确中止）；缺席不携带（全中止旧语义）', async () => {
     const { web, handlers } = collect();
     const { port, frames } = fakePort();
     registerShellFace(web, ctx, { dataRoot: 'X', port: () => port });
+    await handlers.get('conversation/interrupt')!({ agentId: 'a1', conversationId: 'sid-1' });
+    expect(frames).toEqual([{ ctrl: 'interrupt', conversationId: 'sid-1' }]);
     await handlers.get('conversation/interrupt')!({ agentId: 'a1' });
-    expect(frames).toEqual([{ ctrl: 'interrupt' }]);
+    expect(frames).toEqual([{ ctrl: 'interrupt', conversationId: 'sid-1' }, { ctrl: 'interrupt' }]);
   });
   it('控制面统一入口优先（cr-675）：有 control 即直连，不 ensureAgent', async () => {
     const { web, handlers } = collect();

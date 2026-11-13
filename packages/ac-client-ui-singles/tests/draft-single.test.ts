@@ -208,6 +208,18 @@ describe('单例草稿态（cr-894）', () => {
     expect(src).toContain("const PENDING_SINGLE_ID = '" + PENDING_SINGLE_ID + "'");
   });
 
+  it('cr-1060 草稿派发判据对拍：ChatInput 发送面只认哨兵位（props.single.id === 哨兵），不认全局草稿态——切离草稿位后发送不得派发新会话', async () => {
+    // 判据在 ChatInput.vue 发送面（send/sendNow）；此处静态对拍（与 cr-1058
+    // 同款手法）：断言两处判据都带哨兵 id 比较——只看 isPending() 的旧判据
+    // （props.single && isPending()）会在「草稿留存 + 切去其他会话」时把
+    // 别的会话的发送误派发成新会话。
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const src = readFileSync(fileURLToPath(new URL('../../ac-client-ui-conversation/client/ChatInput.vue', import.meta.url)), 'utf8');
+    expect((src.match(/props\.single\?\.id === PENDING_SINGLE_ID && singlesBoard\?\.isPending\(\)/g) ?? []).length).toBe(2);
+    expect(src).not.toContain('props.single && singlesBoard?.isPending()');
+  });
+
   it('cr-1058 草稿工作区三态：未选择（undefined）与显式未分组（\'\'）分流保留——门禁判据', async () => {
     const { board } = makeBoard();
     board.startDraft();
