@@ -535,12 +535,11 @@ menu-assembly.md §四/§七。
 2. **守门 = 劝告锁，不做语义判定**：cr check 锁7 对在途（plan/doing）条目
    描述含键面变更信号（键名/config 键/configKeys/改名）时提示核对 cr-1037
    红线——自由文本无法精确判定「CR 是否改了行级 config 键名」，硬锁必误伤；
-   提示不阻断，判定归审核人。
-
-附带发现的潜伏坑（登记待裁，非本批修）：`profile/<proc>.patch.yml` 同名双义
-——基座文档旧名（readBaseDocEither 兼容回退读，cr-1004 改名窗口）与用户
-差量层现名（custom-layer 读）撞名。生产数据根基座新名恒在场（部署链物化）
-不触发；数据根基座缺席 + 差量层在场时基座读面回退旧名误吞差量层文件
-（缺版本戳 → throw）。修法涉及存量迁移裁决（差量层避名 or 基座旧名回退
-退役窗口收口），留待专门 CR。先例：apps/shell/tests/config-migration.test.ts
-端到端用例注释。
+cr-1037 附带发现的潜伏坑已由 cr-1056 收口：`profile/<proc>.patch.yml` 同名
+双义——基座文档旧名（readBaseDocEither 兼容回退读，cr-1004 改名窗口）与
+用户差量层现名（custom-layer 读）撞名。裁决：**基座旧名回退退役**（差量层
+现名是 cr-1004 终态不动）——repo 源已全换轨新名、部署链每 boot 物化新名
+基座恒在场，回退读的实际消费场景已消亡，窗口关闭。webui 面同批
+（webui-doc 基座旧名回退 + 防重补丁一并退役）；登记旧名
+`installed.patch.yml` 兼容读不受影响。基座读面从此不消费
+`<proc>.patch.yml`——该名专属差量层，双义消灭。

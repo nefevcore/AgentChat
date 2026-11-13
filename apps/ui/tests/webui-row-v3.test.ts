@@ -84,7 +84,7 @@ async function writePkg(root: string, spec: PkgSpec): Promise<void> {
 async function writeProfile(root: string, rows: { id: string; name: string }[]): Promise<void> {
   await mkdir(join(root, 'profile'), { recursive: true });
   const doc = ['# 测试基座', ...rows.map((r) => `- id: ${r.id}\n  name: ${r.name}\n`)].join('\n');
-  await writeFile(join(root, 'profile', 'webui.patch.yml'), doc);
+  await writeFile(join(root, 'profile', 'webui.yml'), doc);
 }
 
 afterEach(async () => {

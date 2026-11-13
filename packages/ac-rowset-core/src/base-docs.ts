@@ -12,7 +12,7 @@
 // 版本戳 = 文档头注释 `# ac-base-version: N`（官方方言顶层数组不容元数据
 // 字段；注释位是 DSH patch 文档先例）。编辑基座必须升戳。
 //
-// 部署链：host boot 把 repo 基座物化到 <dataRoot>/profile/<proc>.patch.yml
+// 部署链：host boot 把 repo 基座物化到 <dataRoot>/profile/<proc>.yml
 //（逐字节副本）。对账裁决（fail-loud 面）：
 //   · 副本缺席 / 源版本更新 → 重物化（自愈——repo 开发态无安装步，逐次
 //     部署即部署链本体）；
@@ -61,24 +61,13 @@ export function baseDocFile(profileDir: string, proc: BaseProc): string {
   return path.join(profileDir, proc + '.yml');
 }
 
-/** 旧名 <proc>.patch.yml 只读兼容（cr-1004 改名窗口——数据根物化副本由
- * 部署链 reconcile 收敛到新名后消亡） */
-function legacyBaseDocFile(profileDir: string, proc: BaseProc): string {
-  return path.join(profileDir, proc + '.patch.yml');
-}
-
-/** 读单份基座文档（新名缺席时回退旧名——改名窗口兼容读）。
+/** 读单份基座文档（缺版本戳 / 顶层非数组 / 条目缺 id → throw）。
  * cr-1033 B3 起顶层唯认条目数组（双区映射形态退役——存量数据根 v4
  * 副本经宿主部署链版本戳对账重物化收敛，直读旧副本 fail-loud 指路）。 */
 function readBaseDocEither<P extends BaseProc>(profileDir: string, proc: P): { doc: BaseDoc<P>; file: string } | null {
-  const parse = (file: string): { doc: BaseDoc<P>; file: string } | null => {
-    return { doc: readBaseDoc(file, proc), file };
-  };
   const file = baseDocFile(profileDir, proc);
-  if (fs.existsSync(file)) return parse(file);
-  const legacy = legacyBaseDocFile(profileDir, proc);
-  if (fs.existsSync(legacy)) return parse(legacy);
-  return null;
+  if (!fs.existsSync(file)) return null;
+  return { doc: readBaseDoc(file, proc), file };
 }
 
 /** catalogFile → 同目录 profile 目录（双读/部署链寻址基点） */
@@ -212,18 +201,6 @@ export function materializeBaseDocs(profileDir: string, dataRoot: string): Mater
       }
     }
     report.push({ proc, version: srcVersion, updated });
-    // 存量数据根 reconcile（cr-1004 改名）：旧名基座副本清除——新名副本已
-    // 就位。**判据 = 版本戳**：旧基座名 <proc>.patch.yml 与用户差量层新名
-    // 同名，只有带 `# ac-base-version` 戳的才是旧基座物化副本（可删）；
-    // 无戳文件是用户差量层（保留——误删 = 用户配置丢失）
-    const legacyDst = legacyBaseDocFile(path.join(dataRoot, 'profile'), proc);
-    if (fs.existsSync(legacyDst)) {
-      try {
-        if (VERSION_RE.test(fs.readFileSync(legacyDst, 'utf-8'))) {
-          fs.rmSync(legacyDst, { force: true });
-        }
-      } catch { /* 不可读 = 留置（不冒进出手） */ }
-    }
   }
   // 行集目录投影随行部署（cr-1033 B2 定义归包）：能力行事实源 = 包
   // ac.rows 构建期聚合 → row-catalog.json 携带；数据根默认读面

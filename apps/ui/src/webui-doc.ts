@@ -2,7 +2,7 @@
 // webui-doc.ts —— webui 基座文档 → loader 行名单（cr-928 切片①；webui-v3 §4.2）
 //
 // 分层求值语义与旧链（ac-webui-core webui-layer.ts）同源：
-//   基座(profile/webui.patch.yml) − custom 停用 ∪ installed(scope:webui)
+//   基座(profile/webui.yml) − custom 停用 ∪ installed(scope:webui)
 // 区别：求值产物不是 boot graph 而是 **loader 行名单**（装配态锚——
 // v3 裁决一）；点名缺席降级（装载失败/物化缺席 = 警告 + 跳过）发生在
 // entry 创建与 flush 层，不再做目录扫描对账。
@@ -71,16 +71,11 @@ export function specOfDocName(name: string): string {
 /** webui 分层求值（纯函数 + fs）：文档意志 → loader 行名单 */
 export function deriveWebuiRows(profileDir: string): WebuiDocResult {
   const warnings: string[] = [];
-  // 基座新名 webui.yml（cr-1004 改名——旧名兼容读）；用户差量层 =
-  // webui.patch.yml（基座走旧名回退时不得重复消费同文件），旧 custom 名兼容
-  const baseNew = readDoc(path.join(profileDir, 'webui.yml'));
-  const baseOld = baseNew === null ? readDoc(path.join(profileDir, 'webui.patch.yml')) : null;
-  const base = baseNew ?? baseOld;
+  // 基座 webui.yml（cr-1004 改名）；用户差量层 = webui.patch.yml，旧 custom
+  // 名兼容
+  const base = readDoc(path.join(profileDir, 'webui.yml'));
   if (base === null) return { rows: [], warnings: ['webui 基座文档缺席（部署链未跑？）'] };
-  const custom = baseOld === null
-    ? readDoc(path.join(profileDir, 'webui.patch.yml'))
-    : null;
-  const customAll = [...(custom ?? []), ...(readDoc(path.join(profileDir, 'webui-custom.patch.yml')) ?? [])];
+  const customAll = [...(readDoc(path.join(profileDir, 'webui.patch.yml')) ?? []), ...(readDoc(path.join(profileDir, 'webui-custom.patch.yml')) ?? [])];
   let installed: InstalledEntry[] = [];
   try {
     const installedFile = fs.existsSync(path.join(profileDir, 'installed.yml'))

@@ -77,9 +77,8 @@ describe('cr-1037 批2：boot config 惰性迁移', () => {
 
   it('端到端：用户层 config 未知键 warn + 链迁移同 boot 共存（批3c）', () => {
     seedWithConfig('a5', { oldLevel: 'full' });
-    // 用户全局差量层（catalogFile 用仓库静态资产——profile/ 基座新名在场，
-    // 不触发基座旧名回退撞差量层的潜伏坑；数据根侧基座缺席 + 差量层在场
-    // 的撞名面另案裁决，不在本 CR）
+    // 用户全局差量层（catalogFile 用仓库静态资产——profile/ 基座在场；
+    // 基座旧名回退已随 cr-1056 退役，同名双义面消灭）
     fs.mkdirSync(path.join(ROOT, 'profile'), { recursive: true });
     fs.writeFileSync(path.join(ROOT, 'profile', 'shell.patch.yml'),
       "- id: browser\n  config:\n    extra: true\n");

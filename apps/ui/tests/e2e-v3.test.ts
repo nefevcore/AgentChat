@@ -63,7 +63,7 @@ beforeAll(async () => {
 
   root = await mkdtemp(join(tmpdir(), 'ac-e2e-v3-'));
   await mkdir(join(root, 'profile'), { recursive: true });
-  await writeFile(join(root, 'profile', 'webui.patch.yml'),
+  await writeFile(join(root, 'profile', 'webui.yml'),
     '- id: todo\n  name: link:packages/ac-client-ui-todo\n');
 
   const h = await bootHost(join(root, 'profile'), pathToFileURL(repoRoot).href + '/',

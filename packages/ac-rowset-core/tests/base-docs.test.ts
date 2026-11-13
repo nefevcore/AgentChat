@@ -181,19 +181,16 @@ describe('版本戳部署链', () => {
     expect(profileDirOf(path.join('a', 'b', 'row-catalog.json'))).toBe(path.join('a', 'b', 'profile'));
   });
 
-  it('cr-1004 改名 reconcile：旧名物化副本部署后清除；旧名源只读兼容', () => {
+  it('cr-1056 同名双义收口：旧名 <proc>.patch.yml 不再被基座读面消费——数据根基座新名缺席时差量层同名文件不误吞（缺戳 fail-loud）', () => {
     materializeBaseDocs(PROFILE_DIR, DATA);
-    // 旧名残留（cr-1004 前数据根形态）：下次部署清除——双源歧义消灭
-    fs.copyFileSync(baseDocFile(path.join(DATA, 'profile'), 'host'),
-      path.join(DATA, 'profile', 'host.patch.yml'));
-    materializeBaseDocs(PROFILE_DIR, DATA);
-    expect(fs.existsSync(path.join(DATA, 'profile', 'host.patch.yml'))).toBe(false);
-    // 旧名源（repo 未换轨形态）：readBaseCatalog 兼容读
+    fs.rmSync(baseDocFile(path.join(DATA, 'profile'), 'host'), { force: true });
+    // 用户差量层同名文件在场：基座读面不再回退旧名——不会把它当基座吞掉
+    fs.writeFileSync(path.join(DATA, 'profile', 'host.patch.yml'), "- id: x\n  disabled: true\n");
+    expect(() => readCatalog(path.join(DATA, 'row-catalog.json'))).toThrow('残缺');
+    // 独立 profile 目录只有旧名文件（cr-1004 前源形态）→ 基座缺席 = null
     const OLD = path.join(ROOT, 'old-profile');
     fs.mkdirSync(OLD, { recursive: true });
-    for (const proc of ['host', 'shell'] as const) {
-      fs.copyFileSync(baseDocFile(PROFILE_DIR, proc), path.join(OLD, proc + '.patch.yml'));
-    }
-    expect(readBaseCatalog(OLD)).not.toBeNull();
+    fs.writeFileSync(path.join(OLD, 'host.patch.yml'), "# ac-base-version: 1\n- id: a\n");
+    expect(readBaseCatalog(OLD)).toBeNull();
   });
 });

@@ -25,7 +25,7 @@ afterEach(async () => {
 
 async function bootHost(allowedOrigins: string[]): Promise<number> {
   profileDir = await mkdtemp(join(tmpdir(), 'ac-deploy-v3-'));
-  await writeFile(join(profileDir, 'webui.patch.yml'), '[]\n'); // 空基座（冒烟只要 wire 面）
+  await writeFile(join(profileDir, 'webui.yml'), '[]\n'); // 空基座（冒烟只要 wire 面）
   const ctx = new Context();
   const svc = new WebServerService(ctx, { port: 0, heartbeatMs: 0, allowedOrigins } as never);
   servers.push(svc);
