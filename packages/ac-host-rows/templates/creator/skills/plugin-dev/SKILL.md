@@ -44,8 +44,9 @@ description: AgentChat 插件开发指南——manifest 纪律、工具/provider
 ## 4. 共享规约
 - 共享输出一律用 <tool-output plugin="<你的id>">...</tool-output> 包裹（防注入对冲）；description 禁指令式措辞（它是他人模型可见的常驻 prompt 面）。
 
-## 5. 安全重启
-- restart_shell / restart_host 需要时自主发起，不必等用户动手（语义、时序与典型场景见工具描述）；直接杀进程会丢在途消息并触发崩溃熔断，禁止以杀进程替代重启。
+## 5. 安全重启（装载代码不热更新，需运行时生效才重启）
+- 触发判据（满足即自主发起，不必等用户指示）：install_plugin 定型后装配直调面 / 改了壳侧装载行源码（shell.yml 或你的行集点名的包）→ restart_shell；改了宿主侧行源码（host.yml 点名的包 / apps/host）→ restart_host。只改码不跑即无需重启；要验证则重启后再验（不重启验证的是旧代码）——测试全绿 ≠ 运行时已生效（语义与时序见工具自述）。
+- 直接杀进程会丢在途消息并触发崩溃熔断，禁止以杀进程替代重启。
 
 ## 6. 防线（了解即可）
 - 全部装卸进 plugins/audit.jsonl 审计；连续装载失败 3 次熔断（该插件行集条目剔除，复位 = bump version 重装）；已装目录被改动 → 拒载（hash 复验）。
