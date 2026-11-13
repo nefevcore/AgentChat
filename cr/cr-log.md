@@ -1074,4 +1074,5 @@
 - 【cr-1053 2026-11-13 时区缺省链统一：DEFAULT_TZ/resolveTimezone 入 core-utils 时间词法单源；timer-core 全部缺省与降级收口（测试去宿主时区依赖）；ac-datetime 日期行走 owner 生效时区（timers.timezone）→cr-1052】
 - 【cr-1054 2026-11-13 restart 双工具引导优化：触发条件前置（工具描述/creator 模板/dev 技能三层）】
 - 【cr-1055 2026-11-13 cr-1054 措辞迭代：重启触发从「必须调」软化为条件式（需运行时生效才重启）】
+- 【cr-1056 2026-11-13 patch.yml 同名双义收口：基座旧名回退读退役（webui 面同批）——差量层现名终态不动】
 
