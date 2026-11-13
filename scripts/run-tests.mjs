@@ -4,6 +4,9 @@
 // 档位：
 //   unit         只跑快用例（*.test.ts 去掉集成件）—— 本地日常循环
 //   integration  只跑集成件（*.integration.test.ts，限流 8 路）
+//   affected     只跑受影响包测试（git 变更反查依赖图，cr-1047；求解器
+//                scripts/resolve-affected.mjs——结构域变更 exit 5 转全量；
+//                仍走根目录单进程 vitest + 路径过滤，不做 pnpm -r 并行）
 //   all          全量单次运行（缺省；CI/发布门用，与改造前逐字等价）
 //   watch        unit 档 watch 模式
 //
@@ -21,7 +24,7 @@
 //
 // 附加参数透传：node scripts/run-tests.mjs unit --reporter=verbose
 // ============================================================
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join, relative, sep } from 'node:path';
 
@@ -37,13 +40,15 @@ const VITEST_ENTRY = join(REPO_ROOT, 'node_modules', 'vitest', 'vitest.mjs');
 // 包内委派（package.json scripts.test = "node ../../scripts/run-tests.mjs .")：
 //   vitest 的过滤器只认【root 相对路径】的子串匹配（绝对路径/包内相对
 //   路径均不命中）——「.」占位由本脚本换算成 root 相对包路径注入。
-const MODES = new Set(['unit', 'integration', 'all', 'watch']);
+const MODES = new Set(['unit', 'integration', 'all', 'watch', 'affected']);
 const argv = process.argv.slice(2);
 let mode = 'all';
 let passthrough = [];
+let affectedBase = null; // affected 档专用：--base 截住转交求解器，不透传 vitest
 for (let i = 0; i < argv.length; i++) {
   const t = argv[i];
   if (MODES.has(t)) { mode = t; continue; }
+  if (t === '--base') { affectedBase = argv[++i]; continue; }
   if (t === '.') {
     // 包内占位：cwd（= 包目录）换算 root 相对路径（posix 形）
     const rel = relative(REPO_ROOT, process.cwd()).split(sep).join('/');
@@ -82,6 +87,31 @@ if (mode === 'unit') {
   code = await runVitest('integration', false);
 } else if (mode === 'watch') {
   code = await runVitest('unit', true);
+} else if (mode === 'affected') {
+  // cr-1047：求解受影响测试面（--base/AFFECTED_BASE 可覆写基线）。exit 5 =
+  // 结构域变更 → 全量兜底；空面 = 变更全落在无测试包 → 跳过；路径过滤器
+  // 与用户透传参数拼接（vitest 多过滤器为并集）。
+  const solved = spawnSync(
+    process.execPath,
+    [join(REPO_ROOT, 'scripts', 'resolve-affected.mjs'), ...(affectedBase ? ['--base', affectedBase] : [])],
+    { encoding: 'utf8' },
+  );
+  if (solved.status === 5) {
+    console.error(`${(solved.stderr ?? '').trim()}\n[affected] 结构域变更 → 转全量`);
+    code = await runVitest('all', false);
+  } else if (solved.status !== 0) {
+    console.error(`[affected] 求解失败：${solved.stderr || solved.error}`);
+    process.exit(1);
+  } else {
+    const dirs = solved.stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    if (dirs.length === 0) {
+      console.log('[affected] 变更未命中任何含测试包，跳过测试（结构性风险变更请自查验证阶梯）');
+      code = 0;
+    } else {
+      passthrough = [...dirs, ...passthrough];
+      code = await runVitest('all', false);
+    }
+  }
 } else if (mode === 'all') {
   code = await runVitest('all', false);
 } else {

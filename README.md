@@ -232,6 +232,7 @@ pnpm webui:typecheck    # 前端 vue-tsc（apps/ui）
 pnpm test               # 全量测试（packages + apps + desktop）
 pnpm test:unit          # 快循环：仅非集成件
 pnpm test:integration   # 集成件（限流 8 路）
+pnpm test:affected      # 受影响测试：git 变更（vs upstream）反查依赖图定向跑（结构域变更自动转全量）
 pnpm check:deps         # 依赖卫生（未声明/越界/环/跨域边）
 pnpm webui              # 前端 dev server（vite 3841 → proxy 3830）
 pnpm webui:build        # 构建前端产物（apps/ui → apps/ui/dist）
