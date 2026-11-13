@@ -1,6 +1,6 @@
 {
- "scannedHead": "dbfb336da65436ca6c417cfd138c693965710055",
- "generatedAt": "2026-11-13T11:57:28.248Z",
+ "scannedHead": "291d152893ec5940c81ae0a7c0482419eb491d0c",
+ "generatedAt": "2026-11-13T13:43:56.048Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -3838,6 +3838,13 @@
     "subject": "docs(platform): cr-1038 super-agent 大计划成文——对标 OpenAI Dots 与 DeepSeek dsh/dsh-superagent-prototype 的差距研究收敛为八线分批路线（P0 底稿固化 sandbox/research 两份入库解 gap-backlog §五.8 挂账 → P1 按 source 降档安全前置〔gap-backlog §A.1，seam 现成〕 → P2 compaction 会话压缩硬前提〔ac-compaction-core + epoch 语义〕 → P3-P6 cr-835 域层 B1-B4 既定序 → P7 体验线 E1 渐进披露/E2 PTY 持久 shell/E3 plan mode）；§二底座已覆盖八项勿重复建设（Worker 层/异步全双工/KV-cache 纪律/事件溯源账本/审批链路等）；§四 Dots 差异五项标有意取舍，Spaces 形态共享产物空间为唯一真空白进开放裁决；批次表按 cr-1026 两层验收（测试标准过程门 + 验证目标目的态）；不动底层（信封路由/状态机/编排零改动）；cr check 六锁全绿"
    }
   ],
+  "848": [
+   {
+    "sha": "c8648482062ba7d5f6bc34d6d0e122e36ac4c747",
+    "date": "2026-11-13",
+    "subject": "fix(webui): cr-1060 会话路由与停止面双 bug——①草稿派发判据误用全局 isPending（草稿跨切换保留是 cr-848/894 特性），切离草稿位后在别的会话发送被误派发成新会话：判据改哨兵位（props.single?.id === PENDING_SINGLE_ID，send/sendNow 两处，与 freshWsGate 同口径）②conversation/interrupt face-shell 丢弃 conversationId 致壳缺省全中止（同 Agent 其他在途会话被牵连停止）：optStr 窄化透传，键口径与 deliver 归一同源（pairKey/bucketKey sort+~ / 壳侧 gateKey 自算），缺席不携带向后兼容；顺手修 cr-1058 freshWsGate s!==null 漏 undefined 分支（vue-tsc 18048 挡门）；回归 = interrupt 透传断言 + 判据静态对拍"
+   }
+  ],
   "864": [
    {
     "sha": "b3515e74b242d940e04959a2007d1406ae95f827",
@@ -4675,14 +4682,14 @@
   ],
   "1057": [
    {
+    "sha": "e2a90d921e0ef4f8eef6828776de64ba0ccf2409",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1057/1058 台账登记"
+   },
+   {
     "sha": "b487f45e3b23a2b4c5d33edd6c83fe32e528baa9",
     "date": "2026-11-13",
     "subject": "fix(webui): cr-1057 流式回复未读增量——run/settled 正常收束补未读徽章（私信/群路径原有，流式路径缺失：用户发消息后切走、后台收束无提示），口径与 cr-291 通知门控同源；回归 5 用例"
-   },
-   {
-    "sha": "dbfb336da65436ca6c417cfd138c693965710055",
-    "date": "2026-11-13",
-    "subject": "chore(cr): cr-1057/1058 台账登记"
    }
   ],
   "1058": [
@@ -4690,6 +4697,35 @@
     "sha": "b9b4ebc27818479ef9e551a3d3adf1b15614b6ef",
     "date": "2026-11-13",
     "subject": "fix(webui): cr-1058 fresh 新会话未选工作区锁输入——点击输入框直开工作区下拉，选择（含未分组）即解锁：草稿 workspaceId 升三态（undefined=未选锁/空串=显式未分组/非空=挂工作区），门禁并入 inputDisabled 单源 + 透明点击层路由 openFreshMenu；跨包哨兵经字面量内联打断 bundle 模块环（conversation→singles→conversation CJS 环 fail-loud），本体迁 pending.ts + 单测静态对拍防漂移"
+   },
+   {
+    "sha": "c8648482062ba7d5f6bc34d6d0e122e36ac4c747",
+    "date": "2026-11-13",
+    "subject": "fix(webui): cr-1060 会话路由与停止面双 bug——①草稿派发判据误用全局 isPending（草稿跨切换保留是 cr-848/894 特性），切离草稿位后在别的会话发送被误派发成新会话：判据改哨兵位（props.single?.id === PENDING_SINGLE_ID，send/sendNow 两处，与 freshWsGate 同口径）②conversation/interrupt face-shell 丢弃 conversationId 致壳缺省全中止（同 Agent 其他在途会话被牵连停止）：optStr 窄化透传，键口径与 deliver 归一同源（pairKey/bucketKey sort+~ / 壳侧 gateKey 自算），缺席不携带向后兼容；顺手修 cr-1058 freshWsGate s!==null 漏 undefined 分支（vue-tsc 18048 挡门）；回归 = interrupt 透传断言 + 判据静态对拍"
+   }
+  ],
+  "1059": [
+   {
+    "sha": "a4f7ba3406b2383f5832a82d2bab61eac9d46e29",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1059 台账登记"
+   },
+   {
+    "sha": "0db61888f2d7eec67e401967282933061b3a2c5f",
+    "date": "2026-11-13",
+    "subject": "fix(webui): cr-1059 deliver 边界 pair 缺省归一对桶键——直答会话碎化收口：前端 Agent 页发送不带 conversationId，web-api 透传 undefined → UserStub 每次新签发 uuid（148 碎片/64 发一条即蒸发）；边界显式 pairKey(user, agentId) 对齐 ac-conversation 对桶缺省与前端历史读键，model 合并点同源化；断言锚更新（/-7/ 新签发 → alpha~user）+ e2e-host-web 防回归锚"
+   }
+  ],
+  "1060": [
+   {
+    "sha": "291d152893ec5940c81ae0a7c0482419eb491d0c",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1060 台账登记"
+   },
+   {
+    "sha": "c8648482062ba7d5f6bc34d6d0e122e36ac4c747",
+    "date": "2026-11-13",
+    "subject": "fix(webui): cr-1060 会话路由与停止面双 bug——①草稿派发判据误用全局 isPending（草稿跨切换保留是 cr-848/894 特性），切离草稿位后在别的会话发送被误派发成新会话：判据改哨兵位（props.single?.id === PENDING_SINGLE_ID，send/sendNow 两处，与 freshWsGate 同口径）②conversation/interrupt face-shell 丢弃 conversationId 致壳缺省全中止（同 Agent 其他在途会话被牵连停止）：optStr 窄化透传，键口径与 deliver 归一同源（pairKey/bucketKey sort+~ / 壳侧 gateKey 自算），缺席不携带向后兼容；顺手修 cr-1058 freshWsGate s!==null 漏 undefined 分支（vue-tsc 18048 挡门）；回归 = interrupt 透传断言 + 判据静态对拍"
    }
   ]
  }
