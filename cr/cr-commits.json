@@ -1,6 +1,6 @@
 {
- "scannedHead": "8b05177ac2f5faa18260982889a861a5537abf60",
- "generatedAt": "2026-11-13T09:21:48.473Z",
+ "scannedHead": "dbfb336da65436ca6c417cfd138c693965710055",
+ "generatedAt": "2026-11-13T11:57:28.248Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -1277,6 +1277,13 @@
     "sha": "a4814ccbb38b5ad8e1e02c494bb412e62e9f6ff8",
     "date": "2026-10-06",
     "subject": "cr-290/291/292: 移动端真机反馈三连——single 未读角标与孤儿对账（列表行有落点、删/归档清残留）+ 后台/锁屏消息系统通知（Agent 私信与 run 收束两触发点，Web Notification 直弹 + 安卓壳桥队列双通道，evaluateJavascript JSON 剥壳根修）+ 常驻链路通知静默降噪（channel v2 换 id 建 MIN——NMS 对 FGS 钳 LOW 为平台上限，注释沉淀实测事实）"
+   }
+  ],
+  "291": [
+   {
+    "sha": "b487f45e3b23a2b4c5d33edd6c83fe32e528baa9",
+    "date": "2026-11-13",
+    "subject": "fix(webui): cr-1057 流式回复未读增量——run/settled 正常收束补未读徽章（私信/群路径原有，流式路径缺失：用户发消息后切走、后台收束无提示），口径与 cr-291 通知门控同源；回归 5 用例"
    }
   ],
   "293": [
@@ -4644,7 +4651,7 @@
   ],
   "1054": [
    {
-    "sha": "8b05177ac2f5faa18260982889a861a5537abf60",
+    "sha": "3eb93a40a786786fd58bcb8bed8058ccedc68d6e",
     "date": "2026-11-13",
     "subject": "chore(cr): cr-1054/1055 台账登记"
    },
@@ -4652,6 +4659,37 @@
     "sha": "dbf3eb279d6e4550c11234f39c9f2c622a0e2c97",
     "date": "2026-11-13",
     "subject": "fix(tools): cr-1054/1055 restart 双工具引导优化——触发条件前置+条件式措辞"
+   }
+  ],
+  "1056": [
+   {
+    "sha": "593a026d1ca4331350aa4c76b415c08de2fd1252",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1056 台账登记"
+   },
+   {
+    "sha": "2f607c72af495b37ee00e07960b76b4413892c17",
+    "date": "2026-11-13",
+    "subject": "fix(rowset): cr-1056 patch.yml 同名双义收口——基座旧名回退读退役（webui 面同批）：readBaseDocEither/webui-doc 不再回退消费 <proc>.patch.yml（专属差量层），materialize 旧名 reconcile 块随前提消亡删除；测试反转为撞名防护断言 + fixture 基座新名化；裁决簿潜伏坑段收口"
+   }
+  ],
+  "1057": [
+   {
+    "sha": "b487f45e3b23a2b4c5d33edd6c83fe32e528baa9",
+    "date": "2026-11-13",
+    "subject": "fix(webui): cr-1057 流式回复未读增量——run/settled 正常收束补未读徽章（私信/群路径原有，流式路径缺失：用户发消息后切走、后台收束无提示），口径与 cr-291 通知门控同源；回归 5 用例"
+   },
+   {
+    "sha": "dbfb336da65436ca6c417cfd138c693965710055",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1057/1058 台账登记"
+   }
+  ],
+  "1058": [
+   {
+    "sha": "b9b4ebc27818479ef9e551a3d3adf1b15614b6ef",
+    "date": "2026-11-13",
+    "subject": "fix(webui): cr-1058 fresh 新会话未选工作区锁输入——点击输入框直开工作区下拉，选择（含未分组）即解锁：草稿 workspaceId 升三态（undefined=未选锁/空串=显式未分组/非空=挂工作区），门禁并入 inputDisabled 单源 + 透明点击层路由 openFreshMenu；跨包哨兵经字面量内联打断 bundle 模块环（conversation→singles→conversation CJS 环 fail-loud），本体迁 pending.ts + 单测静态对拍防漂移"
    }
   ]
  }
