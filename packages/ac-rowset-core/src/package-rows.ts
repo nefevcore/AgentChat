@@ -3,7 +3,7 @@
 //
 // 能力定义事实源 = 各包 package.json 的 ac.rows（「包即插件」v2.1 同
 // 字段族；先例 ac.faces）。行词汇白名单同基座判据：id / requires /
-// description——name 禁自写（聚合器按包根派生 link:——自指冗余 + 漂移
+// description / configKeys——name 禁自写（聚合器按包根派生 link:——自指冗余 + 漂移
 // 面）。多行包合法（ac-shell-rows 承 5 行、ac-web-tools 承 2 行——行
 // id 全局唯一不变，包粒度拆合是独立裁决不混入）。
 //
@@ -59,7 +59,7 @@ export function aggregatePackageRows(repoRoot: string): MenuBaseEntry[] {
         if (!PACKAGE_ROW_KEYS.includes(key)) {
           throw new Error(
             'ac.rows 行 ' + e.id + ' 含白名单外字段：' + key
-            + '（包自述行词汇 = id/description/requires；name 由聚合器派生）：' + pkgFile,
+            + '（包自述行词汇 = id/description/requires/configKeys；name 由聚合器派生）：' + pkgFile,
           );
         }
       }

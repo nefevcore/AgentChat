@@ -149,6 +149,9 @@ export function readBaseCatalog(profileDir: string): RowsetCatalog | null {
  * 真值，不属派生词，不进菜单合成词汇；package-rows 聚合产物） */
 export interface MenuBaseEntry extends MenuEntry {
   description?: string;
+  /** 行内 config 键面自述（cr-1037 批3——聚合透传词，与 description 同为
+   * 声明元数据，不进菜单合成词汇；cr-1048 补回类型面） */
+  configKeys?: string[];
 }
 
 export interface MaterializeReport {
