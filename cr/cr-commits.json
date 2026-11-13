@@ -1,6 +1,6 @@
 {
- "scannedHead": "26ee14d4c455d067357664edce85866779129bb0",
- "generatedAt": "2026-11-13T06:29:25.803Z",
+ "scannedHead": "6ae7e5fa6c517c496621459bcfbea1cd22513747",
+ "generatedAt": "2026-11-13T07:32:38.397Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4611,6 +4611,11 @@
     "sha": "26ee14d4c455d067357664edce85866779129bb0",
     "date": "2026-11-13",
     "subject": "feat(tools): cr-1049 工具调用模式注册制——删 injection 轴，discover 发现谓词 + 两步投影 + registerToolMode 纯元数据注册表（ac-run-code 双注册狗粮验收）"
+   },
+   {
+    "sha": "6ae7e5fa6c517c496621459bcfbea1cd22513747",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1049 台账登记"
    }
   ]
  }

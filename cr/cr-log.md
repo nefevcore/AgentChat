@@ -1068,4 +1068,5 @@
 - 【cr-1047 2026-11-13 run-tests 新增 affected 档：git 变更反查受影响包定向跑测试（快门禁）】
 - 【cr-1048 2026-11-13 fix(rowset-core): MenuBaseEntry 缺 configKeys 字段致 typecheck 预存红（cr-1037 遗漏）】
 - 【cr-1049 2026-11-13 工具调用模式注册制：ToolMode 词面开放 + discover 发现谓词（两步投影）+ ctx.agents.registerToolMode 纯元数据注册表 + 删 ToolDefinition.injection 全链 + ac-run-code 双注册狗粮验收 #tool-mode】
+- 【cr-1050 2026-11-13 goal 驱动两修：壳侧 conversation meta 贯通（goal-round 轮次记账恒 1 根修）+ 等待态门（活跃 job/子 Agent 在途暂缓开新轮）】
 
