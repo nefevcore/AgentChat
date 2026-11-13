@@ -1078,4 +1078,5 @@
 - 【cr-1057 2026-11-13 fix(webui): run/settled 正常收束补未读增量——流式回复路径无未读徽章（私信/群路径在、Agent 回复缺失），与 cr-291 通知口径对齐】
 - 【cr-1058 2026-11-13 fresh 新会话未选工作区锁输入：点击输入框直开工作区下拉，选择（含未分组）即解锁】
 - 【cr-1059 2026-11-13 修复 web deliver 边界 pair 缺省不归一对桶键：UserStub 每次新签发 uuid 致直答会话碎化（154 碎片）——边界显式传 pairKey(user, agentId) 对齐 ac-conversation D3 语义】
+- 【cr-1060 2026-11-13 fix(webui): 会话路由与停止面双 bug——草稿派发判据误用全局 isPending 致切离草稿位后消息误发新会话；conversation/interrupt 未透传 conversationId 致同 Agent 全部在途 run 被中止】
 
