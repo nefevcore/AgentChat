@@ -1064,4 +1064,5 @@
 - 【cr-1043 2026-11-12 cr 工具 v3 包化：索引/内容分离（cr-log.md 纯索引 + logs/cr-N.md 详情正本，grep head|detail 双面、get 取详情）+ git 面拆分 cr-git.mjs（sync/check 为可选扩展）+ init（复制本体与 skill、建台账，幂等=升级路径）；本体住 packages/ac-cr，skill 源随包，仓库即分发源】
 - 【cr-1044 2026-11-12 AgentChat 迁移至 cr/ 形态：cr-log.md 与 cr-commits.json 移入 cr/、scripts/cr.mjs 退役、根 package.json 换新路径、现行文档引用面同步（头部引言/cr-tool-v2 v3 段/epoch-marking/doc-conventions/docs README）、agentchat-dev 技能 CR 段收敛指向 cr skill】
 - 【cr-1045 2026-11-13 cr 元数据出索引：尾部块迁至 cr-meta.json（稀疏存储，CLI 维护禁手编）——索引行回归纯净 + 头行「当前号」退役（最大号工具现算）→ cr-log.md 真 append-only；set 只改 meta 不动索引；存量行内块一次性剥离迁移】
+- 【cr-1046 2026-11-13 fix(post-office/envelope-core): done-reply 回信 uuid 参与者集外冲突致 dispatch 永挂三壳 activeRuns 泄漏（运行跟踪假运行中）——listenIpc 吞错不回帧 + IpcClient.request 无超时双缺口 #bugfix】
 

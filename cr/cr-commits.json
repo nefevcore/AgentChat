@@ -1,6 +1,6 @@
 {
- "scannedHead": "183c68940e3d898cf3dd98c0b9a0bb59d926b332",
- "generatedAt": "2026-11-12T23:56:26.578Z",
+ "scannedHead": "59392e61b2272f5eed31d3582990acd1bc5e9824",
+ "generatedAt": "2026-11-13T00:43:20.528Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4558,6 +4558,23 @@
     "sha": "5db903f3c6efc7734878a344bfd00450dfc91d9d",
     "date": "2026-11-13",
     "subject": "feat(meta): cr-1043~1045 cr 工具 v3/v3.1——索引/内容/元数据三分离 + 包化 ac-cr + AgentChat 迁移"
+   },
+   {
+    "sha": "7727a9a80f7d9a31f5b30893520788fdec39a25f",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-commits.json 投影同步（cr-1043~1045 收录）"
+   }
+  ],
+  "1046": [
+   {
+    "sha": "57a5a07bbb86033452c3750864734cd590314243",
+    "date": "2026-11-13",
+    "subject": "fix(transport): cr-1046 邮局 dispatch 失败静默吞 + ipc 无超时——done-reply 回信永挂三壳 activeRuns 泄漏（前端假运行中十余小时）"
+   },
+   {
+    "sha": "59392e61b2272f5eed31d3582990acd1bc5e9824",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1046 台账登记"
    }
   ]
  }
