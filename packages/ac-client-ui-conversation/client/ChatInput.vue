@@ -11,6 +11,11 @@ import { poolModelEntries, providerIconOf, providerIconColor } from 'ac-client-u
 import { VIEWER_ID } from './viewer.ts';
 import type { FileAttachment } from './types.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
+
+// cr-1058 草稿哨兵：字面量内联（本体住 singles/client/pending.ts）。跨包值导入
+// 会造 bundle 模块环 conversation → singles → conversation——模块系统 CJS 环
+// fail-loud；对拍防线住 singles 侧 draft-single.test.ts（静态读源对拍内联副本）。
+const PENDING_SINGLE_ID = '__pending__';
 import { singleDialog } from './feed.ts';
 import { Avatar, BusyRing, Chip, Icon, Tooltip, toastError } from '@agentchat/webui-kit';
 import { uploadFile, browseDirs, type BrowseDirsResult } from './fileApi.ts';
@@ -140,8 +145,25 @@ const presetRetired = computed(() =>
   props.single?.agentId === '__programmatic__'
   && !roster.presets.value.some(p => p.id === '__programmatic__'));
 
-/** 输入禁用 = 调用方禁用 ∪ 退役预设防御 */
-const inputDisabled = computed(() => props.disabled || presetRetired.value);
+/** 输入禁用 = 调用方禁用 ∪ 退役预设防御 ∪ fresh 工作区门禁（cr-1058） */
+const inputDisabled = computed(() => props.disabled || presetRetired.value || freshWsGate.value);
+
+/** fresh 工作区门禁（cr-1058）：新会话草稿位尚未选择工作区 → 锁输入，
+ *  点编辑区直开工作区下拉（工作区是开场身份——开始会话即固化，先选后写）。
+ *  判据 = 草稿 workspaceId 三态中的 undefined（未选择）：从工作区 + 号或
+ *  带工作区上下文进入的草稿天然解锁；显式选「未分组」（''）或指定工作区
+ *  均解锁。挂载时序：草稿身份在 ChatInput 挂载前就位（startDraft 即写
+ *  pending），首帧 selWorkspace 即终值，门禁无闪锁。 */
+const freshWsGate = computed(() => {
+  const s = props.single;
+  return s !== null
+    && s.id === PENDING_SINGLE_ID
+    && props.fresh === true
+    && singlesBoard?.isPending() === true
+    && s.workspaceId === undefined
+    && !sessionLocked.value
+    && !presetRetired.value;
+});
 
 async function loadPools() {
   // 已有可选模型即短路；空态保持重取（新配置连接后下次打开即出现）
@@ -282,12 +304,15 @@ const wsLabel = computed(() =>
   wsList.value.find(w => w.id === selWorkspace.value)?.name ?? '未分组');
 
 /** 选择工作区：即时 PATCH（''=移入未分组；随时可换，不随消息锁定）。
- *  回滚校验当前值：快速连选时旧请求的迟到失败不得覆盖新选择。 */
+ *  回滚校验当前值：快速连选时旧请求的迟到失败不得覆盖新选择。
+ *  fresh 门禁同值穿透（cr-1058）：草稿未选择期本地回落值与「未分组」同为
+ *  ''——同值短路会让显式选「未分组」永远写不进草稿（门禁无法解除），门禁
+ *  期放行穿透照常 PATCH。 */
 function selectWorkspace(id: string) {
   agentMenuOpen.value = false; // 身份类选择即关整组
   agentPanel.value = 'root';
   const prev = selWorkspace.value;
-  if (id === prev) return;
+  if (id === prev && !freshWsGate.value) return;
   selWorkspace.value = id;
   if (!props.single) return;
   void singlesBoard?.updateSession(props.single.id, { workspaceId: id }).catch((err: any) => {
@@ -803,6 +828,10 @@ const busyPlaceholder = computed(() => {
  *  （Cmd/Ctrl+Enter 在手机上不存在）。保留功能性提示（归档进行中——
  *  它说明的是 Agent 状态而非操作方式）。 */
 const placeholderText = computed(() => {
+  // fresh 工作区门禁（cr-1058）：锁定期引导——点击即开工作区下拉
+  if (freshWsGate.value) {
+    return uiStore.narrow ? '请先选择工作区' : '开始前请选择工作区——点击此处选择';
+  }
   if (presetRetired.value) {
     return uiStore.narrow ? '预设已退役——请新建会话' : '程序化模式预设已退役——请开新会话并从工具栏选择「程序化」模式';
   }
@@ -1355,9 +1384,9 @@ function onThumbError(i: number) {
         <button
           type="button"
           class="select-btn"
-          :class="{ open: agentMenuOpen && agentPanel === 'ws' }"
+          :class="{ open: agentMenuOpen && agentPanel === 'ws', warn: freshWsGate }"
           @click.stop="openFreshMenu('ws')"
-          title="工作区（开始会话后固化，不可再改）"
+          title="工作区（开始会话后固化，不可再改——先选择才能开始输入）"
         >
           <Icon name="folder" :size="15" />
           <span class="select-text">{{ wsLabel }}</span>
@@ -1494,16 +1523,30 @@ function onThumbError(i: number) {
     />
 
     <!-- 输入区：PromptEditor（tiptap 单层渲染——文字与 token 药丸同 DOM，
-         错位在结构上不可能；键盘协议/文件粘贴/mention 活动经 props 委托） -->
-    <PromptEditor
-      ref="promptFaceRef"
-      v-model="inputText"
-      :placeholder="placeholderText"
-      :disabled="inputDisabled"
-      :on-keydown="onKeydown"
-      :on-paste-files="onPaste"
-      :on-activity="updateMention"
-    />
+         错位在结构上不可能；键盘协议/文件粘贴/mention 活动经 props 委托）。
+         fresh 工作区门禁（cr-1058）：锁定期编辑区盖透明点击层——点击直开
+         工作区下拉；引导文案单源在 placeholder（此处只做点击路由，不重叠） -->
+    <div :class="freshWsGate ? 'ws-gate-zone' : undefined">
+      <div
+        v-if="freshWsGate"
+        class="ws-gate-cover"
+        role="button"
+        tabindex="0"
+        title="选择工作区（未分组或指定工作区均可）"
+        @click.stop="openFreshMenu('ws')"
+        @keydown.enter.prevent="openFreshMenu('ws')"
+        @keydown.space.prevent="openFreshMenu('ws')"
+      ></div>
+      <PromptEditor
+        ref="promptFaceRef"
+        v-model="inputText"
+        :placeholder="placeholderText"
+        :disabled="inputDisabled"
+        :on-keydown="onKeydown"
+        :on-paste-files="onPaste"
+        :on-activity="updateMention"
+      />
+    </div>
 
     <!-- 底部工具栏：模型（模型+思考）- 工具模式 - 权限 ⋯ 附件 - 发送
          （身份组退役 2026-09-18：开场身份在 fresh 顶行设定，开始会话后
@@ -1882,6 +1925,21 @@ function onThumbError(i: number) {
   align-items: center;
   justify-content: center;
 }
+
+/* ---- fresh 工作区门禁（cr-1058）：zone = 编辑区定位壳；cover = 透明
+     点击层（cursor 引导，文案单源在 placeholder——不在此重复）；门禁期
+     placeholder 警示色（经 zone :deep 选中——PromptEditor 内 scoped 样式
+     只认灰，警示语义属门禁层不进编辑器） ---- */
+.ws-gate-zone { position: relative; }
+.ws-gate-cover {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+.ws-gate-cover:hover { background: rgba(var(--warn-rgb), 0.06); }
+.ws-gate-zone :deep(.pe-placeholder) { color: var(--warn); }
 
 /* ---- 新会话开场顶行（fresh，输入卡外独立行）：工作区 | 预设模式
      （开场身份设定——开始会话即固化）。靠左，但与限宽居中的输入卡

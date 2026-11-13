@@ -199,6 +199,33 @@ describe('单例草稿态（cr-894）', () => {
     expect(takeDraft('single:' + PENDING_SINGLE_ID)).toBe(''); // 哨兵位已清
   });
 
+  it('cr-1058 哨兵对拍：conversation 内联副本（ChatInput）与 pending.ts 本体一致——防双源漂移', async () => {
+    // conversation 侧字面量内联（跨包值导入会造 bundle 模块环——cr-1058 踩坑），
+    // 漂移即门禁失效；此处静态对拍：读源断言内联值与本模块导出一致。
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const src = readFileSync(fileURLToPath(new URL('../../ac-client-ui-conversation/client/ChatInput.vue', import.meta.url)), 'utf8');
+    expect(src).toContain("const PENDING_SINGLE_ID = '" + PENDING_SINGLE_ID + "'");
+  });
+
+  it('cr-1058 草稿工作区三态：未选择（undefined）与显式未分组（\'\'）分流保留——门禁判据', async () => {
+    const { board } = makeBoard();
+    board.startDraft();
+    // 未选择：键缺席（undefined）——fresh 门禁锁输入
+    expect(board.pending.value?.workspaceId).toBeUndefined();
+    expect(board.activeSingle.value?.workspaceId).toBeUndefined();
+    // 显式选「未分组」：空串保留（不塌缩回 undefined）——门禁解除
+    await board.updateSession(PENDING_SINGLE_ID, { workspaceId: '' });
+    expect(board.pending.value?.workspaceId).toBe('');
+    expect(board.activeSingle.value?.workspaceId).toBe('');
+    // 留存往返：'' 不丢（loadPending 不再过滤空串）
+    const restored = loadPending();
+    expect(restored?.workspaceId).toBe('');
+    // 挂指定工作区
+    await board.updateSession(PENDING_SINGLE_ID, { workspaceId: 'ws1' });
+    expect(board.pending.value?.workspaceId).toBe('ws1');
+  });
+
   it('留存：刷新形态（新 board 实例）后 loadPending 恢复', () => {
     const { board } = makeBoard();
     board.startDraft({ agentId: 'alpha' });

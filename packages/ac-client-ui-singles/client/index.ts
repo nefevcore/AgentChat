@@ -17,6 +17,7 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf, resyncRetry } from 'ac-client-runtime';
+import { PENDING_SINGLE_ID } from './pending.ts';
 import { takeDraft, parkDraft, restoreDrafts } from 'ac-client-ui-conversation/client/draftParking.ts';
 import { loadComposePrefs } from 'ac-client-ui-conversation/client/composePrefs.ts';
 import { defineAsyncComponent, ref, computed, type ComputedRef, type Ref } from 'vue';
@@ -79,8 +80,9 @@ export interface SinglesTrackOpts {
 /** 留存键（身份字段面；草稿正文住 draftParking——两层各守一半） */
 const PENDING_KEY = 'agentchat.pendingSingle';
 
-/** single 视角哨兵（未发送草稿的会话位——feed 分区恒空，历史装载天然跳过） */
-export const PENDING_SINGLE_ID = '__pending__';
+// 哨兵常量本体已迁 pending.ts（cr-1058 打断 conversation↔singles 值导入环）；
+// 此处再导出保既有消费面（draftParking 键、测试）不变。
+export { PENDING_SINGLE_ID } from './pending.ts';
 
 /** UUIDv7（与 ac-envelope-core issue.ts 同构——前端无 node:crypto，用 getRandomValues） */
 function issueLocalConversationId(): string {
@@ -99,7 +101,9 @@ function issueLocalConversationId(): string {
   return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20, 32)].join('-');
 }
 
-/** 草稿身份字段（未发送会话的 Agent/模型/工作区选择；正文住 draftParking） */
+/** 草稿身份字段（未发送会话的 Agent/模型/工作区选择；正文住 draftParking）。
+ *  workspaceId 三态（cr-1058 fresh 工作区门禁）：undefined = 尚未选择
+ *  （输入锁待选）、'' = 显式选「未分组」、非空 = 挂指定工作区。 */
 interface PendingMeta {
   agentId: string;
   model?: string;
@@ -129,7 +133,7 @@ export function loadPending(): PendingMeta | null {
     return {
       agentId: e.agentId,
       ...(typeof e.model === 'string' && e.model !== '' ? { model: e.model } : {}),
-      ...(typeof e.workspaceId === 'string' && e.workspaceId !== '' ? { workspaceId: e.workspaceId } : {}),
+      ...(typeof e.workspaceId === 'string' ? { workspaceId: e.workspaceId } : {}),
       ...(typeof e.pendingId === 'string' && e.pendingId !== '' ? { pendingId: e.pendingId } : {}),
     };
   } catch { return null; }
@@ -598,7 +602,7 @@ export class SingleBoardService extends Service {
         ...prev,
         ...(payload.agentId !== undefined ? { agentId: payload.agentId } : {}),
         ...(payload.model !== undefined ? { model: payload.model === null || typeof payload.model !== 'string' ? undefined : payload.model } : {}),
-        ...(payload.workspaceId !== undefined ? { workspaceId: payload.workspaceId === '' ? undefined : payload.workspaceId } : {}),
+        ...(payload.workspaceId !== undefined ? { workspaceId: payload.workspaceId } : {}),
       };
       this.pending.value = next;
       this.savePending();
