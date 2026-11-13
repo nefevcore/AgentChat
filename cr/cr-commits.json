@@ -1,6 +1,6 @@
 {
- "scannedHead": "55624da3d3eec3d86ff687fd2d34526be305bf81",
- "generatedAt": "2026-11-13T07:54:24.322Z",
+ "scannedHead": "8b05177ac2f5faa18260982889a861a5537abf60",
+ "generatedAt": "2026-11-13T09:21:48.473Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4608,14 +4608,14 @@
   ],
   "1049": [
    {
-    "sha": "26ee14d4c455d067357664edce85866779129bb0",
-    "date": "2026-11-13",
-    "subject": "feat(tools): cr-1049 工具调用模式注册制——删 injection 轴，discover 发现谓词 + 两步投影 + registerToolMode 纯元数据注册表（ac-run-code 双注册狗粮验收）"
-   },
-   {
     "sha": "6ae7e5fa6c517c496621459bcfbea1cd22513747",
     "date": "2026-11-13",
     "subject": "chore(cr): cr-1049 台账登记"
+   },
+   {
+    "sha": "26ee14d4c455d067357664edce85866779129bb0",
+    "date": "2026-11-13",
+    "subject": "feat(tools): cr-1049 工具调用模式注册制——删 injection 轴，discover 发现谓词 + 两步投影 + registerToolMode 纯元数据注册表（ac-run-code 双注册狗粮验收）"
    }
   ],
   "1050": [
@@ -4632,7 +4632,7 @@
   ],
   "1051": [
    {
-    "sha": "55624da3d3eec3d86ff687fd2d34526be305bf81",
+    "sha": "f08b29c2903c8dd21ca7f8e2dfa79bbfb81d2df4",
     "date": "2026-11-13",
     "subject": "chore(cr): cr-1051 台账登记"
    },
@@ -4640,6 +4640,18 @@
     "sha": "3e70b57bf205a00c0755caa277305a9735291933",
     "date": "2026-11-13",
     "subject": "fix(subagent): cr-1051 await 引导修正——等待动词改查询语义（本质短超时收取）：主描述/timeout_s 参数/running hint 三面 + run_code SDK 提示词同口径，勿长阻塞干等（后台子完成终稿自动回投，pending 即收手）；同步重生成 tool-catalog 投影"
+   }
+  ],
+  "1054": [
+   {
+    "sha": "8b05177ac2f5faa18260982889a861a5537abf60",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1054/1055 台账登记"
+   },
+   {
+    "sha": "dbf3eb279d6e4550c11234f39c9f2c622a0e2c97",
+    "date": "2026-11-13",
+    "subject": "fix(tools): cr-1054/1055 restart 双工具引导优化——触发条件前置+条件式措辞"
    }
   ]
  }

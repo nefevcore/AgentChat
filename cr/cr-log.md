@@ -1070,4 +1070,8 @@
 - 【cr-1049 2026-11-13 工具调用模式注册制：ToolMode 词面开放 + discover 发现谓词（两步投影）+ ctx.agents.registerToolMode 纯元数据注册表 + 删 ToolDefinition.injection 全链 + ac-run-code 双注册狗粮验收 #tool-mode】
 - 【cr-1050 2026-11-13 goal 驱动两修：壳侧 conversation meta 贯通（goal-round 轮次记账恒 1 根修）+ 等待态门（活跃 job/子 Agent 在途暂缓开新轮）】
 - 【cr-1051 2026-11-13 subagent await 引导修正：等待动词改查询语义，勿长阻塞等待（完成终稿自动回投）】
+- 【cr-1052 2026-11-13 时间出口统一收敛：日/月键派生一律UTC并收口共享纯函数，修ac-usage聚合键/文件名口径矛盾、ac-memory伪ISO时间戳、relay月键本地化与dayKey不补零；展示层维持本地时区 #时间戳 #bugfix】
+- 【cr-1053 2026-11-13 时区缺省链统一：DEFAULT_TZ/resolveTimezone 入 core-utils 时间词法单源；timer-core 全部缺省与降级收口（测试去宿主时区依赖）；ac-datetime 日期行走 owner 生效时区（timers.timezone）→cr-1052】
+- 【cr-1054 2026-11-13 restart 双工具引导优化：触发条件前置（工具描述/creator 模板/dev 技能三层）】
+- 【cr-1055 2026-11-13 cr-1054 措辞迭代：重启触发从「必须调」软化为条件式（需运行时生效才重启）】
 
