@@ -9,6 +9,9 @@
 //     投递下一轮【goal-round N/M】消息（sender=Agent 自身，同 timer
 //     自会话姿势）；异常收束（error/interrupted）→ 自动暂停（防打断
 //     后又自己跑起来）。
+//   · 等待态门（cr-1050）：收束时本 Agent 有活跃 job/busy 子 Agent →
+//     暂缓开新轮——完成通知回投唤醒的 run 收束点再评估，门开即投
+//     （owner 自杀形态无通知，由 job/settled 监听补位）。
 //   · 轮次记账：goal-round run（信封 meta[GOAL_ROUND_META]）收束时
 //     roundsDone+1；达到 maxRounds（创建时可设，缺省 20，上限 200）
 //     → 自动暂停并注明。MAX_AUTO_WAKES 只约束单 deliver 链内的
@@ -41,6 +44,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
 import type { LoopRunResult } from 'ac-agent-loop';
+import type {} from 'ac-jobs'; // job/settled 事件类型锚定（cr-1050 等待门再评估）
 
 /** 目标状态：active 推进中（开轮）/ paused 已暂停（停轮）/ blocked 受阻 / completed 已达成（终态入 history） */
 export type GoalStatus = 'active' | 'paused' | 'completed' | 'blocked';
@@ -193,6 +197,34 @@ interface ConversationLike {
   ): Promise<unknown>;
 }
 
+/**
+ * 等待态查询面（cr-1050 等待门）：可选服务软依赖——行缺席 = 无等待态，
+ * 照常投递（降级良定义）。判据 = 查询时刻的即时状态，不做持续等待：
+ * job/子 Agent 的完成通知会回投发起会话并驱动新 run，其收束点再次
+ * 评估本门——门在通知驱动的收束时刻自然重开，链路自洽不滞死。
+ */
+interface WaitStateLookup {
+  /** 后台任务注册中心（ac-jobs）：本 Agent 名下是否有 running/stopping 任务 */
+  jobs?: { list(ownerAgentId?: string): Array<{ status: string }> };
+  /** 子 Agent 服务（ac-shell-subagent）：是否有 busy 子在跑 */
+  subagents?: { listOp?(conversationId?: string): Array<{ busy: boolean; status: string }> };
+}
+
+/** 本 Agent 是否有在途等待态（活跃 job / busy 子 Agent）——cr-1050 */
+function activeWaitOf(ctx: Context, agentId: string, conversationId: string): string | undefined {
+  const jobs = ctx.get('jobs', false) as WaitStateLookup['jobs'] | undefined;
+  if (jobs !== undefined) {
+    const active = jobs.list(agentId).filter((j) => j.status === 'running' || j.status === 'stopping');
+    if (active.length > 0) return `${active.length} 个后台任务在途（job list 可查）`;
+  }
+  const subs = ctx.get('subagents', false) as WaitStateLookup['subagents'] | undefined;
+  if (subs?.listOp !== undefined) {
+    const busy = subs.listOp(conversationId).filter((e) => e.busy && e.status !== 'exited');
+    if (busy.length > 0) return `${busy.length} 个子 Agent 仍在执行（subagent list 可查）`;
+  }
+  return undefined;
+}
+
 export class GoalsService extends Service {
   constructor(ctx: Context) {
     super(ctx, 'goals');
@@ -201,6 +233,18 @@ export class GoalsService extends Service {
     this.ctx.on('loop/after-run', (request, result) => {
       void this.maybeContinue(request.agent, request.conversationId, request.meta, result);
     }, { description: 'goal-round 驱动：未达成目标自动续跑下一轮（异常/上限自动暂停）' });
+
+    // 等待门再评估（cr-1050）：job 收束 = 等待清除。只在 wakeup 不通知的
+    // 形态（owner 自杀：killedBy='owner' 且非 failed——接收者即制造者，
+    // 无完成通知可依赖）由本面补位投轮；正常完成的通知 run 收束会重新
+    // 评估等待门（after-run 主路径），此处再投只会 steer 注入通知 run——
+    // 不计轮数、白耗一轮执行，故收窄到缺口形态。
+    this.ctx.on('job/settled', (job) => {
+      const owner = job.ownerAgentId;
+      if (owner === undefined) return;
+      if (!(job.killedBy === 'owner' && job.status !== 'failed')) return;
+      void this.deliverNextRound(owner, job.conversationId ?? owner + '~' + owner);
+    }, { description: 'owner 自杀形态 job 收束后补位续投 goal 下一轮' });
   }
 
   // ============================================================
@@ -239,12 +283,38 @@ export class GoalsService extends Service {
         return;
       }
 
+      await this.deliverNextRound(agentId, conversationId);
+    } catch (err: unknown) {
+      this.ctx.logger.error('[goals] goal-round 驱动失败: %C', String(err));
+    }
+  }
+
+  /**
+   * 投递下一轮 goal-round（无目标/非 active/有等待态 = 静默不投）。
+   * after-run 主路径与 job/settled 再评估共用——等待门判定单源。
+   */
+  private async deliverNextRound(agentId: string, conversationId: string): Promise<void> {
+    try {
+      const goal = this.currentOf(agentId, conversationId);
+      if (!goal || goal.status !== 'active') return;
+
+      // 等待态门（cr-1050）：本 run 刚派生的后台任务/子 Agent 仍在途时
+      // 暂缓开新轮——上一轮成果未收口就催新轮，模型只能空转或重复派活。
+      // 不阻塞：完成通知回投发起会话 → 唤醒 run → 其收束点再次评估本门，
+      // 门开即投。行缺席（ctx.get 落空）= 无等待态，照常投递。
+      const wait = activeWaitOf(this.ctx, agentId, conversationId);
+      if (wait !== undefined) {
+        this.ctx.logger.info('[goals] goal-round 暂缓（conv=%C）：%C——等待完成通知唤醒后续推', conversationId, wait);
+        return;
+      }
+
       // conversation 经行 inject 声明（硬依赖——驱动闭环离开会话机无意义，
       // cr-765）；运行时经 ctx.get 解析（跨服务方法调用纪律），空判仅防
       // 卸载竞态窗口，不再是「会话行缺席静默丢轮」的降级口
       const conversation = this.ctx.get('conversation', false) as ConversationLike | undefined;
       if (conversation === undefined) return;
-      const round = roundsDone + 1;
+      const maxRounds = goal.maxRounds ?? DEFAULT_MAX_ROUNDS;
+      const round = (goal.roundsDone ?? 0) + 1;
       this.ctx.logger.info('[goals] goal-round %C/%C → %C（conv=%C）', String(round), String(maxRounds), goal.id, conversationId);
       await conversation.deliver(agentId, renderGoalRoundMessage(goal, round), {
         sender: goalRoundSender(conversationId, agentId), // 桶对端：与用户轮 system 一致（KV 前缀不翻转）
@@ -253,7 +323,7 @@ export class GoalsService extends Service {
         meta: { [GOAL_ROUND_META]: round },
       });
     } catch (err: unknown) {
-      this.ctx.logger.error('[goals] goal-round 驱动失败: %C', String(err));
+      this.ctx.logger.error('[goals] goal-round 投递失败: %C', String(err));
     }
   }
 
@@ -477,7 +547,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'goal',
   label: '长期目标（自主推进）',
-  description: 'goal 工具登记跨会话目标后宿主自动逐轮推进（goal-round：after-run 续投下一轮，异常/轮次上限自动暂停）；状态经消息面到达模型（不改写 system，KV cache 友好）；桶键 = conversationId ?? agentId',
+  description: 'goal 工具登记跨会话目标后宿主自动逐轮推进（goal-round：after-run 续投下一轮，异常/轮次上限自动暂停；活跃 job/子 Agent 在途暂缓开轮，完成后续推）；状态经消息面到达模型（不改写 system，KV cache 友好）；桶键 = conversationId ?? agentId',
   listeners: [{ event: 'loop/after-run', role: 'goal-round 驱动', description: 'Agent 循环收束通知（持久化/审计/指标订阅）' }],
 };
 
@@ -501,7 +571,7 @@ export function apply(ctx: Context) {
   ctx.tools.register({
     name: 'goal',
     description:
-      '管理跨会话长期目标：create 登记（一句话、可判完成；登记后宿主自动逐轮推进直至完成/受阻，max_rounds 为轮次预算）/ get 查看（当前目标 + 历史 + 轮次进度）/ update 流转（paused 暂停停轮、active 恢复、blocked 受阻[必填 blocked_reason；同一阻塞条件连续多个轮次仍无法绕开才标，困难或不确定不算受阻，仍有可推进的工作时继续推进而不是 blocked]、completed 达成收口；可改 objective/note/max_rounds）/ delete 删除当前目标（放弃，不入历史）。',
+      '管理跨会话长期目标：create 登记（一句话、可判完成；登记后宿主自动逐轮推进直至完成/受阻，max_rounds 为轮次预算；有在途后台任务/子 Agent 时自动暂缓开轮，其完成后续推——无需自行催轮）/ get 查看（当前目标 + 历史 + 轮次进度）/ update 流转（paused 暂停停轮、active 恢复、blocked 受阻[必填 blocked_reason；同一阻塞条件连续多个轮次仍无法绕开才标，困难或不确定不算受阻，仍有可推进的工作时继续推进而不是 blocked]、completed 达成收口；可改 objective/note/max_rounds）/ delete 删除当前目标（放弃，不入历史）。',
     parameters: {
       type: 'object',
       properties: {

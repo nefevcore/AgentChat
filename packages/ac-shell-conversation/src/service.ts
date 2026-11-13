@@ -98,6 +98,15 @@ function replyConversationOf(env: Envelope): string | undefined {
   return typeof value === 'string' && value !== '' ? value : undefined;
 }
 
+/** 机制标记透明通道（cr-1050）：信封 payload.meta → run 请求 meta 的读侧
+ * 单源——非对象值（含 undefined）视同缺席，跨壳投递的原样透传。 */
+function payloadMetaOf(env: Envelope): Record<string, unknown> | undefined {
+  const value = (env.payload as { meta?: unknown } | null)?.meta;
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 /** 主线 loop 的 step 事件载荷词汇（type-only——同 ac-ledger loop-events） */
 import type { LlmMessage } from 'ac-llm';
 import type { ConversationQueuedItem } from 'ac-conversation';
@@ -350,7 +359,7 @@ export class ConversationService extends Service {
   async deliver(
     agentId: string,
     inbound: string | LlmMessage,
-    options: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number; replyTo?: string; budget?: number; notice?: boolean; replyConversation?: string } = {},
+    options: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number; replyTo?: string; budget?: number; notice?: boolean; replyConversation?: string; meta?: Record<string, unknown> } = {},
   ): Promise<
     | { kind: 'run'; result: { steps: unknown[]; text: string; finish: string; usage: { prompt: number; completion: number; promptAccumulated: number; steps: number } } }
     | { kind: 'steered'; handle: string }
@@ -385,6 +394,7 @@ export class ConversationService extends Service {
           text: content,
           ...(options.notice === true ? { notice: true } : {}),
           ...(options.replyConversation !== undefined ? { replyConversation: options.replyConversation } : {}),
+          ...(options.meta !== undefined ? { meta: options.meta } : {}),
         },
         ...(options.replyTo !== undefined ? { replyTo: options.replyTo } : {}),
       };
@@ -409,6 +419,7 @@ export class ConversationService extends Service {
         text: content,
         ...(options.notice === true ? { notice: true } : {}),
         ...(options.replyConversation !== undefined ? { replyConversation: options.replyConversation } : {}),
+        ...(options.meta !== undefined ? { meta: options.meta } : {}),
       },
       ...(options.replyTo !== undefined ? { replyTo: options.replyTo } : {}),
     };
@@ -596,6 +607,11 @@ export class ConversationService extends Service {
         // history，队信消费同理自带行（busy-steer 直注消息无入站行——
         // cr-713 记录归 inject 行，轨迹读面自带）。
         const history = this.ctx.ledger.historyMessagesFor(uuid);
+        // 机制标记透明通道贯通（cr-1050）：deliver options.meta 经信封
+        // payload 携带，随本请求进 loop/after-run 等订阅面——主线
+        // router.send 半边同语义（goal-round 轮次记账消费此键）。链跑轮
+        // 各取当轮信封（env 在循环中被重赋值）。
+        const meta = payloadMetaOf(env);
         // 续跑前缀（cr-667）：中断 run 无终稿行 → history 天然不含其轨迹，
         // 拼接无双计；maxSteps 按剩余额度（已用尽 → 1 步收尾轮逼收束）。
         const result = await this.ctx.agentLoop.run({
@@ -612,6 +628,10 @@ export class ConversationService extends Service {
           sender: env.sender,
           source: env.sender === 'user' ? 'user' : 'agent',
           conversationId: uuid,
+          // 机制标记透明通道贯通（cr-1050）：deliver options.meta 经信封
+          // payload 携带，随本请求进 loop/after-run 等订阅面——主线
+          // router.send 半边同语义（goal-round 轮次记账消费此键）。
+          ...(meta !== undefined ? { meta } : {}),
           messages: resume !== null ? [...history, ...resume.messages] : history,
           // run 安全档位（cr-626/cr-947）：信封 access ?? conv-settings 会话
           // access 合成（主线 deliver 边界已做只升不降与 sanitize——壳侧信封

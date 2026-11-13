@@ -117,6 +117,47 @@ function msg(uuid: string, requestId: string, text: string, sender = 'user', lan
 
 const UUID = 'u-conv-1';
 
+// cr-1050：deliver options.meta → 信封 payload → LoopRunRequest.meta 贯通
+//（goal-round 轮次记账消费此键——壳侧断链即 Round 恒 1 根因）。
+describe('机制标记透明通道（cr-1050 meta 贯通）', () => {
+  it('deliver(meta) 收到的 run 请求携带同 meta；after-run 订阅可读', async () => {
+    seedAgent('alpha');
+    const seenMeta: Array<Record<string, unknown> | undefined> = [];
+    const { ctx, fibers, conv } = await bootTree('alpha');
+    try {
+      ctx.on('loop/after-run', (request: { agent?: string; meta?: Record<string, unknown> }) => {
+        if (request.agent === 'alpha') seenMeta.push(request.meta);
+      });
+      const out = await conv.deliver('alpha', '机制轮', {
+        sender: 'user',
+        source: 'user',
+        conversationId: UUID,
+        meta: { 'goal-round': 7 },
+      });
+      expect(out.kind === 'run' || out.kind === 'queued' || out.kind === 'steered').toBe(true);
+      // run 已收束（mock provider 即时回）——after-run 已见到 meta
+      expect(seenMeta).toContainEqual({ 'goal-round': 7 });
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  it('无 meta 投递 → run 请求 meta 缺席（回归：普通轮零污染）', async () => {
+    seedAgent('alpha');
+    const seenMeta: Array<Record<string, unknown> | undefined> = [];
+    const { ctx, fibers, conv } = await bootTree('alpha');
+    try {
+      ctx.on('loop/after-run', (request: { agent?: string; meta?: Record<string, unknown> }) => {
+        if (request.agent === 'alpha') seenMeta.push(request.meta);
+      });
+      await conv.deliver('alpha', '普通轮', { sender: 'user', source: 'user', conversationId: UUID });
+      expect(seenMeta.every((m) => m === undefined)).toBe(true);
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+});
+
 describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', () => {
   it('user 直发多轮：每轮 run 真身收束 + 终稿入账 + 历史延续', async () => {
     seedAgent('alpha');
