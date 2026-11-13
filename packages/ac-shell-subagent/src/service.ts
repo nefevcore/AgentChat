@@ -570,7 +570,7 @@ export class ShellSubagentService extends Service {
       const sinceMs = progress?.since_last_step_ms;
       const stalling = sinceMs !== undefined && sinceMs > 180_000
         ? '注意：距最近一步已 ' + Math.round(sinceMs / 1000) + 's 无新步——疑似停滞（长工具调用也可能），可 stop 中止后重发或 delete 收割。' : '';
-      return { state: 'running', ...base, hint: '子 Agent 正在执行 run（尚未产出新终稿）——可加大 timeout_s 续等或等完成通知自动到达；运行中勿 delete 收割（会中止未完成工作）。' + stalling };
+      return { state: 'running', ...base, hint: '子 Agent 正在执行 run（尚未产出新终稿）——等完成通知自动到达即可，勿持续加大 timeout_s 干等（每次短超时查询确认在前进就行）；期间可推进不依赖它的独立工作，运行中勿 delete 收割（会中止未完成工作）。' + stalling };
     }
     return { state: 'idle', ...base, hint: '子 Agent 空闲（无活跃 run）——await 等不到新终稿；要继续工作用 send 派新任务，不再需要时 delete 收割。' };
   }
@@ -984,7 +984,7 @@ export class ShellSubagentService extends Service {
       name: 'subagent',
       description:
         '派出子 Agent 执行可并行的调研/验证类子任务（全新独立会话——真子进程，不接触任何接收方）。'
-        + 'spawn 创建并启动首条任务（任务角色定位/专业人设/输出约束 → system 参数）；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复〔超时无回执返回 status=no_reply_yet + 子状态快照〕/steer 注入进行中的 run/next-run 排队到下一轮）；await 等待并取当前结果（落空时返回 pending + 子状态快照 state〔running/asking/idle/exited/aborted/detached/archived〕+ progress 进度统计〔steps/tokens/tool_calls/最近步龄——journal 现算零成本，直观确认子确实在前进〕+ hint 下一步引导——据 hint 决定续等/代答/重发/收割，勿凭猜测处置）；status 零等待查单个子 Agent 状态快照（同款 state + progress + hint，随时可查不打扰子运行）；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（收割——停进程并归档：会话账本保留供审计回放，从看板/list 隐去，不可再 send）。'
+        + 'spawn 创建并启动首条任务（任务角色定位/专业人设/输出约束 → system 参数）；send 对已创建的子 Agent 续聊（mode：async 立即返回/sync 阻塞等回复〔超时无回执返回 status=no_reply_yet + 子状态快照〕/steer 注入进行中的 run/next-run 排队到下一轮）；await 短超时收取当前结果（本质是查询动作：timeout_s 缺省 0 立即返回，落空时返回 pending + 子状态快照 state〔running/asking/idle/exited/aborted/detached/archived〕+ progress 进度统计〔steps/tokens/tool_calls/最近步龄——journal 现算零成本，直观确认子确实在前进〕+ hint 下一步引导——据 hint 决定续等/代答/重发/收割，勿凭猜测处置。勿设大 timeout_s 长阻塞干等：后台子完成后终稿会自动回投发起会话，拿到 pending 即收手转做其他工作，稍后短超时再查或等通知到达）；status 零等待查单个子 Agent 状态快照（同款 state + progress + hint，随时可查不打扰子运行）；list 查询（含历史）；stop 停止当前推理（保留会话，可继续 send）；delete 删除（收割——停进程并归档：会话账本保留供审计回放，从看板/list 隐去，不可再 send）。'
         + '注意：本工具管理的是你私有的子 Agent 看板，子 Agent 的回复只返回给你——它不能替你向用户或其他 Agent 转达/推送/通知任何内容；要给其他 Agent 或用户发消息用 send_agent，要发群消息用 send_group。'
         + '长输出指引：预期产出长文本（报告/清单/多文件分析等）时，在输出约束里要求子 Agent 把完整产出写入文件（给明确路径），回复只报路径与要点摘要——长回复走回传通道会撞输出体积预算被截断（头尾保留、中段丢失）；需要细节时再 read 该文件（可分页无损读取）。',
       parameters: {
@@ -998,7 +998,7 @@ export class ShellSubagentService extends Service {
           subagent_id: { type: 'string', description: '[send/await/answer/stop/delete] 目标子 Agent ID（spawn 返回的 subagent_id，可 list 查询；勿凭记忆复写）' },
           message: { type: 'string', description: '[send] 给该子 Agent 的消息内容（自包含，或基于该子 Agent 已有进展的追问/补充指示）——不是给其他 Agent 或用户发消息' },
           mode: { type: 'string', enum: ['async', 'sync', 'steer', 'next-run'], description: '[send] 投递语义：async（缺省）立即返回，忙时排队；sync 阻塞到消费本条消息的 run 收束并返回结果（超时无回执返回 status=no_reply_yet + 子状态快照）；steer 注入当前 run 的下一步（空闲则开新 run）；next-run 排队到当前 run 收束后独立执行（async 忙时同此）' },
-          timeout_s: { type: 'number', description: '[await] 等待上限秒数（0 = 缺省立即查询不等待；正值 = 阻塞等待新终稿，超时返回 pending；子 Agent 有 pending 提问时返回 asking + 问题载荷——用 action=answer 代答，否则子会一直等；pending/超时落空时附带 state 状态快照〔running/asking/idle/exited/aborted/detached/archived〕+ progress 进度统计〔steps/tokens/tool_calls/最近步龄〕+ hint 下一步引导——据 hint 决定续等/代答/重发/收割，勿凭猜测处置）', minimum: 0 },
+          timeout_s: { type: 'number', description: '[await] 短超时上限秒数（0 = 缺省立即查询不等待；小正值如 30-120 = 短暂等待新终稿，超时返回 pending + state 状态快照〔running/asking/idle/exited/aborted/detached/archived〕+ progress 进度统计〔steps/tokens/tool_calls/最近步龄〕+ hint 下一步引导——据 hint 决定续等/代答/重发/收割，勿凭猜测处置。勿设大值长阻塞干等——后台子完成后终稿自动回投发起会话，拿到 pending 即收手转做其他工作）。子 Agent 有 pending 提问时返回 asking + 问题载荷——用 action=answer 代答，否则子会一直等', minimum: 0 },
           answers: { type: 'array', items: { type: ['string', 'array', 'null'] }, description: '[answer] 对子 Agent pending 提问的逐题回答（与提问顺序一一对应；单选 = 选项文本或 null 跳过，多选 = 文本数组）' },
           wait_time: { type: 'number', description: '[spawn] 正值 = 阻塞等首条任务终稿（秒；超时返回已转后台，结果稍后 await 查询）', minimum: 0 },
           query: { type: 'string', description: '[list] 按 id/名称子串过滤' },

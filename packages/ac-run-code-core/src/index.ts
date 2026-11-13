@@ -76,7 +76,7 @@ export const DEFAULT_GUIDANCE = [
   '- pwsh/bash 退出码非 0 ≠ 工具错误：output.failure_class 区分两类——command-feedback（命令按预期运行后的非零退出：测试红灯/断言失败/grep 无命中——输出在 output 字段，ok=true）与 invocation-error（命令未跑起来/语法失败——ok=false + error）。判断测试结果看 exit_code 与 output，不要因非零退出码误判链路故障绕路重试；',
   '- 前台命令超时 ≠ 命令死亡：超时处置缺省 handoff——命令自动转后台 job 继续执行（结果带 timeout_action:handoff + job_id/log_file + 已收集输出快照），用 job 工具（logs/kill）接力跟进即可，不要原样重跑长命令；timeout 单位是毫秒（300000 = 5 分钟，30 不是 30 秒）；可预期的长任务（构建/测试/远程/CI 等待）优先 background:true 显式后台——前台 timeout 会被本 Agent 的 maxTimeout 上限静默截断，调大参数可能无效；确需前台完整结果时增大 timeout 参数；',
   '- load_skill 是注入型工具：返回值只有 name/scope/baseDir/status 回执，正文不进返回值（由注入机制随后进入上下文）——程序内判定成功看 status==="injected"，不要把返回值当数据处理；',
-  '- 并行子任务：独立、可并行的调研/验证类子任务用 tools.subagent({action:"spawn"}) 派出——task 须完整自包含（子 Agent 看不到你的会话），人设/输出约束进 system 参数；同程序内 tools.subagent({action:"await", subagent_id}) 阻塞收结果，长任务占墙钟预算（spawn 的 timeout_s 超时自动转后台、run 不终止，后续程序 await/list 可取）；先派一个看质量与进度，确有需要再补派，勿一次铺开；后续步骤依赖其输出的任务不适合派出（程序内直接编排）；',
+  '- 并行子任务：独立、可并行的调研/验证类子任务用 tools.subagent({action:"spawn"}) 派出（不带 wait_time 即转后台，完成终稿自动回投发起会话）——task 须完整自包含（子 Agent 看不到你的会话），人设/输出约束进 system 参数；tools.subagent({action:"await", subagent_id}) 用小 timeout_s 短查取结果（拿到 pending 即收手转做其他工作，勿长阻塞干等——长任务占墙钟预算）；先派一个看质量与进度，确有需要再补派，勿一次铺开；后续步骤依赖其输出的任务不适合派出（程序内直接编排）；',
 ].join('\n');
 
 /** JSON Schema 单值 → 可擦除 TS 类型标注（宽松：不强校验 additionalProperties） */
