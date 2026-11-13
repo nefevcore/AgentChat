@@ -1,6 +1,6 @@
 {
- "scannedHead": "65452b560edd50db5d06a50bb3a1eb4a9136f0e4",
- "generatedAt": "2026-11-13T01:05:05.147Z",
+ "scannedHead": "26ee14d4c455d067357664edce85866779129bb0",
+ "generatedAt": "2026-11-13T06:29:25.803Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4500,6 +4500,11 @@
   ],
   "1037": [
    {
+    "sha": "1ee781e8c5d3eb8a1d8463280312c09245b7317f",
+    "date": "2026-11-13",
+    "subject": "fix(rowset-core): cr-1048 MenuBaseEntry 补 configKeys 字段——cr-1037 批3 聚合输出加了 configKeys 透传但类型未跟上（条件展开绕过多余属性检查，错误漏到测试访问处）；顺手补同批两处白名单文案漂移。typecheck 预存红消除（2 处）"
+   },
+   {
     "sha": "62228807c0c189b3fffafe4adc596355a84ad0dd",
     "date": "2026-11-12",
     "subject": "fix(llm): cr-1042 错误步保真落盘——LLM 流中途失败的部分思考/正文保留渲染"
@@ -4513,11 +4518,6 @@
     "sha": "6e938873f045959ea4bf00d3fbabc0951df5ab4b",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1037 config 升级机制全批落地——行内 config（用户数据）版本化升级：批1 声明面 ac.configMigrations（模块路径发现面单源——函数进不了 JSON，边住包内 src/config-migrations.ts）+ config-chain.ts（声明解析/aggregateConfigChains 聚合器/runConfigMigration 执行语义——无损逐边、缺边 config.legacy、未来版本拒绝三路径）+ gen 链构建期四断言校验（缺环/跳边 gen 即红）；批2 执行面 boot 校准面同节奏惰性迁移（configVersion 机制键 + 原子落盘 + notice 单通道——顺手修正 calibrationNotices 漏汇入既有缺口）；批3 纪律收口 cr check 锁7 劝告锁（在途条目键面变更信号提示）+ ac.rows[].configKeys 键面自述（聚合→row-catalog 投影→applyAssemblyLayer 未知键 warn 不阻断、机制键豁免）+ 端到端演练；裁决簿新增〈config 键面自述与守门〉篇（ExtensionMeta 运行时聚合链路不在场→静态投影单源；守门劝告锁不做语义判定）+ 潜伏坑登记（profile/<proc>.patch.yml 同名双义——基座旧名回退撞差量层，留待专门 CR）；全量 418 文件 3003 绿 + integration 89 绿 + typecheck + check:deps + 六锁全绿"
-   },
-   {
-    "sha": "1ee781e8c5d3eb8a1d8463280312c09245b7317f",
-    "date": "2026-11-13",
-    "subject": "fix(rowset-core): cr-1048 MenuBaseEntry 补 configKeys 字段——cr-1037 批3 聚合输出加了 configKeys 透传但类型未跟上（条件展开绕过多余属性检查，错误漏到测试访问处）；顺手补同批两处白名单文案漂移。typecheck 预存红消除（2 处）"
    }
   ],
   "1038": [
@@ -4584,7 +4584,7 @@
   ],
   "1047": [
    {
-    "sha": "65452b560edd50db5d06a50bb3a1eb4a9136f0e4",
+    "sha": "1976d96f32d2f1768197cf53afba665139d2e4b6",
     "date": "2026-11-13",
     "subject": "chore(cr): 台账 cr-1047/cr-1048 登记"
    },
@@ -4596,7 +4596,7 @@
   ],
   "1048": [
    {
-    "sha": "65452b560edd50db5d06a50bb3a1eb4a9136f0e4",
+    "sha": "1976d96f32d2f1768197cf53afba665139d2e4b6",
     "date": "2026-11-13",
     "subject": "chore(cr): 台账 cr-1047/cr-1048 登记"
    },
@@ -4604,6 +4604,13 @@
     "sha": "1ee781e8c5d3eb8a1d8463280312c09245b7317f",
     "date": "2026-11-13",
     "subject": "fix(rowset-core): cr-1048 MenuBaseEntry 补 configKeys 字段——cr-1037 批3 聚合输出加了 configKeys 透传但类型未跟上（条件展开绕过多余属性检查，错误漏到测试访问处）；顺手补同批两处白名单文案漂移。typecheck 预存红消除（2 处）"
+   }
+  ],
+  "1049": [
+   {
+    "sha": "26ee14d4c455d067357664edce85866779129bb0",
+    "date": "2026-11-13",
+    "subject": "feat(tools): cr-1049 工具调用模式注册制——删 injection 轴，discover 发现谓词 + 两步投影 + registerToolMode 纯元数据注册表（ac-run-code 双注册狗粮验收）"
    }
   ]
  }

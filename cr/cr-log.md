@@ -1067,4 +1067,5 @@
 - 【cr-1046 2026-11-13 fix(post-office/envelope-core): done-reply 回信 uuid 参与者集外冲突致 dispatch 永挂三壳 activeRuns 泄漏（运行跟踪假运行中）——listenIpc 吞错不回帧 + IpcClient.request 无超时双缺口 #bugfix】
 - 【cr-1047 2026-11-13 run-tests 新增 affected 档：git 变更反查受影响包定向跑测试（快门禁）】
 - 【cr-1048 2026-11-13 fix(rowset-core): MenuBaseEntry 缺 configKeys 字段致 typecheck 预存红（cr-1037 遗漏）】
+- 【cr-1049 2026-11-13 工具调用模式注册制：ToolMode 词面开放 + discover 发现谓词（两步投影）+ ctx.agents.registerToolMode 纯元数据注册表 + 删 ToolDefinition.injection 全链 + ac-run-code 双注册狗粮验收 #tool-mode】
 
