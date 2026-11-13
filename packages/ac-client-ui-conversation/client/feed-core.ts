@@ -2597,6 +2597,18 @@ export function createFeedCore(
             tag: keys.dialogId,
           });
         }
+        // 流式回复未读增量（cr-1057）：私信（showInbound）/ 群
+        // （group/message-posted）路径各自 +1，流式路径此前无增量——用户
+        // 发消息后切走、run 在后台收束时徽章不亮（cr-291 通知注释
+        // 「未读徽章已足够」的前提从未成立）。口径与通知门控同源：正常
+        // 完成 + 非当前会话 + viewer 参与会话（群已被上方
+        // isUserConversation 过滤；agent⇄agent 对不进名册）。text 缺席
+        // 不代表无产出（对账补投形缺席 = ''，终稿以重拉权威行为准）——
+        // 不以 text 门控。
+        if (finish === 'stop' && keys.dialogId !== activeDialogId.value && isViewerDialog(keys.dialogId)) {
+          ensureById(keys.dialogId).unread += 1;
+          persistUnreadNow();
+        }
         // 收束后即时重拉首屏（delay=0，durable 确证——原 session/run-settled
         // 路径语义并此；+500ms 兜底驱动随 after-run 帧退役，可达性保险改归
         // 重连对账重拉 + cr-107 探针 + 发送 watchdog——§5 #4 重论证）：权威
