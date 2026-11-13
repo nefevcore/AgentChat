@@ -22,7 +22,7 @@ import type { Envelope } from 'ac-envelope-core';
 import { budgetAfterReceive, deliver, entersInbox, type RendezvousPaths } from 'ac-envelope-core';
 import { readLedger, readJournal } from 'ac-ledger';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
-import { effectiveToolMode, narrowToolsByMode, accessOf, ACCESS_RANK, type AccessLevel } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）
+import { effectiveToolMode, discoverTools, narrowToolsByMode, accessOf, ACCESS_RANK, type AccessLevel } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 两步投影（cr-1049）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）
 import { answerNotice } from 'ac-ask-questions'; // 应答通知正文单源（cr-636 恢复面重放口径与主线 late-reply 同源）
 import { readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
@@ -1447,35 +1447,42 @@ export class ConversationService extends Service {
   }
 
   /**
-   * LLM 工具面单源（cr-593）：行集词形展开（toolFaceOf）∩ 非 mode 可见面 →
-   * 工具调用模式收窄（effectiveToolMode + narrowToolsByMode——主线 router
-   * dispatch 同口径单源引用）。估算面（toolDefs）与真实 run（driveRun /
-   * reviewRun）共用——此前 run 面不收窄：tc-programmatic 会话估算报
-   * mode 集而真 run 拿全量面（Agent 自省「生效集 1 个工具」的实锤根源）。
+   * LLM 工具面单源（cr-593；cr-1049 两步投影）：发现步（discoverTools——
+   * discover 谓词按投影上下文过滤）∩ 行集词形展开（toolFaceOf）→ 模式
+   * 处理步（narrowToolsByMode——主线 router dispatch 同口径单源引用）。
+   * 估算面（toolDefs）与真实 run（driveRun / reviewRun）共用——此前
+   * run 面不收窄：tc-programmatic 会话估算报 mode 集而真 run 拿全量面
+   *（Agent 自省「生效集 1 个工具」的实锤根源）。
    */
   private llmToolFace(config: AgentConfig, conversationId?: string): string[] {
     const allDefs = this.ctx.tools.list();
-    const visible = new Set(allDefs.filter((t) => t.injection !== 'mode').map((t) => t.name));
-    const resolved = this.toolFaceOf(config) ?? [...visible];
     const mode = effectiveToolMode(config, conversationId, {
       convSettings: this.ctx.get('convSettings', false) as
         | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
         | undefined,
     });
-    // 程序化档回退留痕（cr-1021）：tc-programmatic 但注册面无 mode 工具
-    //（run-code 行未装/被停用）→ narrowToolsByMode 回退常规面——warn 而非静默
-    if (mode === 'tc-programmatic' && !allDefs.some((t) => t.injection === 'mode')) {
+    // 两步投影·①发现：discover 缺省 true（普通工具零感知）；入口工具
+    //（run_code 等）谓词按生效模式判定
+    const discovered = discoverTools(allDefs, { toolMode: mode, agentId: config.id, conversationId });
+    const disc = new Set(discovered);
+    // 常规候选面 = 行集展开 ∩ 发现步（tc-base 终值 / 扩展档回退值）
+    const resolved = this.toolFaceOf(config) ?? discovered;
+    const baseFace = resolved.filter((n) => disc.has(n));
+    // 扩展档回退留痕（cr-1021）：生效模式为扩展档但发现步无入口工具
+    //（模式行被摘/被停用）→ narrowToolsByMode 回退 baseFace——warn 非静默
+    if (mode !== 'tc-base' && mode !== 'tc-none'
+      && !allDefs.some((t) => t.discover !== undefined && disc.has(t.name))) {
       this.ctx.logger.warn(
-        '[conversation] tc-programmatic 会话无 mode 工具（run-code 行未装）——LLM 工具面回退常规面：'
+        '[conversation] ' + mode + ' 会话无入口工具（模式行未装/被停用）——LLM 工具面回退常规面：'
         + config.id + (conversationId ? ' @ ' + conversationId : ''),
       );
     }
-    return narrowToolsByMode(resolved.filter((n) => visible.has(n)), allDefs, mode);
+    return narrowToolsByMode(baseFace, discovered, allDefs, mode);
   }
 
   /**
    * 生效工具集（agents/tool-defs 估算面——Token 仪表固定开销，cr-582；
-   * 主线 web-api 同构）：可见面 = 注册面去 mode 工具（preview 无会话授权
+   * 主线 web-api 同构）：可见面 = 两步投影发现步（preview 无会话授权
    * caps 面——授权在执行时 gate〔cr-527 A14〕，LLM 面不按会话收窄）；
    * config.rows 点名 ∩ 可见面；模式收窄单源引用主线纯函数（估算与真实
    * run 同口径），会话覆盖经 convSettings 垫片现读。

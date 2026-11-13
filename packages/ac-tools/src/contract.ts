@@ -38,27 +38,42 @@ export interface ToolDefinition {
    */
   needPermission?: boolean;
   /**
-   * 工具注入方式（形态轴入口，与能力轴 requiredTags 正交）：
-   *   · 'capability'（缺省）——能力轴门禁：requiredTags 解锁可见性，
-   *     经 toolAllowedFor 过滤进常规工具面。全部常规工具的行为，零改动。
-   *   · 'mode'——工具调用模式合成：不进常规工具面（与 tags 无关）；
-   *     tc-programmatic 档时 LLM 面收窄为全部 mode 工具（行在装即合成，
-   *     无需任何标签）。声明 mode 的工具 requiredTags 必须为空（启动
-   *     断言——两轴双门语义混乱）；mode 工具应为编排壳/入口型（直接
-   *     副作用的工具禁用此通道，安全边界仍由子调用门禁裁决）。
-   * 先例：run_code（injection:'mode'——程序化档的合成入口）。
+   * 发现谓词（cr-1049 两步投影·发现步）：本工具当前可否被发现进工具面。
+   * 缺省 true。须为纯函数——入参是投影上下文纯数据（生效 toolMode 等，
+   * effectiveToolMode 本就无 run 可求值——估算/预览/快照/真 run 四面同
+   * 口径的前提），禁副作用；throw 按 false 处理（fail-closed）。
+   * 模式入口工具在此声明与模式的强关联（如 run_code 的
+   * ctx => ctx.toolMode === 'tc-programmatic'）；普通工具不写——对模式
+   * 零感知。写全条件：若表达「条件门控但非模式入口」须显式含模式条件
+   * （如 toolMode === 'tc-base' && …），漏写则扩展模式下会被当作入口
+   * 保留（投影第②步按 discover 在场性保留显式声明者）。
+   * 先例：run_code（cr-1049 前名 injection:'mode'）。
    */
-  injection?: 'capability' | 'mode';
+  discover?: (ctx: ToolFaceContext) => boolean;
   /**
    * 交互性声明（interaction 轴）：true = 本工具执行中会挂起等待用户
    * 应答（ask_questions / 审批类）。self 会话（对角线桶 a~a——机制 run
    * 落点，无人值守）自动排除：等用户回音的操作在那里永无应答。
    * 判定收进 formDeniedBy 单源（ac-agents），无需逐工具配置。
    * 纯可见面裁剪：LLM 不见 schema；执行面不额外拦（幻觉调用仍走
-   * requiredTags 等既有门禁）。与 injection 正交。
+   * requiredTags 等既有门禁）。与 discover 正交。
    */
   requiresInteraction?: boolean;
   execute(args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> | ToolResult;
+}
+
+/**
+ * 投影上下文（cr-1049 发现步入参——纯数据，无 run 依赖）：discover 谓词
+ * 与两步投影核心的判定输入。toolMode = effectiveToolMode 单源合成值
+ * （conv-settings 覆盖 ?? toolModeOf(agent)）。
+ */
+export interface ToolFaceContext {
+  /** 生效工具调用模式（tc-* 开放词——扩展档由 ctx.agents.registerToolMode 注册） */
+  toolMode: string;
+  /** 发起 Agent id（可空——宿主直调/干跑面） */
+  agentId?: string;
+  /** 会话键（可空） */
+  conversationId?: string;
 }
 
 export interface ToolCall {

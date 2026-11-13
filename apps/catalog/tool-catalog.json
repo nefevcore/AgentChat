@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-12T03:46:23.972Z",
+  "generatedAt": "2026-11-13T03:29:39.542Z",
   "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
   "tools": [
     {
@@ -2117,7 +2117,7 @@
         ]
       },
       "owner": "ac-run-code",
-      "injection": "mode"
+      "discover": false
     },
     {
       "name": "run_harness",

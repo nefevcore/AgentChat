@@ -49,6 +49,8 @@ function assertConversationId(conversationId: string): void {
 export interface ConvSettingsKeyDef {
   key: string;
   enum?: string[];
+  /** 值域模式校验（cr-1049 开放词键——与 enum 互斥，pattern 赢） */
+  pattern?: RegExp;
   description?: string;
   /** UI 组（'experimental' = 实验性菜单渲染；缺省不出前端目录——纯消费面键） */
   group?: 'experimental';
@@ -69,7 +71,13 @@ const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
     enum: ['base-access', 'sandbox-access', 'full-access'],
     description: '会话安全档位（base/sandbox/full；缺省跟随 Agent tags 档位）',
   },
-  { key: 'toolMode', enum: ['tc-base', 'tc-programmatic', 'tc-none'], description: '工具调用模式覆盖（tc-* 标签轴）' },
+  {
+    // cr-1049 开放词：核心两档 + 扩展档（tc- 前缀任意——注册表校验在投影
+    // 端兜底，未注册词回退常规面 + warn〔cr-1021〕，写入面不跨进程查表）
+    key: 'toolMode',
+    pattern: /^tc-[a-z0-9-]+$/,
+    description: '工具调用模式覆盖（tc-* 轴——核心 tc-base/tc-none + 扩展档开放词）',
+  },
   {
     key: 'browserTier',
     enum: ['observe', 'manipulate', 'inject', 'disabled'],
@@ -140,6 +148,7 @@ export class ConvSettingsService extends Service {
   private isValid(key: string, value: string): boolean {
     const def = this.keys.get(key);
     if (!def) return false;
+    if (def.pattern !== undefined) return def.pattern.test(value);
     if (def.enum === undefined) return value !== '';
     return def.enum.includes(value);
   }

@@ -13,11 +13,13 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { deepMerge } from 'ac-config-merge';
+import type { ToolFaceContext } from 'ac-tools';
 import {
   ACCESS_RANK,
   type AccessLevel,
   type AgentConfig,
   type ToolMode,
+  type ToolModeDef,
   accessOf,
   displayNameOf,
   effectiveAccessOf,
@@ -280,44 +282,65 @@ export function effectiveToolMode(
 }
 
 /**
- * 工具调用模式收窄（形态轴合成，injection:'mode' 工具的注入点）：
- *   · tc-programmatic → mode 工具集（defs 中 injection==='mode' 的工具，
- *     行在装即合成）；无 mode 工具（对应行未装）= 回退常规面
- *     （cr-1021 推翻旧「空面不回落」裁决：news~news 事故证明静默空面
- *     植物人〔71 run 零工具执行、模型无错误反馈无法自纠〕危害大于
- *     「悄悄变常规档」——可用性优先，回退时调用方 warn 留痕）；
- *   · tc-none → []；
- *   · tc-base → 原面（mode 工具不进常规工具面——router/估算面在能力面
- *     过滤时按 injection 分流排除，本函数的原面里天然无 mode 工具）。
- * 入参 defs = 注册面全量（只读 injection 标记）；tools = 已过能力面/
- * include/形态面的名字清单——mode 工具不经 tools 过滤（它们不在常规面），
- * 直接从 defs 合成。
- * 消费方：router dispatch（真实 run）+ system-prompt 干跑 /
- * agents/tool-defs（估算面——与真实 run 同口径的修复点）。
+ * 两步投影·第①步（发现，cr-1049）：注册面 → 当前投影上下文下可发现的
+ * 工具。discover 缺省 true；谓词 throw 按 false 处理（fail-closed）。
+ * 纯函数——估算/预览/快照/真 run 四面同口径的基座。
  */
-export function narrowToolsByMode(
-  tools: string[],
-  defs: ReadonlyArray<{ name: string; injection?: 'capability' | 'mode' }>,
-  mode: ToolMode,
+export function discoverTools(
+  defs: ReadonlyArray<{ name: string; discover?: (ctx: ToolFaceContext) => boolean }>,
+  face: ToolFaceContext,
 ): string[] {
-  if (mode === 'tc-programmatic') {
-    const modeTools = defs.filter((d) => d.injection === 'mode').map((d) => d.name);
-    // 无 mode 工具 = 回退常规面（cr-1021）——不再空面。warn 留痕归调用方
-    // （llmToolFace / staticToolDefs 自检 defs 有无 mode 工具）
-    if (modeTools.length === 0) return tools;
-    return modeTools;
-  }
-  if (mode === 'tc-none') return [];
-  return tools;
+  return defs
+    .filter((d) => {
+      if (d.discover === undefined) return true;
+      try {
+        return d.discover(face) === true;
+      } catch {
+        return false;
+      }
+    })
+    .map((d) => d.name);
 }
 
 /**
- * 请求面是否恰为 mode 工具集（程序化互斥形态判定——run_code SDK 投影
- * 注入的既有口径，2026-09-21 提升为单源）：request.tools 与注册面
- * injection:'mode' 工具集互为子集且非空。系统提示各门控行
- *（system-prompt 指引块 / fs-tools @引用 / session-query #引用 /
- * collab-tools @名称）在 PTC 模式下请求面已被 router 收窄成 ['run_code']，
- * 若按请求面判「工具在场」会误伤全部基线段——本函数是「这是程序化
+ * 两步投影·第②步（处理，cr-1049——narrowToolsByMode 后继）：
+ *   · tc-none → []（恒空——无工具是最强约束，fail-closed）；
+ *   · tc-base → baseFace（恒等——缺省档；调用方已做行集收窄）；
+ *   · 扩展档 → discovered（第①步全量）中保留显式声明者（discover
+ *     在场且当前上下文发现为 true——「入口集」），空集 = 回退 baseFace
+ *     + warn 留痕（cr-1021 语义延续：news~news 空面植物人事故裁决——
+ *     可用性优先）；词未注册（模式行被摘）同样回退——回退条件统一为
+ *     「入口集空」。入口不经行集收窄（原 mode 工具语义：行在装即合成
+ *     ——编排壳的授权由子调用逐个过闸，入口本身不吃 include/exclude）。
+ * 模式与工具的关联知识唯一落点 = 入口工具的 discover 谓词——本函数
+ * 零模式特有分支。消费方：router dispatch（真实 run）+ system-prompt
+ * 干跑 / agents/tool-defs（估算面——与真实 run 同口径）。
+ */
+export function narrowToolsByMode(
+  baseFace: string[],
+  discovered: string[],
+  defs: ReadonlyArray<{ name: string; discover?: (ctx: ToolFaceContext) => boolean }>,
+  mode: string,
+): string[] {
+  if (mode === 'tc-none') return [];
+  if (mode === 'tc-base') return baseFace;
+  const disc = new Set(discovered);
+  const entries = defs
+    .filter((d) => d.discover !== undefined && disc.has(d.name))
+    .map((d) => d.name);
+  // 入口集空 = 回退常规面（cr-1021）：词未注册或入口行被摘。warn 留痕
+  // 归调用方（llmToolFace / face-shell 自检）——静默空面 = 植物人重演。
+  if (entries.length === 0) return baseFace;
+  return entries;
+}
+
+/**
+ * 请求面是否恰为模式入口集（程序化互斥形态判定——run_code SDK 投影
+ * 注入的既有口径，2026-09-21 单源化；cr-1049 载荷从 injection 标记换
+ * discover 入口集）：request.tools 与入口集互为子集且非空。系统提示各
+ * 门控行（system-prompt 指引块 / fs-tools @引用 / session-query #引用 /
+ * collab-tools @名称）在程序化模式下请求面已被收窄成 ['run_code']，
+ * 若按请求面判「工具在场」会误伤全部基线段——本函数是「这是模式合成
  * run 吗」的判别入口。
  */
 export function isModeToolFace(
@@ -355,26 +378,63 @@ export function widenToolsForGating(
   // ctx.get 走 root-traced 无限制解析（受限调用方纪律：消费方插件行不
   // inject tools 也能取；缺席 = 空注册面）
   const tools = ctx.get('tools', false) as
-    | { list(): Array<{ name: string; injection?: 'capability' | 'mode'; requiresInteraction?: boolean }> }
+    | { list(): Array<{ name: string; discover?: unknown; requiresInteraction?: boolean }> }
     | undefined;
   const all = tools ? tools.list() : [];
-  const modeToolNames = all.filter((d) => d.injection === 'mode').map((d) => d.name);
+  // 模式入口集 = discover 在场者（谓词不求值——门控只问「谁是入口」，
+  // 当前上下文是否发现由调用方按需求值；此处与 run 面同口径取在场集）
+  const modeToolNames = all.filter((d) => d.discover !== undefined).map((d) => d.name);
   if (!isModeToolFace(requested, modeToolNames)) {
     // 常规面：request.tools ?? 注册面全量（原门控口径不变）
     return requested !== undefined ? [...requested] : all.map((t) => t.name);
   }
-  // 程序化 run：注册面直取（行装载单闸——与 run_code 投影源同链；
-  // mode 工具自身与 requiresInteraction 终滤一起排除——门控只关心能力）
+  // 模式合成 run：注册面直取（行装载单闸——与 run_code 投影源同链；
+  // 模式入口与 requiresInteraction 终滤一起排除——门控只关心能力）
   return all
-    .filter((t) => t.injection !== 'mode' && !formDeniedBy(ctx, t, conversationId))
+    .filter((t) => t.discover === undefined && !formDeniedBy(ctx, t, conversationId))
     .map((t) => t.name);
 }
 
 export class AgentsService extends Service {
   private configs = new Map<string, AgentConfig>();
+  /** 扩展模式注册表（cr-1049：纯元数据；核心两档不进表） */
+  private toolModes = new Map<string, ToolModeDef>();
 
   constructor(ctx: Context) {
     super(ctx, 'agents');
+  }
+
+  /**
+   * 注册扩展工具调用模式（cr-1049）。fiber 归属：从模式行调用时随该行
+   * 卸载自动回收（词面/判定随之退场——「模式完全自主装卸」）。
+   * @returns effect disposer
+   */
+  registerToolMode(def: ToolModeDef) {
+    if (!def.id || !def.id.startsWith('tc-')) {
+      throw new Error('模式词非法（须 tc- 前缀非空串）: ' + JSON.stringify(def.id));
+    }
+    if (def.id === 'tc-none' || def.id === 'tc-base') {
+      throw new Error('核心档位不可注册（保留字）: ' + def.id);
+    }
+    if (this.toolModes.has(def.id)) {
+      throw new Error(`模式 "${def.id}" 已注册`);
+    }
+    return this.ctx.fiber.effect(() => {
+      this.toolModes.set(def.id, def);
+      return () => {
+        this.toolModes.delete(def.id);
+      };
+    }, `agents.registerToolMode(${def.id})`);
+  }
+
+  /** 已注册扩展档清单（UI 词面 / 词校验 / 扩展档判定用） */
+  listToolModes(): ToolModeDef[] {
+    return [...this.toolModes.values()];
+  }
+
+  /** 模式词是否已注册扩展档（核心两档恒 false——判定语义是「注册制档」） */
+  isRegisteredToolMode(id: string): boolean {
+    return this.toolModes.has(id);
   }
 
   /**

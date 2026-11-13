@@ -10,13 +10,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
-import { readAgentConfig, readChildConfig, settingsOf, deepMerge } from 'ac-agents-core';
+import { readAgentConfig, readChildConfig, settingsOf, deepMerge, type ToolModeDef } from 'ac-agents-core';
 import { listGroupConfigs, memberStreamKey, readGroupConfig } from 'ac-core-utils'; // 群配置纯读面（cr-712 下沉单源）
 import { readUserMetaObject } from 'ac-ledger';
 import { issueRequestId, type Envelope } from 'ac-envelope-core';
 import { readCredential, credentialKey, deriveKey, machineMaterial, GLOBAL_AGENT_ID } from 'ac-credentials-core';
 
-/** ctx.agents 最小面（沿用行消费口：get / settingsOf / ids / list） */
+/** ctx.agents 最小面（沿用行消费口：get / settingsOf / ids / list）+ 模式注册面（cr-1049） */
 export class AgentsShim extends Service {
   private dataRoot: string;
   /** 影子/子域形态的父 id（cr-755）：本壳以 --parent-id 启动时，自身
@@ -30,11 +30,42 @@ export class AgentsShim extends Service {
    * 垫片 = 盘上词汇 → 主线服务词汇的翻译边界（与 conversation 服务
    * toolFaceOf 同展开语义；缺席 = 无目录投影，原样透传）。 */
   private rowTools: Record<string, string[]> | undefined;
+  /** 扩展模式注册表（cr-1049）：内存态——垫片其余面是数据根直读，本面
+   * 是壳内运行时注册（模式行 apply 期写入），与主线 AgentsService
+   * registerToolMode 同构。 */
+  private toolModes = new Map<string, ToolModeDef>();
   constructor(ctx: Context, dataRoot: string, rowTools?: Record<string, string[]>, parentId?: string) {
     super(ctx, 'agents');
     this.dataRoot = dataRoot;
     this.rowTools = rowTools;
     this.parentId = parentId;
+  }
+
+  /** 注册扩展模式（cr-1049）——主线 AgentsService.registerToolMode 同构（校验单源复制，垫片不 import 服务包防环） */
+  registerToolMode(def: ToolModeDef) {
+    if (!def.id || !def.id.startsWith('tc-')) {
+      throw new Error('模式词非法（须 tc- 前缀非空串）: ' + JSON.stringify(def.id));
+    }
+    if (def.id === 'tc-none' || def.id === 'tc-base') {
+      throw new Error('核心档位不可注册（保留字）: ' + def.id);
+    }
+    if (this.toolModes.has(def.id)) {
+      throw new Error(`模式 "${def.id}" 已注册`);
+    }
+    return this.ctx.fiber.effect(() => {
+      this.toolModes.set(def.id, def);
+      return () => {
+        this.toolModes.delete(def.id);
+      };
+    }, `agents.registerToolMode(${def.id})`);
+  }
+
+  listToolModes(): ToolModeDef[] {
+    return [...this.toolModes.values()];
+  }
+
+  isRegisteredToolMode(id: string): boolean {
+    return this.toolModes.has(id);
   }
 
   /** 条目词形展开：行 id → 行工具名（保序去重；非行 id 原样） */

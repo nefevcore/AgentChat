@@ -10,9 +10,9 @@
 //   · SDK 投影声明（buildSdkProjection——字典序稳定，工具集不变则
 //     字节不变，KV cache 前缀友好）；
 //   · 程序书写纪律（DEFAULT_GUIDANCE 基线）。
-// 注入条件（2026-09-21 注入轴重构）：请求面恰等于注册面 mode 工具集
-// （injection:'mode'——router 程序化档合成；与 narrowToolsByMode 同源）
-// 即注入。并存形态已随注入轴退役（mode 工具不进常规面，请求面不含
+// 注入条件（cr-1049 两步投影）：请求面恰等于模式入口集
+// （discover 在场者——router 程序化档合成；与 narrowToolsByMode 同源）
+// 即注入。并存形态已随注入轴退役（入口工具不进常规面，请求面不含
 // 它们）。每次注入前按 request 现算生效面（与 run_code 工具体同源
 // resolveEffectiveTools——不缓存，防装卸窗口漂移）。
 // ============================================================
@@ -51,8 +51,9 @@ function projectionBlock(ctx: Context, request: LoopRunRequest): string | undefi
   // 终值——含程序化开关收窄（开关化后收窄不落在 Agent 配置里，Agent
   // tools 复算看不见开关，2026-09-21 research §十）。判定单源化（2026-09-21
   // PTC 基线段修复）：isModeToolFace 与 fs-tools/session-query 等门控
-  // 行同源——「请求面恰等于注册面 mode 工具集」一处定义。
-  const modeToolNames = ctx.tools.list().filter((d) => d.injection === 'mode').map((d) => d.name);
+  // 行同源——「请求面恰等于模式入口集」一处定义（cr-1049：入口集 =
+  // discover 在场者）。
+  const modeToolNames = ctx.tools.list().filter((d) => d.discover !== undefined).map((d) => d.name);
   const requested = Array.isArray(request.tools) ? request.tools : null;
   const isModeFace = requested !== null && isModeToolFace(requested, modeToolNames);
   // 程序化调用 = 互斥形态：LLM 面单 schema（仅 run_code）。并存形态

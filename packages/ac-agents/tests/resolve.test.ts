@@ -4,7 +4,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as agentsRow from '../src/index.ts';
-import { resolveToolNames, filterLlmParams, effectiveToolMode, narrowToolsByMode, isModeToolFace, widenToolsForGating } from '../src/index.ts';
+import { resolveToolNames, filterLlmParams, effectiveToolMode, discoverTools, narrowToolsByMode, isModeToolFace, widenToolsForGating } from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
@@ -42,20 +42,31 @@ describe('工具调用模式单源（effectiveToolMode / narrowToolsByMode——
     expect(effectiveToolMode({ id: 'x', model: 'm', toolMode: 'tc-none' }, undefined)).toBe('tc-none');
   });
 
-  it('narrowToolsByMode：tc-programmatic → mode 工具集（从 defs 合成，与 tags/常规面无关）；无 mode 工具 = 回退常规面（cr-1021：不再空面）；tc-none → 空；tc-base → 原面', () => {
+  it('两步投影（cr-1049）：扩展档 → discovered 中 discover 在场者；入口集空 = 回退 baseFace（cr-1021）；tc-none → 空；tc-base → baseFace', () => {
     const defs = [
       { name: 'read' },
       { name: 'bash' },
-      { name: 'run_code', injection: 'mode' as const },
+      { name: 'run_code', discover: () => true },
     ];
-    // mode 工具从 defs 合成——tools 面里有没有它无关（它不进常规面）
-    expect(narrowToolsByMode(['read', 'bash'], defs, 'tc-programmatic')).toEqual(['run_code']);
-    // 无 mode 工具（行未装）= 回退常规面（cr-1021：news~news 空面植物人事故——
-    // 静默零工具执行危害大于「悄悄变常规档」，可用性优先 + 调用方 warn 留痕）
-    expect(narrowToolsByMode(['read', 'bash'], [{ name: 'read' }], 'tc-programmatic')).toEqual(['read', 'bash']);
-    expect(narrowToolsByMode(['read', 'bash'], [], 'tc-programmatic')).toEqual(['read', 'bash']);
-    expect(narrowToolsByMode(['read', 'run_code'], defs, 'tc-none')).toEqual([]);
-    expect(narrowToolsByMode(['read', 'bash'], defs, 'tc-base')).toEqual(['read', 'bash']);
+    // 扩展档：入口集 = discovered（含谓词声明者）；baseFace 被替换
+    expect(narrowToolsByMode(['read', 'bash'], ['read', 'bash', 'run_code'], defs, 'tc-programmatic')).toEqual(['run_code']);
+    // 入口集空（发现步已滤掉入口 = 行未装/谓词 false）= 回退 baseFace
+    //（cr-1021：news~news 空面植物人事故——静默零工具执行危害大于
+    //「悄悄变常规档」，可用性优先 + 调用方 warn 留痕）
+    expect(narrowToolsByMode(['read', 'bash'], ['read', 'bash'], [{ name: 'run_code', discover: () => false }], 'tc-programmatic')).toEqual(['read', 'bash']);
+    expect(narrowToolsByMode(['read', 'bash'], ['read', 'bash'], [], 'tc-programmatic')).toEqual(['read', 'bash']);
+    expect(narrowToolsByMode(['read', 'run_code'], ['read', 'run_code'], defs, 'tc-none')).toEqual([]);
+    expect(narrowToolsByMode(['read', 'bash'], ['read', 'bash', 'run_code'], defs, 'tc-base')).toEqual(['read', 'bash']);
+  });
+
+  it('discoverTools（发现步）：缺省 true；谓词按投影上下文求值；throw 按 false（fail-closed）', () => {
+    const defs = [
+      { name: 'read' },
+      { name: 'run_code', discover: (face: { toolMode: string }) => face.toolMode === 'tc-programmatic' },
+      { name: 'boom', discover: () => { throw new Error('x'); } },
+    ];
+    expect(discoverTools(defs, { toolMode: 'tc-base' })).toEqual(['read']);
+    expect(discoverTools(defs, { toolMode: 'tc-programmatic' })).toEqual(['read', 'run_code']);
   });
 });
 
@@ -83,7 +94,7 @@ describe('PTC 门控面单源（isModeToolFace / widenToolsForGating——2026-0
         { name: 'read' },
         { name: 'write' },
         { name: 'ask_questions', requiresInteraction: true },
-        { name: 'run_code', injection: 'mode' as const },
+        { name: 'run_code', discover: () => true },
       ],
     };
     const faceOf = (conversationId: string) => ({ get: (key: string) => (key === 'tools' ? fakeTools : key === 'agents' ? { get: (id: string) => ctx.agents.get(id) } : undefined) } as never);

@@ -543,12 +543,12 @@ export function apply(ctx: Context) {
     async execute(args, call): Promise<ToolResult> {
       const self = call.agentId ? ctx.agents.get(call.agentId) : undefined;
       // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁
-      // （requiredTags 缺标签不可见）+ mode 工具排除（injection 轴——
+      // （requiredTags 缺标签不可见）+ 模式入口工具排除（discover 轴——cr-1049：
       // 不进常规面）+ 交互面（requiresInteraction——self 会话排除，
       // formDeniedBy 单源）先过滤，再按 AgentConfig.tools 解析
       const caps = sessionCapsOf(ctx, call.agentId, call.conversationId); // 会话授权注入（同 router 口径）
       const all = ctx.tools.list().filter(
-        (t) => t.injection !== 'mode' && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, call.conversationId),
+        (t) => t.discover === undefined && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, call.conversationId),
       );
       // rows 词形归一（cr-953：resolveToolNames 单参——行集展开在垫片层）
       const effectiveNames = resolveToolNames(self?.rows);

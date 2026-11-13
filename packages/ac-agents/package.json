@@ -14,7 +14,8 @@
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
     "ac-agents-core": "workspace:*",
-    "ac-config-merge": "workspace:*"
+    "ac-config-merge": "workspace:*",
+    "ac-tools": "workspace:*"
   },
   "devDependencies": {
     "ac-config": "workspace:*",

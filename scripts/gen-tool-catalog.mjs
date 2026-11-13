@@ -73,7 +73,7 @@ try {
       owner: t.owner,
       ...(t.requiredTags ? { requiredTags: t.requiredTags } : {}),
       ...(t.needPermission ? { needPermission: true } : {}),
-      ...(t.injection !== undefined && t.injection !== 'capability' ? { injection: t.injection } : {}),
+      ...(t.discover !== undefined ? { discover: false } : {}),
       ...(t.requiresInteraction ? { requiresInteraction: true } : {}),
     }));
     const sig = project(entries);

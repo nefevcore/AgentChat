@@ -579,7 +579,7 @@ describe('ac-fs-tools × workspace 沙箱面（allowedPaths 端到端）', () =>
       name: 'fake-run-code-row',
       inject: ['tools'],
       apply(c: Context) {
-        c.tools.register({ name: 'run_code', injection: 'mode' as const, description: 'x', execute: () => ({ ok: true }) });
+        c.tools.register({ name: 'run_code', discover: () => true, description: 'x', execute: () => ({ ok: true }) });
       },
     } as any));
     booted.push({ ctx, fibers });

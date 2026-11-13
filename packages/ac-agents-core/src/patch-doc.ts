@@ -55,8 +55,12 @@ export interface AgentPatchDoc {
   rows?: string[] | { include?: string[]; exclude?: string[] };
   /** 访问档位（缺省 base-access；投影 AgentConfig.access） */
   tier?: 'base-access' | 'sandbox-access' | 'full-access';
-  /** 工具调用模式（缺省 tc-base；投影 AgentConfig.toolMode） */
-  'tool-mode'?: 'tc-none' | 'tc-base' | 'tc-programmatic';
+  /**
+   * 工具调用模式（缺省 tc-base；投影 AgentConfig.toolMode）。cr-1049
+   * 开放词：扩展档字符串合法（写入面透传，读侧投影归一——未注册词由
+   * 投影回退语义兜底）。
+   */
+  'tool-mode'?: string;
   /**
    * 能力标签余词（cr-953 退役面：requiredTags 门禁已退役、余词无消费面
    * ——读侧经 normalizeLegacyTags 归一〔admin/browser 层级词入 levels〕
@@ -270,7 +274,8 @@ export interface AgentProfile {
   'max-steps'?: number;
   /** 访问档位（AgentConfig.access 的盘上键——cr-947 词面） */
   tier?: 'base-access' | 'sandbox-access' | 'full-access';
-  'tool-mode'?: 'tc-none' | 'tc-base' | 'tc-programmatic';
+  /** 工具调用模式（cr-1049 开放词——扩展档字符串合法，词校验经注册表） */
+  'tool-mode'?: string;
   name?: string;
   description?: string;
   virtual?: boolean;

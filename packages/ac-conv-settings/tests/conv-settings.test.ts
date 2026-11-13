@@ -133,9 +133,11 @@ describe('ac-conv-settings', () => {
     expect(ctx.convSettings.get('user~helper').toolMode).toBe('tc-none');
     ctx.convSettings.set('user~helper', { toolMode: 'tc-base' });
     expect(ctx.convSettings.get('user~helper').toolMode).toBe('tc-base');
-    // 非法值（'tc-foo'/'false'/null）→ 删键（全空 = 删文件）
-    next = ctx.convSettings.set('user~helper', { toolMode: 'tc-foo' as never });
-    expect(next).toEqual({});
+    // 开放词（cr-1049）：tc- 前缀词合法（'tc-foo' 持久；注册表校验在投影端
+    // 兜底——未注册词回退常规面 + warn）；非 tc- 前缀/'false'/null → 删键
+    next = ctx.convSettings.set('user~helper', { toolMode: 'tc-foo' });
+    expect(next).toEqual({ toolMode: 'tc-foo' });
+    next = ctx.convSettings.set('user~helper', { toolMode: 'false' as never });
     expect(fs.existsSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'))).toBe(false);
     // 与 model/access 共存（键级独立）
     ctx.convSettings.set('user~helper', { model: 'glm@glm-5.3', toolMode: 'tc-none' });

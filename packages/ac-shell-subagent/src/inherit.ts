@@ -96,6 +96,9 @@ export function spawnChildConfigOf(input: SpawnInheritInput): AgentConfig {
   // run-code 行。run-code 进基础集（cr-1021）后「行集含 run-code」对缺省
   // 继承恒真——仅凭行集判定会把所有 spawn 子翻转成程序化模式；父级
   // tc-* 不继承的语义保留在「父非程序化 → 子恒常规」分支。
+  // cr-1049 边界标注：此处仍是 tc-programmatic 单模式特写（词与行 id
+  // 字面量）——第二个模式行出现时再按注册表通用化（入口行 id → 模式词
+  // 的映射需真实第二例驱动接口，现状通用化 = speculation）。
   // cr-1022 批2：词形 = 行 id 单一——正清单直读（组合读已含骨架行；
   // 捆绑/工具名词形与闭包展开随差量引擎退役）
   const childTokens = tools ?? effectiveRows ?? resolveToolNames(parent.rows) ?? [];

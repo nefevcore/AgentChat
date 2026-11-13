@@ -38,7 +38,8 @@ export interface AgentConfig {
   access?: AccessLevel;
   /**
   * 工具调用模式（cr-953 结构化；缺省/缺席 = tc-base）。toolModeOf 单源
-  * 判定；patch 面 = tool-mode 键。
+  * 判定；patch 面 = tool-mode 键。cr-1049 起开放词：核心两档之外可填
+  * 已注册扩展档（ctx.agents.registerToolMode——UI 词面/回退判定经注册表）。
   */
   toolMode?: ToolMode;
   /** LLM 采样参数白名单透传（temperature/max_tokens/…——无法覆盖保留键） */
@@ -120,8 +121,30 @@ export function effectiveAccessOf(
   return accessOf(agent);
 }
 
-/** 工具调用模式（tc-* 轴）：none 优先（无工具是最强约束，fail-closed） */
-export type ToolMode = 'tc-none' | 'tc-base' | 'tc-programmatic';
+/**
+ * 工具调用模式（tc-* 轴，cr-1049 开放词）：核心两档 tc-none（无工具
+ * ——最强约束，fail-closed）/ tc-base（缺省恒等投影）硬编码于投影核心；
+ * 扩展档开放——由模式行经 ctx.agents.registerToolMode 注册（先例
+ * tc-programmatic 住 ac-run-code）。string & {} 保字面量补全。
+ */
+export type ToolMode = 'tc-none' | 'tc-base' | (string & {});
+
+/**
+ * 扩展模式注册（cr-1049 注册制）：纯元数据——不点名工具、不含行为。
+ * 词面（UI 抉择组/patch-doc 词校验）与「这是扩展档吗」判定消费；
+ * 模式与入口工具的强关联活在入口工具自己的 discover 谓词里（两步投影
+ * ·发现步），不在这里。注册面：主线 ctx.agents（AgentsService.
+ * registerToolMode）与壳内垫片（AgentsShim 同名面）双实现同构。
+ * owning 纯库（主线服务与壳垫片共依赖零环）。
+ */
+export interface ToolModeDef {
+  /** 模式词（tc-* 开放词；核心两档 tc-none/tc-base 为保留字不可注册） */
+  id: string;
+  /** UI 词面（抉择组标签） */
+  label: string;
+  /** 抉择组说明 */
+  description: string;
+}
 
 export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
   return agent?.toolMode ?? 'tc-base';

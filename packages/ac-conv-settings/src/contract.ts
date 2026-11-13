@@ -47,15 +47,16 @@ export interface ConvSettings {
   /**
    * 工具调用模式覆盖（2026-09-17 统一重构：tc-* 标签轴——与安全档位
    * access 同构的会话级覆盖；取代旧 programmatic 布尔键，存量键不
-   * 迁移直接失效、回落跟随 Agent tags）：值域 'tc-base' | 'tc-programmatic'
-   * | 'tc-none'（三值全暴露）；无键 = 跟随 Agent tags（toolModeOf 单源
-   * 判定，缺省 tc-base）。router execute 按「本键 ?? toolModeOf(agent)」
+   * 迁移直接失效、回落跟随 Agent）：核心两档 'tc-base' / 'tc-none' +
+   * 扩展档开放词（cr-1049——扩展档由模式行注册，先例 tc-programmatic
+   * 住 ac-run-code）；无键 = 跟随 Agent（toolModeOf 单源判定，缺省
+   * tc-base）。router execute 按「本键 ?? toolModeOf(agent)」
    * 收窄 LLM 工具面：tc-programmatic ⇒ ['run_code']、tc-none ⇒ 空面纯
    * 聊天、tc-base ⇒ 不收窄。tc-programmatic 覆盖但 Agent 无该标签
    * （run_code 不可见）时惰性 warn 并忽略（回落 tags 档）。键面同
    * access 口径：全形态会话（含 singles sid——model 才分流 singles）。
    */
-  toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none';
+  toolMode?: string;
   /**
    * 浏览器能力会话级覆盖（2026-09-26 CDP 化收尾——输入框「实验性 → 浏览器」
    * 档位钮）：值域 'observe' | 'manipulate' | 'inject' | 'disabled'。

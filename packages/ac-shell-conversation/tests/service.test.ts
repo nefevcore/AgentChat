@@ -662,7 +662,7 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       inject: ['tools'],
       apply(c: Context) {
         c.tools.register({ name: 'read', description: '读文件', parameters: { type: 'object' }, async execute() { return { ok: true }; } });
-        c.tools.register({ name: 'run_code', description: '跑代码', parameters: { type: 'object' }, injection: 'mode', async execute() { return { ok: true }; } });
+        c.tools.register({ name: 'run_code', description: '跑代码', parameters: { type: 'object' }, discover: () => true, async execute() { return { ok: true }; } });
       },
     } as never, undefined as never);
     fibers.push(toolFiber);

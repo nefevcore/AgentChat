@@ -176,9 +176,11 @@ export function resolveEffectiveTools(
   // 投影面与 router/tool-defs/list_tools 同口径，实验档授权进 SDK 投影块）
   const caps = sessionCapsOf(ctx, agentId, conversationId);
   // 投影源：能力面全量（授权真理）——不经 include/exclude 收窄，
-  // mode 工具（run_code 等）排除（递归防护在投影层：程序内再造程序
-  // 无意义且套计费）；requiresInteraction 工具随交互面终滤
-  return ctx.tools.list().filter((t) => t.injection !== 'mode' && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, conversationId));
+  // 模式入口工具（run_code 等，discover 在场者）排除（递归防护在投影
+  // 层：程序内再造程序无意义且套计费）；requiresInteraction 工具随
+  // 交互面终滤。discover 在场性 = 恒定入口身份（谓词不求值——tc-base
+  // 下 run_code 同样排除，防程序内自调）
+  return ctx.tools.list().filter((t) => t.discover === undefined && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, conversationId));
 }
 
 /**

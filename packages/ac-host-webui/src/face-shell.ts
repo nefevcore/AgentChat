@@ -125,26 +125,34 @@ function staticToolDefs(
   conversationId: string | undefined,
 ): { names: string[]; defs: Array<{ name: string; description: string; parameters: Record<string, unknown> }> } {
   const defs = staticToolCatalog(deps);
-  const visible = defs.filter((t) => (t as { injection?: unknown }).injection !== 'mode');
   const config = readAgentConfig(deps.dataRoot, agentId) ?? undefined;
   // 行 id → 工具名展开（壳内 rowTools 同源数据 = tool-catalog rows 段）
   const rowTools = readRowTools(deps);
-  const resolved = resolveToolNames(config?.rows);
-  const names = resolved === undefined
-    ? visible.map((t) => String(t.name))
-    : [...new Set(resolved.flatMap((token) => rowTools[token] ?? [token]))]
-      .filter((n) => visible.some((t) => String(t.name) === n));
   const mode = effectiveToolMode(config, conversationId, {
     convSettings: ctx.get('convSettings', false) as
       | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
       | undefined,
   });
-  const narrowed = narrowToolsByMode(names, defs as Array<{ name: string; injection?: 'capability' | 'mode' }>, mode);
-  // 程序化档回退留痕（cr-1021）：与 llmToolFace 同口径——tc-programmatic 无
-  // mode 工具时回退常规面并 warn（估算面静态数据源，无 ctx logger 时跳过）
-  if (mode === 'tc-programmatic' && !defs.some((t) => (t as { injection?: unknown }).injection === 'mode')) {
+  // 两步投影（cr-1049）：①发现 → ②处理。估算面静态数据源——catalog
+  // 条目携带 discover 布尔在场标记（gen 链从注册面 ToolDefinition 投影：
+  // 无谓词 → true（常规工具），有谓词 → false（模式入口——静态估算不
+  // 求值谓词，扩展档生效时由处理步按在场标记合成入口集））
+  const discSet = new Set(
+    defs.filter((t) => (t as { discover?: unknown }).discover !== false)
+      .map((t) => String(t.name)),
+  );
+  const resolved = resolveToolNames(config?.rows);
+  const names = resolved === undefined
+    ? [...discSet]
+    : [...new Set(resolved.flatMap((token) => rowTools[token] ?? [token]))]
+      .filter((n) => discSet.has(n));
+  const narrowed = narrowToolsByMode(names, [...discSet], defs as Array<{ name: string }>, mode);
+  // 扩展档回退留痕（cr-1021）：与 llmToolFace 同口径——生效扩展档但
+  // 估算面无入口工具时回退常规面并 warn
+  if (mode !== 'tc-base' && mode !== 'tc-none'
+    && !defs.some((t) => (t as { discover?: unknown }).discover !== undefined && discSet.has(String(t.name)))) {
     ctx.logger.warn(
-      '[face-shell] tc-programmatic 会话无 mode 工具（run-code 行未装）——估算工具面回退常规面：'
+      '[face-shell] ' + mode + ' 会话无入口工具（模式行未装/被停用）——估算工具面回退常规面：'
       + agentId + (conversationId ? ' @ ' + conversationId : ''),
     );
   }
