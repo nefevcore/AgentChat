@@ -1,6 +1,6 @@
 {
- "scannedHead": "59392e61b2272f5eed31d3582990acd1bc5e9824",
- "generatedAt": "2026-11-13T00:43:20.528Z",
+ "scannedHead": "65452b560edd50db5d06a50bb3a1eb4a9136f0e4",
+ "generatedAt": "2026-11-13T01:05:05.147Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -3452,14 +3452,14 @@
   ],
   "663": [
    {
-    "sha": "beba2e55a452964eb06fbd957de95219aea61cb7",
-    "date": "2026-10-25",
-    "subject": "fix(preview): cr-663/665/670/671/673/675/676/677 宿主编排与 web 面——控制面统一入口、workspace 四端点、job/subagents 帧链、badge.css"
-   },
-   {
     "sha": "2c41e889880fc98a87843d9453862770b4bdcaeb",
     "date": "2026-11-12",
     "subject": "fix(session): cr-1034 restart_shell 换代壳不续跑修复——接管壳锁观察器 marker 消费改 cr-663 领取语义（原文 rename 成 .claimed 交接 conversationId，换代壳 boot 自清读取注入「已重启」续跑；cr-994 收口滞留缺口时实现成删除断链）——触发序：restart_host 换代收养活壳后 restart_shell 走观察器路径，壳重拉成功但会话键丢失不续跑；42 判定不受影响（观察器只探 .json 精确名，陈旧领取由宿主 boot 扫描面 TTL 清扫）；takeover-restart 回归锁更新（.claimed 在场 + 原文逐字节相等）"
+   },
+   {
+    "sha": "beba2e55a452964eb06fbd957de95219aea61cb7",
+    "date": "2026-10-25",
+    "subject": "fix(preview): cr-663/665/670/671/673/675/676/677 宿主编排与 web 面——控制面统一入口、workspace 四端点、job/subagents 帧链、badge.css"
    }
   ],
   "672": [
@@ -3622,6 +3622,11 @@
   ],
   "696": [
    {
+    "sha": "08034c9df94b26bbafde76e56219e33cb08759de",
+    "date": "2026-11-10",
+    "subject": "fix(jobs): cr-992 job 完成通知回投链路随迁补齐——ac-jobs 行内 wakeup 模块（job/settled → conversation.deliver）：digest 5s 窗口聚合 / killedBy=owner 且非 failed 跳过 / sub owner 无会话键跳过；旧 ac-job-wakeup cr-696 退役时随迁未落，注释四处漂移订正 + tool-catalog 快照重生成"
+   },
+   {
     "sha": "68fffcfd7c49401bb8fed6c5cc4789aeaa0c3626",
     "date": "2026-10-26",
     "subject": "feat(release): cr-702 发布链换轨批 A——build:bundle 改 preview 宿主双入口 bundle + 资产面 + 出厂通道播种 + 三 CI workflow 换轨"
@@ -3635,11 +3640,6 @@
     "sha": "f2d89cd245887881d71a6ac15a4c8cd590750512",
     "date": "2026-10-25",
     "subject": "refactor(cutover): cr-696 ◐c 旧树退役批——ac-client-ui-* 31 包迁出 preview/packages + A 类 24 包删除 + 类型墓碑 + cordis.yml/ac-app 退役"
-   },
-   {
-    "sha": "08034c9df94b26bbafde76e56219e33cb08759de",
-    "date": "2026-11-10",
-    "subject": "fix(jobs): cr-992 job 完成通知回投链路随迁补齐——ac-jobs 行内 wakeup 模块（job/settled → conversation.deliver）：digest 5s 窗口聚合 / killedBy=owner 且非 failed 跳过 / sub owner 无会话键跳过；旧 ac-job-wakeup cr-696 退役时随迁未落，注释四处漂移订正 + tool-catalog 快照重生成"
    }
   ],
   "697": [
@@ -4134,6 +4134,11 @@
   ],
   "972": [
    {
+    "sha": "eb01d70ee4e49d8e4a4731a4a19631dcd912925a",
+    "date": "2026-11-10",
+    "subject": "refactor(session): cr-998 cr-972 兼容窗收尾——viewer 退役 + v1 写面退役"
+   },
+   {
     "sha": "cb11f81538c9472ae75afd529165571e6731c091",
     "date": "2026-11-10",
     "subject": "docs(design): cr-975 直播管线 B 案立项计划——直播帧 = 事件日志 append 投影转发（cr-972 Phase 3 独立项目）"
@@ -4142,14 +4147,14 @@
     "sha": "02f53927cd70a73f108fbb7a0e76689af4c30a4b",
     "date": "2026-11-09",
     "subject": "feat: cr-959~cr-972 同日批次（读面注入补全/ask_questions 响应式/冷启韧性三件套/换代接管批1~批3/steer 落账时机/shell bundle 化）——boot.ts 与 cr-log.md 含 cr-973 混载，随下笔提交"
-   },
+   }
+  ],
+  "973": [
    {
     "sha": "eb01d70ee4e49d8e4a4731a4a19631dcd912925a",
     "date": "2026-11-10",
     "subject": "refactor(session): cr-998 cr-972 兼容窗收尾——viewer 退役 + v1 写面退役"
-   }
-  ],
-  "973": [
+   },
    {
     "sha": "cb11f81538c9472ae75afd529165571e6731c091",
     "date": "2026-11-10",
@@ -4164,11 +4169,6 @@
     "sha": "02f53927cd70a73f108fbb7a0e76689af4c30a4b",
     "date": "2026-11-09",
     "subject": "feat: cr-959~cr-972 同日批次（读面注入补全/ask_questions 响应式/冷启韧性三件套/换代接管批1~批3/steer 落账时机/shell bundle 化）——boot.ts 与 cr-log.md 含 cr-973 混载，随下笔提交"
-   },
-   {
-    "sha": "eb01d70ee4e49d8e4a4731a4a19631dcd912925a",
-    "date": "2026-11-10",
-    "subject": "refactor(session): cr-998 cr-972 兼容窗收尾——viewer 退役 + v1 写面退役"
    }
   ],
   "974": [
@@ -4197,14 +4197,14 @@
   ],
   "976": [
    {
-    "sha": "f3fb88470d30b96e7f0a9dc4f3fb26bf86d253ad",
-    "date": "2026-11-10",
-    "subject": "feat(pipeline): cr-976/977 直播管线 B 案 Phase 3——事件投影转发 + feed-core 一次性重构"
-   },
-   {
     "sha": "65fd922ccb297b644de15545552aea5cfdec8b90",
     "date": "2026-11-10",
     "subject": "fix(webui): cr-988 goal useGoalTracking 可空守卫补漏——p?.subcall（cr-976/977 引入的 webui:typecheck 存量红）"
+   },
+   {
+    "sha": "f3fb88470d30b96e7f0a9dc4f3fb26bf86d253ad",
+    "date": "2026-11-10",
+    "subject": "feat(pipeline): cr-976/977 直播管线 B 案 Phase 3——事件投影转发 + feed-core 一次性重构"
    }
   ],
   "978": [
@@ -4230,14 +4230,14 @@
   ],
   "981": [
    {
-    "sha": "5062b9b4a0f9b06fba18c70eeeb139aa62ea42b8",
-    "date": "2026-11-10",
-    "subject": "feat(cr): cr-981~984 CR 工具 v2 批1+批2——设计成文（cr-tool-v2.md）+ 结构化尾部块 {status|#scope|→ref}/状态机 set/append 软门+O_EXCL 锁+尾部 O(1) 追加写+全 LF 修形 + sync 增量投影 cr-commits.json + check 六锁守门 + 理卷消 13 逆序 + cr-4 行尾笔误修复 + SKILL 使用引导同步"
-   },
-   {
     "sha": "72937e2c8f91b9c0c483dae3ea53ada68d20e091",
     "date": "2026-11-10",
     "subject": "chore(eol): cr-1000 行尾统一 LF 单一真相——工具集读写面全归一（read 显示层剥 \\\\r / write·edit 写回恒 LF 收敛器 / str_replace_editor 匹配与写入同 LF 空间 / grep preview 剥 \\\\r，bat/cmd 例外保持 CRLF）+ cr-log 约定迁 LF（normalizeEol 修形翻转，cr-981 两事实源顶牛消解）+ 存量 19 化石 byte 级归一（17 包源码/fold-out/mixed 测试文件）+ line-ending 死码清理（restoreLineEndingsPreserving/parseRawLines 不可达删除）"
+   },
+   {
+    "sha": "5062b9b4a0f9b06fba18c70eeeb139aa62ea42b8",
+    "date": "2026-11-10",
+    "subject": "feat(cr): cr-981~984 CR 工具 v2 批1+批2——设计成文（cr-tool-v2.md）+ 结构化尾部块 {status|#scope|→ref}/状态机 set/append 软门+O_EXCL 锁+尾部 O(1) 追加写+全 LF 修形 + sync 增量投影 cr-commits.json + check 六锁守门 + 理卷消 13 逆序 + cr-4 行尾笔误修复 + SKILL 使用引导同步"
    }
   ],
   "985": [
@@ -4249,9 +4249,9 @@
   ],
   "986": [
    {
-    "sha": "8a6ff4063ca3abbce9c165cfbad9e383f9d5fde4",
+    "sha": "3e9272123152770bd0195d510cd553754e59dbb7",
     "date": "2026-11-10",
-    "subject": "fix(cr): cr-986 sync refs 无变化不落盘——消投影自追尾"
+    "subject": "fix(cr): cr-1002 sync 增量永不落盘根修——cr-986 回归：L334 entries = prev.entries 引用赋值致增量扫描同体变异 prev.entries，「无变化」判定比较两侧变为同一内容恒相等，sync 自 cr-986 起恒走 unchanged 分支不写盘（投影停在 cr-986 提交，cr-987~1000 缺席）。修复 = 深拷贝隔离比较基准；投影重建 460 键"
    },
    {
     "sha": "a773ef7049a3376fdf5d0cfd07eab6013a8e3709",
@@ -4259,21 +4259,21 @@
     "subject": "chore(cr): 投影全量重建对齐（cr-986 refs 入账；顺带验证：探针伪引用被锁6 悬空校验捕获后清除）"
    },
    {
-    "sha": "3e9272123152770bd0195d510cd553754e59dbb7",
+    "sha": "8a6ff4063ca3abbce9c165cfbad9e383f9d5fde4",
     "date": "2026-11-10",
-    "subject": "fix(cr): cr-1002 sync 增量永不落盘根修——cr-986 回归：L334 entries = prev.entries 引用赋值致增量扫描同体变异 prev.entries，「无变化」判定比较两侧变为同一内容恒相等，sync 自 cr-986 起恒走 unchanged 分支不写盘（投影停在 cr-986 提交，cr-987~1000 缺席）。修复 = 深拷贝隔离比较基准；投影重建 460 键"
+    "subject": "fix(cr): cr-986 sync refs 无变化不落盘——消投影自追尾"
    }
   ],
   "987": [
    {
-    "sha": "45bc3f7b83263a4946df95d7b8c0dd6df0c76e2b",
-    "date": "2026-11-10",
-    "subject": "feat(webui): cr-987/989/990 placeholder 灰调独立档 + 三连调——tokens.css 立 --placeholder 专令牌（暗 #adb2b8 / 亮 #83868d）+ ::placeholder 全局唯一源；消费面收口（删 6 处散装声明；PromptEditor 仿占位与 Select/DatePicker 空态切令牌）；TOKEN_VOCAB +midnight 主题包同步；contrast ②c 四底 ≥3.0 测试锁"
-   },
-   {
     "sha": "3e9272123152770bd0195d510cd553754e59dbb7",
     "date": "2026-11-10",
     "subject": "fix(cr): cr-1002 sync 增量永不落盘根修——cr-986 回归：L334 entries = prev.entries 引用赋值致增量扫描同体变异 prev.entries，「无变化」判定比较两侧变为同一内容恒相等，sync 自 cr-986 起恒走 unchanged 分支不写盘（投影停在 cr-986 提交，cr-987~1000 缺席）。修复 = 深拷贝隔离比较基准；投影重建 460 键"
+   },
+   {
+    "sha": "45bc3f7b83263a4946df95d7b8c0dd6df0c76e2b",
+    "date": "2026-11-10",
+    "subject": "feat(webui): cr-987/989/990 placeholder 灰调独立档 + 三连调——tokens.css 立 --placeholder 专令牌（暗 #adb2b8 / 亮 #83868d）+ ::placeholder 全局唯一源；消费面收口（删 6 处散装声明；PromptEditor 仿占位与 Select/DatePicker 空态切令牌）；TOKEN_VOCAB +midnight 主题包同步；contrast ②c 四底 ≥3.0 测试锁"
    }
   ],
   "988": [
@@ -4306,14 +4306,14 @@
   ],
   "994": [
    {
-    "sha": "de261eb849c44197f77ebe9dbae60e6a93be5b6a",
-    "date": "2026-11-10",
-    "subject": "fix(restart): cr-994 restart_shell 重启空窗根修——接管壳锁观察器识别 restart marker（锁消失+marker 在场 → exit 42 快路 respawn + marker 消费，替代恒 0 判 done）；壳侧退出意图优先级 decideExit（42 设立后 0 不再覆盖——system shutdown 帧竞态防护）；宿主 requestShellRespawn 句柄在池不再永久放弃（持续轮询确保拉起）；takeover-restart 测试 3 例锁定"
-   },
-   {
     "sha": "2c41e889880fc98a87843d9453862770b4bdcaeb",
     "date": "2026-11-12",
     "subject": "fix(session): cr-1034 restart_shell 换代壳不续跑修复——接管壳锁观察器 marker 消费改 cr-663 领取语义（原文 rename 成 .claimed 交接 conversationId，换代壳 boot 自清读取注入「已重启」续跑；cr-994 收口滞留缺口时实现成删除断链）——触发序：restart_host 换代收养活壳后 restart_shell 走观察器路径，壳重拉成功但会话键丢失不续跑；42 判定不受影响（观察器只探 .json 精确名，陈旧领取由宿主 boot 扫描面 TTL 清扫）；takeover-restart 回归锁更新（.claimed 在场 + 原文逐字节相等）"
+   },
+   {
+    "sha": "de261eb849c44197f77ebe9dbae60e6a93be5b6a",
+    "date": "2026-11-10",
+    "subject": "fix(restart): cr-994 restart_shell 重启空窗根修——接管壳锁观察器识别 restart marker（锁消失+marker 在场 → exit 42 快路 respawn + marker 消费，替代恒 0 判 done）；壳侧退出意图优先级 decideExit（42 设立后 0 不再覆盖——system shutdown 帧竞态防护）；宿主 requestShellRespawn 句柄在池不再永久放弃（持续轮询确保拉起）；takeover-restart 测试 3 例锁定"
    }
   ],
   "995": [
@@ -4360,14 +4360,14 @@
   ],
   "1004": [
    {
-    "sha": "8b5287f08dadb5625e938f2f94beb3379970f12e",
-    "date": "2026-11-11",
-    "subject": "refactor(assembly): cr-1004/1007 装配代数统一落地——两段式求值引擎（ac-rowset-core evaluate.ts：存在合成=基座∪installed face 反向适配〔scope 投影退役、host 面 fail-closed〕+ 差量合成=用户层→实例层；席位六件特判消解、护栏经 seatIds 策略注入、诊断分级 warnings/notices/errors）+ 文件族改名（「patch」中缀专属差量：<proc>.yml 基座 / installed.yml 登记〔旧名只读兼容 + 版本戳判据的存量副本 reconcile——撞名误删用户差量层边界收口〕/ <proc>.patch.yml 用户差量层）+ agent.patch.yml v2 差量化（纯 cordis 条目数组 + # ac-base 基线戳：写面保真、boot 漂移 fail-loud 触发 rebase；档案与 origin 迁 agent.json；levels 归位条目 config.level〔dev-tools 死词退役〕；migrate v2 档幂等/--rebase/--revert）+ cr-1007 写侧精简（expansion 全落基础集的 no-op 加法不落盘 §六；组合读重建白名单保工具面热更新、{include} 统一 B−T 转换；基础集行停用改静默良定义降级）+ 基座去预设并集化（sap-adt→bundle:abap / plugin-dev→bundle:creator / harness-tools·bench→bundle:dev，升 ac-base-version 2——空白 Agent 不再恒装预设并集）；消费面接线 shell/host boot、subagent 继承改父行集快照、webui 三处求值、会话工具面滤除无工具行 id；全量 424 文件/3040 用例绿"
-   },
-   {
     "sha": "08426ba86e9bb790a709d950b218041968fecb6b",
     "date": "2026-11-11",
     "subject": "fix(webui): cr-1020 subagents/list 盘读面补随 cr-1004 批2迁移——name 读 agent.json（owning 包档案读面单源，config.json 存量回落），此前只读 config.json 致新物化子整条目静默丢弃（帧链路正常、list 查不到，前端新建子不可见）；档案缺席/损坏不再丢条目（name 空串保留行）；回归锁三形态（仅 agent.json / 仅 config.json / 双缺席）"
+   },
+   {
+    "sha": "8b5287f08dadb5625e938f2f94beb3379970f12e",
+    "date": "2026-11-11",
+    "subject": "refactor(assembly): cr-1004/1007 装配代数统一落地——两段式求值引擎（ac-rowset-core evaluate.ts：存在合成=基座∪installed face 反向适配〔scope 投影退役、host 面 fail-closed〕+ 差量合成=用户层→实例层；席位六件特判消解、护栏经 seatIds 策略注入、诊断分级 warnings/notices/errors）+ 文件族改名（「patch」中缀专属差量：<proc>.yml 基座 / installed.yml 登记〔旧名只读兼容 + 版本戳判据的存量副本 reconcile——撞名误删用户差量层边界收口〕/ <proc>.patch.yml 用户差量层）+ agent.patch.yml v2 差量化（纯 cordis 条目数组 + # ac-base 基线戳：写面保真、boot 漂移 fail-loud 触发 rebase；档案与 origin 迁 agent.json；levels 归位条目 config.level〔dev-tools 死词退役〕；migrate v2 档幂等/--rebase/--revert）+ cr-1007 写侧精简（expansion 全落基础集的 no-op 加法不落盘 §六；组合读重建白名单保工具面热更新、{include} 统一 B−T 转换；基础集行停用改静默良定义降级）+ 基座去预设并集化（sap-adt→bundle:abap / plugin-dev→bundle:creator / harness-tools·bench→bundle:dev，升 ac-base-version 2——空白 Agent 不再恒装预设并集）；消费面接线 shell/host boot、subagent 继承改父行集快照、webui 三处求值、会话工具面滤除无工具行 id；全量 424 文件/3040 用例绿"
    }
   ],
   "1005": [
@@ -4393,14 +4393,14 @@
   ],
   "1009": [
    {
-    "sha": "d65201f350fdd2c338249f2ef430b006d956d4b3",
-    "date": "2026-11-11",
-    "subject": "docs: cr-1008 整理批——docs 全域重组八域目录 + 20 篇归档 + 文档规范成文"
-   },
-   {
     "sha": "8c4d311f478b7a7da50d5939fbe9e599efee2907",
     "date": "2026-11-11",
     "subject": "chore(cr): cr-commits.json 投影同步（cr-1009~1019 整理批台账）"
+   },
+   {
+    "sha": "d65201f350fdd2c338249f2ef430b006d956d4b3",
+    "date": "2026-11-11",
+    "subject": "docs: cr-1008 整理批——docs 全域重组八域目录 + 20 篇归档 + 文档规范成文"
    }
   ],
   "1015": [
@@ -4412,14 +4412,14 @@
   ],
   "1020": [
    {
-    "sha": "08426ba86e9bb790a709d950b218041968fecb6b",
-    "date": "2026-11-11",
-    "subject": "fix(webui): cr-1020 subagents/list 盘读面补随 cr-1004 批2迁移——name 读 agent.json（owning 包档案读面单源，config.json 存量回落），此前只读 config.json 致新物化子整条目静默丢弃（帧链路正常、list 查不到，前端新建子不可见）；档案缺席/损坏不再丢条目（name 空串保留行）；回归锁三形态（仅 agent.json / 仅 config.json / 双缺席）"
-   },
-   {
     "sha": "66ac564ebe8a169431968765ba22433c4bb68602",
     "date": "2026-11-11",
     "subject": "chore(cr): cr-commits.json 投影同步（cr-1020~1021 收录）"
+   },
+   {
+    "sha": "08426ba86e9bb790a709d950b218041968fecb6b",
+    "date": "2026-11-11",
+    "subject": "fix(webui): cr-1020 subagents/list 盘读面补随 cr-1004 批2迁移——name 读 agent.json（owning 包档案读面单源，config.json 存量回落），此前只读 config.json 致新物化子整条目静默丢弃（帧链路正常、list 查不到，前端新建子不可见）；档案缺席/损坏不再丢条目（name 空串保留行）；回归锁三形态（仅 agent.json / 仅 config.json / 双缺席）"
    }
   ],
   "1021": [
@@ -4445,26 +4445,26 @@
   ],
   "1027": [
    {
-    "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
-    "date": "2026-11-12",
-    "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
-   },
-   {
     "sha": "4938fc1f65adc449ac81ef2c5c5660a46baed2a5",
     "date": "2026-11-12",
     "subject": "chore(cr): cr-commits.json 投影同步（cr-1027~1034 收录）"
+   },
+   {
+    "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
+    "date": "2026-11-12",
+    "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
    }
   ],
   "1033": [
    {
-    "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
-    "date": "2026-11-12",
-    "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
-   },
-   {
     "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
     "date": "2026-11-12",
     "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
+   },
+   {
+    "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
+    "date": "2026-11-12",
+    "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
    }
   ],
   "1034": [
@@ -4476,33 +4476,33 @@
   ],
   "1035": [
    {
-    "sha": "3c77d76fe7a494d119a63cae4444e44726db509c",
-    "date": "2026-11-12",
-    "subject": "chore(ops): cr-1035 仓库卫生——.gitignore 补 %SystemDrive% 与一次性测试产物规则 + 误入库的 fold-out.txt/subagent-tool-test-report.md 移出索引"
-   },
-   {
     "sha": "83eafccd3eef6e5dcfa2d8ad90e7e22d4898edfe",
     "date": "2026-11-12",
     "subject": "chore(cr): cr-commits.json 投影同步（cr-1035 收录）"
+   },
+   {
+    "sha": "3c77d76fe7a494d119a63cae4444e44726db509c",
+    "date": "2026-11-12",
+    "subject": "chore(ops): cr-1035 仓库卫生——.gitignore 补 %SystemDrive% 与一次性测试产物规则 + 误入库的 fold-out.txt/subagent-tool-test-report.md 移出索引"
    }
   ],
   "1036": [
    {
-    "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
-    "date": "2026-11-12",
-    "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
-   },
-   {
     "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
     "date": "2026-11-12",
     "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
+   },
+   {
+    "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
+    "date": "2026-11-12",
+    "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
    }
   ],
   "1037": [
    {
-    "sha": "6e938873f045959ea4bf00d3fbabc0951df5ab4b",
+    "sha": "62228807c0c189b3fffafe4adc596355a84ad0dd",
     "date": "2026-11-12",
-    "subject": "feat(assembly): cr-1037 config 升级机制全批落地——行内 config（用户数据）版本化升级：批1 声明面 ac.configMigrations（模块路径发现面单源——函数进不了 JSON，边住包内 src/config-migrations.ts）+ config-chain.ts（声明解析/aggregateConfigChains 聚合器/runConfigMigration 执行语义——无损逐边、缺边 config.legacy、未来版本拒绝三路径）+ gen 链构建期四断言校验（缺环/跳边 gen 即红）；批2 执行面 boot 校准面同节奏惰性迁移（configVersion 机制键 + 原子落盘 + notice 单通道——顺手修正 calibrationNotices 漏汇入既有缺口）；批3 纪律收口 cr check 锁7 劝告锁（在途条目键面变更信号提示）+ ac.rows[].configKeys 键面自述（聚合→row-catalog 投影→applyAssemblyLayer 未知键 warn 不阻断、机制键豁免）+ 端到端演练；裁决簿新增〈config 键面自述与守门〉篇（ExtensionMeta 运行时聚合链路不在场→静态投影单源；守门劝告锁不做语义判定）+ 潜伏坑登记（profile/<proc>.patch.yml 同名双义——基座旧名回退撞差量层，留待专门 CR）；全量 418 文件 3003 绿 + integration 89 绿 + typecheck + check:deps + 六锁全绿"
+    "subject": "fix(llm): cr-1042 错误步保真落盘——LLM 流中途失败的部分思考/正文保留渲染"
    },
    {
     "sha": "fd7c8525f60beabe6e8439448aa90b96807cf10b",
@@ -4510,9 +4510,14 @@
     "subject": "chore: cr-1037 提交后 sync 投影（cr-commits.json）"
    },
    {
-    "sha": "62228807c0c189b3fffafe4adc596355a84ad0dd",
+    "sha": "6e938873f045959ea4bf00d3fbabc0951df5ab4b",
     "date": "2026-11-12",
-    "subject": "fix(llm): cr-1042 错误步保真落盘——LLM 流中途失败的部分思考/正文保留渲染"
+    "subject": "feat(assembly): cr-1037 config 升级机制全批落地——行内 config（用户数据）版本化升级：批1 声明面 ac.configMigrations（模块路径发现面单源——函数进不了 JSON，边住包内 src/config-migrations.ts）+ config-chain.ts（声明解析/aggregateConfigChains 聚合器/runConfigMigration 执行语义——无损逐边、缺边 config.legacy、未来版本拒绝三路径）+ gen 链构建期四断言校验（缺环/跳边 gen 即红）；批2 执行面 boot 校准面同节奏惰性迁移（configVersion 机制键 + 原子落盘 + notice 单通道——顺手修正 calibrationNotices 漏汇入既有缺口）；批3 纪律收口 cr check 锁7 劝告锁（在途条目键面变更信号提示）+ ac.rows[].configKeys 键面自述（聚合→row-catalog 投影→applyAssemblyLayer 未知键 warn 不阻断、机制键豁免）+ 端到端演练；裁决簿新增〈config 键面自述与守门〉篇（ExtensionMeta 运行时聚合链路不在场→静态投影单源；守门劝告锁不做语义判定）+ 潜伏坑登记（profile/<proc>.patch.yml 同名双义——基座旧名回退撞差量层，留待专门 CR）；全量 418 文件 3003 绿 + integration 89 绿 + typecheck + check:deps + 六锁全绿"
+   },
+   {
+    "sha": "1ee781e8c5d3eb8a1d8463280312c09245b7317f",
+    "date": "2026-11-13",
+    "subject": "fix(rowset-core): cr-1048 MenuBaseEntry 补 configKeys 字段——cr-1037 批3 聚合输出加了 configKeys 透传但类型未跟上（条件展开绕过多余属性检查，错误漏到测试访问处）；顺手补同批两处白名单文案漂移。typecheck 预存红消除（2 处）"
    }
   ],
   "1038": [
@@ -4538,17 +4543,22 @@
   ],
   "1042": [
    {
-    "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
-    "date": "2026-11-12",
-    "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
-   },
-   {
     "sha": "62228807c0c189b3fffafe4adc596355a84ad0dd",
     "date": "2026-11-12",
     "subject": "fix(llm): cr-1042 错误步保真落盘——LLM 流中途失败的部分思考/正文保留渲染"
+   },
+   {
+    "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
+    "date": "2026-11-12",
+    "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
    }
   ],
   "1043": [
+   {
+    "sha": "7727a9a80f7d9a31f5b30893520788fdec39a25f",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-commits.json 投影同步（cr-1043~1045 收录）"
+   },
    {
     "sha": "183c68940e3d898cf3dd98c0b9a0bb59d926b332",
     "date": "2026-11-13",
@@ -4558,23 +4568,42 @@
     "sha": "5db903f3c6efc7734878a344bfd00450dfc91d9d",
     "date": "2026-11-13",
     "subject": "feat(meta): cr-1043~1045 cr 工具 v3/v3.1——索引/内容/元数据三分离 + 包化 ac-cr + AgentChat 迁移"
-   },
-   {
-    "sha": "7727a9a80f7d9a31f5b30893520788fdec39a25f",
-    "date": "2026-11-13",
-    "subject": "chore(cr): cr-commits.json 投影同步（cr-1043~1045 收录）"
    }
   ],
   "1046": [
    {
+    "sha": "51a709fb434a8063413bcad6aaee145219abbfc1",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1046 台账登记"
+   },
+   {
     "sha": "57a5a07bbb86033452c3750864734cd590314243",
     "date": "2026-11-13",
     "subject": "fix(transport): cr-1046 邮局 dispatch 失败静默吞 + ipc 无超时——done-reply 回信永挂三壳 activeRuns 泄漏（前端假运行中十余小时）"
+   }
+  ],
+  "1047": [
+   {
+    "sha": "65452b560edd50db5d06a50bb3a1eb4a9136f0e4",
+    "date": "2026-11-13",
+    "subject": "chore(cr): 台账 cr-1047/cr-1048 登记"
    },
    {
-    "sha": "59392e61b2272f5eed31d3582990acd1bc5e9824",
+    "sha": "7923150cdddaa531a956a49711955c1b528273de",
     "date": "2026-11-13",
-    "subject": "chore(cr): cr-1046 台账登记"
+    "subject": "feat(ops): cr-1047 run-tests 新增 affected 档——git 变更反查受影响包定向跑测试：resolve-affected.mjs 求解器（工作树 vs upstream merge-base，--base/AFFECTED_BASE 可覆写；workspace 依赖图 BFS 反查 dependents；结构域变更 scripts/根测试配置/pnpm-workspace/apps-catalog exit 5 转全量，对齐验证阶梯）+ run-tests.mjs affected 档接线（单进程 vitest 路径过滤，保持既有隔离模型）+ test:affected script + README 命令区"
+   }
+  ],
+  "1048": [
+   {
+    "sha": "65452b560edd50db5d06a50bb3a1eb4a9136f0e4",
+    "date": "2026-11-13",
+    "subject": "chore(cr): 台账 cr-1047/cr-1048 登记"
+   },
+   {
+    "sha": "1ee781e8c5d3eb8a1d8463280312c09245b7317f",
+    "date": "2026-11-13",
+    "subject": "fix(rowset-core): cr-1048 MenuBaseEntry 补 configKeys 字段——cr-1037 批3 聚合输出加了 configKeys 透传但类型未跟上（条件展开绕过多余属性检查，错误漏到测试访问处）；顺手补同批两处白名单文案漂移。typecheck 预存红消除（2 处）"
    }
   ]
  }

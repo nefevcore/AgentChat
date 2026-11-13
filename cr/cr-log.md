@@ -1065,4 +1065,6 @@
 - 【cr-1044 2026-11-12 AgentChat 迁移至 cr/ 形态：cr-log.md 与 cr-commits.json 移入 cr/、scripts/cr.mjs 退役、根 package.json 换新路径、现行文档引用面同步（头部引言/cr-tool-v2 v3 段/epoch-marking/doc-conventions/docs README）、agentchat-dev 技能 CR 段收敛指向 cr skill】
 - 【cr-1045 2026-11-13 cr 元数据出索引：尾部块迁至 cr-meta.json（稀疏存储，CLI 维护禁手编）——索引行回归纯净 + 头行「当前号」退役（最大号工具现算）→ cr-log.md 真 append-only；set 只改 meta 不动索引；存量行内块一次性剥离迁移】
 - 【cr-1046 2026-11-13 fix(post-office/envelope-core): done-reply 回信 uuid 参与者集外冲突致 dispatch 永挂三壳 activeRuns 泄漏（运行跟踪假运行中）——listenIpc 吞错不回帧 + IpcClient.request 无超时双缺口 #bugfix】
+- 【cr-1047 2026-11-13 run-tests 新增 affected 档：git 变更反查受影响包定向跑测试（快门禁）】
+- 【cr-1048 2026-11-13 fix(rowset-core): MenuBaseEntry 缺 configKeys 字段致 typecheck 预存红（cr-1037 遗漏）】
 
