@@ -141,6 +141,8 @@ function detailPath(n) {
 }
 
 // —— 公共件 ——————————————————————————————————
+// today()：登记人本地日历日（cr-1052 声明——CR 台账是开发者本地工作流，
+// 本地时区即正确口径；补零维持 YYYY-MM-DD 规约）
 function today() {
   const d = new Date();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
