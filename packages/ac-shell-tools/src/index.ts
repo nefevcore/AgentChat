@@ -21,7 +21,7 @@ import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { widenToolsForGating } from 'ac-agents';
-import { createAgentSandboxCache, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
+import { createAgentSandboxCache, isLowRiskCommand, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
 import { bashSpec, prepareBash, preparePwsh, pwshSpec, type ShellSpec } from './shells.ts';
 import { executeShellCommand, type ExecLimits } from './executor.ts';
 import * as fs from 'node:fs';
@@ -191,6 +191,10 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
     const def = {
       name: spec.family,
       needPermission: true,
+      // risk 自评（cr-1078 遗留项①A）：纯查看 + 测试构建白名单 → allow
+      // （不弹审批卡，沙箱轴照拦）；写动词/重定向/替换/解释器 → ask。
+      risk: (args: Record<string, unknown>) =>
+        (isLowRiskCommand(String(args.command ?? '')) ? 'allow' : 'ask'),
       description: isWin
         ? '在 PowerShell 中执行命令并返回输出（常见 Unix 命令自动 fail-closed 翻译；background=true 转后台任务）。需要 shell 能力标签。枚举/检索文件优先用 glob/grep 工具——shell 里 Get-ChildItem -Recurse 递归整棵目录再管道过滤在本仓库是准死循环（node_modules 照爬、CPU 满载且长时间零输出，cr-382 孤儿事故 8 例中占 6）。'
         : '在 bash 中执行命令并返回输出（background=true 转后台任务）。需要 shell 能力标签。枚举/检索文件优先用 glob/grep 工具。',

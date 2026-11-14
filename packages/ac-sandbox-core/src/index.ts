@@ -14,6 +14,7 @@ export {
   createAgentSandboxCache,
   createRootsContainment,
   isPathUnder,
+  isPlainRelativePath,
   agentSpaceRoots,
   isDeniedPath,
   BUILTIN_DENY_PATTERNS,
@@ -26,7 +27,7 @@ export {
   createDenyListsFactory,
 } from './paths.ts';
 export type { SandboxResolver, SandboxResolverOptions, SandboxWorkdirSource, DenyRowOptions, DenyListsSource } from './paths.ts';
-export { bashCommandViolation, hostKillViolation, stripHeredocPayloads } from './bash-scan.ts';
+export { bashCommandViolation, hostKillViolation, stripHeredocPayloads, isLowRiskCommand } from './bash-scan.ts';
 export type { BashScanOptions } from './bash-scan.ts';
 export { makeSecretRedactor, redactSecretValue } from './redact.ts';
 export { securityNoticeText, wrapWithSecurityNotice } from './notice.ts';

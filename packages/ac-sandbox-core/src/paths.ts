@@ -304,6 +304,19 @@ export function isPathUnder(
   return t.startsWith(r.endsWith(path.sep) ? r : r + path.sep);
 }
 
+/**
+ * 朴素相对路径判定（cr-1078 risk 自评支持）：非空、无盘符/协议冒号、
+ * 不以分隔符开头（绝对路径）、无 .. 段——写入此类路径的目标必然落在
+ * 沙箱基准之内，risk 自评 allow 的实权限不越沙箱面（越界路径仍可
+ * ask 后经审批注入 full-access——那是人的裁决，不是自评）。
+ */
+export function isPlainRelativePath(p: string): boolean {
+  if (!p) return false;
+  if (p.includes(':')) return false; // 盘符 C:/、协议头、ADS 形态
+  if (p.startsWith('/') || p.startsWith('\\')) return false;
+  return !p.split(/[\\/]/).includes('..');
+}
+
 /** realpath（不存在/不可达 → undefined）。优先 native 实现（win32
  * GetFinalPathNameByHandle / posix realpath(3)）：把大小写变体、8.3 短名、
  * junction/reparse point 一并规范化为唯一词形——纯 JS 回退实现不展开

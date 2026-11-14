@@ -17,6 +17,8 @@ import {
   bashCommandViolation,
   hostKillViolation,
   stripHeredocPayloads,
+  isPlainRelativePath,
+  isLowRiskCommand,
   makeSecretRedactor,
   redactSecretValue,
 } from 'ac-sandbox-core';
@@ -493,5 +495,55 @@ describe('输出脱敏', () => {
     );
     expect(v).toMatchObject({ items: ['has *** inside'], nested: { key: '***' }, n: 42 });
     expect(redactSecretValue(7, redact)).toBe(7);
+  });
+});
+
+describe('isPlainRelativePath（cr-1078 risk 自评判定）', () => {
+  it('朴素相对路径 → true', () => {
+    expect(isPlainRelativePath('a.txt')).toBe(true);
+    expect(isPlainRelativePath('src/index.ts')).toBe(true);
+    expect(isPlainRelativePath('src\\index.ts')).toBe(true);
+  });
+  it('绝对/盘符/.. 段/空 → false', () => {
+    expect(isPlainRelativePath('C:/Windows/system32')).toBe(false);
+    expect(isPlainRelativePath('/etc/passwd')).toBe(false);
+    expect(isPlainRelativePath('../outside.txt')).toBe(false);
+    expect(isPlainRelativePath('a/../b.txt')).toBe(false);
+    expect(isPlainRelativePath('')).toBe(false);
+  });
+});
+
+describe('isLowRiskCommand（cr-1078 risk 自评——A+测试构建档裁决）', () => {
+  it('纯查看/只读 git/管道读/测试构建 → true', () => {
+    expect(isLowRiskCommand('ls')).toBe(true);
+    expect(isLowRiskCommand('Get-Content package.json')).toBe(true);
+    expect(isLowRiskCommand('Get-ChildItem | Sort-Object Name | Select-Object -First 10')).toBe(true);
+    expect(isLowRiskCommand('git status')).toBe(true);
+    expect(isLowRiskCommand('git diff HEAD~1')).toBe(true);
+    expect(isLowRiskCommand('git status && git diff')).toBe(true);
+    expect(isLowRiskCommand('pnpm test')).toBe(true);
+    expect(isLowRiskCommand('pnpm run typecheck')).toBe(true);
+    expect(isLowRiskCommand('pnpm --filter ac-math run build')).toBe(true);
+    expect(isLowRiskCommand('npm test -- foo')).toBe(true);
+    expect(isLowRiskCommand('npx eslint src/index.ts')).toBe(true);
+    expect(isLowRiskCommand('npx vitest run packages/ac-math')).toBe(true);
+  });
+  it('写动词/未知动词/重定向/替换/脚本块/解释器 → false（fail-closed）', () => {
+    expect(isLowRiskCommand('npm run dev')).toBe(false);
+    expect(isLowRiskCommand('pnpm install')).toBe(false);
+    expect(isLowRiskCommand('node script.js')).toBe(false);
+    expect(isLowRiskCommand('git push')).toBe(false);
+    expect(isLowRiskCommand('Get-Content a > b')).toBe(false);
+    expect(isLowRiskCommand('echo $HOME')).toBe(false);
+    expect(isLowRiskCommand('echo $(whoami)')).toBe(false);
+    expect(isLowRiskCommand('Where-Object { rm x }')).toBe(false);
+    expect(isLowRiskCommand('rm -rf x')).toBe(false);
+    expect(isLowRiskCommand('Set-Content a b')).toBe(false);
+    expect(isLowRiskCommand('npx vitest packages/x')).toBe(false);
+    expect(isLowRiskCommand('whoami && rm x')).toBe(false);
+    expect(isLowRiskCommand('')).toBe(false);
+  });
+  it('heredoc 出现即不收（写关联形态）', () => {
+    expect(isLowRiskCommand('echo @\'\npayload > x\n\'@')).toBe(false);
   });
 });

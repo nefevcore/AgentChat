@@ -25,6 +25,7 @@ import {
   createAgentSandboxCache,
   createDenyListsFactory,
   isDeniedPath,
+  isPlainRelativePath,
   type DenyRowOptions,
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
@@ -254,6 +255,14 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
     // 仅显式声明该标签的 Agent（如 __dsh_minimal__）可用
     // 权限轴（access-tier §3.3）：写面工具——无人审时需要档位门
     needPermission: true,
+    // risk 自评（cr-1078 遗留项①A）：view = 纯读面恒 allow；写命令
+    // （create/str_replace/insert）与 write/edit 同款——朴素相对路径 →
+    // allow（沙箱轴照拦），其余 ask。
+    risk: (args) => {
+      const cmd = String(args.command ?? '');
+      if (cmd === 'view') return 'allow';
+      return isPlainRelativePath(String(args.path ?? '')) ? 'allow' : 'ask';
+    },
     description:
       '四合一文件编辑器：view 查看文件（带行号）或目录、create 创建文件、str_replace 精确文本替换、insert 按行号插入。',
     parameters: {

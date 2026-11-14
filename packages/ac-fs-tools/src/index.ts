@@ -23,6 +23,7 @@ import {
   createAgentSandboxCache,
   createDenyListsFactory,
   isDeniedPath,
+  isPlainRelativePath,
   type DenyRowOptions,
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
@@ -246,6 +247,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'write',
     needPermission: true,
+    // risk 自评（cr-1078 遗留项①A）：朴素相对路径 → allow——直通后沙箱
+    // 轴照拦（allow ≠ full-access，实权限比「批准→full-access」窄）；
+    // 其余（绝对路径/../.. 段）→ ask 上抛审批链。
+    risk: (args) => (isPlainRelativePath(readPathArg(args)) ? 'allow' : 'ask'),
     description: '创建或覆盖文本文件。',
     parameters: {
       type: 'object',
@@ -300,6 +305,8 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   ctx.tools.register({
     name: 'edit',
     needPermission: true,
+    // risk 自评（cr-1078 遗留项①A）——判定与 write 同款（详见 write 注释）
+    risk: (args) => (isPlainRelativePath(readPathArg(args)) ? 'allow' : 'ask'),
     description: '通过替换文本内容来编辑文本文件（old_string 必须唯一且从 read 输出原样复制，且须与 new_string 不同；行首缩进不同的文本会被拒绝；json/代码文件写回前做语法预检）。',
     parameters: {
       type: 'object',

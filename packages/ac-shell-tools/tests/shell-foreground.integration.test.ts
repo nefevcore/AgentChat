@@ -25,6 +25,11 @@ describe('ac-shell-tools 平台注入（2026-09-16 工具拆分）', () => {
     const def = ctx.tools.get(CMD_TOOL);
     expect(def?.needPermission).toBe(true); // cr-953：requiredTags 声明随门禁退役
     expect(def?.needPermission).toBe(true);
+    // risk 自评接线（cr-1078）：白名单命令 allow，写动词 ask（判定单测住
+    // ac-sandbox-core——此处只锚接线的存在与分派）
+    expect(def?.risk?.({ command: 'git status' })).toBe('allow');
+    expect(def?.risk?.({ command: 'pnpm test' })).toBe('allow');
+    expect(def?.risk?.({ command: 'node build.js' })).toBe('ask');
   });
 
   it('pwsh（Windows）Unix 命令经翻译层：translated_command 痕迹', async () => {

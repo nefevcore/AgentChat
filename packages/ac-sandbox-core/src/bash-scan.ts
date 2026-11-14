@@ -231,3 +231,68 @@ function hostKillMessage(pointed: string): string {
     '清理进程请改用自己启动时记录的 PID 精确点名（如 Start-Process -PassThru 拿 $p.Id 后 Stop-Process -Id $p.Id、taskkill /PID <pid>），不要按进程名广谱杀。'
   );
 }
+
+// ============================================================
+// 命令只读性判定（cr-1078 risk 自评支持——遗留项① A 档裁决）
+// ============================================================
+
+/** 纯查看动词（首词白名单——参数面由沙箱轴兜底，allow ≠ full-access）。
+ *  管道读 cmdlet 入列的前提：{} 全禁封死脚本块/计算属性向量。 */
+const READ_ONLY_VERBS: ReadonlySet<string> = new Set([
+  'ls', 'dir', 'get-childitem', 'gci', 'get-content', 'gc', 'cat', 'head', 'tail', 'type',
+  'select-string', 'sls', 'findstr', 'grep', 'rg', 'wc', 'stat', 'file',
+  'echo', 'write-output',
+  'sort-object', 'sort', 'select-object', 'select', 'measure-object', 'measure',
+  'where-object', 'where', 'group-object', 'compare-object',
+  'format-table', 'format-list', 'format-wide',
+]);
+
+/** git 只读子命令（branch/tag/remote 等含写形态的子命令不收） */
+const GIT_READ_ONLY: ReadonlySet<string> = new Set(['status', 'diff', 'log', 'show', 'ls-files', 'blame']);
+
+/** npx 低险命令（vitest 须带 run 防 watch 长驻；playwright 须带 test——open/codegen 起 GUI） */
+const NPX_LOW_RISK: ReadonlySet<string> = new Set(['eslint', 'tsc']);
+
+/** 测试/构建脚本名（pnpm/npm——脚本名以这些词根开头；install 类不收：postinstall 任意代码） */
+const BUILD_TEST_RE = /^(?:pnpm|npm)(?:\s+--filter\s+\S+)?\s+(?:run\s+)?(?:test|typecheck|lint|build|check)[\w:.-]*/;
+
+/** 单段判定：按首词分派（小写归一——命令动词大小写不敏感） */
+function isLowRiskSegment(seg: string): boolean {
+  const words = seg.toLowerCase().split(/\s+/).filter(Boolean);
+  const first = words[0] ?? '';
+  if (first === 'pwd' || first === 'get-location' || first === 'whoami') {
+    return words.length === 1; // 整词命令（带参数形态罕见，从严不收）
+  }
+  if (first === 'git') {
+    return GIT_READ_ONLY.has(words[1] ?? '');
+  }
+  if (first === 'node') return words[1] === '-v' || words[1] === '--version';
+  if (first === 'pnpm' || first === 'npm') return BUILD_TEST_RE.test(seg.toLowerCase());
+  if (first === 'npx') {
+    const cmd = words[1] ?? '';
+    if (cmd === 'vitest') return words[2] === 'run';
+    if (cmd === 'playwright') return words[2] === 'test';
+    return NPX_LOW_RISK.has(cmd);
+  }
+  return READ_ONLY_VERBS.has(first);
+}
+
+/**
+ * 命令只读性判定（cr-1078 用户裁决 A+测试构建档）：全部命令段
+ * （; && || | 换行拆分）都是白名单动词（纯查看 / 测试构建）才 true。
+ * 重定向 <>、脚本块 {}、变量/命令替换 $、反引号、heredoc、脚本
+ * 解释器直调（node/python/sh …）一律 false（fail-closed）。
+ * 纵深保证：true 只回答「risk 自评 allow——不弹审批卡」，执行面仍受
+ * 沙箱轴约束（越界路径照拦，D9）；不是执行边界。
+ */
+export function isLowRiskCommand(command: string): boolean {
+  // heredoc/here-string 出现即不收（写关联形态 overwhelmingly：Set-Content/
+  // cat > file；读动词带 heredoc 罕见——fail-closed 多问一次）
+  if (stripHeredocPayloads(command) !== command) return false;
+  // 重定向 <> / 脚本块 {}（PS script block = 代码执行向量，计算属性同理）/
+  // 变量展开 $（值不可静态判定，含 $env: 秘钥面）/ 反引号 —— 任一出现即 false
+  if (/[<>{}$`]/.test(command)) return false;
+  const segments = command.split(/[;&|\n]/).map((s) => s.trim()).filter(Boolean);
+  if (segments.length === 0) return false;
+  return segments.every(isLowRiskSegment);
+}

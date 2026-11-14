@@ -79,6 +79,25 @@ describe('ac-fs-tools', () => {
     expect(big.output.note).toContain('token 预算');
   });
 
+  it('write/edit/str_replace_editor risk 自评接线（cr-1078）：沙箱内相对路径 allow、越界/绝对 ask、view 恒 allow', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot(root);
+    const w = ctx.tools.get('write')!;
+    expect(w.risk?.({ file_path: 'src/a.ts', content: 'x' })).toBe('allow');
+    expect(w.risk?.({ file_path: 'src\\a.ts', content: 'x' })).toBe('allow');
+    expect(w.risk?.({ file_path: 'C:/Windows/x', content: 'x' })).toBe('ask');
+    expect(w.risk?.({ file_path: '../x', content: 'x' })).toBe('ask');
+    // 旧参数键兼容（readPathArg 兜底链）
+    expect(w.risk?.({ path: 'a.txt', content: 'x' })).toBe('allow');
+    const e = ctx.tools.get('edit')!;
+    expect(e.risk?.({ file_path: 'a.ts', old_string: 'x', new_string: 'y' })).toBe('allow');
+    expect(e.risk?.({ file_path: '/etc/x', old_string: 'x', new_string: 'y' })).toBe('ask');
+    const s = ctx.tools.get('str_replace_editor')!;
+    expect(s.risk?.({ command: 'view', path: '/abs' })).toBe('allow');
+    expect(s.risk?.({ command: 'create', path: 'ok.txt', file_text: 'x' })).toBe('allow');
+    expect(s.risk?.({ command: 'create', path: '../x', file_text: 'x' })).toBe('ask');
+  });
+
   it('write：建目录写文件；沙箱越界拒绝；.env 黑名单拒绝', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
