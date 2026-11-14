@@ -1096,4 +1096,5 @@
 - 【cr-1075 2026-11-14 修 cr-1074 引入的 ac-shell-rows 包内循环依赖：plugin-guard 去掉 IMPORTED_ROWS 导入，改前缀规则】
 - 【cr-1076 2026-11-14 插件技能文本同步：permissions 词表增 risk（D11 信任位）+ manifest name 禁占官方命名空间（cr-1074/1075 跟随）】
 - 【cr-1077 2026-11-14 权限门批1-3收官交接文档重写（permission-gate-handoff v2：遗留项清单/已批收口/接力入口）】
+- 【cr-1078 2026-11-14 权限门遗留项①：官方工具行 risk 分级（A 全套裁决——write/edit/sre 沙箱内相对路径 allow；pwsh/bash 只读+测试构建白名单 allow；web_search/browser 恒 allow；submit_issue/run_harness 不动恒 ask）】
 
