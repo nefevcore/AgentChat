@@ -35,7 +35,7 @@ function seedPapa(extra: Record<string, unknown> = {}): void {
 function seedChildRaw(childId: string, originConversation?: string): void {
   const dir = path.join(ROOT, 'agents', 'papa', 'children', childId);
   fs.mkdirSync(dir, { recursive: true });
-  writeAgentPatchV3At(dir, [], {}, undefined);
+  writeAgentPatchV3At(dir, [], {});
   if (originConversation !== undefined) {
     writePluginConfigAt(dir, 'origin', { originConversation });
   }
@@ -917,10 +917,10 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // 盘上预置"会话 B"的子与无键子
       const bRoot = path.join(ROOT, 'agents', 'papa', 'children', 'sub-fromb');
       fs.mkdirSync(bRoot, { recursive: true });
-      writeAgentPatchV3At(bRoot, [], {}, undefined); writePluginConfigAt(bRoot, 'origin', { originConversation: 'conv-b' });
+      writeAgentPatchV3At(bRoot, [], {}); writePluginConfigAt(bRoot, 'origin', { originConversation: 'conv-b' });
       const uRoot = path.join(ROOT, 'agents', 'papa', 'children', 'sub-nokey');
       fs.mkdirSync(uRoot, { recursive: true });
-      writeAgentPatchV3At(uRoot, [], {}, undefined);
+      writeAgentPatchV3At(uRoot, [], {});
       // 会话 A 视角：own + 无键可见；conv-b 隐去
       const inA = await tools.execute({ name: 'subagent', args: { action: 'list' }, conversationId: 'conv-a' });
       const idsA = (inA.output?.agents ?? []).map((e) => e.childId);
@@ -957,7 +957,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       });
       const childRoot = path.join(ROOT, 'agents', 'papa', 'children', childId);
       fs.mkdirSync(childRoot, { recursive: true });
-      writeAgentPatchV3At(childRoot, [], {}, undefined);
+      writeAgentPatchV3At(childRoot, [], {});
       acquireActivationLock(childRoot, {
         pid: process.pid, bootId: 'b-kid-s', acquiredAt: new Date().toISOString(), transportHint: hint,
       });
@@ -972,7 +972,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // 重拉（spawnShell 替身被调——children 句柄回管）
       const deadRoot = path.join(ROOT, 'agents', 'papa', 'children', 'kid-dead');
       fs.mkdirSync(deadRoot, { recursive: true });
-      writeAgentPatchV3At(deadRoot, [], {}, undefined);
+      writeAgentPatchV3At(deadRoot, [], {});
       const deadOut = await svc.sendOp('kid-dead', 'x', 'async');
       expect(deadOut.delivered).toBe(true); // 落盘即送达
       const inboxDir = path.join(deadRoot, 'sessions', 'papa~kid-dead', 'inbox');
@@ -1117,7 +1117,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       // 死子（无锁无句柄）不建——消费面无人
       const dead = 'sub-dead-1';
       fs.mkdirSync(path.join(ROOT, 'agents', 'papa', 'children', dead), { recursive: true });
-      writeAgentPatchV3At(path.join(ROOT, 'agents', 'papa', 'children', dead), [], {}, undefined);
+      writeAgentPatchV3At(path.join(ROOT, 'agents', 'papa', 'children', dead), [], {});
       svcInner.reconcilePendingAsks();
       expect(svcInner.askWatchers.has(dead)).toBe(false);
     } finally { await dispose(); }

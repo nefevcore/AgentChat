@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { deriveAndAssertRowset } from '../boot.ts';
 import { writeAgentConfig } from 'ac-agents-core';
-import { readCatalog, assemblyBaseStamp } from 'ac-rowset-core';
+import { readCatalog } from 'ac-rowset-core';
 
 const ROOT = path.join('sandbox', 'test-shell-custom-' + process.pid);
 const CATALOG = path.join('sandbox', 'test-shell-custom-cat-' + process.pid + '.json');
@@ -32,15 +32,11 @@ function writeFixture(): void {
   }, null, 2) + '\n', 'utf-8');
 }
 
-// v3 播种（cr-1022 批3）：正清单定义拷贝经 opts.shellRows 注入 fixture
-// 目录；须在 writeCustom 之后调用——基线戳盖 profile/shell.patch.yml，
-// 播种早于用户层落盘则 boot 侧现算戳漂移 fail-loud
+// v3 播种（cr-1022 批3）：正清单定义拷贝经 opts.shellRows 注入 fixture 目录
+//（cr-1067 基线戳退役——播种与用户层落盘顺序不再有戳约束）
 function seedAgent(agentId: string, rows: string[]): void {
   const shellRows = readCatalog(CATALOG).rows.filter((r) => r.tree === 'shell');
-  // baseStamp 显式现算：writeAgentConfig 缺省「既有戳赢」——同一 agent 在
-  // 用户层变更后重播种须重算基线（模拟 migrate --rebase 面）
-  writeAgentConfig(ROOT, { id: agentId, model: 'mock', rows },
-    { shellRows, baseStamp: assemblyBaseStamp(ROOT, 'shell') });
+  writeAgentConfig(ROOT, { id: agentId, model: 'mock', rows }, { shellRows });
 }
 
 beforeEach(() => {

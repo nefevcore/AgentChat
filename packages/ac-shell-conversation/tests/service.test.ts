@@ -42,7 +42,7 @@ function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
 
 /** 子域物化 fixture（cr-863）：物化走 materializeChild 同形 v3 写口（cr-1036 批3） */
 function seedChild(parentId: string, childId: string): void {
-  writeAgentPatchV3At(path.join(ROOT, 'agents', parentId, 'children', childId), [], {}, undefined);
+  writeAgentPatchV3At(path.join(ROOT, 'agents', parentId, 'children', childId), [], {});
   fs.writeFileSync(path.join(ROOT, 'agents', parentId, 'children', childId, 'agent.json'), JSON.stringify({ model: 'mock-1' }), 'utf-8');
 }
 

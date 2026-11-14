@@ -32,8 +32,8 @@ afterEach(() => {
 });
 
 // v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）。
-// 基座文档先物化进数据根：bootHost 部署链会写 profile/shell.yml，若播种
-// 早于物化则基线戳漂移——播种与 boot 两侧 stamp 须对同一 profile 态求值。
+// 基座文档先物化进数据根：bootHost 部署链会写 profile/shell.yml（行目录
+// 单源——播种与 boot 两侧对同一 profile 态求值）。
 function seedConfig(agentId: string): void {
   materializeBaseDocs(profileDirOf(CATALOG), ROOT);
   fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));

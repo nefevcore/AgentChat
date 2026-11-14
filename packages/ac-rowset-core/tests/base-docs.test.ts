@@ -49,8 +49,8 @@ describe('投影等价（cr-1033 B2 合并语义：骨架归基座 / 能力归�
     expect(host.version).toBeGreaterThanOrEqual(1);
     expect(new Set(host.entries.map((e) => e.id)).size).toBe(host.entries.length);
     const shell = readBaseDoc(baseDocFile(PROFILE_DIR, 'shell'), 'shell');
-    expect(shell.version).toBeGreaterThanOrEqual(5);
-    expect(shell.entries.map((e) => e.id)).toHaveLength(13); // 骨架单区（menu-assembly §三）
+    expect(shell.version).toBeGreaterThanOrEqual(6);
+    expect(shell.entries.map((e) => e.id)).toHaveLength(14); // 骨架单区（menu-assembly §三）
     expect(new Set(shell.entries.map((e) => e.id)).size).toBe(shell.entries.length);
   });
 
@@ -69,10 +69,10 @@ describe('投影等价（cr-1033 B2 合并语义：骨架归基座 / 能力归�
     }
   });
 
-  it('shell v5 单区骨架 13 行 + 投影派生 zone（能力行归包——cr-1033 B3）', () => {
+  it('shell v6 单区骨架 14 行 + 投影派生 zone（能力行归包——cr-1033 B3；cr-1066 permission-gate）', () => {
     const doc = readBaseDoc(baseDocFile(PROFILE_DIR, 'shell'), 'shell');
     expect(doc.entries.map((e) => e.id)).toEqual([
-      'logger-console', 'config', 'ledger', 'conversation', 'tools', 'llm', 'llm-pool',
+      'logger-console', 'config', 'ledger', 'conversation', 'tools', 'permission-gate', 'llm', 'llm-pool',
       'agent-loop', 'persona', 'conduct', 'host-face-client', 'durable-interaction', 'jobs',
     ]);
     const projected = doc.entries.map((e) => projectBaseEntry(e, 'shell'));

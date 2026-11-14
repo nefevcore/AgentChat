@@ -17,7 +17,7 @@ import WebSocket from 'ws';
 import { RPC_CALL, RPC_RESULT, WS_READY } from 'ac-ws-protocol';
 import { importRoot } from 'ac-import';
 import { readAgentConfig, writeAgentConfig } from 'ac-agents-core';
-import { materializeBaseDocs, profileDirOf, assemblyBaseStamp } from 'ac-rowset-core';
+import { materializeBaseDocs, profileDirOf } from 'ac-rowset-core';
 import { readLedger, projectUserReplay, LedgerWriter, sessionDir } from 'ac-ledger';
 import { bootHost, type HostBootResult } from '../boot.ts';
 import { adoptShell } from '../orchestrate.ts';
@@ -72,13 +72,12 @@ function seedLegacy(): void {
 }
 
 /** cr-1022 批3 → cr-1036 批3：importRoot 产物已是 v3 形态（ac-import 写面
- * 换轨），宿主/壳消费前只补物化基座 + 幂等重写（基线戳两侧一致）。 */
+ * 换轨），宿主/壳消费前只补物化基座 + 幂等重写（cr-1067 基线戳退役，
+ * 无戳面需对齐）。 */
 function migrateTargetAgent(): void {
   materializeBaseDocs(profileDirOf(CATALOG), targetRoot);
   const cfg = readAgentConfig(targetRoot, 'alpha');
-  // baseStamp 显式传当前物化态——importRoot 写口在基座物化前落盘（空态戳），
-  // existingStamp 保真语义会带着旧空戳走（漂移即红）；此处 rebase 到现态
-  if (cfg !== null) writeAgentConfig(targetRoot, cfg, { baseStamp: assemblyBaseStamp(targetRoot, 'shell') });
+  if (cfg !== null) writeAgentConfig(targetRoot, cfg);
 }
 
 function connect(port: number): Promise<WebSocket> {

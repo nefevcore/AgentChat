@@ -19,7 +19,6 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import * as crypto from 'node:crypto';
 import yaml from 'js-yaml';
 import { readPluginRowDeclarations } from './plugin-rows.ts';
 import type { RowDescriptor } from './rowset.ts';
@@ -101,28 +100,6 @@ export function rowDescriptorsOfDir(entry: InstalledMenuEntry, dir: string, warn
     warnings.push(entry.id + '：manifest/package 声明均缺席——跳过');
     return [];
   }
-}
-
-
-
-/** 存在合成基线指纹（cr-1004 §五 `# ac-base` 戳单源）：本基座文档
- * + installed 登记的规范化内容哈希（sha256 前 16 hex）。agent.patch.yml
- * 差量恒对戳对应的存在合成求值——漂移 = rebase（迁移/编辑器重算戳），
- * 基座/安装态演化对存量实例不静默传导。 */
-export function assemblyBaseStamp(dataRoot: string, proc: string): string {
-  const profile = path.join(dataRoot, 'profile');
-  const readOpt = (file: string): string => {
-    try {
-      return fs.readFileSync(file, 'utf-8');
-    } catch {
-      return '';
-    }
-  };
-  const baseText = readOpt(path.join(profile, proc + '.yml'))
-    || readOpt(path.join(profile, proc + '.patch.yml'));
-  const installedText = readOpt(path.join(profile, 'installed.yml'))
-    || readOpt(path.join(profile, 'installed.patch.yml'));
-  return crypto.createHash('sha256').update(baseText + String.fromCharCode(0) + installedText).digest('hex').slice(0, 16);
 }
 
 /** installed.yml → fit(installed × 本基座 face) 行集（owner 锚过滤 +

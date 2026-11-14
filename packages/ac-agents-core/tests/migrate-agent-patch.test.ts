@@ -1,7 +1,7 @@
 // ============================================================
 // migrate-agent-patch.test.ts —— 身份迁移脚本往返锁定（cr-906 批4 切片三 /
 // cr-1004 批2 v2 档 / cr-1022 批2 v3 档：agent.json 档案 + agent.patch.yml
-// v3 菜单片段〔行定义 + src-fingerprint + 基线戳〕；v2 输入经
+// v3 菜单片段〔行定义 + src-fingerprint——cr-1067 基线戳退役〕；v2 输入经
 // legacyToMenuDefs 桥换算，旧形态经 rowsToMenuDefs 正清单定义拷贝）
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -36,7 +36,6 @@ describe('身份迁移脚本（cr-1022 批2 v3 目标态）', () => {
     const dir = path.join(ROOT, 'agents/alpha');
     const v3 = readAgentPatchV3At(dir);
     expect(v3).not.toBeNull();
-    expect(v3!.base).toMatch(/^[0-9a-f]{16}$/); // 基线戳取迁移时点
     // 定义拷贝：rows 正清单 → 出厂能力区定义 + src-fingerprint（词形 = 行 id）
     expect(v3!.defs.map((d) => d.id)).toEqual(['auto-title', 'fs-tools', 'math']); // auto-title = 旧席位词现为能力行——旧基础集恒并，逐位等价随迁
     expect(v3!.defs[0]!.name).toMatch(/^link:/); // 定义自带装载路径
@@ -55,17 +54,13 @@ describe('身份迁移脚本（cr-1022 批2 v3 目标态）', () => {
     expect(readAgentProfileAt(dir)?.origin).toEqual({ template: 'standard', hash: 'h1' });
   });
 
-  it('幂等重跑零变化；--rebase 重算基线戳并留一代备份；回退还原旧读窗口', () => {
+  it('幂等重跑零变化（cr-1067：--rebase 已随基线戳退役）；回退还原旧读窗口', () => {
     run();
     const dir = path.join(ROOT, 'agents/alpha');
     const patchSnap = fs.readFileSync(path.join(dir, PATCH_FILE), 'utf-8');
     run();
     expect(fs.readFileSync(path.join(dir, PATCH_FILE), 'utf-8')).toBe(patchSnap);
-    // cr-1025 重写原子纪律：--rebase 重写前留一代备份
     expect(fs.existsSync(path.join(dir, PATCH_FILE + '.bak'))).toBe(false); // 幂等跳过无重写
-    run('--rebase');
-    expect(fs.existsSync(path.join(dir, PATCH_FILE + '.bak'))).toBe(true);
-    expect(readAgentPatchV3At(dir)?.defs.map((d) => d.id)).toEqual(['auto-title', 'fs-tools', 'math']); // defs 不变
     run('--revert');
     expect(fs.existsSync(path.join(dir, PATCH_FILE))).toBe(false);
     expect(fs.existsSync(path.join(dir, 'agent.json'))).toBe(false);

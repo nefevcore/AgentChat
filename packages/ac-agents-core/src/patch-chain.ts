@@ -51,7 +51,7 @@ export interface LegacyEntry {
   config?: Record<string, unknown>;
 }
 
-/** 目录上下文（边换算外部输入——出厂目录与基线戳，随形态值行进） */
+/** 目录上下文（边换算外部输入——出厂目录，随形态值行进） */
 export interface PatchChainContext {
   /** 身份目录（agents/<id>/ ∨ agents/<pid>/children/<cid>/） */
   dir: string;
@@ -59,8 +59,6 @@ export interface PatchChainContext {
   skeleton: MenuEntry[];
   /** 出厂能力区行（定义拷贝与指纹来源） */
   capability: MenuEntry[];
-  /** 基线戳（存在合成指纹——v1→v2 边写入） */
-  stamp: string;
 }
 
 /** 链上形态值（各版本形态载荷并集——ctx 随行，warnings/notices 汇聚审计） */
@@ -330,7 +328,7 @@ export function migrateAgentPatchAt(ctx: PatchChainContext): PatchMigrationOutco
   const { value, reports } = runChain(PATCH_CHAIN, stored);
   const defs = value.v2Defs ?? [];
   const fingerprints = value.v2Fingerprints ?? {};
-  writeAgentPatchV3At(ctx.dir, defs, fingerprints, ctx.stamp);
+  writeAgentPatchV3At(ctx.dir, defs, fingerprints);
   const written = readAgentPatchV3At(ctx.dir);
   const actual = written !== null
     ? mergeMenu({ skeleton: ctx.skeleton, patch: written.defs }).entries.map((d) => d.id).sort()
@@ -345,6 +343,5 @@ export function migrateAgentPatchAt(ctx: PatchChainContext): PatchMigrationOutco
   return { fromVersion: stored.version, reports, defs, fingerprints, wroteProfile, warnings: value.warnings, notices: value.notices };
 }
 
-/** v3 幂等重写（--rebase：基线戳重算——非迁移，工具直用 writeAgentPatchV3At） */
 export { PATCH_FILE, PROFILE_FILE };
 export type { AgentPatchDoc };

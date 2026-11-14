@@ -14,7 +14,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentConfig } from './config.ts';
 import { normalizeLegacyTags, accessOf, toolModeOf } from './config.ts';
-import { readCatalog, defaultCatalogFile, assemblyBaseStamp, type AssemblyEntry } from 'ac-rowset-core';
+import { readCatalog, defaultCatalogFile, type AssemblyEntry } from 'ac-rowset-core';
 import { readAgentPatch, patchToConfig, readPluginConfigs, readPluginConfigsAt, writePluginConfig, readAgentPatchV3At, readAgentProfileAt, writeAgentProfileAt, writeAgentPatchV3At, rowsToMenuDefs, levelsOfEntries, mergeLevelsIntoEntries, writePluginConfigAt as writePluginConfigAt2, PATCH_FILE, type AgentProfile } from './patch-doc.ts';
 
 /** 树内文件名常量（读写双面共用单源） */
@@ -95,13 +95,13 @@ export function readAgentConfig(dataRoot: string, agentId: string, opts: { catal
   return null;
 }
 
-/** 写 Agent 定义（cr-1004 批2：档案 → agent.json；装配差量 → agent.patch.yml
- * v2 数组形态〔含 `# ac-base` 基线戳保真〕；settings 拆单元文件）。
- * 数组白名单 rows 需 shell 行目录（B−T 确定性转换）——opts.shellRows 注入。 */
+/** 写 Agent 定义（cr-1004 批2：档案 → agent.json；装配 → agent.patch.yml
+ * v3 菜单片段；settings 拆单元文件）。数组白名单 rows 需 shell 行目录
+ *（B−T 确定性转换）——opts.shellRows 注入。 */
 export function writeAgentConfig(
   dataRoot: string,
   config: AgentConfig,
-  opts: { shellRows?: import('ac-rowset-core').RowDescriptor[]; baseStamp?: string } = {},
+  opts: { shellRows?: import('ac-rowset-core').RowDescriptor[] } = {},
 ): void {
   assertAgentId(config.id);
   const dir = agentDir(dataRoot, config.id);
@@ -146,12 +146,10 @@ export function writeAgentConfig(
       ...(r.requires !== undefined ? { requires: r.requires } : {}),
     }));
   // v3 菜单片段（cr-1022 批2）：正清单定义拷贝 + src-fingerprint + levels
-  // 归 config；基线戳保真语义沿用（既有戳赢，新写才现算）
+  // 归 config（cr-1067：基线戳已退役——基座/安装态演化经 boot 定义面校准传导）
   const { defs, fingerprints } = rowsToMenuDefs(config.rows, capability);
   mergeLevelsIntoEntries(defs, config.levels);
-  const existingStamp = readAgentPatchV3At(dir)?.base;
-  writeAgentPatchV3At(dir, defs, fingerprints,
-    opts.baseStamp ?? existingStamp ?? assemblyBaseStamp(dataRoot, 'shell'));
+  writeAgentPatchV3At(dir, defs, fingerprints);
 }
 
 /** 列 agents/ 下全部 agent id（缺席 = 空数组） */
@@ -229,9 +227,9 @@ export function deriveChildConfig(parent: AgentConfig, childId: string): AgentCo
 }
 
 /** 物化子身份到 agents/<parentId>/children/<childId>/（物化即快照——
- * 身份一次性落盘，父此后改配置不传播）。cr-1004 批2：写 v2 形态
- * （agent.json 档案 + agent.patch.yml 差量〔白名单 rows 经 B−T 转换——
- * shellRows 注入；基线戳取当前存在合成〕）；config.json 旧读窗口保留。
+ * 身份一次性落盘，父此后改配置不传播）。cr-1004 批2：写新形态
+ * （agent.json 档案 + agent.patch.yml v3 菜单片段〔白名单 rows 经 B−T
+ * 转换——shellRows 注入〕）；config.json 旧读窗口保留。
  * 已存在 = fail-loud（不静默覆盖）。 */
 export function materializeChild(
   dataRoot: string,
@@ -278,6 +276,6 @@ export function materializeChild(
     }));
   const { defs, fingerprints } = rowsToMenuDefs(child.rows, capability);
   mergeLevelsIntoEntries(defs, child.levels);
-  writeAgentPatchV3At(dir, defs, fingerprints, assemblyBaseStamp(dataRoot, 'shell'));
+  writeAgentPatchV3At(dir, defs, fingerprints);
   return dir;
 }

@@ -1,7 +1,8 @@
 // ============================================================
 // patch-doc.ts —— agent.patch.yml 装配差量 + agent.json 档案读写
 //（cr-906 / cr-918 / cr-1004 批2：装配差量化——patch 顶层 = 纯 cordis
-// 条目数组〔加法/disabled/config + `# ac-base` 基线戳〕；档案字段与
+// 条目数组〔加法/disabled/config + v2 `# ac-base` 基线戳——cr-1067 已
+// 退役〕；档案字段与
 // origin 块迁 agent.json〔agent-data.md §三〕。旧映射形态读侧迁移窗口
 // 〔migrate 脚本收口后退役〕，写恒新形态。）
 //
@@ -285,8 +286,6 @@ export interface AgentProfile {
   origin?: PatchOrigin;
 }
 
-const BASE_STAMP_RE = /^#\s*ac-base:\s*(\S+)\s*$/m;
-
 /** 读 agent.json（缺席 = null；损坏 = throw——档案代写文档） */
 export function readAgentProfileAt(dir: string): AgentProfile | null {
   let text: string;
@@ -341,12 +340,12 @@ export function mergeLevelsIntoEntries(entries: MenuEntry[], levels: Record<stri
 
 /** v3 菜单片段文档：顶层数组 = 行定义（id/name/requires/config——白名单
  * §2.1），src-fingerprint 为溯源元数据（§2.3 定义副本是缓存——读侧剥离，
- * 不进菜单合成词汇）。批3 boot 对账校准面消费。 */
+ * 不进菜单合成词汇）。批3 boot 对账校准面消费。（cr-1067：v2 基线戳
+ * ac-base 已退役——差量承重语义随 cr-1022 菜单代数消亡，存量注释行
+ * 容忍忽略，写面不再落。） */
 export interface AgentPatchV3 {
   /** 菜单标记（头注释 ac-menu: 1——v2/v3 同为数组形态的判别位） */
   menu: true;
-  /** 基线戳（沿用 v2 词汇——存在合成指纹，漂移 = rebase） */
-  base?: string;
   defs: MenuEntry[];
   /** 行 id → 定义指纹（写入时随行；批3 校准面对账） */
   fingerprints: Record<string, string>;
@@ -380,8 +379,7 @@ export function readAgentPatchV3At(dir: string): AgentPatchV3 | null {
     if (typeof fp === 'string') fingerprints[e.id] = fp;
     defs.push(e as unknown as MenuEntry);
   }
-  const stamped = BASE_STAMP_RE.exec(text);
-  return { menu: true, ...(stamped !== null ? { base: stamped[1] } : {}), defs, fingerprints };
+  return { menu: true, defs, fingerprints };
 }
 
 /** 写 v3 菜单片段（cr-1025 重写原子纪律：临时文件 + fsync + 原子 rename，
@@ -390,7 +388,6 @@ export function writeAgentPatchV3At(
   dir: string,
   defs: MenuEntry[],
   fingerprints: Record<string, string>,
-  base?: string,
 ): void {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, PATCH_FILE);
@@ -399,8 +396,7 @@ export function writeAgentPatchV3At(
     ...(def.id in fingerprints ? { 'src-fingerprint': fingerprints[def.id] } : {}),
   }));
   const header = '# agent.patch v3 —— 菜单片段（cr-1022 批2）：行定义数组（id/name/requires/config + src-fingerprint 溯源）；档案与 origin 在 agent.json。' + String.fromCharCode(10)
-    + '# ac-menu: 1' + String.fromCharCode(10)
-    + (base !== undefined ? '# ac-base: ' + base + String.fromCharCode(10) : '');
+    + '# ac-menu: 1' + String.fromCharCode(10);
   const body = header + yaml.dump(dump, { lineWidth: 120, noRefs: true });
   try {
     fs.copyFileSync(file, file + '.bak'); // 留一代备份（成功后可清——批3 校准面接手）

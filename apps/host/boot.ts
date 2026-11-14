@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
 import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace, readTemplate, materializeConfigOf, materializeTemplateSkills, readAgentSkills, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
 import { isPresetId, presetTemplateKeyOf, readAgentConfig, writeAgentConfig } from 'ac-agents-core';
-import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readAssemblyPatch, assemblyBaseStamp, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
+import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readAssemblyPatch, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
 import { hostLog } from './host-log.ts';
 import { PostOffice } from 'ac-post-office';
 import { readActivationLock } from 'ac-envelope-core';
@@ -690,9 +690,9 @@ function reconcilePresets(dataRoot: string, templatesDir: string): void {
       writeOrigin(dataRoot, d.name, result.baseline);
     } else if ('follow' in result) {
       const follow = result.follow;
-      // cr-1004 批2：模板升级跟随 = 显式 rebase——基线戳取当前存在合成
-      //（follow.config 的 rows 白名单按当前 B 重新差量化；stamp 漂移不阻断）
-      writeAgentConfig(dataRoot, follow.config, { baseStamp: assemblyBaseStamp(dataRoot, 'shell') });
+      // cr-1004 批2：模板升级跟随 = 显式 rebase（follow.config 的 rows 白名单
+      // 按当前出厂目录重新差量化；cr-1067 基线戳退役后无 stamp 面）
+      writeAgentConfig(dataRoot, follow.config);
       for (const doc of follow.overwriteDocs) {
         const docFile = path.join(dir, doc.name);
         const docTmp = docFile + '.tmp';

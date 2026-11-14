@@ -36,12 +36,11 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 describe('agent.patch.yml v3 菜单片段 + agent.json（cr-1022 批2）', () => {
-  it('写拆落：行定义数组〔ac-menu 头+基线戳+src-fingerprint〕+ 档案 agent.json；读面投影回 AgentConfig', () => {
+  it('写拆落：行定义数组〔ac-menu 头+src-fingerprint——cr-1067 基线戳退役〕+ 档案 agent.json；读面投影回 AgentConfig', () => {
     writeAgentConfig(ROOT, cfg);
     const dir = agentDir(ROOT, ID);
     const v3 = readAgentPatchV3At(dir);
     expect(v3).not.toBeNull();
-    expect(v3!.base).toMatch(/^[0-9a-f]{16}$/);
     expect(v3!.defs.map((d) => d.id)).toEqual(['fs', 'web-tools']); // exclude 词形消亡——不进即不装
     for (const def of v3!.defs) expect(v3!.fingerprints[def.id]).toMatch(/^[0-9a-f]{16}$/);
     const profile = readAgentProfileAt(dir)!;

@@ -83,7 +83,7 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
     const childDir = path.join(ROOT, 'agents', 'papa', 'children', 'sub-x');
     fs.mkdirSync(childDir, { recursive: true });
     // cr-1036 批3：子域 fixture 走 v3（tags → toolMode/rows）
-    writeAgentPatchV3At(childDir, [], {}, undefined);
+    writeAgentPatchV3At(childDir, [], {});
     fs.writeFileSync(path.join(childDir, 'agent.json'), JSON.stringify({ model: 'mock', 'tool-mode': 'tc-programmatic' }));
     const ctx = new Context();
     const shim = new AgentsShim(ctx, ROOT, undefined, 'papa');
@@ -109,7 +109,7 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
     const childDir = path.join(ROOT, 'agents', 'papa', 'children', 'sub-x');
     fs.mkdirSync(childDir, { recursive: true });
     // cr-1036 批3：子域 fixture 走 v3 + 单元文件
-    writeAgentPatchV3At(childDir, [], {}, undefined);
+    writeAgentPatchV3At(childDir, [], {});
     fs.writeFileSync(path.join(childDir, 'agent.json'), JSON.stringify({ model: 'mock' }));
     writePluginConfigAt(childDir, 'security', { workdir: WS2 });
     // 无 workdir 的对照组 Agent

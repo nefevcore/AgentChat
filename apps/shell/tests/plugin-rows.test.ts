@@ -85,8 +85,8 @@ describe('壳行集 × 插件行（install = 授权动作）', () => {
     const entry = { id: 'demo', name: 'link:' + installDir };
     fs.writeFileSync(path.join(ROOT, 'profile', 'installed.yml'),
       '- ' + JSON.stringify(entry) + '\n', 'utf-8');
-    // v3 播种在 installed.yml 之后（基线戳盖 profile/installed.yml——播种
-    // 早于登记则 boot 侧现算戳漂移 fail-loud）；demo-tools 点名在写侧静默
+    // v3 播种（cr-1067 基线戳退役——与 installed.yml 落盘顺序无关）；
+    // demo-tools 点名在写侧静默
     // 丢（正清单），插件行经 installed 菜单注入进集
     writeAgent(['ledger', 'demo-tools']);
     const rowset = deriveAndAssertRowset(ROOT, 'demo-agent', CATALOG);

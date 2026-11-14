@@ -94,7 +94,7 @@ describe('usageApi · filterUsageRange 边界', () => {
   });
 
   it('days 窗口：cutoff 边界当日行保留（>= 语义）', () => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toISOString().slice(0, 10); // UTC 日键——与后端 byDay 聚合同口径（cr-1052）
     const withToday = toUsageSummary({
       byAgent: {},
       byModel: {},

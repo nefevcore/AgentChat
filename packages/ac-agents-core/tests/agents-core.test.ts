@@ -85,10 +85,10 @@ describe('agents/<id>/ 树直读', () => {
   it('写读往返：v3 菜单片段 + agent.json 档案还原（cr-1022 批2；id 一致性校验）', () => {
     const cfg: AgentConfig = { id: 'alpha', model: 'gpt-x', access: 'sandbox-access', settings: { memory: { depth: 2 } } };
     writeAgentConfig(ROOT, cfg);
-    // 落盘形态：agent.patch.yml = v3 行定义数组（ac-menu 头 + 基线戳）；档案在 agent.json
+    // 落盘形态：agent.patch.yml = v3 行定义数组（ac-menu 头——cr-1067 基线戳退役）；档案在 agent.json
     const patchText = fs.readFileSync(path.join(agentDir(ROOT, 'alpha'), 'agent.patch.yml'), 'utf-8');
     expect(patchText).toMatch(/# ac-menu: 1/);
-    expect(patchText).toMatch(/# ac-base: /);
+    expect(patchText).not.toMatch(/# ac-base: /);
     const v3 = readAgentPatchV3At(agentDir(ROOT, 'alpha'))!;
     expect(v3.defs.map((d) => d.id)).toEqual(['fs', 'math']); // rows 缺省 = 全部能力行
     for (const def of v3.defs) expect(v3.fingerprints[def.id]).toMatch(/^[0-9a-f]{16}$/);

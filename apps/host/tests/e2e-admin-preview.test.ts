@@ -29,8 +29,7 @@ let host: HostBootResult | null = null;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-e2e-admin-preview-'));
   fs.copyFileSync(CATALOG, path.join(tmp, 'row-catalog.json'));
-  // 基座文档先物化（bootHost 部署链同款）：播种若早于物化，v3 基线戳按
-  // 空 profile 求值 → 宿主物化后壳 boot 现算戳漂移 fail-loud
+  // 基座文档先物化（bootHost 部署链同款——行目录单源，播种与 boot 两侧对同一 profile 态求值）
   materializeBaseDocs(profileDirOf(CATALOG), tmp);
   // v3 播种（cr-1022 批3）；system 退役——persona 块承载基底提示词
   writeAgentConfig(tmp, {

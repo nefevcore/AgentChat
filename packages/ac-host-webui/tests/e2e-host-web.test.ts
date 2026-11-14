@@ -223,7 +223,7 @@ describe('8.5a 宿主 web 面接线', () => {
     // 键目录只回实验组（cr-613：主线同款 group 过滤——model/access/
     // toolMode 纯消费键不得混入输入框实验性菜单）
     const keys = await rpc<{ keys: Array<{ key: string; group?: string }> }>(ws, 'conv-settings/keys', {});
-    expect(keys.keys.map((k) => k.key).sort()).toEqual(['browserTier', 'issueSubmit']);
+    expect(keys.keys.map((k) => k.key).sort()).toEqual(['approval', 'browserTier', 'issueSubmit']);
 
     // ② deliver 合并点：1v1 直答不传 conversationId/model → 按 pairKey 读存盘覆盖
     const delivered = await rpc<{ uuid: string }>(ws, 'conversation/deliver', { agentId: 'alpha', message: '带覆盖一问' });

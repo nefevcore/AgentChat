@@ -28,9 +28,8 @@ const capability = [
   { id: 'fs-tools', name: 'link:packages/ac-fs-tools', requires: ['tools'] },
   { id: 'browser', name: 'link:packages/ac-client-ui-browser' },
 ];
-const stamp = 'aabbccdd00112233';
 const ROOT = path.join('sandbox', 'test-patch-chain-' + process.pid);
-const ctx = (dir: string): PatchChainContext => ({ dir, skeleton, capability, stamp });
+const ctx = (dir: string): PatchChainContext => ({ dir, skeleton, capability });
 
 beforeEach(() => { fs.mkdirSync(ROOT, { recursive: true }); });
 afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
@@ -104,7 +103,6 @@ describe('链驱动迁移：v0 config.json → v2（两边接力）', () => {
     // 菜单定义：白名单 {math, fs-tools} + 闭包 tools → defs 含两能力行
     const v3 = readAgentPatchV3At(dir)!;
     expect(v3.defs.map((d) => d.id).sort()).toEqual(['fs-tools', 'math']);
-    expect(v3.base).toBe(stamp);
     expect(v3.fingerprints['math']).toMatch(/^[0-9a-f]{16}$/);
     // levels 归位：browser 定义 config.level
     //（browser 不在白名单 rows → 不进 defs——levels 仅挂显式条目）
