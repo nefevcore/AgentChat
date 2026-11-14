@@ -12,8 +12,9 @@
 //   2 建议 := def.risk?.(args) ?? (needPermission ? 'ask' : 'allow')
 //   3 建议 deny → 拒绝（工具自愿收紧，不可被设置放宽）
 //   4 建议 allow → 直通（可信工具已自审——信任的收益）
-//   5 建议 ask：s := 设置链（会话键 approval > Agent settings['permission-gate']
-//     .onAsk > 全局 config settings['permission-gate'].onAsk > 缺省 'deny'）；s=allow 放行
+//   5 建议 ask：s := 设置链（会话键 approval〔仅有人会话〕> Agent settings
+//     ['permission-gate'].onAsk > 全局 config settings['permission-gate'].onAsk
+//     > 缺省 'deny'）；s=allow 放行
 //     （含无人桶——运营者预授权，问不出的问题不问）/ s=deny 拒绝 / s=ask →
 //     无人桶（humanPresentOf === false：self/agent~agent/g~member——问人
 //     不可达）→ 拒（D7 fail-closed：仅压「要弹卡」这一格，预授权层照常
@@ -72,8 +73,11 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
    * （第四层，fail-closed）。非法值回落下一层（回落方向——非 'allow'）。
    */
   function onAskOf(call: ToolCall): OnAsk {
-    // 第一层：会话键（壳 = ConvSettingsShim 只读 get；宿主 = 服务 get）
-    if (call.conversationId !== undefined) {
+    // 第一层：会话键（壳 = ConvSettingsShim 只读 get；宿主 = 服务 get）。
+    // 仅有人会话参与本层（用户裁决 cr-1079 续记）：会话键是用户偏好载体，
+    // 无人桶（self / agent~agent / g~member）无用户偏好可言——若读入残留
+    // 值会压住 Agent 设置，造成「Agent 配置未生效」的诡异排查面。
+    if (call.conversationId !== undefined && humanPresentOf(call.conversationId)) {
       const convSettings = ctx.get('convSettings', false) as
         | { get(id: string): Record<string, string> }
         | undefined;

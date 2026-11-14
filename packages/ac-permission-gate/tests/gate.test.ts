@@ -319,13 +319,21 @@ describe('D7（cr-1079 修订）：无人桶 = 无人类参与（self/agent~agen
     expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
   });
 
-  it('self 会话 + 会话键 allow 预授权 → 放行（cr-1079：预授权在无人桶生效）', async () => {
+  it('self 会话：会话键不参与（cr-1079 续记——无人桶跳过第一层），Agent settings allow 才是解锁位', async () => {
+    // 会话键 allow 写在无人桶上 = 被无视（残值不压 Agent 设置）
     const { ctx } = await boot({ convSettings: { 'alice~alice': { approval: 'allow' } } });
     const probe = await await reg(ctx, { name: 'selftool2', risk: () => 'ask' });
     const r = await ctx.tools.execute({ name: 'selftool2', args: {}, conversationId: 'alice~alice' });
-    expect(r.ok).toBe(true);
-    expect(probe.executed).toBe(1);
-    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
+    expect(r.ok).toBe(false); // 无 Agent 设置 → 链尾 deny（会话键 allow 未生效）
+    expect(probe.executed).toBe(0);
+    const { ctx: ctx2 } = await boot({
+      convSettings: { 'alice~alice': { approval: 'deny' } }, // 残值 deny 同样无视
+      agentSettings: { 'permission-gate': { onAsk: 'allow' } },
+    });
+    const probe2 = await reg(ctx2, { name: 'selftool3', risk: () => 'ask' });
+    const r2v = await ctx2.tools.execute({ name: 'selftool3', args: {}, conversationId: 'alice~alice' });
+    expect(r2v.ok).toBe(true); // Agent settings allow 放行——无人桶唯一预授权位
+    expect(probe2.executed).toBe(1);
   });
 
   it('news 现场：self 桶（news~news）+ Agent settings onAsk=allow → 放行（机制轮巡恢复）', async () => {
