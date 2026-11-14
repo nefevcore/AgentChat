@@ -137,6 +137,17 @@
    "status": "drop",
    "scopes": [],
    "refs": []
+  },
+  "1083": {
+   "status": "done",
+   "scopes": [
+    "#conv-settings",
+    "#permission"
+   ],
+   "refs": [
+    1080,
+    1082
+   ]
   }
  }
 }

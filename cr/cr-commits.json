@@ -1,6 +1,6 @@
 {
- "scannedHead": "2b8f8bd5b2fdbb0e16a9e967576e32057a618e5a",
- "generatedAt": "2026-11-14T12:03:15.670Z",
+ "scannedHead": "957b15b2da2fac9894477b31d402f9a2d8bd031b",
+ "generatedAt": "2026-11-14T13:54:14.521Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4867,6 +4867,44 @@
     "sha": "48eebb372ebd96797e62ce9e5fe43710f1c43b5b",
     "date": "2026-11-14",
     "subject": "fix(permission): cr-1079 收口——全局层收敛到 settings[permission-gate].onAsk（门行自读，壳侧 settingsOf 无全局层）、交互裁剪轴保持原语义（群/p2p 不随无人桶收紧）、补 news 现场用例"
+   }
+  ],
+  "1080": [
+   {
+    "sha": "df70c95d2fce068d14797e15500cbd8acd51e0a0",
+    "date": "2026-11-14",
+    "subject": "docs(session): cr-1080 会话键作用域推广计划成文（conv-scope-plan）——全键清单/消费点/三批切分/V1-V7 验收"
+   },
+   {
+    "sha": "957b15b2da2fac9894477b31d402f9a2d8bd031b",
+    "date": "2026-11-14",
+    "subject": "feat(session): cr-1083 conv-scope×access 两计划实施——会话键 effective 读取面挂门 + access 轴退役两态化"
+   }
+  ],
+  "1081": [
+   {
+    "sha": "2c73dc6fee5aa6209de707a974aec67f3ff03f63",
+    "date": "2026-11-14",
+    "subject": "chore(data): cr-1081 数据根兼容窗收口——六项旧位置迁移后删除（用户确认），data-root-layers.md §四清单收口"
+   }
+  ],
+  "1082": [
+   {
+    "sha": "e2b50acf86ae14cb335acaa4c287be5d50d87843",
+    "date": "2026-11-14",
+    "subject": "docs(session): cr-1082 access 轴整体退役计划成文（access-retirement-plan）——沙箱常量化 + full 统一为门裁决（通过即 full），A/B/C 三批与 V1-V6 验收"
+   },
+   {
+    "sha": "957b15b2da2fac9894477b31d402f9a2d8bd031b",
+    "date": "2026-11-14",
+    "subject": "feat(session): cr-1083 conv-scope×access 两计划实施——会话键 effective 读取面挂门 + access 轴退役两态化"
+   }
+  ],
+  "1083": [
+   {
+    "sha": "957b15b2da2fac9894477b31d402f9a2d8bd031b",
+    "date": "2026-11-14",
+    "subject": "feat(session): cr-1083 conv-scope×access 两计划实施——会话键 effective 读取面挂门 + access 轴退役两态化"
    }
   ]
  }
