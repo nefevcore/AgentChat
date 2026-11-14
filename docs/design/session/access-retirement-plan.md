@@ -1,7 +1,7 @@
 # access 轴退役计划（access-retirement-plan）
 
 > 性质：实施计划——access 三档体系整体退役：沙箱常量化、full 统一为权限门裁决（cr-1078/1079 审批轴的自然收口）。
-> 状态：现行 · cr-1082 2026-11-14 · 前序 cr-1078（risk 分级/allow≠full 论证）、cr-1079（四层设置链）、conv-scope-plan（批 3 写面收口）。
+> 状态：**已实施** · cr-1082 2026-11-14 · cr-1083 2026-11-14 实施收口（批 A/B/C 全落：设置链 allow 补 full 注入「通过即 full」、词汇两态化 isFullAccess、四工具行换判定、deliver/subagent 档位继承退役、12 Agent 迁移、857 存量键清理+approval 迁移）· 前序 cr-1078（risk 分级/allow≠full 论证）、cr-1079（四层设置链）、conv-scope-plan（批 3 写面收口）。
 > 读者：权限域与工具行维护者（实施前通读 §一/§二；与 conv-scope-plan 的接续关系见 §五）。
 
 ## 一、背景与裁决

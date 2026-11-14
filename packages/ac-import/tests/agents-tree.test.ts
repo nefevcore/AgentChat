@@ -11,13 +11,13 @@ beforeEach(() => {
 });
 
 describe('convertConfig（tags→rows + 结构化档位换轨）', () => {
-  it('装载词展开为行引用；档位词换轨 access/toolMode；行内档位归 levels', () => {
+  it('装载词展开为行引用；档位词丢弃（cr-1082）/tc-* 换轨 toolMode；行内档位归 levels', () => {
     const out = convertConfig('a', {
       id: 'a',
       tags: ['shell', 'web', 'fs', 'full-access', 'tc-programmatic', 'observe', 'manipulate', 'admin'],
     });
     expect(out.rows).toEqual(expect.arrayContaining(['shell-tools', 'web-tools', 'fs-tools', 'fs-search']));
-    expect(out.access).toBe('full-access');
+    expect(out.access).toBeUndefined(); // cr-1082：access 档位词丢弃（轴退役）
     expect(out.toolMode).toBe('tc-programmatic');
     expect(out.tags).toBeUndefined(); // cr-953：tags 键输出恒删
     expect(out.levels).toEqual({

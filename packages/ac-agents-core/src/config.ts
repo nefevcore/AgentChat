@@ -32,8 +32,9 @@ export interface AgentConfig {
   */
   rows?: string[] | { include?: string[]; exclude?: string[] };
   /**
-  * 访问档位（cr-953 结构化——tags 档位词换轨；缺省/缺席 = base-access）。
-  * accessOf 单源判定；patch 面 = tier 键。
+  * @deprecated cr-1082 access 轴退役：执行面两态（沙箱常量 | full 唯一
+  * 授权态，只能由权限门注入）。Agent 底座档位语义迁移 = permission-gate
+  * onAsk=allow。字段仅为读侧兼容保留（存量盘值不再参与任何决策）。
   */
   access?: AccessLevel;
   /**
@@ -93,32 +94,21 @@ export function displayNameOf(config: AgentConfig | undefined): string | undefin
   return undefined;
 }
 
-/** 访问档位（access-tier §四）。cr-947 词面统一 access——类型名 AccessLevel（tier/elevation 词退役）。 */
-export type AccessLevel = 'full-access' | 'sandbox-access' | 'base-access';
-
-/** 档位强度序（base < sandbox < full） */
-export const ACCESS_RANK: Record<AccessLevel, number> = {
-  'base-access': 0,
-  'sandbox-access': 1,
-  'full-access': 2,
-};
-
-/** 档位判定单源（cr-953 结构化读取；未注册 → base（fail-closed 方向）。cr-947 更名 tierOf→accessOf。 */
-export function accessOf(agent: AgentConfig | undefined): AccessLevel {
-  return agent?.access ?? 'base-access';
-}
+/**
+ * 执行边界档位词汇（cr-1082 access 轴退役——两态化）：'sandbox-access' =
+ * 缺省执行态常量（所有人的沙箱底座——不再有 per-Agent 配置语义）；
+ * 'full-access' = 唯一授权态，合法来源唯一 = 权限门注入（设置链 allow /
+ * 弹卡批准 / run 缓存命中）。三档 rank 序与 'base-access' 词随轴退役。
+ */
+export type AccessLevel = 'full-access' | 'sandbox-access';
 
 /**
- * effectiveAccess（access-tier §3.2）：call.access（机制分支临时提权/
- * 有人桶审批注入）?? accessOf(agent)。工具行基线与加严层共用本单源
- * ——防"复检与基线漂移"。
+ * per-call 两态判定单源（cr-1082 批B）：call.access === 'full-access'。
+ * Agent 底座合成（agentsOf 查询）随 AgentConfig.access 退役删除——
+ * full 只来自门注入，无第二来源。
  */
-export function effectiveAccessOf(
-  agent: AgentConfig | undefined,
-  elevation: 'sandbox-access' | 'full-access' | undefined,
-): AccessLevel {
-  if (elevation === 'full-access' || elevation === 'sandbox-access') return elevation;
-  return accessOf(agent);
+export function isFullAccess(call: { access?: unknown }): boolean {
+  return call.access === 'full-access';
 }
 
 /**
@@ -153,7 +143,8 @@ export function toolModeOf(agent: AgentConfig | undefined): ToolMode {
 /**
  * 存量 tags 词 → 结构化字段归一（cr-953 单源；读侧一次性——readAgentConfig
  * 的 config.json 旧路径与 patch doc.tags 余词共用）：
- *   · 档位词 full-access/sandbox-access → access（取高，结构化字段赢）；
+ *   · 档位词 full-access/sandbox-access → 丢弃（cr-1082 轴退役——语义已
+ *     迁 permission-gate onAsk；保留分支仅为吞掉存量词）；
  *   · 模式词 tc-none/tc-programmatic → toolMode（none 优先，结构化赢）；
  *   · admin → levels.collab='admin'（levels 键缺席时补位）；
  *   · observe/manipulate/inject → levels.browser（取最高，缺席补位）；
@@ -166,13 +157,13 @@ export function normalizeLegacyTags(config: AgentConfig): AgentConfig {
   const tags = (config as { tags?: unknown }).tags;
   if (!Array.isArray(tags)) return config;
   const { tags: _retired, levels: levelsPrior, ...rest } = config as AgentConfig & { tags?: unknown };
-  let access = rest.access;
   let toolMode = rest.toolMode;
   const levels = { ...(levelsPrior ?? {}) } as Partial<Record<string, string | boolean>>;
   for (const raw of tags) {
     const tag: string = typeof raw === 'string' ? raw : String(raw);
     if (tag === 'full-access' || tag === 'sandbox-access') {
-      if (access === undefined || ACCESS_RANK[tag as AccessLevel] > ACCESS_RANK[access]) access = tag as AccessLevel;
+      // cr-1082 access 轴退役：存量 tags 档位词不再归一进 access——丢弃
+      //（Agent 底座语义已迁移 permission-gate onAsk；字段仅为读侧兼容）
     } else if (tag === 'tc-none' || tag === 'tc-programmatic') {
       if (toolMode === undefined || (toolMode !== 'tc-none' && tag === 'tc-none')) toolMode = tag as ToolMode;
     } else if (tag === 'admin' && levels.collab === undefined) {
@@ -186,7 +177,6 @@ export function normalizeLegacyTags(config: AgentConfig): AgentConfig {
     }
   }
   const next: AgentConfig = { ...rest } as AgentConfig;
-  if (access !== undefined) next.access = access;
   if (toolMode !== undefined) next.toolMode = toolMode;
   if (Object.keys(levels).length > 0) next.levels = { ...levels } as Record<string, string | boolean>;
   else delete next.levels;

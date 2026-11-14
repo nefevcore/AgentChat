@@ -35,7 +35,8 @@ class SinglesShim extends Service {
     }
   }
 }
-/** conv-settings 读面垫片（壳内 ConvSettingsShim 同款——直读 <root>/conv-settings/<sid>.json） */
+/** conv-settings 读面垫片（壳内 ConvSettingsShim 同款——直读 <root>/conv-settings/<sid>.json）。
+ *  测试面 singles sid 有人桶——effective 与 get 同值 */
 class ConvSettingsShim extends Service {
   private dataRoot: string;
   constructor(ctx: Context, dataRoot: string) {
@@ -53,6 +54,9 @@ class ConvSettingsShim extends Service {
     } catch {
       return {};
     }
+  }
+  effective(conversationId: string): Record<string, string> {
+    return this.get(conversationId);
   }
 }
 import { makeConversationRow, type ConversationService } from 'ac-shell-conversation';
@@ -195,10 +199,10 @@ describe('cr-888 singles system prompt 物化', () => {
     }
   });
 
-  it('§4 注入措辞锁定（diffFingerprints 纯函数——cr-947 起 tier/elevation 合并为 access 单类）', () => {
+  it('§4 注入措辞锁定（diffFingerprints 纯函数——cr-947 起 tier/elevation 合并为 access 单类；cr-1082 起新指纹无 access 键）', () => {
     const base: Record<string, string> = {
       provider: '', model: 'm', tools: 'read,write', toolMode: 'tc-base', browserTier: '',
-      issueSubmit: '', workspace: '', access: 'base-access', ptcSdk: 'h1', skills: '',
+      issueSubmit: '', workspace: '', ptcSdk: 'h1', skills: '',
     };
     // #1 工具集
     expect(diffFingerprints(base, { ...base, tools: 'read' }, { defaultWorkdir: '/w' }).notices)
@@ -232,11 +236,11 @@ describe('cr-888 singles system prompt 物化', () => {
       .toEqual(['[会话设置] 技能 a 已卸载，其指引不再适用。']);
     expect(diffFingerprints({ ...base, skills: 'b' }, { ...base, skills: 'a,b' }, { defaultWorkdir: '/w' }).notices)
       .toEqual([]);
-    // #7 安全档位（cr-947 合并旧 #7 tier + #8 elevation——降档附授权提示，升档只报事实）
+    // #7 安全档位（cr-1082 起仅存量快照迁移：旧值在场 → 新缺键，一次性通知；两边缺席零噪声）
     expect(diffFingerprints({ ...base, access: 'full-access' }, base, { defaultWorkdir: '/w' }).notices)
-      .toEqual(['[会话设置] 安全档位已调整：full-access → base-access，部分工具调用将需要授权。']);
-    expect(diffFingerprints(base, { ...base, access: 'full-access' }, { defaultWorkdir: '/w' }).notices)
-      .toEqual(['[会话设置] 安全档位已调整：base-access → full-access。']);
+      .toEqual(['[会话设置] 安全档位已调整：full-access → 默认，部分工具调用将需要授权。']);
+    expect(diffFingerprints(base, base, { defaultWorkdir: '/w' }).notices)
+      .toEqual([]);
     // #9 PTC_SDK 漂移
     expect(diffFingerprints({ ...base, ptcSdk: 'h1' }, { ...base, ptcSdk: 'h2' }, { defaultWorkdir: '/w' }).notices)
       .toEqual(['[会话设置] run_code SDK 已更新，以当前工具 schema 与运行报错为准。']);

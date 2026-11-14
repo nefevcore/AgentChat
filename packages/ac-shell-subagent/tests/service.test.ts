@@ -272,6 +272,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       apply(c: Context) {
         c.plugin(class extends Service {
           constructor(cc: Context) { super(cc, 'convSettings'); }
+          effective(cid: string): Record<string, string> { return this.get(cid); }
           get(cid: string): Record<string, string> {
             if (cid === 'u-init~papa') return { model: 'poolB@glm-5.3' };
             if (cid === 'u-bare~papa') return { model: 'glm-5.3-air' };
@@ -307,6 +308,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       apply(c: Context) {
         c.plugin(class extends Service {
           constructor(cc: Context) { super(cc, 'convSettings'); }
+          effective(cid: string): Record<string, string> { return this.get(cid); }
           get(cid: string): Record<string, string> {
             if (cid === 'u-init~papa') return { model: 'poolB@glm-5.3' };
             if (cid === 'u-bare~papa') return { model: 'glm-5.3-air' };
@@ -452,37 +454,36 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  // cr-753：会话设置继承——发起会话 conv-settings（access/browserTier）
-  // → 子 config 结构化字段快照；per-call access 与水位取高；tc-base/
-  // base 不产生键（缺省无键）。
-  it('会话设置继承：父会话覆盖值合入子 config 结构化字段（物化即快照）', async () => {
+  // cr-753：会话设置继承——发起会话 conv-settings（browserTier）→ 子
+  // config 结构化字段快照。cr-1082：access 继承面退役（子档位 = 沙箱
+  // 常量，full 经父的门）——per-call access 不再并入。
+  it('会话设置继承：cr-1082 起 access 不继承（per-call/父档位均不入子 config）', async () => {
     const fake = fakeShell();
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
-      // 壳内 convSettings 垫片缺席场景先行验证：makeService 的裸 ctx 无 convSettings → 继承面只余 per-call access
       const tools = ctx.get('tools') as unknown as {
         execute(call: { name: string; args: Record<string, unknown>; conversationId?: string; access?: string }): Promise<{ ok: boolean; output?: { subagent_id?: string } }>;
       };
       const out = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '继承任务' }, conversationId: 'user~papa', access: 'full-access' });
       const childId = (out.output as { subagent_id: string }).subagent_id;
       const cfg = readChildConfig(ROOT, 'papa', childId);
-      expect(cfg?.access).toBe('full-access'); // per-call 兜底并入（无 convSettings 面）
+      expect(cfg?.access).toBeUndefined(); // per-call 提权不并入子 config（cr-1082）
       const plain = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '无设置' }, conversationId: 'user~papa' });
       const plainId = ((plain.output as { subagent_id: string })).subagent_id;
       const plainCfg = readChildConfig(ROOT, 'papa', plainId);
-      expect(plainCfg?.access ?? 'base-access').toBe('base-access'); // 无任何来源不产生键（父 base 时键缺席）
+      expect(plainCfg?.access).toBeUndefined();
     } finally { await dispose(); }
   });
 
-  it('会话设置继承：convSettings 垫片在场——access/browserTier 水位映射进结构化字段；tc-* 模式词不继承（cr-763）', async () => {
+  it('会话设置继承：convSettings 垫片在场——browserTier 映射 levels；access/tc-* 不继承（cr-763/cr-1082）', async () => {
     const fake = fakeShell();
     const { Service } = await import('@agentchat/cordis');
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
-      // convSettings 桩（壳内垫片同形：get 按 conversationId）
+      // convSettings 桩（壳内垫片同形：effective 按 conversationId）
       class ConvStub extends Service {
         constructor(c: unknown) { super(c as never, 'convSettings'); }
-        get(id: string): Record<string, string> {
+        effective(id: string): Record<string, string> {
           return id === 'user~papa'
             ? { access: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' }
             : {};
@@ -490,12 +491,12 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       }
       await ctx.plugin(ConvStub);
       const svc = ctx.get('subagents', false) as unknown as {
-        spawnOp(i: { task: string; replyConversation?: string; access?: string }): Promise<{ childId: string }>;
+        spawnOp(i: { task: string; replyConversation?: string }): Promise<{ childId: string }>;
       };
-      const out = await svc.spawnOp({ task: '全设置继承', replyConversation: 'user~papa', access: 'sandbox-access' });
+      const out = await svc.spawnOp({ task: '全设置继承', replyConversation: 'user~papa' });
       const cfg = readChildConfig(ROOT, 'papa', out.childId);
-      // 水位 full > per-call sandbox（取高）+ browserTier → levels.browser
-      expect(cfg?.access).toBe('full-access');
+      // cr-1082：access 档位不继承（残值不传播）；browserTier → levels.browser
+      expect(cfg?.access).toBeUndefined();
       expect(cfg?.levels?.browser).toBe('inject');
       // tc-* 是交互形态非授权（cr-763）：会话 toolMode 不快照——
       // 子 rows 由 spawn tools 决定，父会话形态快照过来而子无 run-code 行
@@ -525,7 +526,7 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const inheritCfg = readChildConfig(ROOT, 'papa', inheritId);
       expect((inheritCfg?.rows as { include?: string[] })?.include ?? []).toEqual(expect.arrayContaining(['fs-tools', 'run-code', 'subagent']));
       expect(inheritCfg?.toolMode).toBe('tc-programmatic'); // 父程序化 ∧ 子行集含 run-code
-      expect(inheritCfg?.access).toBe('full-access'); // 档位继承面不受影响
+      expect(inheritCfg?.access).toBeUndefined(); // cr-1082：档位不继承
       // ② 显式点名子集（工具名词形全拒 → 空授予 = 纯推理子）：无模式词
       const subset = await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '子集', tools: ['read', 'write'] } });
       const subsetId = ((subset.output as { subagent_id: string })).subagent_id;
@@ -545,9 +546,9 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     } finally { await dispose(); }
   });
 
-  // cr-728：提权继承——call.access 随任务信封下发（两档白名单窄化），
-  // 子壳 receiveEnvelope → loop 既有链路生效；无提权不携带。
-  it('任务信封携带 access：call.access=full-access 下发；非法档位/无提权不携带', async () => {
+  // cr-1082：提权继承退役——call.access 不再随任务信封下发（子档位 =
+  // 沙箱常量，full 经父的门：父 run 内工具调用各自过闸）。
+  it('任务信封不携带 access（cr-1082）：call.access 任意值均不入信封', async () => {
     const fake = fakeShell();
     const { ctx, dispose } = await makeService(fake.spawn);
     try {
@@ -555,10 +556,9 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
         execute(call: { name: string; args: Record<string, unknown>; conversationId?: string; access?: string }): Promise<{ ok: boolean }>;
       };
       await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '提权任务' }, access: 'full-access' });
-      expect(fake.envs.at(-1)).toMatchObject({ budget: 2, access: 'full-access' });
-      await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '无提权任务' } });
+      expect(fake.envs.at(-1)).toMatchObject({ budget: 2 });
       expect(fake.envs.at(-1)!.access).toBeUndefined();
-      await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '坏档位' }, access: 'root' as string });
+      await tools.execute({ name: 'subagent', args: { action: 'spawn', task: '无提权任务' } });
       expect(fake.envs.at(-1)!.access).toBeUndefined();
     } finally { await dispose(); }
   });

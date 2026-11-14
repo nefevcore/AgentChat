@@ -233,7 +233,6 @@ export class MemoryService extends Service {
           source: 'event',
           placement: 'next-run',
           meta: { 'memory-migrate': true },
-          access: 'sandbox-access',
           maxSteps: 32,
         });
         this.writeMarker(markerFile);

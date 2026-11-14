@@ -536,9 +536,8 @@ export class AgentLoopService extends Service {
         messages.push(this.assistantOf(step));
         // 工具执行（M11）：执行身份随 call 装配（agentId/conversationId/
         // toolCallId + signal 透传）；同一步并发执行（mapLimit 5，对齐 src），
-        // 结果按 tool_calls 序回填。access（cr-947 前名 elevation；
-        // access-tier §七）：run 档位随每步装配（档位矩阵 effectiveAccess =
-        // call.access ?? accessOf(agentId)——安全行与工具行只读取）
+        // 结果按 tool_calls 序回填。access（cr-1082 两态化）：run 档位
+        // 装配位保留（写方已退役；full 唯一发放者 = 权限门按调用注入）
         // 请求面硬闸（cr-5，editor~user 事故根因修复）：LLM 发出的工具名不在
         // request.tools 内 = 越面调用（DeepSeek 等推理端不校验 tool_calls 函数名，
         // 长历史浸泡下模型会模仿历史直调模式点名面外工具）。不执行、不 veto——

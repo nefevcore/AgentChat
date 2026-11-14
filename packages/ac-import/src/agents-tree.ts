@@ -11,8 +11,8 @@
 // 混居）；新词形 = tools: [行引用 ∨ 工具名]（A10）。换轨规则：
 //   · 装载词 → 行引用（数据驱动：TAG_TO_ROWS 快照表——主线 requiredTags
 //     实况 2026-10-19 扫描；真实数据根 tags 词频全对账，无未映射词）
-//   · 档位词（full-access / sandbox-access / tc-programmatic / tc-none）
-//     → 留 tags（tierOf / toolModeOf 消费面在，词汇非装载面）
+//   · 档位词 full-access/sandbox-access → 丢弃（cr-1082 轴退役——语义已
+//     迁 permission-gate onAsk）；tc-* → toolMode（toolModeOf 消费面在）
 //   · 行内档位词（web observe/manipulate/inject、collab admin、dev）
 //     → settings 行内档位（七职能③行自治词汇）——browser 行档位走
 //     settings.browser，collab admin 走 settings.collab
@@ -51,8 +51,8 @@ const TAG_TO_ROWS = new Map<string, readonly string[]>([
   ['harness', ['harness-tools']],
 ]);
 
-/** 档位词 → 结构化字段（cr-953：access/toolMode 换轨——tags 键输出恒删） */
-const ACCESS_TAGS = new Map([['full-access', 'full-access'], ['sandbox-access', 'sandbox-access']]);
+/** 档位词（cr-1082：access 档位词丢弃——轴退役；tc-* → toolMode 换轨） */
+const ACCESS_TAGS = new Set(['full-access', 'sandbox-access']);
 const MODE_TAGS = new Map([['tc-none', 'tc-none'], ['tc-programmatic', 'tc-programmatic']]);
 
 /** 行内档位词 → levels 键（七职能③ + cr-953：levels 是行内档位唯一载体） */
@@ -67,7 +67,8 @@ const ROW_LEVEL_TAGS = new Map<string, string>([
 /**
  * 单 agent config 换轨（纯函数——tags→rows + 档位→结构化 + 行内档位→levels）。
  * tags 装载词展开为行引用并入 rows（旧 tools/rows 均缺席 = 行集全集
- * 语义 → 换轨后 rows = 装载行集）；档位词换轨 access/toolMode 字段
+ * 语义 → 换轨后 rows = 装载行集）；档位词换轨 toolMode 字段（access
+ * 档位词 cr-1082 起丢弃）
  *（cr-953 后 tags 键恒删）；未知词 fail-loud（映射表漂移即中止）。
  */
 export function convertConfig(agentId: string, old: Record<string, unknown>): Record<string, unknown> {
@@ -75,13 +76,12 @@ export function convertConfig(agentId: string, old: Record<string, unknown>): Re
   const tags = Array.isArray(old.tags) ? old.tags as string[] : [];
   const rows: string[] = [];
   const unknown: string[] = [];
-  let access: string | undefined;
   let toolMode: string | undefined;
   const levels: Record<string, string | boolean> = {};
   for (const t of tags) {
     const rowList = TAG_TO_ROWS.get(t);
     if (rowList !== undefined) { for (const r of rowList) if (!rows.includes(r)) rows.push(r); continue; }
-    if (ACCESS_TAGS.has(t)) { access = ACCESS_TAGS.get(t); continue; }
+    if (ACCESS_TAGS.has(t)) { continue; } // cr-1082：access 档位词丢弃
     if (MODE_TAGS.has(t)) { if (toolMode !== 'tc-none') toolMode = MODE_TAGS.get(t); continue; }
     const levelKey = ROW_LEVEL_TAGS.get(t);
     if (levelKey !== undefined) {
@@ -104,7 +104,6 @@ export function convertConfig(agentId: string, old: Record<string, unknown>): Re
   }
   delete out.tags; // cr-953：tags 键输出恒删（结构化字段已承载全部语义）
   delete out.tools;
-  if (access !== undefined) out.access = access;
   if (toolMode !== undefined) out.toolMode = toolMode;
   if (Object.keys(levels).length > 0) {
     // 与既有 levels 合并（旧值优先——用户配置）

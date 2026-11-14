@@ -87,7 +87,7 @@ describe('8.5a 宿主 web 面接线', () => {
     // 闸：config 在场/身份词形/非预设词形/非派生子身份——子身份不入列）
     const list = await rpc<{ agents: Array<{ id: string; name?: string; description?: string; access?: string; hasAvatar?: boolean; avatarVersion?: string }> }>(ws, 'agents/list', {});
     expect(list.agents.map((a) => a.id)).toEqual(['alpha']);
-    expect(list.agents[0]).toMatchObject({ description: '阿尔法', access: 'full-access', hasAvatar: true }); // cr-953：tags 归一为结构化
+    expect(list.agents[0]).toMatchObject({ description: '阿尔法', hasAvatar: true }); // cr-1082：access 随轴退役——agents/list 不再投影档位
     expect(list.agents[0]!.avatarVersion).toMatch(/^\d+:\d+$/);
 
     // ①b healthz agents 计数与名册同轴（cr-607——裸目录计数会把 pair/子域误算）
@@ -248,11 +248,9 @@ describe('8.5a 宿主 web 面接线', () => {
     await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '临时换模一问', model: 'zai@glm-5.3' });
     expect(envelopeOf('临时换模一问')?.model).toBe('zai@glm-5.3');
 
-    // ⑤ 提权档位随信投递（cr-626）：合法词入信封、非法词丢弃
+    // ⑤ 提权档位随信投递已退役（cr-1082 access 轴退役）：遗留参数静默剥除
     await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '提权一问', access: 'full-access' });
-    expect(envelopeOf('提权一问')?.access).toBe('full-access');
-    await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '坏档位一问', access: 'root' });
-    expect(envelopeOf('坏档位一问')?.access).toBeUndefined();
+    expect(envelopeOf('提权一问')?.access).toBeUndefined();
     const unchanged = await rpc<{ settings: Record<string, string> }>(ws, 'conv-settings/get', { conversationId: conv });
     expect(unchanged.settings.model).toBe('deepseek@deepseek-flash');
 

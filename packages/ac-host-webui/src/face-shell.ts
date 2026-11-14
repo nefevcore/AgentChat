@@ -130,7 +130,7 @@ function staticToolDefs(
   const rowTools = readRowTools(deps);
   const mode = effectiveToolMode(config, conversationId, {
     convSettings: ctx.get('convSettings', false) as
-      | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+      | { effective(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
       | undefined,
   });
   // 两步投影（cr-1049）：①发现 → ②处理。估算面静态数据源——catalog

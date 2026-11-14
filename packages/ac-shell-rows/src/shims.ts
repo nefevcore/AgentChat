@@ -15,6 +15,7 @@ import { listGroupConfigs, memberStreamKey, readGroupConfig } from 'ac-core-util
 import { readUserMetaObject } from 'ac-ledger';
 import { issueRequestId, type Envelope } from 'ac-envelope-core';
 import { readCredential, credentialKey, deriveKey, machineMaterial, GLOBAL_AGENT_ID } from 'ac-credentials-core';
+import { humanPresentOf } from 'ac-agents';
 
 /** ctx.agents 最小面（沿用行消费口：get / settingsOf / ids / list）+ 模式注册面（cr-1049） */
 export class AgentsShim extends Service {
@@ -393,6 +394,15 @@ class ConvSettingsShim extends Service {
   /** 壳侧无写权（D4 写者单源 = 宿主行）——静默吞掉会掩盖结构性越权，fail-loud */
   set(): never {
     throw new Error('convSettings 写面住宿主（conv-settings 行）——壳内不得写入会话覆盖');
+  }
+
+  /**
+   * 决策面读取（cr-1083 conv-scope 批1）：无人桶恒返 {}——与主线
+   * ConvSettingsService.effective 同语义（humanPresentOf 单源；会话键是
+   * 用户偏好载体，无人桶残留值不得压 Agent 配置）。get 保持原样（展示面）。
+   */
+  effective(conversationId: string): Record<string, string> {
+    return humanPresentOf(conversationId) ? this.get(conversationId) : {};
   }
 }
 

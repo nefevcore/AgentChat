@@ -38,12 +38,7 @@
 export interface ConvSettings {
   /** 会话级模型覆盖：`name@model` 引用或裸模型名（清除 = 删键） */
   model?: string;
-  /**
-   * 会话安全档位（cr-947——前名 elevation 提权水位，三档化）：值域
-   * 'base-access' | 'sandbox-access' | 'full-access'；无键 = 跟随 Agent
-   * tags 档位。读兼容存量 elevation 旧值（两档映射）；写恒本键。
-   */
-  access?: 'base-access' | 'sandbox-access' | 'full-access';
+  //（cr-1082：access 键随轴退役——「会话级武装 full」语义并入 approval）
   /**
    * 工具调用模式覆盖（2026-09-17 统一重构：tc-* 标签轴——与安全档位
    * access 同构的会话级覆盖；取代旧 programmatic 布尔键，存量键不

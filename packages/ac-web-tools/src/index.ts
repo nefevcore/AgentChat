@@ -316,12 +316,13 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     const call = execution.call;
     if (call.name !== 'browser') return next();
     // 会话级实验覆盖（conv-settings browserTier——输入框「实验性 → 浏览器」
-    // 档位钮）：比 tags 优先，disabled = 本会话整体禁用；无键 = 跟随 tags
+    // 档位钮）：比 tags 优先，disabled = 本会话整体禁用；无键 = 跟随 tags。
+    // 读面 effective（cr-1083 conv-scope 批1）：无人桶恒 {}——残值不再禁用
     const convSettings = ctx.get('convSettings', false) as
-      | { get(conversationId: string): { browserTier?: 'observe' | 'manipulate' | 'inject' | 'disabled' } | undefined }
+      | { effective(conversationId: string): { browserTier?: 'observe' | 'manipulate' | 'inject' | 'disabled' } | undefined }
       | undefined;
     const sessionTier = call.conversationId !== undefined
-      ? convSettings?.get(call.conversationId)?.browserTier
+      ? convSettings?.effective(call.conversationId)?.browserTier
       : undefined;
     if (sessionTier === 'disabled') {
       return {

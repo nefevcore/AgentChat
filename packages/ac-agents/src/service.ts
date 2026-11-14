@@ -15,24 +15,19 @@ import { Service, type Context } from '@agentchat/cordis';
 import { deepMerge } from 'ac-config-merge';
 import type { ToolFaceContext } from 'ac-tools';
 import {
-  ACCESS_RANK,
-  type AccessLevel,
   type AgentConfig,
   type ToolMode,
   type ToolModeDef,
-  accessOf,
   displayNameOf,
-  effectiveAccessOf,
+  isFullAccess,
   toolModeOf,
 } from 'ac-agents-core';
 
 export type { AgentConfig, AccessLevel, ToolMode } from 'ac-agents-core';
 
 export {
-  ACCESS_RANK,
-  accessOf,
   displayNameOf,
-  effectiveAccessOf,
+  isFullAccess,
   toolModeOf,
   resolveToolNames,
 } from 'ac-agents-core';
@@ -43,23 +38,15 @@ export {
 // ============================================================
 
 /**
- * per-call 档位判定（工具行基线共用单源，cr-363 收编四处同构）：
- * agents 注册表软依赖读取 + ToolCall.access 归一化 + effectiveAccessOf
- * 一体——fs-search / fs-tools / str-replace-editor / shell-tools 原各持
- * 一份档位归一化三行，换新档位词时四处同改。access 类型宽于契约
- * （unknown 透传容错，见 effectiveAccessOf 宽容缺省 base）；旧字段名
- * elevation 读兼容（cr-947 前名——过渡期双读，全链换净后拆）。
+ * per-call 两态判定（cr-1082 批B 简化；cr-363 收编单源沿革）：full 的
+ * 唯一来源 = 门注入的 call.access——agents 底座合成随 AgentConfig.access
+ * 退役删除。旧字段名 elevation 读兼容（cr-947 前名）与 unknown 宽容
+ * 缺省照旧：非 'full-access' 值一律按沙箱态。
  */
-export function effectiveAccessOfCall(
-  call: { agentId?: string; access?: unknown; elevation?: unknown },
-  agentsOf: () => { get(id: string): AgentConfig | undefined } | undefined,
-): AccessLevel {
-  const agent = call.agentId !== undefined ? agentsOf()?.get(call.agentId) : undefined;
-  const raw = call.access ?? call.elevation;
-  return effectiveAccessOf(
-    agent,
-    raw === 'full-access' ? 'full-access' : raw === 'sandbox-access' ? 'sandbox-access' : undefined,
-  );
+export function isFullAccessCall(call: { access?: unknown; elevation?: unknown }): boolean {
+  return call.access !== undefined
+    ? isFullAccess(call)
+    : call.elevation === 'full-access'; // 旧字段名读兼容（cr-947 前名）
 }
 
 /**
@@ -143,10 +130,12 @@ export function sessionCapsOf(
     : capabilitySetOf({ agents }, agentId);
   if (conversationId === undefined) return caps;
   const convSettings = softGet('convSettings') as
-    | { get(conversationId: string): Record<string, string>; listKeys?: () => Array<{ key: string; grants?: Record<string, string[]> }> }
+    | { effective(conversationId: string): Record<string, string>; listKeys?: () => Array<{ key: string; grants?: Record<string, string[]> }> }
     | undefined;
   if (!convSettings || typeof convSettings.listKeys !== 'function') return caps;
-  const settings = convSettings.get(conversationId);
+  // cr-1083 conv-scope 批2：grants 注入读 effective——无人桶残值（如
+  // browserTier=observe）不再注入能力标签（V3）
+  const settings = convSettings.effective(conversationId);
   for (const def of convSettings.listKeys()) {
     for (const tag of def.grants?.[settings[def.key]] ?? []) caps.add(tag);
   }
@@ -288,15 +277,19 @@ export function assertAgentId(id: string): void {
  * + run_code SDK 投影块）随会话开关漂移。
  */
 export interface EffectiveToolModeEnv {
-  /** conv-settings 会话覆盖读取（ctx.get('convSettings', false) 面） */
-  convSettings?: { get(conversationId: string): { toolMode?: ToolMode } } | undefined;
+  /**
+   * conv-settings 会话覆盖读取（ctx.get('convSettings', false) 面）。读面
+   * 统一 effective（cr-1083 conv-scope 批1）：无人桶恒 {}——残留 toolMode
+   * 不再压 Agent 配置（toolModeOf 接管）。
+   */
+  convSettings?: { effective(conversationId: string): { toolMode?: ToolMode } } | undefined;
 }
 export function effectiveToolMode(
   agent: AgentConfig | undefined,
   conversationId: string | undefined,
   env: EffectiveToolModeEnv = {},
 ): ToolMode {
-  const override = conversationId ? env.convSettings?.get(conversationId).toolMode : undefined;
+  const override = conversationId ? env.convSettings?.effective(conversationId).toolMode : undefined;
   return override ?? toolModeOf(agent);
 }
 

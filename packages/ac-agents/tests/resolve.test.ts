@@ -4,7 +4,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as agentsRow from '../src/index.ts';
-import { resolveToolNames, filterLlmParams, effectiveToolMode, discoverTools, narrowToolsByMode, isModeToolFace, widenToolsForGating, humanPresentOf } from '../src/index.ts';
+import { resolveToolNames, filterLlmParams, effectiveToolMode, discoverTools, narrowToolsByMode, isModeToolFace, widenToolsForGating, humanPresentOf, sessionCapsOf } from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
@@ -24,7 +24,7 @@ afterEach(async () => {
 
 describe('工具调用模式单源（effectiveToolMode / narrowToolsByMode——router 与估算面共用）', () => {
   const convSettings = {
-    get: (conversationId: string) =>
+    effective: (conversationId: string) =>
       conversationId === 'user~coder' ? { toolMode: 'tc-base' as const } : {},
   };
 
@@ -133,6 +133,31 @@ describe('humanPresentOf（cr-1079 无人语义单源——纯词法，零 ctx �
     expect(humanPresentOf('designer~news')).toBe(false);
     expect(humanPresentOf('g-mthfaf3e~news')).toBe(false);
     expect(humanPresentOf(undefined)).toBe(false);
+  });
+});
+
+describe('sessionCapsOf（cr-1083 conv-scope 批2：grants 注入读 effective——无人桶残值不注入）', () => {
+  const store = new Map<string, Record<string, string>>([
+    ['user~coder', { browserTier: 'observe' }],
+    ['news~news', { browserTier: 'observe' }], // 无人桶残值（早期全树写入产物）
+  ]);
+  const convSettingsFace = {
+    // 壳内 ConvSettingsShim 同语义：effective = humanPresentOf 门 + get
+    effective: (id: string) => (humanPresentOf(id) ? (store.get(id) ?? {}) : {}),
+    listKeys: () => [{ key: 'browserTier', grants: { observe: ['web', 'observe'] } }],
+  };
+  const face = { get: (key: string) => (key === 'agents' ? { get: (id: string) => ({ id, levels: {} }), settingsOf: () => undefined } : key === 'convSettings' ? convSettingsFace : undefined) } as never;
+
+  it('V3：有人桶 browserTier=observe 注入 web/observe 能力', () => {
+    const caps = sessionCapsOf(face, 'coder', 'user~coder');
+    expect(caps.has('web')).toBe(true);
+    expect(caps.has('observe')).toBe(true);
+  });
+
+  it('V3：无人桶（news~news）文件有残值也不注入——Agent 侧配置接管', () => {
+    const caps = sessionCapsOf(face, 'news', 'news~news');
+    expect(caps.has('web')).toBe(false);
+    expect(caps.has('observe')).toBe(false);
   });
 });
 

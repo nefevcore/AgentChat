@@ -26,7 +26,7 @@ import { isImageRef, filePreviewUrl, contentHash12, maybeCompressImage } from '.
 import { fetchSkills, type SkillsResult } from 'ac-client-ui-skill/client/skillsApi.ts';
 import { detectMention, replaceMentionToken, mentionMatches, formatFileMention, buildSessionMentionCandidates, type MentionTrigger } from './mention.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
-import { loadComposePrefs, saveComposePrefs, type ComposeEffort, type ComposeAccess } from './composePrefs.ts';
+import { loadComposePrefs, saveComposePrefs, type ComposeEffort } from './composePrefs.ts';
 
 import { persistToolMode } from './toolModeInherit.ts';
 import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';
@@ -69,15 +69,12 @@ const inputText = ref('');
  *  composer 测高）经 defineExpose 显式取，不走 $el） */
 const cardEl = ref<HTMLElement | null>(null);
 defineExpose({ cardEl });
-/** 上次组合偏好（agentId/model 在新建会话处消费；effort/access 在此回放） */
+/** 上次组合偏好（agentId/model 在新建会话处消费；effort 在此回放） */
 const lastPrefs = loadComposePrefs();
 /** 思考强度：回放上次选择（缺省 high；''=关闭思考；P4：取代独立"深度思考" toggle） */
 const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort ?? 'high') as ComposeEffort);
-/** 快捷提权（access-tier §七 / webui 按钮）：武装后续消息的执行档位。
- *  持续生效——保持武装直到手动改回（武装态警示色常显）；不随发送复位
- *  （2026-09-13 反馈：提权后连续作业不应每条重新武装）。持久授权正路仍是
- *  Agent 配置 tags 升档。视角切换重挂载回放上次选择（与思考强度同款）。 */
-const access = ref<'' | 'sandbox-access' | 'full-access'>((lastPrefs?.access ?? '') as ComposeAccess);
+//（cr-1082：快捷提权选档随 access 轴退役——持久授权正路 = 会话键
+// approval=allow（「实验性 → 工具审批」档）或 Agent settings onAsk）
 /** 工具调用模式（2026-09-17 tc-* 标签轴统一重构：与提权档位同构——
  *  Agent tags 定默认档、conv-settings.toolMode 会话覆盖）：'' = 跟随
  *  Agent（tags 档，缺省 tc-base）；'tc-base' | 'tc-programmatic' |
@@ -99,7 +96,6 @@ const uploading = ref(false);
 // ══ 会话模型选择（P6）：独立会话 = singles 覆盖；1v1 直答 = conv-settings ══
 const agentMenuOpen = ref(false);
 const modelMenuOpen = ref(false);
-const accessMenuOpen = ref(false);
 const toolModeMenuOpen = ref(false);
 const experimentalMenuOpen = ref(false);
 /** 实验性菜单下钻面板（root = 实验项入口列表；键名 = 该键档位二级——browserTier 内置 + 注册扩展键） */
@@ -226,7 +222,6 @@ function parkAndRestoreDraft(from: string | null, to: string | null): void {
   if (from) parkDraft(from, inputText.value);
   inputText.value = to ? takeDraft(to) : '';
   attachedFiles.value = []; // 附件不跨会话（路径按原会话 Agent 目录解析）
-  // 提权武装不随转场复位：持续生效直到手动改回（后端只升不降兜底）
 }
 
 /** 当前草稿位键：single = singleDialog(id)；direct/群 = 活跃 dialog 键 */
@@ -244,8 +239,7 @@ watch(() => [props.single?.id, props.single?.agentId], ([id, agent], old) => {
     parkAndRestoreDraft(lastDraftKey.value, to);
     lastDraftKey.value = to;
   } else if (agent !== prevAgent) {
-    // 会话内换 Agent：草稿保留，附件弃（上传路径按旧 Agent 目录解析）；
-    // 提权武装保留（持续生效直到手动改回——后端按新目标自有档位 clamp）
+    // 会话内换 Agent：草稿保留，附件弃（上传路径按旧 Agent 目录解析）
     attachedFiles.value = [];
   }
   syncDraft();
@@ -282,10 +276,9 @@ onBeforeUnmount(() => {
 });
 
 /** 单开原则：任一下拉打开时关闭其余 */
-function closeMenus(except?: 'agent' | 'model' | 'elev' | 'toolmode' | 'experimental') {
+function closeMenus(except?: 'agent' | 'model' | 'toolmode' | 'experimental') {
   if (except !== 'agent') { agentMenuOpen.value = false; agentPanel.value = 'root'; }
   if (except !== 'model') { modelMenuOpen.value = false; modelPanel.value = 'root'; }
-  if (except !== 'elev') accessMenuOpen.value = false;
   if (except !== 'toolmode') toolModeMenuOpen.value = false;
   if (except !== 'experimental') { experimentalMenuOpen.value = false; experimentalPanel.value = 'root'; }
 }
@@ -332,11 +325,6 @@ function toggleModelMenu() {
   modelPanel.value = 'root'; // 重开回一级
   // 打开即装数据 + 对无发现缓存的已注册连接补拉一次 /models（静默失败）
   if (next) void loadPools().then(() => ensureDiscovered());
-}
-function toggleElevMenu() {
-  const next = !accessMenuOpen.value;
-  closeMenus('elev');
-  accessMenuOpen.value = next;
 }
 function toggleToolModeMenu() {
   const next = !toolModeMenuOpen.value;
@@ -513,28 +501,10 @@ function selectEffort(v: '' | 'low' | 'high' | 'max') {
   modelPanel.value = 'root'; // 参数类选择回一级（可连续调整）
 }
 
-/** 快捷提权档位（access-tier §三 档位词汇）：'' = 跟随 Agent 自有档位
- *  （tags 判定——并非无权限）。持续生效——武装后续所有消息，直到手动
- *  改回；后端 deliver 边界只升不降（武装档 ≤ 自有档位时无效果）。 */
-const ELEV_OPTIONS: Array<{
-  value: '' | 'sandbox-access' | 'full-access';
-  label: string;
-  icon: string;
-  detail: string;
-  title: string;
-}> = [
-  { value: '', label: '默认权限', icon: 'shield', detail: '', title: '按 Agent 自有档位（tags）执行——需要权限时弹出审批卡询问' },
-  { value: 'sandbox-access', label: '沙箱访问', icon: 'shield-half', detail: '白名单内自由', title: '后续消息驱动的 run 至少按 sandbox-access 执行：工作区白名单内自由写、bash 软边界内自由；越界视同基础档。持续生效直到改回；Agent 自有档位更高时按自有档位执行（只升不降）' },
-  { value: 'full-access', label: '完全访问', icon: 'shield-off', detail: '不受限', title: '后续消息驱动的 run 按 full-access 执行：跳过路径复检与命令扫描（系统域黑名单仍生效）。持续生效直到改回；持久授权请改 Agent 配置 tags；自有档位更高时按自有档位执行' },
-];
+//（cr-1082：快捷提权档位 ELEV_OPTIONS/selectAccess 随 access 轴退役——
+// 会话级预授权正路 = 实验性菜单「工具审批」approval 键）
 
-function selectAccess(v: '' | 'sandbox-access' | 'full-access') {
-  access.value = v;
-  saveComposePrefs({ access: v });
-  // 菜单保持开——扁平选项列表可连续调整
-}
-
-// ── 工具调用模式（2026-09-17 tc-* 标签轴统一重构：与提权档位同构）──
+// ── 工具调用模式（2026-09-17 tc-* 标签轴统一重构）──
 // 与 ELEV 同族的 dd 下拉（跟随 Agent + 三值覆盖）；选择即写会话
 // conv-settings.toolMode（router 按「覆盖 ?? toolModeOf(agent)」收窄——
 // run 间隙生效，非 run 中途翻转）。覆盖键见 toolModeConvKey。
@@ -702,23 +672,8 @@ const AGENT_TOOL_MODE_LABEL: Record<'tc-base' | 'tc-programmatic' | 'tc-none', s
 const agentToolModeLabel = computed(() => AGENT_TOOL_MODE_LABEL[agentToolMode.value]);
 
 /** 档位显示词（与后端 tierOf 同词表：full > sandbox > 缺省 base） */
-const TIER_LABEL: Record<'sandbox-access' | 'full-access', string> = {
-  'sandbox-access': '沙箱访问',
-  'full-access': '完全访问',
-};
-/** 会话目标 Agent 的自有档位（cr-953 结构化 access 字段——未武装即按此执行）：
- *  single = 会话登记 Agent（空 = 默认预设）；1v1 = 激活 Agent。
- *  名册无数据（预设/未同步）= 基础档。 */
-const agentTier = computed<'' | 'sandbox-access' | 'full-access'>(() => {
-  const targetId = props.single
-    ? (selAgent.value || roster.defaultPresetId.value)
-    : (roster.activeAgentId.value || roster.defaultPresetId.value);
-  const access = roster.agents.value.find(a => a.id === targetId)?.access;
-  if (access === 'full-access' || access === 'sandbox-access') return access;
-  return '';
-});
-/** 底座档位显示（默认项 detail + 未武装 title） */
-const agentTierLabel = computed(() => (agentTier.value ? TIER_LABEL[agentTier.value] : '基础档'));
+//（cr-1082：Agent 档位显示（TIER_LABEL/agentTier）随 access 轴退役——
+// 档位语义迁 permission-gate onAsk，非展示面词汇）
 
 /** 未选 Agent = 默认预设（后端路由目标）；其余预设可选（agentId = 预设 id） */
 const otherPresets = computed(() =>
@@ -796,13 +751,6 @@ const toolModeTitle = computed(() => {
   }
   const opt = TOOL_MODE_OPTIONS.value.find(o => o.value === toolMode.value);
   return opt?.title ?? '工具调用模式（tc-* 标签轴）';
-});
-
-/** 提权按钮显示：直取档位名（图标随档分化）；警示色由类承担 */
-const elevBtn = computed(() => {
-  if (access.value === 'full-access') return { icon: 'shield-off', label: '完全访问' };
-  if (access.value === 'sandbox-access') return { icon: 'shield-half', label: '沙箱访问' };
-  return { icon: 'shield', label: '默认权限' };
 });
 
 function onDocClick() {
@@ -886,13 +834,9 @@ async function send() {
   } else {
     // 思考强度 ''=关闭思考；非空 = 开启并覆写档位
     const effort = reasoningEffort.value;
-    // 提权随消息透传（持续武装——不随发送复位）；忙态 Enter 排队时随
-    // 消息入队，本轮结束后按本条档位开 run
-    const acc = access.value;
     store.sendMessage(text, undefined, {
       deepThink: effort !== '',
       ...(effort ? { reasoningEffort: effort } : {}),
-      ...(acc ? { access: acc } : {}),
       files: attachedFiles.value,
     });
   }
@@ -916,13 +860,9 @@ async function sendNow() {
     props.onSend(text, attachedFiles.value);
   } else {
     const effort = reasoningEffort.value;
-    // steer 注入不改在途 run 档位（run 的档位在开跑时已定）——
-    // 提权参数随信封送达但不生效；空闲时等价普通发送（生效）
-    const acc = access.value;
     store.sendMessage(text, undefined, {
       deepThink: effort !== '',
       ...(effort ? { reasoningEffort: effort } : {}),
-      ...(acc ? { access: acc } : {}),
       files: attachedFiles.value,
       mode: 'steer',
     });
@@ -1658,39 +1598,9 @@ function onThumbError(i: number) {
           </Transition>
         </div>
 
-        <!-- 权限（快捷提权）：独立按钮（2026-09-26 拆分；工具栏序：模型 → 提权 →
-             工具模式 → 实验性）。单项菜单直开档位列表（无下钻）：选择即
-             武装/解除，菜单保持开；武装态警示色常显 -->
-        <div v-if="!isGroupCtx" class="ui-dd">
-          <button
-            type="button"
-            class="select-btn"
-            :class="{ open: accessMenuOpen, armed: !!access, 'armed-full': access === 'full-access' }"
-            @click.stop="toggleElevMenu"
-            title="快捷提权（权限档位）"
-          >
-            <Icon :name="elevBtn.icon" :size="15" />
-            <span class="select-text">{{ elevBtn.label }}</span>
-            <Icon name="chevron-down" :size="14" class="chevron" :class="{ open: accessMenuOpen }" />
-          </button>
-          <Transition name="menu-fade">
-            <div v-if="accessMenuOpen" class="ui-dd-menu up" @click.stop>
-              <button
-                v-for="opt in ELEV_OPTIONS" :key="opt.value" type="button"
-                class="ui-dd-opt ui-dd-opt--2line" :class="{ selected: access === opt.value }"
-                :title="opt.title"
-                @click="selectAccess(opt.value)"
-              >
-                <span class="ui-dd-opt-icon"><Icon :name="opt.icon" :size="16" /></span>
-                <span class="ui-dd-opt-body">
-                  <span class="ui-dd-opt-name">{{ opt.label }}</span>
-                  <span class="ui-dd-opt-desc">{{ opt.value === '' ? agentTierLabel : opt.detail }}</span>
-                </span>
-                <Icon v-if="access === opt.value" name="check" :size="15" class="ui-dd-opt-check" />
-              </button>
-            </div>
-          </Transition>
-        </div>
+        <!--（cr-1082：快捷提权选档按钮随 access 轴退役——会话级预授权
+             正路 = 实验性菜单「工具审批」approval 键；工具栏序：模型 →
+             工具模式 → 实验性）-->
 
         <!-- 工具调用模式（独立按钮）：与提权分立——程序化调用模式需要
              用户先单独熟悉。单项菜单直开档位列表（无下钻）：选择即写

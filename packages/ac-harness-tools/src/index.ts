@@ -112,9 +112,10 @@ export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
       }
 
       // 会话开关（cr-277 §5.7）：disabled = 本会话禁用（配了 tags 的 Agent 同样被拦——
-      // caps 通路只做加法，减法在这里）；无键 = enabled 默认启用
+      // caps 通路只做加法，减法在这里）；无键 = enabled 默认启用。读面
+      // effective（cr-1083 conv-scope 批1）：无人桶恒 {}——残值不再禁用
       if (call.conversationId !== undefined
-        && ctx.convSettings.get(call.conversationId).harnessTier === 'disabled') {
+        && ctx.convSettings.effective(call.conversationId).harnessTier === 'disabled') {
         return { ok: false, error: 'run_harness 已被本会话禁用（输入框「实验性 → Harness 委托」）——如需使用请切换为本会话启用。' };
       }
 

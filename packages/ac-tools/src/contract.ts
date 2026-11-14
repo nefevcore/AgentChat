@@ -127,16 +127,11 @@ export interface ToolCall {
    */
   onProgress?: (chunk: string) => void;
   /**
-   * 调用安全档位（cr-947 前名 elevation；access-tier §七）：
-   * effectiveAccess = call.access ?? accessOf(agentId)。合法来源仅三处
-   * （防伪造不变量）：
-   *   1. deliver 路径 source='event' 信封（上限 sandbox-access——归档
-   *      整理等机制 run；loop 装配，deliver 边界剥除非 event 信封）；
-   *   2. 子 Agent 档位继承（ac-shell-subagent 直调 agentLoop.run 装配
-   *      access = accessOf(parentId)——继承不放大也不缩水）；
-   *   3. 有人桶询问提权的单次审批注入（ac-security 批准后置
-   *      'full-access' 本次调用有效）。
-   * 身份由调用方（loop / 直连编排方）装配；工具行与安全行只读取。
+   * 执行边界档位（cr-1082 access 轴退役后两态）：'full-access' = 唯一
+   * 授权态，合法来源唯一 = 权限门注入（cr-1082「通过即 full」：设置链
+   * allow / 弹卡批准 / run 缓存命中——防伪造不变量）；缺席与一切其他值
+   * = 沙箱缺省态（所有人的执行底座，常量语义——无 per-Agent 配置）。
+   * 身份由调用方（loop / 门行）装配；工具行与安全行只读取。
    */
   access?: 'sandbox-access' | 'full-access';
   /**

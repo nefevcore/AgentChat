@@ -11,7 +11,7 @@
 // 的过滤（cr-616/762/763 拒绝词）同源在此，越权词不进子 config。
 // ============================================================
 import type { AgentConfig } from 'ac-agents-core';
-import { ACCESS_RANK, accessOf, toolModeOf, type AccessLevel } from 'ac-agents-core';
+import { toolModeOf } from 'ac-agents-core';
 import { resolveToolNames } from 'ac-agents-core';
 import { splitModelRef } from 'ac-llm';
 
@@ -41,27 +41,22 @@ export function filterSpawnTools(tokens: string[], parentRowIds: Set<string>, sh
 }
 
 /**
- * 会话设置继承面（cr-953 结构化换轨——tags 退役）：发起会话 conv-settings
- * 覆盖值 → 子 config 结构化字段。新增设置键的继承面在此登记（映射与
- * conv-settings BUILTIN_KEYS 的 grants 档位轴同源维护）。access（cr-947
- * 前名 elevation）与 per-call access 取高者（只升不降）。tc-* 不继承：
- * 交互形态非授权——子形态由装配结构化合成。browserTier → levels.browser
- *（取高者——父级更高时保父）。issueSubmit 无结构化继承面（授权 = 行
- * 装载，无标签轴）。
+ * 会话设置继承面（cr-953 结构化换轨——tags 退役；cr-1082 access 臂退役）：
+ * 发起会话 conv-settings 覆盖值 → 子 config 结构化字段。新增设置键的
+ * 继承面在此登记（映射与 conv-settings BUILTIN_KEYS 的 grants 档位轴
+ * 同源维护）。access 不继承（轴退役——子档位 = 沙箱常量，full 经父的
+ * 门）。tc-* 不继承：交互形态非授权——子形态由装配结构化合成。
+ * browserTier → levels.browser（取高者——父级更高时保父）。issueSubmit
+ * 无结构化继承面（授权 = 行装载，无标签轴）。
  */
 export function convInheritOf(
   settings: Record<string, string>,
-  callAccess: 'sandbox-access' | 'full-access' | undefined,
-): { access?: AccessLevel; browserLevel?: 'observe' | 'manipulate' | 'inject' } {
-  const access = ACCESS_RANK[(settings.access as AccessLevel | undefined) ?? 'base-access'] >= ACCESS_RANK[callAccess ?? 'base-access']
-    ? settings.access
-    : callAccess;
+): { browserLevel?: 'observe' | 'manipulate' | 'inject' } {
   const BROWSER_ORDER = { observe: 0, manipulate: 1, inject: 2 } as const;
   const browserLevel = settings.browserTier === 'observe' || settings.browserTier === 'manipulate' || settings.browserTier === 'inject'
     ? settings.browserTier
     : undefined;
   return {
-    ...(access === 'full-access' || access === 'sandbox-access' ? { access: access as AccessLevel } : {}),
     ...(browserLevel !== undefined ? { browserLevel } : {}),
   };
 }
@@ -76,8 +71,8 @@ export interface SpawnInheritInput {
   effectiveRows?: string[];
   name?: string;
   system?: string;
-  /** convInheritOf 产物（结构化继承面） */
-  inherit?: { access?: AccessLevel; browserLevel?: 'observe' | 'manipulate' | 'inject' };
+  /** convInheritOf 产物（结构化继承面——cr-1082 起仅 browser 层级） */
+  inherit?: { browserLevel?: 'observe' | 'manipulate' | 'inject' };
   /** 发起会话工作区锚点（缺席 = 不写——子保持专用空间） */
   workdirAnchor?: string;
   /** 发起会话模型覆盖（'name@model'/裸名；缺席 = 父静态） */
@@ -104,11 +99,7 @@ export function spawnChildConfigOf(input: SpawnInheritInput): AgentConfig {
   const childTokens = tools ?? effectiveRows ?? resolveToolNames(parent.rows) ?? [];
   const childRowIds = new Set(childTokens);
   const parentProgrammatic = toolModeOf(parent) === 'tc-programmatic';
-  // 档位继承：会话覆盖与父 access 取高（只升不降）
-  const parentAccess = accessOf(parent);
-  const inheritedAccess = inherit?.access !== undefined && ACCESS_RANK[inherit.access] > ACCESS_RANK[parentAccess]
-    ? inherit.access
-    : parentAccess !== 'base-access' ? parentAccess : undefined;
+  //（cr-1082：档位继承退役——子不继承 access，子档位 = 沙箱常量，full 经父的门）
   // browser 层级继承：会话覆盖与父 levels.browser 取高
   const BROWSER_ORDER = { observe: 0, manipulate: 1, inject: 2 } as const;
   const parentBrowser = parent.levels?.browser;
@@ -136,12 +127,12 @@ export function spawnChildConfigOf(input: SpawnInheritInput): AgentConfig {
     ...(name !== undefined ? { name } : {}),
     ...(system !== undefined ? { system } : {}),
     ...(tools !== undefined ? { rows: tools } : effectiveRows !== undefined ? { rows: effectiveRows } : {}),
-    ...(inheritedAccess !== undefined ? { access: inheritedAccess } : {}),
     // 形态跟随装配（cr-821/cr-953，cr-1021 修正）：程序化 = 父形态 ∧ 子行集
     // 含 run-code——非程序化父的子恒常规（父 toolMode 不继承）
     ...(parentProgrammatic && childRowIds.has('run-code') ? { toolMode: 'tc-programmatic' as const } : {}),
   } as AgentConfig;
   if (!(parentProgrammatic && childRowIds.has('run-code'))) delete (child as { toolMode?: unknown }).toolMode;
+  delete (child as { access?: unknown }).access; // cr-1082：子不继承档位（沙箱常量，full 经父的门）
   if (Object.keys(levels).length > 0) (child as { levels?: Record<string, string | boolean> }).levels = levels;
   else delete (child as { levels?: Record<string, string | boolean> }).levels;
   if (Object.keys(settings).length > 0) (child as { settings?: Record<string, unknown> }).settings = settings;

@@ -737,10 +737,11 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
     seedAgent('beta', { tags: ['tc-programmatic'] });
     const { ctx, fibers, conv } = await bootTree('beta');
     try {
-      // 会话覆盖桩：c9 → tc-none（主线 convSettings.get 同形）
+      // 会话覆盖桩：c9 → tc-none（主线 convSettings.effective 同形——c9 是
+      // singles sid 有人桶，effective 与 get 同值）
       await seedTools(ctx, fibers, class extends Service {
         constructor(c: Context) { super(c, 'convSettings'); }
-        get(id: string): { toolMode?: 'tc-none' } { return id === 'c9' ? { toolMode: 'tc-none' } : {}; }
+        effective(id: string): { toolMode?: 'tc-none' } { return id === 'c9' ? { toolMode: 'tc-none' } : {}; }
       });
       // tc-programmatic（agent tags）→ mode 工具集合成（不经常规面过滤）
       expect(conv.toolDefs('other').names).toEqual(['run_code']);

@@ -48,7 +48,7 @@ describe('身份迁移脚本（cr-1022 批2 v3 目标态）', () => {
     expect(fs.existsSync(path.join(dir, 'preset-origin.json.migrated'))).toBe(true);
     const reread = readAgentConfig(ROOT, 'alpha');
     expect(reread?.model).toBe('mock');
-    expect(reread?.access).toBe('full-access');
+    expect(reread?.access).toBeUndefined(); // cr-1082：access 轴退役——迁移不再投影 tier
     expect(reread?.settings).toEqual({ memory: { depth: 2 } });
     expect(reread?.system).toBeUndefined();
     expect(readAgentProfileAt(dir)?.origin).toEqual({ template: 'standard', hash: 'h1' });

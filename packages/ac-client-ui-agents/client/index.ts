@@ -37,7 +37,7 @@ export interface AgentInfo {
   } | null;
   virtual?: boolean;
   hasActiveSession?: boolean;
-  /** 档位/模式/行内档位（cr-953 结构化——徽章与 ChatInput 跟随态） */
+  /** 模式/行内档位（cr-953 结构化；cr-1082：access 随轴退役——投影已停，字段容忍存量 wire） */
   access?: string;
   toolMode?: string;
   levels?: Record<string, unknown>;
@@ -134,7 +134,6 @@ export function toAgentList(
         virtual: c.virtual,
         hasActiveSession: runningAgents.has(c.id),
         ...(c.model ? { model: c.model, ...(c.provider ? { provider: c.provider } : {}) } : {}),
-        ...(c.access !== undefined ? { access: c.access } : {}),
         ...(c.toolMode !== undefined ? { toolMode: c.toolMode } : {}),
         ...(c.levels !== undefined ? { levels: c.levels } : {}),
         ...(conv?.updatedAt ? { lastActivity: conv.updatedAt } : {}),

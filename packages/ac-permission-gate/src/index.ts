@@ -14,11 +14,11 @@
 //   4 建议 allow → 直通（可信工具已自审——信任的收益）
 //   5 建议 ask：s := 设置链（会话键 approval〔仅有人会话〕> Agent settings
 //     ['permission-gate'].onAsk > 全局 config settings['permission-gate'].onAsk
-//     > 缺省 'deny'）；s=allow 放行
-//     （含无人桶——运营者预授权，问不出的问题不问）/ s=deny 拒绝 / s=ask →
-//     无人桶（humanPresentOf === false：self/agent~agent/g~member——问人
-//     不可达）→ 拒（D7 fail-closed：仅压「要弹卡」这一格，预授权层照常
-//     生效）；有人桶 → durableInteraction approval 审批卡 → 批准
+//     > 缺省 'deny'）；s=allow 放行并注入 full-access（cr-1082「通过即
+//     full」——含无人桶：运营者预授权，问不出的问题不问）/ s=deny 拒绝 /
+//     s=ask → 无人桶（humanPresentOf === false：self/agent~agent/g~member
+//     ——问人不可达）→ 拒（D7 fail-closed：仅压「要弹卡」这一格，预授权
+//     层照常生效）；有人桶 → durableInteraction approval 审批卡 → 批准
 //     （call/run）→ 变异 call.access='full-access' 放行 / 拒绝·超时 → 拒。
 // run 级批准缓存：Map<runId>，loop/before-run 清（批准一次本轮 ask 全免）。
 // 门缺席 = dontAsk 化（D9：沙箱边界轴照拦——workdir/命令级扫描在工具内）。
@@ -73,15 +73,14 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
    * （第四层，fail-closed）。非法值回落下一层（回落方向——非 'allow'）。
    */
   function onAskOf(call: ToolCall): OnAsk {
-    // 第一层：会话键（壳 = ConvSettingsShim 只读 get；宿主 = 服务 get）。
-    // 仅有人会话参与本层（用户裁决 cr-1079 续记）：会话键是用户偏好载体，
-    // 无人桶（self / agent~agent / g~member）无用户偏好可言——若读入残留
-    // 值会压住 Agent 设置，造成「Agent 配置未生效」的诡异排查面。
-    if (call.conversationId !== undefined && humanPresentOf(call.conversationId)) {
+    // 第一层：会话键（壳 = ConvSettingsShim / 宿主 = 服务，读面统一
+    // effective——cr-1083 conv-scope 批1：无人桶恒 {}，与 cr-1079 续记的
+    // 内联门同语义，上收到读取面单源）。
+    if (call.conversationId !== undefined) {
       const convSettings = ctx.get('convSettings', false) as
-        | { get(id: string): Record<string, string> }
+        | { effective(id: string): Record<string, string> }
         | undefined;
-      const v = convSettings?.get(String(call.conversationId)).approval;
+      const v = convSettings?.effective(String(call.conversationId)).approval;
       if (v === 'allow' || v === 'ask' || v === 'deny') return v;
     }
     // 第二层：Agent settings（settingsOf 两层合成——同 shell-tools limitsOf 形态）
@@ -183,7 +182,13 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
     // 决策序 5：ask → 设置链先行（预授权在无人桶同样生效——问不出的
     // 问题不问，cr-1079 D7 修订：无人桶只压「要弹卡」这一格）
     const s = onAskOf(call);
-    if (s === 'allow') return next();
+    // 设置链 allow = 预授权通过——「通过即 full」注入（cr-1082 批A：审批轴
+    // 成为 full 唯一发放者；与弹卡批准/缓存命中同款变异。原语义 allow 仅
+    // 免弹卡、调用仍按沙箱执行——access 轴退役后两条路径必须同权）
+    if (s === 'allow') {
+      execution.call = { ...call, access: 'full-access' };
+      return next();
+    }
     if (s === 'deny') {
       return veto(execution, `工具 ${call.name} 的审批请求已被设置拒绝（approval=deny——会话键/Agent 设置/全局 config 任一层或缺省）。`);
     }

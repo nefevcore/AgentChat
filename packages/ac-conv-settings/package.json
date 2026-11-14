@@ -12,7 +12,8 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
-    "@agentchat/cordis": "workspace:*"
+    "@agentchat/cordis": "workspace:*",
+    "ac-agents": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",

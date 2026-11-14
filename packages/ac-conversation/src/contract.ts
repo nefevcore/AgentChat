@@ -69,14 +69,9 @@ export interface ConversationDeliverOptions {
    */
   wakeNotice?: string;
   /**
-   * 本次投递安全档位（cr-947 前名 elevation；access-tier §七，宿主 API）：
-   * deliver 边界按 source 判定——'user' 信封两档直达（webui 输入框档位
-   * 按钮，人工当场授权）；'event' 信封上限 'sandbox-access'（机制分支
-   * ——归档整理永远不需要 full，爆炸半径最小）；'agent' 信封恒剥除
-   * （send_agent 面，Agent 永远够不到该字段）。**只升不降**：Agent 自有
-   * tags 档位恒为底座，信封 access 不高于目标 Agent 自有档位时剥除——
-   * 缺省（无 access）时按 conv-settings 会话 access ?? Agent 底座合成。
-   * 透传 router.send → 信封 access → loop 每步装配 ToolCall.access。
+   * @deprecated cr-1082 access 轴退役：输入框选档 UI 与档位继承链已拆除，
+   * deliver 边界对遗留调用方传入值一律剥除（full 唯一发放者 = 权限门）。
+   * 字段保留仅为类型容忍（remote-link 转发面等）。
    */
   access?: 'sandbox-access' | 'full-access';
   /** 本 deliver 启动的 run 的外部中止信号（steer/queued 路径无新 run，忽略） */

@@ -2,8 +2,8 @@
 // ac-client-ui-conversation/client/composePrefs.ts —— 输入栏
 // 组合偏好持久化（上次会话选择回放）
 //
-// 输入栏工具栏五项选择（Agent/预设 · 模型 · 思考强度 · 快捷提权 ·
-// 工具使用模式）的「上次选择」记录：localStorage 单键
+// 输入栏工具栏选择（Agent/预设 · 模型 · 思考强度 · 工具使用模式 ·
+// 浏览器档）的「上次选择」记录：localStorage 单键
 // agentchat.composePrefs。新开会话（及视角切换重挂载）时回放——用户
 // 不必每次重新设置。
 //
@@ -16,9 +16,9 @@
 // 语义边界：
 //   · 记录的是「最后被用户选定的值」，不做会话级区分（全局一份）；
 //   · 回放值仅作初值——Agent/模型在新建会话时作为创建参数透传
-//     （服务端校验，失效静默回落），effort/access 直接设为初值；
-//   · effort ''/access '' 与「未记录」都合法记录值（''=明确选择
-//     的关闭态/跟随态，回放时保持——非缺省值才覆写）。agentId/model
+//     （服务端校验，失效静默回落），effort 直接设为初值；
+//   · effort '' 与「未记录」都合法记录值（''=明确选择的关闭态，
+//     回放时保持——非缺省值才覆写）。agentId/model
 //     同语义（2026-09-15 修复）：'' = 明确选回默认预设/默认模型——写回
 //     覆盖旧记录，新会话跟随（不再残留旧模式；'' ≠ 未记录）。
 //     工具调用模式偏好键（旧 programmatic 布尔）已随 2026-09-17 tc-*
@@ -28,8 +28,8 @@
 
 /** 思考强度档位（与 ChatInput EFFORT_OPTIONS 同词表；''=关闭思考） */
 export type ComposeEffort = '' | 'low' | 'high' | 'max';
-/** 安全档位（access-tier 档位词汇，cr-947 前名 ComposeElevation；''=跟随 Agent 自有档位） */
-export type ComposeAccess = '' | 'sandbox-access' | 'full-access';
+//（cr-1082：ComposeAccess 安全档位随 access 轴退役——存量 localStorage
+// 记录读侧忽略；会话级预授权正路 = conv-settings approval 键）
 /** 工具调用模式（tc-* 模式词汇；''=跟随 Agent tags 档） */
 export type ComposeToolMode = '' | 'tc-base' | 'tc-programmatic' | 'tc-none';
 /** 浏览器档（实验性钮词汇；''=跟随 Agent tags browser-tier 抉择组） */
@@ -43,8 +43,6 @@ export interface ComposePrefs {
   model?: string;
   /** 上次思考强度（''=思考关闭） */
   effort?: ComposeEffort;
-  /** 上次安全档位（''=未武装；旧记录键 elevation 读侧映射） */
-  access?: ComposeAccess;
   /** 上次工具调用模式（''=跟随 Agent tags 档；2026-09-17 恢复：新会话
    *  无显式键时回放并写入该会话——选择要落 conv-settings 才生效，见
    *  toolModeInherit.ts） */
@@ -63,7 +61,6 @@ const store: StorageLike | undefined = (globalThis as { localStorage?: StorageLi
 const KEY = 'agentchat.composePrefs';
 
 const EFFORTS = new Set<ComposeEffort>(['', 'low', 'high', 'max']);
-const ACCESS_LEVELS = new Set<ComposeAccess>(['', 'sandbox-access', 'full-access']);
 const TOOL_MODES = new Set<ComposeToolMode>(['', 'tc-base', 'tc-programmatic', 'tc-none']);
 const BROWSER_TIERS = new Set<ComposeBrowserTier>(['', 'observe', 'manipulate', 'inject', 'disabled']);
 
@@ -83,9 +80,7 @@ export function loadComposePrefs(): ComposePrefs | null {
       if (typeof v[key] === 'string') out[key] = v[key] as string;
     }
     if (typeof v.effort === 'string' && EFFORTS.has(v.effort as ComposeEffort)) out.effort = v.effort as ComposeEffort;
-    // cr-947：新键 access 优先；旧记录键 elevation 读侧映射（localStorage 存量不迁移）
-    const rawAccess = typeof v.access === 'string' ? v.access : (typeof v.elevation === 'string' ? v.elevation : undefined);
-    if (rawAccess !== undefined && ACCESS_LEVELS.has(rawAccess as ComposeAccess)) out.access = rawAccess as ComposeAccess;
+    //（cr-1082：access/elevation 存量记录读侧忽略——档位词汇退役）
     if (typeof v.toolMode === 'string' && TOOL_MODES.has(v.toolMode as ComposeToolMode)) out.toolMode = v.toolMode as ComposeToolMode;
     if (typeof v.browserTier === 'string' && BROWSER_TIERS.has(v.browserTier as ComposeBrowserTier)) out.browserTier = v.browserTier as ComposeBrowserTier;
     return Object.keys(out).length > 0 ? out : null;
@@ -108,9 +103,6 @@ export function saveComposePrefs(patch: ComposePrefs): void {
           break;
         case 'effort':
           if (typeof value === 'string' && EFFORTS.has(value as ComposeEffort)) next.effort = value as ComposeEffort;
-          break;
-        case 'access':
-          if (typeof value === 'string' && ACCESS_LEVELS.has(value as ComposeAccess)) next.access = value as ComposeAccess;
           break;
         case 'toolMode':
           if (typeof value === 'string' && TOOL_MODES.has(value as ComposeToolMode)) next.toolMode = value as ComposeToolMode;

@@ -28,7 +28,7 @@ import {
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveAccessOfCall } from 'ac-agents';
+import { isFullAccessCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { globToRegExp, literalDirPrefix, normalizeGlobPattern, toPosix, walkFiles, SKIP_DIRS, type WalkEntry } from 'ac-glob-core';
 import { resolveRgPath, runRg, type RgFileGroup } from './rg-core.ts';
@@ -423,7 +423,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
    */
   function searchDenyFilterOf(call: { agentId?: string; access?: string }): (abs: string) => boolean {
     const deny = denyListsOf(call);
-    const skipReadDeny = effectiveAccessOfCall(call, agentsOf) === 'full-access';
+    const skipReadDeny = isFullAccessCall(call); // cr-1082 批B：full 唯一来源 = 门注入
     return (abs: string): boolean =>
       isDeniedPath(deny.accessDeny, abs) || (!skipReadDeny && isDeniedPath(deny.readDeny, abs));
   }

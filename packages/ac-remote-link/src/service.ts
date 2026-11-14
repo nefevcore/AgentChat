@@ -675,11 +675,8 @@ export class RemoteLinkService extends Service {
       // 桶（裁决：docs/design/archive/session/remote-deliver-sender-ruling.md）。
       p.sender = 'user';
       p.source = 'user';
-      // access 放行（cr-112，cr-105「配对即信任」补全；cr-947 前名 elevation）：
-      // 两档白名单窄化在 web-api deliver RPC 边界（'sandbox-access'|
-      // 'full-access' 之外丢弃），deliver 边界仍有只升不降与 Agent 自有档位
-      // 底座约束——手机选档与桌面同语义。旧剥除是真机「明明设了完全访问仍
-      // 弹提权审批」的根因：手机的档位武装态从未到达任何 run，会话档位也从未写过。
+      //（cr-1082：access 放行随轴退役——web-api deliver 边界剥除遗留值，
+      // 手机与桌面同语义〔沙箱缺省 + 权限门〕）
       forwardParams = p;
     }
     // 经注册中心转发（webServer.callRpc——M1 对 ac-web-server 的唯一新增公共面）。

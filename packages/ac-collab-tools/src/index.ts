@@ -246,7 +246,6 @@ export function apply(ctx: Context) {
                 text: message,
                 // 回执直达发起会话（无会话键则回 owner 自会话桶——jobs wakeup 缺省）
                 ...(call.conversationId ? { conversationId: call.conversationId } : {}),
-                ...(call.access === 'sandbox-access' || call.access === 'full-access' ? { access: call.access } : {}),
               });
               const hints: Record<string, string> = {
                 started: '已作为新任务消息投递并启动 run——完成回执会回到本会话；正文与结果用 subagent(action="await", subagent_id) 查看',

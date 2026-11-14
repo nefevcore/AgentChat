@@ -297,7 +297,7 @@ describe('ask_questions 发起体（write-ahead + 即返 awaiting + context 行�
     expect(qs[0].options).toEqual(['A', 'B']);
   });
 
-  it('提权档位留痕（2026-09-12 反馈）：call.access 进 payload；无提权无字段', async () => {
+  it('门注入档位留痕（2026-09-12 反馈；cr-1082 后唯一合法来源 = 门）：call.access 进 payload；无授权无字段', async () => {
     const { ctx } = await boot({ backend: 'memory' });
     await exec(ctx, {
       name: 'ask_questions',

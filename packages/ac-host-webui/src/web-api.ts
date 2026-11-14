@@ -21,6 +21,7 @@ import type { MultipartBody, RouteCall } from 'ac-web-server';
 import * as path from 'node:path';
 import { assembleSessionView, conversationDirs, deleteConversationRow, historyView, truncateConversation, type JournalToolResult } from 'ac-ledger';
 import { listAgentIds, readAgentConfig, isAgentIdentity, isPresetId, materializedChildIds } from 'ac-agents-core';
+import { humanPresentOf } from 'ac-agents'; // conv-scope 批3：无人桶写键 fail-loud 门
 import { pairKey } from 'ac-core-utils';
 import { registerOpsFace, runningOf, type FaceOpsDeps } from './face-ops.ts';
 import {
@@ -184,15 +185,12 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         // 缺省查 conv-settings（conversationId 已归一——cr-1059 前此处自算对桶键）。
         // 覆盖随信投递：壳无从查表也生效。
         const model = optStr(p.model) ?? storedModelOf(conversationId);
-        // 单次投递安全档位（cr-626；cr-947 前名 elevation——词面统一 access）：
-        // 输入框档位选择随信投递——主线 loop request.access 同词汇。
-        const elevRaw = optStr(p.access);
-        const access = elevRaw === 'sandbox-access' || elevRaw === 'full-access' ? elevRaw : undefined;
+        // 单次投递安全档位已退役（cr-1082 access 轴退役）：输入框选档 UI
+        // 随批C 拆除，遗留前端参数静默忽略（access 恒缺席——full 唯一发放者 = 权限门）
         const result = await deps.user.send(agentId, text, {
-          ...(conversationId !== undefined ? { uuid: conversationId } : {}),
+          uuid: conversationId,
           ...(requestId !== undefined ? { requestId } : {}),
           ...(model !== undefined ? { model } : {}),
-          ...(access !== undefined ? { access } : {}),
           ...(lane !== undefined ? { lane } : {}),
           ...(placement !== undefined ? { placement } : {}),
         });
@@ -517,6 +515,11 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       web.registerRpc('conv-settings/set', (params) => {
         const p = obj(params);
         const conversationId = reqStr(p, 'conversationId');
+        // cr-1083 conv-scope 批3：无人桶写键 fail-loud——会话键是用户偏好
+        // 载体，无人桶无用户偏好可写（防 UI 再造残值；壳侧 Shim.set 同姿态）
+        if (!humanPresentOf(conversationId)) {
+          throw new Error('会话设置仅有人会话可写（无人桶无用户偏好——键不参与决策，写面拒收）');
+        }
         const patch = p.patch;
         if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) {
           throw new Error('参数 patch 须为对象（值 = 字符串或 null——null 删键）');

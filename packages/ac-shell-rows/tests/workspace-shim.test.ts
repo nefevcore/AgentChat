@@ -57,9 +57,9 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
   });
 
   it('未挂载会话 + settings security.allowedPaths 并出面（真 agents 垫片链）', () => {
-    // cr-1036 批3：身份 fixture 走 v3 写口（config.json 读窗退役；tags 档位词 → access）
+    // cr-1036 批3：身份 fixture 走 v3 写口（config.json 读窗退役；cr-1082 起 access 不再落盘）
     writeAgentConfig(ROOT, {
-      id: 'neko', model: 'mock', access: 'sandbox-access',
+      id: 'neko', model: 'mock',
       settings: { security: { allowedPaths: ['C:\\data\\a', '', 42] } },
     });
     const ctx = new Context();

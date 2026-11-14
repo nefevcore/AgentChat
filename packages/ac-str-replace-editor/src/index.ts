@@ -30,7 +30,7 @@ import {
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveAccessOfCall } from 'ac-agents';
+import { isFullAccessCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 
@@ -213,10 +213,10 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
     svc?.ensure(call.conversationId, file);
   }
 
-  /** effectiveAccess（§3.2）：call.access ?? accessOf(agent)——ac-agents 导出的
-   *  per-call 单源（effectiveAccessOfCall），防基线与复检漂移 */
-  function accessOfCall(call: { agentId?: string; access?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
-    return effectiveAccessOfCall(call, agentsOf);
+  /** per-call 两态判定（cr-1082 批B）：full 唯一来源 = 门注入的
+   *  call.access——isFullAccessCall 单源；沙箱态 = 其余一切 */
+  function isFull(call: { agentId?: string; access?: string }): boolean {
+    return isFullAccessCall(call);
   }
 
   /** 读面双黑名单命中判定（view 路径判定与目录列表条目过滤共用单源；
@@ -226,7 +226,7 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
     call: { agentId?: string; access?: string },
   ): (abs: string) => 'access' | 'read' | undefined {
     const deny = denyListsOf(call);
-    const skipReadDeny = accessOfCall(call) === 'full-access';
+    const skipReadDeny = isFull(call);
     return (abs: string): 'access' | 'read' | undefined => {
       if (isDeniedPath(deny.accessDeny, abs)) return 'access';
       if (!skipReadDeny && isDeniedPath(deny.readDeny, abs)) return 'read';
@@ -291,10 +291,10 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
       const command = String(args.command ?? '');
       const pathInput = String(args.path ?? '');
       if (!pathInput.trim()) return { ok: false, error: 'path 不能为空' };
-      // 写基线档位感知（§9.3）：full/审批 access 跳过沙箱白名单；
+      // 写基线档位感知（§9.3）：full（门注入）跳过沙箱白名单；
       // accessDeny 不随档位跳过（域规则与档位正交）
       const sandbox = sandboxOf(call);
-      const target = accessOfCall(call) === 'full-access'
+      const target = isFull(call)
         ? path.resolve(sandbox.workdir, pathInput)
         : sandbox.resolve(pathInput);
       // accessDeny 全档拦截（写命令同样适用——系统域读+写双禁）；view 是

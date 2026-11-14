@@ -23,14 +23,11 @@ describe('cr-856 spawn 物化单源（inherit.ts）', () => {
     expect(out.rejected).toContain('fs_read'); // 工具名词形退役——不再展开
   });
 
-  it('convInheritOf：access 水位取高 + browserTier 层级映射；tc-*/issueSubmit 无继承面', () => {
-    const full = convInheritOf({ access: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' }, 'sandbox-access');
-    expect(full.access).toBe('full-access');
-    expect(full.browserLevel).toBe('inject');
-    // 无设置 + per-call 提权兜底
-    expect(convInheritOf({}, 'full-access')).toEqual({ access: 'full-access' });
+  it('convInheritOf（cr-1082 access 臂退役）：仅 browserTier 层级映射；access/tc-*/issueSubmit 无继承面', () => {
+    const full = convInheritOf({ access: 'full-access', toolMode: 'tc-programmatic', browserTier: 'inject', issueSubmit: 'enabled' });
+    expect(full).toEqual({ browserLevel: 'inject' }); // access 不继承（子档位 = 沙箱常量）
     // 空面无词
-    expect(convInheritOf({}, undefined)).toEqual({});
+    expect(convInheritOf({})).toEqual({});
   });
 
   it('spawnChildConfigOf：toolMode 结构化合成 + rows 含 run-code 合成形态 + model/workdir 快照', () => {
@@ -44,7 +41,7 @@ describe('cr-856 spawn 物化单源（inherit.ts）', () => {
     // 常规父不合成程序化——run-code 进基础集后行集信号对缺省继承恒真）
     const inheritRun = spawnChildConfigOf({ parent });
     expect(inheritRun.toolMode).toBeUndefined();
-    expect(inheritRun.access).toBe('full-access');
+    expect(inheritRun.access).toBeUndefined(); // cr-1082：子不继承父档位
     // ①' 程序化父 + 子行集含 run-code：合成 tc-programmatic
     const progParent = { ...parent, toolMode: 'tc-programmatic' } as AgentConfig;
     const inheritProg = spawnChildConfigOf({ parent: progParent });

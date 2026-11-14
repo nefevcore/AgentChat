@@ -160,9 +160,8 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
     expect(okCmd.error ?? '').not.toMatch(/沙箱/);
   });
 
-  it('基线 tierOf 感知（§9.3）：full 档跳过命令扫描与 workdir 白名单；base/sandbox 照拦', async () => {
+  it('基线两态判定（cr-1082）：沙箱态照拦（Agent access 不再参与）；call.access=full（门注入位）跳过', async () => {
     const root = tmpRoot();
-    // 带 agents 行的 boot（档位判定 tierOf 单源需要注册表）
     const { ctx } = await bootRows([
       [toolsRow, undefined],
       [llmRow, undefined],
@@ -172,11 +171,10 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
       [shellRow, { workdir: root }],
     ]);
     ctx.agents.register({ id: 'basea', model: 'm' });
-    ctx.agents.register({ id: 'sandboxa', model: 'm', access: 'sandbox-access' });
-    ctx.agents.register({ id: 'fulla', model: 'm', access: 'full-access' });
+    ctx.agents.register({ id: 'fulla', model: 'm' }); // cr-1082：Agent access 退役——原 full 语义迁 onAsk=allow（审批面）
     const outside = registerTmp(fs.mkdtempSync(path.join(os.tmpdir(), 'ac-shell-out-')));
 
-    // base：越界 workdir 被白名单拦
+    // 沙箱态：越界 workdir 被白名单拦
     const baseWd = await exec(ctx, {
       name: CMD_TOOL,
       args: { command: 'echo ok', workdir: outside },
@@ -184,7 +182,7 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
     });
     expect(baseWd.ok).toBe(false);
     expect(baseWd.error).toMatch(/沙箱/);
-    // base：越界绝对路径命令被扫描拦
+    // 沙箱态：越界绝对路径命令被扫描拦
     const baseCmd = await exec(ctx, {
       name: CMD_TOOL,
       args: { command: 'cat /etc/passwd' },
@@ -193,31 +191,15 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
     expect(baseCmd.ok).toBe(false);
     expect(baseCmd.error).toMatch(/沙箱/);
 
-    // sandbox：软边界仍生效（同 base——扫描不随 sandbox 跳过）
-    const sandboxCmd = await exec(ctx, {
+    // cr-1082：Agent 档位不再参与执行边界——原 full Agent（无 call.access）同样沙箱照拦
+    const formerFull = await exec(ctx, {
       name: CMD_TOOL,
-      args: { command: 'cat /etc/passwd' },
-      agentId: 'sandboxa',
-    });
-    expect(sandboxCmd.ok).toBe(false);
-    expect(sandboxCmd.error).toMatch(/沙箱/);
-
-    // full："不做任何限制"的字面义——workdir 白名单与命令扫描都跳过
-    const fullWd = await exec(ctx, {
-      name: CMD_TOOL,
-      args: { command: 'echo full-ok', workdir: outside },
+      args: { command: 'cat /etc/passwd', workdir: outside },
       agentId: 'fulla',
     });
-    expect(fullWd.ok).toBe(true);
-    expect(String(fullWd.output?.output ?? '')).toContain('full-ok');
-    const fullCmd = await exec(ctx, {
-      name: CMD_TOOL,
-      args: { command: 'cat /etc/passwd' },
-      agentId: 'fulla',
-    });
-    expect(fullCmd.error ?? '').not.toMatch(/沙箱/);
+    expect(formerFull.error ?? '').toMatch(/沙箱/);
 
-    // 审批 access（base + call.access=full）同款跳过
+    // call.access = full（唯一授权态——门注入位）：workdir 白名单与命令扫描都跳过
     const elevated = await exec(ctx, {
       name: CMD_TOOL,
       args: { command: 'cat /etc/passwd', workdir: outside },
@@ -225,5 +207,13 @@ describe(`ac-shell-tools ${CMD_TOOL} 前台执行`, () => {
       access: 'full-access',
     });
     expect(elevated.error ?? '').not.toMatch(/沙箱/);
+    const elevatedWd = await exec(ctx, {
+      name: CMD_TOOL,
+      args: { command: 'echo full-ok', workdir: outside },
+      agentId: 'basea',
+      access: 'full-access',
+    });
+    expect(elevatedWd.ok).toBe(true);
+    expect(String(elevatedWd.output?.output ?? '')).toContain('full-ok');
   });
 });

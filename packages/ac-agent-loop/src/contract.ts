@@ -99,13 +99,10 @@ export interface LoopRunRequest {
    */
   meta?: Record<string, unknown>;
   /**
-   * run 安全档位（cr-947 前名 elevation；access-tier §七，仅可信装配方）：
-   *   · deliver 路径（source='event'，上限 'sandbox-access'——归档整理
-   *     run；deliver 边界剥除非 event 信封）；
-   *   · 子 Agent 档位继承（ac-shell-subagent 直调本服务装配
-   *     access = accessOf(parentId)——继承不放大也不缩水）。
-   * loop 每步装配进 ToolCall.access（与 agentId/signal 同纪律：
-   * 身份由调用方装配，工具行与安全行只读取）。
+   * run 执行档位（cr-1082 两态化）：'full-access' = 唯一授权值，合法
+   * 来源 = 权限门注入（设置链 allow / 弹卡批准 / run 缓存命中——门在
+   * tool/before-execute 变异 execution.call，不经 run 装配位）；本字段
+   * 为历史装配位保留（写方已退役，遗留读方剥除）。沙箱 = 缺席。
    */
   access?: 'sandbox-access' | 'full-access';
   /**

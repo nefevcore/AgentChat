@@ -354,18 +354,10 @@ const llmEffectiveSummary = computed(() => {
   return { provider: fallback?.provider ?? '', model: fallback?.model ?? '', source: '默认（跟随模型池）' };
 });
 
-// ── 档位编辑（cr-953：AgentConfig.tags 退役——编辑面 = 结构化三抉择：
-//    访问档位 access / 工具调用模式 toolMode / 浏览器层级 levels.browser。
-//    本地目录（原 tags/catalog RPC 随 tag-registry 解体退役）；能力徽章区
-//    随 requiredTags 门禁退役删除——授权 = 装配视图的行级启停） ──
-const TIER_LABELS: Record<string, string> = {
-  'base-access': '基础档', 'sandbox-access': '沙箱档', 'full-access': '完全访问',
-};
-const TIER_TITLES: Record<string, string> = {
-  'base-access': '基础档：只有不需要档位门的工具（读面/协作面）',
-  'sandbox-access': '沙箱档：工作区白名单内自由执行写文件/命令等敏感工具',
-  'full-access': '完全访问：无档位门（写文件/命令执行全部放行）',
-};
+// ── 档位编辑（cr-953：AgentConfig.tags 退役——编辑面 = 结构化抉择；
+//    cr-1082：访问档位 access 抉择随轴退役——权限语义迁 permission-gate
+//    onAsk〔agents/<id>/permission-gate.json〕，非本面板域。剩余抉择：
+//    工具调用模式 toolMode / 浏览器层级 levels.browser） ──
 const MODE_LABELS: Record<string, string> = {
   'tc-base': '标准', 'tc-programmatic': '程序化', 'tc-none': '无工具',
 };
@@ -383,17 +375,12 @@ const BROWSER_TITLES: Record<string, string> = {
   inject: '注入层：含交互层 + 页面内执行 JS（eval）',
 };
 
-/** 当前访问档位（raw.access；缺席 = base-access） */
-const accessValue = computed<string>(() => (props.raw.access as string | undefined) ?? 'base-access');
 /** 当前工具模式（raw.toolMode；缺席 = tc-base） */
 const modeValue = computed<string>(() => (props.raw.toolMode as string | undefined) ?? 'tc-base');
 const browserValue = computed<string>(() => {
   const level = (props.raw.levels as Record<string, unknown> | undefined)?.browser;
   return typeof level === 'string' ? level : '';
 });
-function setAccess(v: string): void {
-  emit('update:raw', { ...props.raw, access: v === 'base-access' ? null : v });
-}
 function setToolMode(v: string): void {
   emit('update:raw', { ...props.raw, toolMode: v === 'tc-base' ? null : v });
 }
@@ -506,14 +493,7 @@ async function removeAvatar() {
         </div>
 
 
-        <!-- 档位（cr-953 结构化：access / toolMode / levels.browser 三抉择） -->
-        <div class="info-item">
-          <div class="info-label">访问档位</div>
-          <div class="info-desc">权限轴：无人审核时敏感工具（写文件/命令执行等）的档位门</div>
-          <div class="tier-choice">
-            <button v-for="(label, key) in TIER_LABELS" :key="key" type="button" class="tier-opt" :class="[{ on: accessValue === key }, 'tb-' + key]" :title="TIER_TITLES[key]" @click="setAccess(key)">{{ label }}</button>
-          </div>
-        </div>
+        <!-- 档位（cr-953 结构化；cr-1082 访问档位抉择随轴退役——toolMode / levels.browser） -->
         <div class="info-item">
           <div class="info-label">工具调用模式</div>
           <div class="info-desc">LLM 工具面形态：标准直调 / 程序化编排 / 纯聊天（会话可临时覆盖）</div>

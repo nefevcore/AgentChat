@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  accessOf, toolModeOf, displayNameOf, resolveToolNames, settingsOf, deepMerge,
+  toolModeOf, displayNameOf, resolveToolNames, settingsOf, deepMerge, isFullAccess,
   isPresetId, presetTemplateKeyOf,
   type AgentConfig,
 } from '../src/config.ts';
@@ -19,12 +19,7 @@ import { readAgentPatchV3At } from '../src/patch-doc.ts';
 describe('词汇纯函数（语义平移自 ac-agents）', () => {
   const base: AgentConfig = { id: 'a' };
 
-  it('accessOf：结构化 access 字段 / 缺省 base / 未注册 base（fail-closed）', () => {
-    expect(accessOf(undefined)).toBe('base-access');
-    expect(accessOf({ ...base })).toBe('base-access');
-    expect(accessOf({ ...base, access: 'sandbox-access' })).toBe('sandbox-access');
-    expect(accessOf({ ...base, access: 'full-access' })).toBe('full-access');
-  });
+  //（cr-1082：accessOf 随 access 轴退役——判定换 isFullAccess，见 config.ts）
 
   it('toolModeOf：结构化 toolMode 字段 / 缺省 base', () => {
     expect(toolModeOf(undefined)).toBe('tc-base');
@@ -32,10 +27,10 @@ describe('词汇纯函数（语义平移自 ac-agents）', () => {
     expect(toolModeOf({ ...base, toolMode: 'tc-none' })).toBe('tc-none');
   });
 
-  it('normalizeLegacyTags：存量 tags 词归一（档位/模式结构化、admin/browser 入 levels、能力词丢弃）', async () => {
+  it('normalizeLegacyTags：存量 tags 词归一（cr-1082 起档位词丢弃、模式结构化、admin/browser 入 levels、能力词丢弃）', async () => {
     const { normalizeLegacyTags } = await import('../src/config.ts');
     expect(normalizeLegacyTags({ id: 'a', tags: ['full-access', 'tc-programmatic'] } as never))
-      .toEqual({ id: 'a', access: 'full-access', toolMode: 'tc-programmatic' });
+      .toEqual({ id: 'a', toolMode: 'tc-programmatic' });
     expect(normalizeLegacyTags({ id: 'a', tags: ['admin', 'observe'] } as never))
       .toEqual({ id: 'a', levels: { collab: 'admin', browser: 'observe' } });
     expect(normalizeLegacyTags({ id: 'a', tags: ['fs', 'shell', 'web', 'delegation', 'infra'] } as never))
@@ -82,8 +77,8 @@ describe('agents/<id>/ 树直读', () => {
   });
   afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
-  it('写读往返：v3 菜单片段 + agent.json 档案还原（cr-1022 批2；id 一致性校验）', () => {
-    const cfg: AgentConfig = { id: 'alpha', model: 'gpt-x', access: 'sandbox-access', settings: { memory: { depth: 2 } } };
+  it('写读往返：v3 菜单片段 + agent.json 档案还原（cr-1022 批2；id 一致性校验）；access 轴退役（cr-1082）', () => {
+    const cfg: AgentConfig = { id: 'alpha', model: 'gpt-x', settings: { memory: { depth: 2 } } };
     writeAgentConfig(ROOT, cfg);
     // 落盘形态：agent.patch.yml = v3 行定义数组（ac-menu 头——cr-1067 基线戳退役）；档案在 agent.json
     const patchText = fs.readFileSync(path.join(agentDir(ROOT, 'alpha'), 'agent.patch.yml'), 'utf-8');

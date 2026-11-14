@@ -61,7 +61,6 @@ export const inject = ['tools', 'durableInteraction', 'agentLoop'];
 interface ConversationLike {
   deliver(agentId: string, message: string | Record<string, unknown>, options?: {
     sender?: string; source?: string; conversationId?: string;
-    access?: 'sandbox-access' | 'full-access';
   }): Promise<unknown>;
 }
 

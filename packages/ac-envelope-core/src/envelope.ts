@@ -41,11 +41,10 @@ export interface Envelope {
    * （显式入参 > conv-settings 存储，cr-565）。随信投递而非壳内查表：
    * 排队/inbox 重放的信仍按其投递时刻的覆盖跑，语义确定。 */
   model?: string;
-  /** 单次投递安全档位（cr-947 前名 elevation——'sandbox-access' |
-   * 'full-access'，access-tier §七：档位随信投递而非壳内查表，主线
-   * loop request.access 同词汇；缺席 = 会话 conv-settings access ??
-   * Agent tags 档位〔accessOf〕。cr-626 语义保持：输入框档位选择随信
-   * 投递——full-access 下 pwsh workdir 不再按 base 拦）。 */
+  /** 单次投递执行档位（cr-1082 两态化）：'full-access' = 唯一授权值
+   *（合法写方已全部退役——遗留值由 deliver 边界剥除；沙箱 = 缺席）。
+   * 字段保留为 wire 容忍（存量信封/对端旧版），'sandbox-access' 仅
+   * 校验容忍。 */
   access?: 'sandbox-access' | 'full-access';
 }
 
@@ -78,7 +77,7 @@ export function validateEnvelope(env: Envelope): EnvelopeValidationIssue[] {
     issues.push({ field: 'model', message: '模型覆盖须为非空字符串' });
   }
   if (env.access !== undefined && !(['sandbox-access', 'full-access'] as const).includes(env.access)) {
-    issues.push({ field: 'access', message: `未知安全档位: ${String(env.access)}` });
+    issues.push({ field: 'access', message: '未知执行档位: ' + String(env.access) });
   }
   return issues;
 }

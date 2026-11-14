@@ -27,8 +27,9 @@ const CATALOG = { rows: [
   { id: 'browser', tree: 'shell' },
   { id: 'collab-tools', tree: 'shell' },
 ] };
-/** v3 组合读期望（rows 差量换正清单：include = 定义清单，exclude 语义消亡） */
-const cfgV3: AgentConfig = { ...cfg, rows: { include: ['fs', 'web-tools'] } };
+/** v3 组合读期望（rows 差量换正清单：include = 定义清单，exclude 语义消亡；
+ * access 随 cr-1082 轴退役——tier 不再落盘，读回缺席） */
+const cfgV3: AgentConfig = (() => { const { access: _a, ...rest } = cfg; return { ...rest, rows: { include: ['fs', 'web-tools'] } }; })();
 beforeEach(() => {
   fs.mkdirSync(ROOT, { recursive: true });
   fs.writeFileSync(path.join(ROOT, 'row-catalog.json'), JSON.stringify(CATALOG), 'utf-8');
@@ -44,7 +45,7 @@ describe('agent.patch.yml v3 菜单片段 + agent.json（cr-1022 批2）', () =>
     expect(v3!.defs.map((d) => d.id)).toEqual(['fs', 'web-tools']); // exclude 词形消亡——不进即不装
     for (const def of v3!.defs) expect(v3!.fingerprints[def.id]).toMatch(/^[0-9a-f]{16}$/);
     const profile = readAgentProfileAt(dir)!;
-    expect(profile.tier).toBe('full-access');
+    expect(profile.tier).toBeUndefined(); // cr-1082：tier 随 access 轴退役（写侧不产）
     expect(profile['tool-mode']).toBe('tc-programmatic');
     expect(fs.existsSync(path.join(dir, 'config.json'))).toBe(false); // 镜像退役
     const reread = readAgentConfig(ROOT, ID);
@@ -63,22 +64,22 @@ describe('agent.patch.yml v3 菜单片段 + agent.json（cr-1022 批2）', () =>
     expect(readAgentConfig(ROOT, ID)).toBeNull();
   });
 
-  it('档位映射：结构化 access/toolMode ↔ tier/tool-mode；settings 随行；system 不迁', () => {
+  it('档位映射（cr-1082 起单侧）：toolMode ↔ tool-mode；tier 不再写、读侧剥除；settings 随行；system 不迁', () => {
     const doc = configToPatch({ ...cfg, system: 'legacy prompt' });
-    expect(doc.tier).toBe('full-access');
+    expect(doc.tier).toBeUndefined(); // cr-1082：access 轴退役
     expect(doc['tool-mode']).toBe('tc-programmatic');
     expect(doc.settings).toEqual({ 'run-code': { mode: 'observe' } });
     expect((doc as Record<string, unknown>).system).toBeUndefined();
     expect((doc as Record<string, unknown>).tags).toBeUndefined(); // tags 不再写
     const back = patchToConfig(ID, doc);
-    expect(back.access).toBe('full-access');
+    expect(back.access).toBeUndefined(); // tier 投影剥除
     expect(back.toolMode).toBe('tc-programmatic');
     expect(back.settings).toEqual(cfg.settings);
   });
 
-  it('存量 patch doc.tags 余词：读侧归一（admin/browser 入 levels、能力词丢弃）', () => {
+  it('存量 patch doc.tags 余词：读侧归一（admin/browser 入 levels、能力词丢弃、tier 剥除）', () => {
     const back = patchToConfig(ID, { tier: 'full-access', tags: ['admin', 'fs', 'observe'] });
-    expect(back.access).toBe('full-access');
+    expect(back.access).toBeUndefined(); // cr-1082：存量 tier 读侧剥除
     expect(back.levels).toEqual({ collab: 'admin', browser: 'observe' });
     expect((back as { tags?: unknown }).tags).toBeUndefined();
   });

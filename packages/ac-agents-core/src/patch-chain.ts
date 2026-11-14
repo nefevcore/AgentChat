@@ -315,7 +315,6 @@ export function migrateAgentPatchAt(ctx: PatchChainContext): PatchMigrationOutco
       ...(config.provider !== undefined ? { provider: config.provider } : {}),
       ...(config.llmParams !== undefined ? { 'llm-params': config.llmParams } : {}),
       ...(config.maxSteps !== undefined ? { 'max-steps': config.maxSteps } : {}),
-      ...(config.access !== undefined && config.access !== 'base-access' ? { tier: config.access } : {}),
       ...(config.toolMode !== undefined && config.toolMode !== 'tc-base' ? { 'tool-mode': config.toolMode } : {}),
       ...(config.name !== undefined ? { name: config.name } : {}),
       ...(config.description !== undefined ? { description: config.description } : {}),

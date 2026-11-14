@@ -158,31 +158,19 @@ describe('ac-conv-settings', () => {
     expect(ctx.convSettings.get('legacy')).toEqual({});
   });
 
-  it('access 三档键：写入/枚举校验/旧 elevation 值读兼容（cr-947）', async () => {
+  it('access 键已退役（cr-1082）：写入即清、盘上 access/elevation 存量值读侧失效', async () => {
     const root = tmpRoot();
     const ctx = await boot(root);
-    // 三档全可写
-    ctx.convSettings.set('a~b', { access: 'base-access' });
-    expect(ctx.convSettings.get('a~b').access).toBe('base-access');
-    ctx.convSettings.set('a~b', { access: 'sandbox-access' });
-    expect(ctx.convSettings.get('a~b').access).toBe('sandbox-access');
-    ctx.convSettings.set('a~b', { access: 'full-access' });
-    expect(ctx.convSettings.get('a~b').access).toBe('full-access');
-    // 非法值删键
-    expect(ctx.convSettings.set('a~b', { access: 'root-access' as never })).toEqual({});
-    // 盘上旧 elevation 两档值 → 读时映射进 access（access 在场恒胜出）
+    // 键不在目录——写入即清（未知键语义）
+    expect(ctx.convSettings.set('a~b', { access: 'full-access' as never })).toEqual({});
+    // 盘上存量值（access/elevation 旧形态）读侧静默失效（清理脚本物理删除）
+    fs.mkdirSync(path.join(root, 'meta', 'conv-settings'), { recursive: true });
     fs.writeFileSync(
       path.join(root, 'meta', 'conv-settings', 'legacy-elev.json'),
-      JSON.stringify({ elevation: 'full-access' }),
+      JSON.stringify({ elevation: 'full-access', access: 'full-access' }),
       'utf-8',
     );
-    expect(ctx.convSettings.get('legacy-elev')).toEqual({ access: 'full-access' });
-    fs.writeFileSync(
-      path.join(root, 'meta', 'conv-settings', 'both.json'),
-      JSON.stringify({ elevation: 'sandbox-access', access: 'full-access' }),
-      'utf-8',
-    );
-    expect(ctx.convSettings.get('both')).toEqual({ access: 'full-access' });
+    expect(ctx.convSettings.get('legacy-elev')).toEqual({});
   });
 
   it('迁居兼容窗：旧位置 <root>/conv-settings/<id>.json 可读；清除删双位置', async () => {
@@ -217,5 +205,25 @@ describe('ac-conv-settings', () => {
     expect(() => ctx.convSettings.set('../escape', { model: 'm' })).toThrow(/非法/);
     // 未知键忽略（wire 宽容）
     expect(ctx.convSettings.set('a~b', { effort: 'high' } as never)).toEqual({});
+  });
+
+  // cr-1083 conv-scope 批1 V1：决策面读取 effective——无人桶恒 {}，
+  // 有人桶（a~user / singles sid）= get；get 保持原样（展示面读残留）。
+  it('effective：无人桶（self/agent~agent/g~member）文件有残值也恒 {}；有人桶同 get', async () => {
+    const ctx = await boot(tmpRoot());
+    // 三类无人桶写残值（绕过 set 面直接落盘——模拟早期全树写入产物）
+    for (const id of ['news~news', 'alice~bob', 'g-mthfaf3e-tmx1~news']) {
+      ctx.convSettings.set(id, { toolMode: 'tc-none', browserTier: 'disabled', approval: 'allow', issueSubmit: 'disabled' });
+    }
+    ctx.convSettings.set('a~user', { toolMode: 'tc-none' });
+    ctx.convSettings.set('sid-1234', { browserTier: 'observe' });
+    // 决策面：无人桶恒 {}（Agent 侧配置接管）；有人桶原样
+    expect(ctx.convSettings.effective('news~news')).toEqual({});
+    expect(ctx.convSettings.effective('alice~bob')).toEqual({});
+    expect(ctx.convSettings.effective('g-mthfaf3e-tmx1~news')).toEqual({});
+    expect(ctx.convSettings.effective('a~user')).toEqual({ toolMode: 'tc-none' });
+    expect(ctx.convSettings.effective('sid-1234')).toEqual({ browserTier: 'observe' });
+    // 展示面：get 原样返回残留（读写分离）
+    expect(ctx.convSettings.get('news~news').toolMode).toBe('tc-none');
   });
 });

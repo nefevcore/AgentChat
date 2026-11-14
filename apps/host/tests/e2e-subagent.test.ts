@@ -157,7 +157,7 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
       const childCfg = readChildConfig(ROOT, 'coder', childId);
       expect((childCfg?.rows as { include?: string[] }).include ?? []).toContain('run-code');
       expect(childCfg?.toolMode).toBe('tc-programmatic'); // 父程序化（会话覆盖）∧ 子行集闭包
-      expect(childCfg?.access).toBe('full-access'); // 会话 access 继承（水位取高）
+      expect(childCfg?.access).toBeUndefined(); // cr-1082：会话 access 不再继承
       // 子壳 LLM 工具面（toolDefs —— 与真实 run 单源）：mode 集 = ['run_code']，
       // 非空且不再把授予工具全丢
       const defs = await childToolDefs(childId);

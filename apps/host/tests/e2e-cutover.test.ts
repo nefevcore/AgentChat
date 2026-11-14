@@ -136,7 +136,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     // config.json 产线退役）。换轨语义验收走组合读投影。
     const cfg = readAgentConfig(targetRoot, 'alpha')!;
     expect(cfg.rows).toBeDefined();
-    expect(cfg.access).toBe('full-access');
+    expect(cfg.access).toBeUndefined(); // cr-1082：access 轴退役——tags 档位词导入即丢弃
     // levels.browser 归位需 rows 点名 browser 行（cr-1004 批2b 不进即不装——
     // 导入白名单无 browser，档位不落为既定语义）
     expect(cfg.levels?.browser).toBeUndefined();

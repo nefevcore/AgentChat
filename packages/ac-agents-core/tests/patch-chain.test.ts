@@ -98,7 +98,7 @@ describe('链驱动迁移：v0 config.json → v2（两边接力）', () => {
     // 档案 + 单元文件
     const profile = readAgentProfileAt(dir)!;
     expect(profile.model).toBe('mock');
-    expect(profile.tier).toBe('full-access');
+    expect(profile.tier).toBeUndefined(); // cr-1082：tier 随 access 轴退役
     expect(JSON.parse(fs.readFileSync(path.join(dir, 'memory.json'), 'utf-8'))).toEqual({ depth: 2 });
     // 菜单定义：白名单 {math, fs-tools} + 闭包 tools → defs 含两能力行
     const v3 = readAgentPatchV3At(dir)!;

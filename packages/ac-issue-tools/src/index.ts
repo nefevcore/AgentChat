@@ -188,12 +188,13 @@ export function apply(ctx: Context, options: IssueToolsRowOptions = {}) {
 
         // 会话开关（cr-41——输入框「实验性 → ISSUE 提交」）：disabled =
         // 本会话禁用，优先于一切（Agent tags 也压不住）；enabled 只是
-        // 可见性授权（grants 注入），无运行时语义
+        // 可见性授权（grants 注入），无运行时语义。读面 effective
+        //（cr-1083 conv-scope 批1）：无人桶恒 {}——残值不再禁用
         if (call.conversationId !== undefined) {
           const convSettings = ctx.get('convSettings', false) as
-            | { get(conversationId: string): { issueSubmit?: 'enabled' | 'disabled' } | undefined }
+            | { effective(conversationId: string): { issueSubmit?: 'enabled' | 'disabled' } | undefined }
             | undefined;
-          if (convSettings?.get(call.conversationId)?.issueSubmit === 'disabled') {
+          if (convSettings?.effective(call.conversationId)?.issueSubmit === 'disabled') {
             return { ok: false, error: 'submit_issue 已被本会话禁用（输入框「实验性 → ISSUE 提交」）——如需使用请切换为跟随或本会话启用。' };
           }
         }

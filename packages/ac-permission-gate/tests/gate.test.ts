@@ -7,25 +7,29 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { Context, Service, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as diRow from 'ac-durable-interaction';
+import { humanPresentOf } from 'ac-agents';
 import * as gateRow from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
-/** convSettings 桩（可写 Map——测会话键层） */
+/** convSettings 桩（可写 Map——测会话键层）。effective = 决策面读口
+ *  （cr-1083 conv-scope 批1——门读 effective，无人桶恒 {}——humanPresentOf
+ *  同源真判定，D7 用例锁定的正是这一层语义） */
 class ConvSettingsStub extends Service {
   store = new Map<string, Record<string, string>>();
   constructor(ctx: Context) { super(ctx, 'convSettings'); }
   get(id: string): Record<string, string> { return this.store.get(id) ?? {}; }
+  effective(id: string): Record<string, string> {
+    return humanPresentOf(id) ? (this.store.get(id) ?? {}) : {};
+  }
 }
 
-/** agents 桩（settingsOf——测 Agent settings 层；tiers——测 4.5 档位免审） */
+/** agents 桩（settingsOf——测 Agent settings 层；cr-1082 起档位面消亡） */
 class AgentsStub extends Service {
   settings: Record<string, Record<string, unknown>> = {};
-  tiers: Record<string, string> = {};
   constructor(ctx: Context) { super(ctx, 'agents'); }
-  get(id: string): { access?: string } | undefined {
-    const t = this.tiers[id];
-    return t === undefined ? undefined : { access: t };
+  get(_id: string): undefined {
+    return undefined;
   }
   settingsOf(_id: string, name?: string): unknown {
     return name === undefined ? this.settings : this.settings[name];
@@ -47,7 +51,6 @@ interface BootOpts {
   gateConfig?: { riskGranted?: (owner: string) => boolean };
   convSettings?: Record<string, Record<string, string>>;
   agentSettings?: Record<string, Record<string, unknown>>;
-  tiers?: Record<string, string>;
   globalConfig?: Record<string, unknown>;
 }
 
@@ -66,13 +69,6 @@ async function boot(opts: BootOpts = {}) {
     const f = ctx.plugin(AgentsStub);
     await f; fibers.push(f);
     ((ctx as any).agents as AgentsStub).settings = opts.agentSettings;
-  }
-  if (opts.tiers !== undefined) {
-    if (!(ctx as any).agents) {
-      const f = ctx.plugin(AgentsStub);
-      await f; fibers.push(f);
-    }
-    ((ctx as any).agents as AgentsStub).tiers = opts.tiers;
   }
   // 环境缺省 = 全局 onAsk 'ask'（等价旧行 config 缺省——既有弹卡路径测试
   // 零改）；「四层缺省 deny」类用例显式传 {} 排空
@@ -240,14 +236,44 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1);
   });
 
-  it('会话键 allow → 不弹卡直过；deny → 拒（V3）', async () => {
+  it('会话键 allow → 不弹卡直过且注入 full（cr-1082「通过即 full」）；deny → 拒（V3）', async () => {
+    const accesses: unknown[] = [];
     const { ctx } = await boot({ convSettings: { 'user~alice': { approval: 'allow' }, 'user~bob': { approval: 'deny' } } });
-    await reg(ctx, { name: 'asker', risk: () => 'ask' });
+    const f = ctx.plugin({ name: 'ac-test-asker', inject: ['tools'], apply(c: Context) {
+      c.tools.register({ name: 'asker', risk: () => 'ask', execute: (_a, call) => { accesses.push(call.access); return { ok: true }; } });
+    } });
+    await f; booted.at(-1)!.fibers.push(f);
     const rA = await ctx.tools.execute({ name: 'asker', args: {}, conversationId: 'user~alice' });
     expect(rA.ok).toBe(true);
     expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
+    expect(accesses).toEqual(['full-access']); // 设置链 allow = 预授权通过 → full 注入
     const rB = await ctx.tools.execute({ name: 'asker', args: {}, conversationId: 'user~bob' });
     expect(rB.ok).toBe(false);
+  });
+
+  it('Agent settings 层 allow → 同款 full 注入（三层同权——cr-1082 批A V1）', async () => {
+    const accesses: unknown[] = [];
+    const { ctx } = await boot({ agentSettings: { 'permission-gate': { onAsk: 'allow' } } });
+    const f = ctx.plugin({ name: 'ac-test-allow-inject', inject: ['tools'], apply(c: Context) {
+      c.tools.register({ name: 'allow-inject', risk: () => 'ask', execute: (_a, call) => { accesses.push(call.access); return { ok: true }; } });
+    } });
+    await f; booted.at(-1)!.fibers.push(f);
+    // 无人桶（news~news）+ Agent settings allow = news 现场形态
+    const r = await ctx.tools.execute({ name: 'allow-inject', args: {}, conversationId: 'news~news', agentId: 'news' });
+    expect(r.ok).toBe(true);
+    expect(accesses).toEqual(['full-access']);
+  });
+
+  it('全局 config 层 allow → 同款 full 注入', async () => {
+    const accesses: unknown[] = [];
+    const { ctx } = await boot({ globalConfig: { settings: { 'permission-gate': { onAsk: 'allow' } } } });
+    const f = ctx.plugin({ name: 'ac-test-global-inject', inject: ['tools'], apply(c: Context) {
+      c.tools.register({ name: 'global-inject', risk: () => 'ask', execute: (_a, call) => { accesses.push(call.access); return { ok: true }; } });
+    } });
+    await f; booted.at(-1)!.fibers.push(f);
+    const r = await ctx.tools.execute({ name: 'global-inject', args: {}, conversationId: 'g-abc~news' });
+    expect(r.ok).toBe(true);
+    expect(accesses).toEqual(['full-access']);
   });
 
   it('Agent settings 层：会话键缺席时 settings onAsk 生效', async () => {
@@ -281,9 +307,9 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
   });
 });
 
-describe('守护（cr-1070）：档位不参与审批决策——免审正路是 risk 自评与设置链，非调用方档位', () => {
-  it('sandbox 档 Agent 的 ask 建议仍走设置链（旧「sandbox+ 档自由」语义已废）', async () => {
-    const { ctx } = await boot({ tiers: { alice: 'sandbox-access' } });
+describe('守护（cr-1070 锚定 → cr-1082 改锚）：full 只来自门——Agent 档位概念随 access 轴消亡，ask 恒走设置链', () => {
+  it('ask 建议走设置链弹卡（有人桶缺省 ask）——无「档位免审」旁路', async () => {
+    const { ctx } = await boot();
     const probe = await reg(ctx, { name: 'tiered-tool', needPermission: true });
     const r = await runWithReply(ctx, { name: 'tiered-tool', args: {}, conversationId: 'user~a', agentId: 'alice' });
     expect(r.ok).toBe(true);
@@ -291,16 +317,16 @@ describe('守护（cr-1070）：档位不参与审批决策——免审正路是
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1); // 弹卡了
   });
 
-  it('full 档 Agent 的 ask 建议同样走设置链（弹卡）', async () => {
-    const { ctx } = await boot({ tiers: { alice: 'full-access' } });
+  it('full 注入只来自门路径：弹卡批准（cr-1071）/设置链 allow（cr-1082「通过即 full」）', async () => {
+    const { ctx } = await boot();
     await reg(ctx, { name: 'full-tool', needPermission: true });
     const r = await runWithReply(ctx, { name: 'full-tool', args: {}, conversationId: 'user~a', agentId: 'alice' });
     expect(r.ok).toBe(true);
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1);
   });
 
-  it('会话键 deny 对任意档位生效（设置链优先于一切档位语义）', async () => {
-    const { ctx } = await boot({ tiers: { alice: 'full-access' }, convSettings: { 'user~a': { approval: 'deny' } } });
+  it('会话键 deny 压一切（设置链优先）', async () => {
+    const { ctx } = await boot({ convSettings: { 'user~a': { approval: 'deny' } } });
     const probe = await reg(ctx, { name: 'full-deny-key', needPermission: true });
     const r = await ctx.tools.execute({ name: 'full-deny-key', args: {}, conversationId: 'user~a', agentId: 'alice' });
     expect(r.ok).toBe(false);

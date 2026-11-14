@@ -120,17 +120,14 @@ watch(
   },
 );
 
-/** 档位/模式徽章（cr-953：能力 tags 退役——列表只示档位与模式） */
+/** 模式徽章（cr-953：能力 tags 退役；cr-1082：access 档位徽章随轴退役） */
 const TIER_HINTS: Record<string, string> = {
-  'sandbox-access': '沙箱档（工作区白名单内自由执行）',
-  'full-access': '完全访问（无档位门）',
   'tc-programmatic': '程序化模式（run_code 单入口）',
   'tc-none': '无工具模式（纯聊天）',
 };
-/** Agent 档位徽章清单（access/toolMode 非缺省时显示） */
+/** Agent 模式徽章清单（toolMode 非缺省时显示） */
 function tierBadgesOf(a: AgentBrief): string[] {
   const out: string[] = [];
-  if (a.access === 'sandbox-access' || a.access === 'full-access') out.push(a.access);
   if (a.toolMode === 'tc-programmatic' || a.toolMode === 'tc-none') out.push(a.toolMode);
   return out;
 }

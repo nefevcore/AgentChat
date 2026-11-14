@@ -1,7 +1,7 @@
 # 会话键作用域计划（conv-scope-plan）
 
 > 性质：实施计划——「会话键只存在于有人会话」原则的全键推广（cr-1079 续记裁决的 generalize）。
-> 状态：现行 · cr-1080 2026-11-14 · 前序 cr-1079（approval 首例 + humanPresentOf 单源）。
+> 状态：**已实施** · cr-1080 2026-11-14 · cr-1083 2026-11-14 实施收口（批 1/2/3 全落：effective 读取面单源、六处挂门、grants/subagent 继承挂门、写面 fail-loud、无人桶存量清理）· 前序 cr-1079（approval 首例 + humanPresentOf 单源）。
 > 读者：conv-settings 域与各会话键消费方维护者（实施前通读 §一/§二）。
 
 ## 一、背景与根因

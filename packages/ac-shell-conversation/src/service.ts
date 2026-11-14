@@ -22,7 +22,7 @@ import type { Envelope } from 'ac-envelope-core';
 import { budgetAfterReceive, deliver, entersInbox, type RendezvousPaths } from 'ac-envelope-core';
 import { readLedger, readJournal } from 'ac-ledger';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
-import { effectiveToolMode, discoverTools, narrowToolsByMode, accessOf, ACCESS_RANK, type AccessLevel } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 两步投影（cr-1049）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）
+import { effectiveToolMode, discoverTools, narrowToolsByMode } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 两步投影（cr-1049）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）
 import { answerNotice } from 'ac-ask-questions'; // 应答通知正文单源（cr-636 恢复面重放口径与主线 late-reply 同源）
 import { readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
@@ -1278,17 +1278,14 @@ export class ConversationService extends Service {
   }
 
   /**
-   * run 有效档位合成（cr-947）：信封 access ?? conv-settings 会话 access。
-   * 壳侧信封值已经是主线 deliver 边界（sanitize + 只升不降）的产物；无信封
-   * 档位（机制唤醒等）时按会话键补齐——与 run 装配/指纹同一单源。
+   * run 有效档位（cr-1082 access 轴退役）：会话键 access 退役 + deliver
+   * 剥除遗留 access 后，run 档位 = 沙箱常量——full 经权限门按 run 内
+   * 工具调用逐个注入，不再是 run 级装配项。方法退役为恒 undefined
+   * （残留信封值防炸兜底）。
    */
-  private effectiveAccessOfEnv(sid: string, env: Envelope | null): 'sandbox-access' | 'full-access' | undefined {
-    if (env !== null && env.access !== undefined) return env.access;
-    const convSettings = this.ctx.get('convSettings', false) as
-      | { get(conversationId: string): { access?: 'base-access' | 'sandbox-access' | 'full-access' } }
-      | undefined;
-    const access = convSettings?.get(sid).access;
-    return access === 'sandbox-access' || access === 'full-access' ? access : undefined;
+  private effectiveAccessOfEnv(_sid: string, env: Envelope | null): 'sandbox-access' | 'full-access' | undefined {
+    if (env !== null && (env.access === 'sandbox-access' || env.access === 'full-access')) return env.access;
+    return undefined;
   }
 
   /**
@@ -1301,9 +1298,9 @@ export class ConversationService extends Service {
    */
   private fingerprintOf(sid: string, config: AgentConfig, modelRef: { provider?: string; model: string }, env: Envelope | null): Record<string, string> {
     const convSettings = this.ctx.get('convSettings', false) as
-      | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+      | { effective(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
       | undefined;
-    const settings = convSettings?.get(sid) as Record<string, string> | undefined ?? {};
+    const settings = convSettings?.effective(sid) as Record<string, string> | undefined ?? {};
     const ws = this.ctx.get('workspace', false) as
       | { conversationWorkspaceRoot?(cid: string): string | null }
       | undefined;
@@ -1319,12 +1316,9 @@ export class ConversationService extends Service {
       browserTier: settings.browserTier as string | undefined ?? '',
       issueSubmit: settings.issueSubmit as string | undefined ?? '',
       workspace: ws?.conversationWorkspaceRoot?.(sid) ?? '',
-      // cr-947 单键：有效档位（Agent 底座 ∪ 信封 ∪ 会话覆盖 的合成终值——
-      // 取 rank 最高者；底座与覆盖合成与 effectiveAccessOf 同源，但含
-      // base-access 值：快照需区分「跟随底座」与「覆盖降/升档」）。
-      access: [accessOf(config), env?.access, settings.access as AccessLevel | undefined]
-        .filter((v): v is AccessLevel => v !== undefined)
-        .reduce((hi, cur) => ACCESS_RANK[cur] >= ACCESS_RANK[hi] ? cur : hi, accessOf(config)),
+      //（cr-1082：access 指纹键随轴退役——会话键 access 退役 + Agent access
+      // 恒缺席 + 信封 access 剥除，合成终值无变化面；存量快照旧值 diff 出
+      // 一次通知行后自然对齐）
       ptcSdk: crypto.createHash('sha256')
         .update(this.ctx.agentLoop.sectionText('PTC_SDK', this.snapshotRequest(sid, config, modelRef)))
         .digest('hex').slice(0, 16),
@@ -1478,7 +1472,7 @@ export class ConversationService extends Service {
     const allDefs = this.ctx.tools.list();
     const mode = effectiveToolMode(config, conversationId, {
       convSettings: this.ctx.get('convSettings', false) as
-        | { get(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
+        | { effective(conversationId: string): { toolMode?: 'tc-base' | 'tc-programmatic' | 'tc-none' } }
         | undefined,
     });
     // 两步投影·①发现：discover 缺省 true（普通工具零感知）；入口工具

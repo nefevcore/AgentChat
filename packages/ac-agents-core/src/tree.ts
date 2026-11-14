@@ -13,7 +13,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentConfig } from './config.ts';
-import { normalizeLegacyTags, accessOf, toolModeOf } from './config.ts';
+import { normalizeLegacyTags, toolModeOf } from './config.ts';
 import { readCatalog, defaultCatalogFile, type AssemblyEntry } from 'ac-rowset-core';
 import { readAgentPatch, patchToConfig, readPluginConfigs, readPluginConfigsAt, writePluginConfig, readAgentPatchV3At, readAgentProfileAt, writeAgentProfileAt, writeAgentPatchV3At, rowsToMenuDefs, levelsOfEntries, mergeLevelsIntoEntries, writePluginConfigAt as writePluginConfigAt2, PATCH_FILE, type AgentProfile } from './patch-doc.ts';
 
@@ -63,7 +63,6 @@ function profileToMenuConfig(agentId: string, profile: AgentProfile, defs: impor
     ...(profile.provider !== undefined ? { provider: profile.provider } : {}),
     ...(profile["llm-params"] !== undefined ? { llmParams: profile["llm-params"] } : {}),
     ...(profile["max-steps"] !== undefined ? { maxSteps: profile["max-steps"] } : {}),
-    ...(profile.tier !== undefined ? { access: profile.tier } : {}),
     ...(profile["tool-mode"] !== undefined ? { toolMode: profile["tool-mode"] } : {}),
     ...(profile.name !== undefined ? { name: profile.name } : {}),
     ...(profile.description !== undefined ? { description: profile.description } : {}),
@@ -118,14 +117,12 @@ export function writeAgentConfig(
   for (const [unit, value] of Object.entries(config.settings ?? {})) {
     writePluginConfig(dataRoot, config.id, unit, value);
   }
-  const access = accessOf(config);
   const toolMode = toolModeOf(config);
   const profile: import('./patch-doc.ts').AgentProfile = {
     ...(config.model !== undefined ? { model: config.model } : {}),
     ...(config.provider !== undefined ? { provider: config.provider } : {}),
     ...(config.llmParams !== undefined ? { 'llm-params': config.llmParams } : {}),
     ...(config.maxSteps !== undefined ? { 'max-steps': config.maxSteps } : {}),
-    ...(access !== 'base-access' ? { tier: access } : {}),
     ...(toolMode !== 'tc-base' ? { 'tool-mode': toolMode } : {}),
     ...(config.name !== undefined ? { name: config.name } : {}),
     ...(config.description !== undefined ? { description: config.description } : {}),
@@ -253,14 +250,12 @@ export function materializeChild(
   const shellRows = opts.shellRows !== undefined
     ? opts.shellRows
     : readCatalog(defaultCatalogFile(dataRoot)).rows.filter((r) => r.tree === 'shell');
-  const access = accessOf(child);
   const toolMode = toolModeOf(child);
   writeAgentProfileAt(dir, {
     ...(child.model !== undefined ? { model: child.model } : {}),
     ...(child.provider !== undefined ? { provider: child.provider } : {}),
     ...(child.llmParams !== undefined ? { 'llm-params': child.llmParams } : {}),
     ...(child.maxSteps !== undefined ? { 'max-steps': child.maxSteps } : {}),
-    ...(access !== 'base-access' ? { tier: access } : {}),
     ...(toolMode !== 'tc-base' ? { 'tool-mode': toolMode } : {}),
     ...(child.name !== undefined ? { name: child.name } : {}),
     ...(child.description !== undefined ? { description: child.description } : {}),

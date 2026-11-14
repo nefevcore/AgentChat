@@ -28,7 +28,7 @@ import {
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
-import { effectiveAccessOfCall, widenToolsForGating } from 'ac-agents';
+import { isFullAccessCall, widenToolsForGating } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { applyEditBatch, countLineChanges, withFileMutationQueue } from 'ac-edit-core';
 import { estimateTokens, safeClipByTokens } from 'ac-text-budget';
@@ -92,10 +92,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     void svc?.ensure(call.conversationId, file);
   }
 
-  /** effectiveAccess（§3.2）：call.access（机制提权/审批注入）?? accessOf(agent)
-   *  ——ac-agents 导出的 per-call 单源（effectiveAccessOfCall），防基线与复检漂移 */
-  function accessOfCall(call: { agentId?: string; access?: string }): 'full-access' | 'sandbox-access' | 'base-access' {
-    return effectiveAccessOfCall(call, agentsOf);
+  /** per-call 两态判定（cr-1082 批B）：full 唯一来源 = 门注入的
+   *  call.access——isFullAccessCall 单源；沙箱态 = 其余一切 */
+  function isFull(call: { agentId?: string; access?: string }): boolean {
+    return isFullAccessCall(call);
   }
 
   // 双黑名单装配（per-call，cr-363 并源 ac-sandbox-core createDenyListsFactory
@@ -118,7 +118,7 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     call: { agentId?: string; access?: string },
   ): (abs: string) => 'access' | 'read' | undefined {
     const deny = denyListsOf(call);
-    const skipReadDeny = accessOfCall(call) === 'full-access';
+    const skipReadDeny = isFull(call);
     return (abs: string): 'access' | 'read' | undefined => {
       if (isDeniedPath(deny.accessDeny, abs)) return 'access';
       if (!skipReadDeny && isDeniedPath(deny.readDeny, abs)) return 'read';
@@ -269,10 +269,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
         if (typeof content !== 'string') {
           return { ok: false, error: '缺少 content 参数（文件完整内容）' };
         }
-        // 写基线档位感知（§9.3）：full 档/审批 access 跳过沙箱白名单
-        // （accessDeny 不跳过——域规则与档位正交）；base/sandbox 沙箱内
+        // 写基线档位感知（§9.3）：full（门注入）跳过沙箱白名单
+        // （accessDeny 不跳过——域规则与档位正交）；沙箱态沙箱内
         const sandbox = sandboxOf(call);
-        const file = accessOfCall(call) === 'full-access'
+        const file = isFull(call)
           ? path.resolve(sandbox.workdir, p)
           : sandbox.resolve(p);
         const deny = denyListsOf(call);
@@ -343,10 +343,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
           return { ok: false, error: '缺少 new_string 参数（替换后的新文本；传空字符串表示删除 old_string）。' };
         }
 
-        // 写基线档位感知（§9.3，与 write 同款）：full/审批 access
+        // 写基线档位感知（§9.3，与 write 同款）：full（门注入）
         // 跳过沙箱白名单；accessDeny 不随档位跳过
         const sandbox = sandboxOf(call);
-        const file = accessOfCall(call) === 'full-access'
+        const file = isFull(call)
           ? path.resolve(sandbox.workdir, filePath)
           : sandbox.resolve(filePath);
         const deny = denyListsOf(call);

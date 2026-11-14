@@ -637,6 +637,9 @@ importers:
       ac-llm:
         specifier: workspace:*
         version: link:../../packages/ac-llm
+      ac-plugin-core:
+        specifier: workspace:*
+        version: link:../../packages/ac-plugin-core
       ac-post-office:
         specifier: workspace:*
         version: link:../../packages/ac-post-office
@@ -2260,6 +2263,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
     devDependencies:
       ac-extension-core:
         specifier: workspace:*

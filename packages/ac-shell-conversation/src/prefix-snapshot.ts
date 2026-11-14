@@ -88,8 +88,8 @@ export function writePrefixSnapshot(dataRoot: string, sid: string, snap: PrefixS
   fs.renameSync(tmp, file);
 }
 
-/** 档位强度序（diff #7 降档判定用；与 ac-agents ACCESS_RANK 同值——纯 IO 件不 import 服务包） */
-const ACCESS_RANK_OF: Record<string, number> = { 'base-access': 0, 'sandbox-access': 1, 'full-access': 2 };
+/** 存量快照旧档位词强度序（cr-1082 后仅服务旧快照 diff 一次性迁移通知——词汇轴已死） */
+const LEGACY_ACCESS_ORDER: Record<string, number> = { 'base-access': 0, 'sandbox-access': 1, 'full-access': 2 };
 
 /** 指纹规范化（幂等键的输入——键序稳定防同内容异序哈希） */
 function canonicalFp(fp: Record<string, string>): string {
@@ -171,13 +171,17 @@ export function diffFingerprints(
   // 附授权提示，升档只报事实）。存量快照读兼容：旧两键（tier/elevation）
   // 取 rank 高者作旧值——旧 tier 含 base 值、旧 elevation 只有两档。
   const legacyFp = oldFp as Record<string, string | undefined>;
-  const oldAccess = legacyFp.access ?? [
+  // cr-1082：nextFp 恒无 access 键——只有旧快照真有值（access/tier/elevation
+  // 任一在场）才通知一次迁移；两边缺席零噪声。
+  const oldAccessRaw = legacyFp.access ?? [
     legacyFp.tier, legacyFp.elevation,
   ].filter((v): v is string => v !== undefined && v !== '')
-    .reduce((hi, cur) => (ACCESS_RANK_OF[cur] ?? 0) >= (ACCESS_RANK_OF[hi] ?? 0) ? cur : hi, 'base-access');
-  if (oldAccess !== nextFp.access) {
-    const down = (ACCESS_RANK_OF[nextFp.access] ?? 0) < (ACCESS_RANK_OF[oldAccess] ?? 0);
-    notices.push('[会话设置] 安全档位已调整：' + val(oldAccess) + ' → ' + val(nextFp.access) + (down ? '，部分工具调用将需要授权。' : '。'));
+    .reduce((hi, cur) => (LEGACY_ACCESS_ORDER[cur] ?? 0) >= (LEGACY_ACCESS_ORDER[hi] ?? 0) ? cur : hi, '');
+  const nextAccess = (nextFp as Record<string, string | undefined>).access ?? '';
+  const oldAccess = oldAccessRaw === '' ? 'base-access' : oldAccessRaw;
+  if (oldAccessRaw !== nextAccess) {
+    const down = (LEGACY_ACCESS_ORDER[nextAccess] ?? 0) < (LEGACY_ACCESS_ORDER[oldAccess] ?? 0);
+    notices.push('[会话设置] 安全档位已调整：' + val(oldAccess) + ' → ' + val(nextAccess) + (down ? '，部分工具调用将需要授权。' : '。'));
   }
   // #11 段集增删（cr-944 §3）：新增/移除注册段——行为面变化（模型按旧段集
   // 认知 system），对齐 #1 精神注入通知；sectionTexts 纯文本漂移不通知

@@ -15,7 +15,7 @@
 //     判据用 killedBy 不用终态字面：Windows taskkill /F = exit code 1
 //     无 signal，producer 报 completed 而非 killed，字面过滤曾漏网）
 //   · sub_* owner 无会话键跳过——子 Agent run 内 job 回投自会话桶只会
-//     得到 base-access 失能 run（cr-132）；子 Agent 收束汇报走 subagent
+//     拉起无人值守空转 run（cr-132）；子 Agent 收束汇报走 subagent
 //     行的 settled 机制直达父会话，不经本面
 //
 // 行组合可选：conversation 行未装（ctx.get 落空）→ 跳过不炸。软依赖
@@ -104,7 +104,7 @@ export function applyJobWakeup(ctx: Context): void {
     // owner 自杀不通知（cr-218/227——头部注释）
     if (job.killedBy === 'owner' && job.status !== 'failed') return;
     // 子 Agent owner 不唤醒（cr-132）：无会话键的 sub_* job 跳过——
-    // 自会话桶唤醒只会得到 base-access 失能 run；显式 conversationId
+    // 自会话桶唤醒只会拉起无人值守空转 run；显式 conversationId
     // 照常投（那是发起会话回执，不是自会话唤醒）
     if (job.conversationId === undefined) {
       const subs = ctx.get('subagents', false) as SubagentsLookup | undefined;

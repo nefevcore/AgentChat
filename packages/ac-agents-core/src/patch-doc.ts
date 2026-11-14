@@ -25,7 +25,7 @@ import * as path from 'node:path';
 import yaml from 'js-yaml';
 import { menuDefinitionFingerprint, type AssemblyEntry, type MenuEntry, type RowDescriptor } from 'ac-rowset-core';
 import type { AgentConfig } from './config.ts';
-import { accessOf, normalizeLegacyTags, toolModeOf } from './config.ts';
+import { normalizeLegacyTags, toolModeOf } from './config.ts';
 import { agentDir, assertAgentId } from './tree.ts';
 
 /** agent.patch.yml 文件名（agents/<id>/ 内） */
@@ -54,7 +54,10 @@ export interface AgentPatchDoc {
   origin?: PatchOrigin;
   /** 装配点名/排除（语义同 AgentConfig.rows 双形态） */
   rows?: string[] | { include?: string[]; exclude?: string[] };
-  /** 访问档位（缺省 base-access；投影 AgentConfig.access） */
+  /**
+  * @deprecated cr-1082 access 轴退役：tier/access 不再投影 AgentConfig
+  * 任何字段（写侧不再产本键；字段保留以容忍存量文档，读侧剥除）。
+  */
   tier?: 'base-access' | 'sandbox-access' | 'full-access';
   /**
    * 工具调用模式（缺省 tc-base；投影 AgentConfig.toolMode）。cr-1049
@@ -102,7 +105,7 @@ export function writeAgentPatchAt(dir: string, doc: AgentPatchDoc): void {
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, PATCH_FILE);
   const header = '# agent.patch —— Agent 装配 overlay（cr-906 / cr-901 v2.1 批4）：rows + 档位 + 档案面 + origin。' + String.fromCharCode(10)
-    + '# 编辑面/迁移脚本代写；tier/tool-mode 缺省 = base-access / tc-base。' + String.fromCharCode(10);
+    + '# 编辑面/迁移脚本代写；tool-mode 缺省 = tc-base（tier 随 cr-1082 access 轴退役）。' + String.fromCharCode(10);
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
   fs.writeFileSync(tmp, header + yaml.dump(doc, { lineWidth: 120, noRefs: true }), 'utf-8');
   fs.renameSync(tmp, file);
@@ -139,14 +142,14 @@ export function readAgentPatch(dataRoot: string, agentId: string): AgentPatchDoc
 }
 
 /**
- * patch 文档 → AgentConfig 投影（cr-953：tier/tool-mode → 结构化
- * access/toolMode；doc.tags 余词经 normalizeLegacyTags 归一〔admin/
- * browser 层级词入 levels〕；system 恒缺席）
+ * patch 文档 → AgentConfig 投影（cr-953：tool-mode → 结构化 toolMode；
+ * doc.tags 余词经 normalizeLegacyTags 归一〔admin/browser 层级词入
+ * levels〕；system 恒缺席。cr-1082：tier 不再投影 access——存量 tier
+ * 键读侧剥除，AgentConfig.access 恒缺席）
  */
 export function patchToConfig(agentId: string, doc: AgentPatchDoc): AgentConfig {
   return normalizeLegacyTags({
     id: agentId,
-    ...(doc.tier !== undefined ? { access: doc.tier } : {}),
     ...(doc['tool-mode'] !== undefined ? { toolMode: doc['tool-mode'] } : {}),
     ...(doc.model !== undefined ? { model: doc.model } : {}),
     ...(doc.provider !== undefined ? { provider: doc.provider } : {}),
@@ -168,12 +171,10 @@ export function patchToConfig(agentId: string, doc: AgentPatchDoc): AgentConfig 
  * 不迁——退役面）
  */
 export function configToPatch(config: AgentConfig, origin?: PatchOrigin): AgentPatchDoc {
-  const access = accessOf(config);
   const toolMode = toolModeOf(config);
   return {
     ...(origin !== undefined ? { origin } : {}),
     ...(config.rows !== undefined ? { rows: config.rows } : {}),
-    ...(access !== 'base-access' ? { tier: access } : {}),
     ...(toolMode !== 'tc-base' ? { 'tool-mode': toolMode } : {}),
     ...(config.model !== undefined ? { model: config.model } : {}),
     ...(config.provider !== undefined ? { provider: config.provider } : {}),
@@ -456,7 +457,7 @@ export function writeAgentPatch(dataRoot: string, agentId: string, doc: AgentPat
   fs.mkdirSync(agentDir(dataRoot, agentId), { recursive: true });
   const file = agentPatchFile(dataRoot, agentId);
   const header = '# agent.patch —— Agent 装配 overlay（cr-906 / cr-901 v2.1 批4）：rows + 档位 + 档案面 + origin。' + String.fromCharCode(10)
-    + '# 编辑面/迁移脚本代写；tier/tool-mode 缺省 = base-access / tc-base。' + String.fromCharCode(10);
+    + '# 编辑面/迁移脚本代写；tool-mode 缺省 = tc-base（tier 随 cr-1082 access 轴退役）。' + String.fromCharCode(10);
   const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
   fs.writeFileSync(tmp, header + yaml.dump(doc, { lineWidth: 120, noRefs: true }), 'utf-8');
   fs.renameSync(tmp, file);
