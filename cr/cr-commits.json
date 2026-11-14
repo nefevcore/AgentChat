@@ -1,6 +1,6 @@
 {
- "scannedHead": "957b15b2da2fac9894477b31d402f9a2d8bd031b",
- "generatedAt": "2026-11-14T13:54:14.521Z",
+ "scannedHead": "49642ad5b7dded13145f55ffef64e9bd163c87af",
+ "generatedAt": "2026-11-14T14:59:11.249Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4905,6 +4905,35 @@
     "sha": "957b15b2da2fac9894477b31d402f9a2d8bd031b",
     "date": "2026-11-14",
     "subject": "feat(session): cr-1083 conv-scope×access 两计划实施——会话键 effective 读取面挂门 + access 轴退役两态化"
+   },
+   {
+    "sha": "b1fada90ab1a4986d0bb7b04615cd2fd36b08ea5",
+    "date": "2026-11-14",
+    "subject": "chore(cr): cr-1083 台账收口（conv-scope×access 两计划实施 done）"
+   }
+  ],
+  "1084": [
+   {
+    "sha": "5912819fa3baea822abd4958cbbc94307bf6edd7",
+    "date": "2026-11-14",
+    "subject": "fix(session): cr-1084 approval 等会话键草稿期写哨兵键未物化进真实 sid；cr-1085 会话键全生命周期契约成文"
+   },
+   {
+    "sha": "49642ad5b7dded13145f55ffef64e9bd163c87af",
+    "date": "2026-11-14",
+    "subject": "chore(cr): 台账 cr-1084/cr-1085 登记"
+   }
+  ],
+  "1085": [
+   {
+    "sha": "5912819fa3baea822abd4958cbbc94307bf6edd7",
+    "date": "2026-11-14",
+    "subject": "fix(session): cr-1084 approval 等会话键草稿期写哨兵键未物化进真实 sid；cr-1085 会话键全生命周期契约成文"
+   },
+   {
+    "sha": "49642ad5b7dded13145f55ffef64e9bd163c87af",
+    "date": "2026-11-14",
+    "subject": "chore(cr): 台账 cr-1084/cr-1085 登记"
    }
   ]
  }

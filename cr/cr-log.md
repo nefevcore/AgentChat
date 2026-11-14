@@ -1102,4 +1102,6 @@
 - 【cr-1081 2026-11-14 数据根兼容窗收口（cr-939 收尾）：conv-settings 1121/groups 2/workspaces.json 物理迁移至 meta/ 后删除全部旧位置 + timer 旧 state.json/viewer 空目录清理 + data-root-layers.md §四清单收口】
 - 【cr-1082 2026-11-14 access 轴整体退役计划成文（access-retirement-plan）——沙箱常量化 + full 统一为门裁决（设置链 allow 补 full 注入），三档词汇/键/信封继承/UI 选档全链退役】
 - 【cr-1083 2026-11-14 conv-scope×access 两计划实施完毕：批1 effective 读取面+六处挂门 → 批A 设置链 allow 补 full 注入（通过即 full）+12 Agent 迁移 → 批B 词汇两态化 isFullAccess+deliver/subagent 继承链退役 → 批2 grants/subagent 挂门 → 批3+C 合流（写面 fail-loud+UI 选档退役+脚本清 11 无人桶+857 elevation 键→approval=allow 迁移）；全量 test/integration/webui:typecheck 绿】
+- 【cr-1084 2026-11-14 approval 等会话键草稿期写哨兵键__pending__未物化进真实sid（新会话首条消息后权限门读不到approval——设置链回落deny）：ChatInput会话键写口toolModeConvKey=props.single.id，草稿位即哨兵词；humanPresentOf单段词法判有人放行落盘。修复=草稿期键暂存进pending草稿+dispatchDraft签发后create前搬到真实sid+清哨兵残留】
+- 【cr-1085 2026-11-14 会话键全生命周期契约成文（conv-settings-conventions.md 规约档：注册/UI/写/读/消费/草稿/继承七面统一口径 + 例外清单 + 三道防线；contract.ts 与 ChatInput 注释互指）——新键作者单入口，cr-1084 草稿暂存边界纳入规约】
 
