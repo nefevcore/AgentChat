@@ -1,6 +1,6 @@
 {
- "scannedHead": "944e3d1055c1edfff7f1955a3c6b08c478aa4211",
- "generatedAt": "2026-11-13T13:44:00.157Z",
+ "scannedHead": "12ba47d5f27e034cf790222be9bc25b7567f3140",
+ "generatedAt": "2026-11-14T08:57:41.552Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4448,6 +4448,11 @@
     "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
     "date": "2026-11-12",
     "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
+   },
+   {
+    "sha": "dc05d36fd279d0d703000e605215c576d6667d53",
+    "date": "2026-11-14",
+    "subject": "refactor(assembly): cr-1067 agent.patch v3 基线戳（ac-base）全链退役"
    }
   ],
   "1026": [
@@ -4654,6 +4659,23 @@
     "sha": "3e70b57bf205a00c0755caa277305a9735291933",
     "date": "2026-11-13",
     "subject": "fix(subagent): cr-1051 await 引导修正——等待动词改查询语义（本质短超时收取）：主描述/timeout_s 参数/running hint 三面 + run_code SDK 提示词同口径，勿长阻塞干等（后台子完成终稿自动回投，pending 即收手）；同步重生成 tool-catalog 投影"
+   },
+   {
+    "sha": "12ba47d5f27e034cf790222be9bc25b7567f3140",
+    "date": "2026-11-14",
+    "subject": "chore(cr): 台账攒批登记 cr-1051~1076（索引/meta/commits 投影同步）"
+   }
+  ],
+  "1052": [
+   {
+    "sha": "fd8720a465a1c55c39b12c89351e284b5fa68e59",
+    "date": "2026-11-14",
+    "subject": "chore(cr): cr-1052 跟随——cr 工具 today() 取登记人本地日历日（台账是本地工作流，UTC 日切会早产一天）"
+   },
+   {
+    "sha": "1038c3e4761212edeb3b6d07213b9cdf97d07ac0",
+    "date": "2026-11-14",
+    "subject": "refactor(time): cr-1052/1053 时间出口统一收敛——日/月键派生一律 UTC 并收口纯函数"
    }
   ],
   "1054": [
@@ -4736,6 +4758,74 @@
     "sha": "944e3d1055c1edfff7f1955a3c6b08c478aa4211",
     "date": "2026-11-13",
     "subject": "chore(cr): cr-1060 投影同步（cr-git sync 重建——含 cr-1059 尾账与 cr-1060 双提交）"
+   }
+  ],
+  "1061": [
+   {
+    "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
+   }
+  ],
+  "1066": [
+   {
+    "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
+   }
+  ],
+  "1067": [
+   {
+    "sha": "0b1f2097519d04f8d68e917aa959dff3f7d853d0",
+    "date": "2026-11-14",
+    "subject": "refactor(assembly): cr-1067 尾块——壳 boot 漂移 fail-loud 门删除与校准面注记（基线戳退役的 shell 侧）"
+   },
+   {
+    "sha": "dc05d36fd279d0d703000e605215c576d6667d53",
+    "date": "2026-11-14",
+    "subject": "refactor(assembly): cr-1067 agent.patch v3 基线戳（ac-base）全链退役"
+   }
+  ],
+  "1069": [
+   {
+    "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
+   }
+  ],
+  "1070": [
+   {
+    "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
+   }
+  ],
+  "1071": [
+   {
+    "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
+   }
+  ],
+  "1072": [
+   {
+    "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
+   }
+  ],
+  "1074": [
+   {
+    "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
+   }
+  ],
+  "1076": [
+   {
+    "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
    }
   ]
  }
