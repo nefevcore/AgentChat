@@ -29,10 +29,11 @@ import {
 import * as net from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis';
-import { readCatalog, fitInstalledRows, readAssemblyPatch, resolveReplacements, assemblyBaseStamp, mergeMenu, applyAssemblyLayer, menuDefinitionFingerprint, type RowDescriptor, type MenuEntry } from 'ac-rowset-core';
+import { readCatalog, fitInstalledRows, readAssemblyPatch, resolveReplacements, mergeMenu, applyAssemblyLayer, menuDefinitionFingerprint, type RowDescriptor, type MenuEntry } from 'ac-rowset-core';
+import { readRegistryFailSoft } from 'ac-plugin-core';
 import { readAgentConfig, readChildConfig, readAgentPatchV3At, writeAgentPatchV3At, migrateAgentPatchAt, needsConfigMigration, runConfigMigration, aggregateConfigChains, type ConfigMigrationEdge } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
-import { IMPORTED_ROWS, COMPANION_ROWS, COMPANION_ROW_ROOTS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow } from 'ac-shell-rows';
+import { IMPORTED_ROWS, COMPANION_ROWS, COMPANION_ROW_ROOTS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow, guardPluginModule } from 'ac-shell-rows';
 import { makeHostFaceClientRow } from 'ac-host-face-client';
 import { handleAdminFrame, type AdminFrame } from './admin-frame.ts';
 import { shellSelfRoot, startHostRevive } from './host-revive.ts';
@@ -289,11 +290,12 @@ export function deriveAndAssertRowset(
   // v0/v1 存量 → 链驱动迁移到 v2 + config.json 收编（原子纪律同 §2.3——
   // writeAgentPatchV3At 临时文件 + fsync + rename + 留一代备份）；不可迁
   // （对账失败等）= throw fail-loud；无身份 = 原指路迁移报错
-  const currentStamp = assemblyBaseStamp(dataRootAbs, 'shell');
+  // （cr-1067：v2 基线戳漂移门退役——基座/安装态演化经下方定义面校准
+  // 自动传导，不再阻断 boot / restart_shell 自我迭代闭环）
   let v3 = readAgentPatchV3At(agentDirAbs);
   const lazyNotices: string[] = [];
   if (v3 === null) {
-    const lazy = migrateAgentPatchAt({ dir: agentDirAbs, skeleton, capability, stamp: currentStamp });
+    const lazy = migrateAgentPatchAt({ dir: agentDirAbs, skeleton, capability });
     if (lazy !== null) {
       const trail = lazy.reports.map((r) => 'v' + r.from + '→v' + r.to).join(' ');
       lazyNotices.push('惰性迁移：agent.patch v' + lazy.fromVersion + ' → v2（' + trail + '）——config.json 已收编（cr-1036 批3）');
@@ -309,12 +311,6 @@ export function deriveAndAssertRowset(
       'agent.patch.yml v3 菜单片段缺席（惰性迁移不可达——无身份或形态不可识别'
       + (config === null ? '且配置缺席' : '——检测到旧形态配置') + '）——'
       + '先迁移（node scripts/migrate-agent-patch.mjs ' + dataRootAbs + '）：' + agentDirAbs,
-    );
-  }
-  if (v3.base !== undefined && v3.base !== currentStamp) {
-    throw new Error(
-      'agent.patch.yml 基线戳漂移（ac-base: ' + v3.base + ' → 现算 ' + currentStamp + '）——'
-      + '基座/安装态已演化，需 rebase（node scripts/migrate-agent-patch.mjs ' + dataRootAbs + '）',
     );
   }
   // 对账校准面（§2.3——定义副本是缓存，不是数据）：现算来源定义指纹 ≠
@@ -357,7 +353,7 @@ export function deriveAndAssertRowset(
         const source = sources.get(def.id);
         if (source !== undefined) fingerprints[def.id] = menuDefinitionFingerprint(source);
       }
-      writeAgentPatchV3At(agentDirAbs, defs, fingerprints, v3.base ?? currentStamp);
+      writeAgentPatchV3At(agentDirAbs, defs, fingerprints);
     }
   }
   // 行内 config 惰性迁移（cr-1037 批2——config 面有策略，与定义面指纹校准
@@ -387,7 +383,7 @@ export function deriveAndAssertRowset(
         const source = sources.get(def.id);
         if (source !== undefined) fingerprints[def.id] = menuDefinitionFingerprint(source);
       }
-      writeAgentPatchV3At(agentDirAbs, defs, fingerprints, v3.base ?? currentStamp);
+      writeAgentPatchV3At(agentDirAbs, defs, fingerprints);
     }
   }
   const menu = mergeMenu({ skeleton, patch: defs, installed: installedDefs });
@@ -439,10 +435,27 @@ export async function assemblePluginRow(row: RowDescriptor, ctx: Context): Promi
     throw new Error('插件行 path 非法（须为单安装目录）：' + row.id);
   }
   const installDir = row.path;
-  const manifest = JSON.parse(fs.readFileSync(path.join(installDir, 'manifest.json'), 'utf-8')) as { entry?: unknown };
+  const manifest = JSON.parse(fs.readFileSync(path.join(installDir, 'manifest.json'), 'utf-8')) as { entry?: unknown; name?: unknown };
   const entry = typeof manifest.entry === 'string' && manifest.entry !== '' ? manifest.entry : 'index.ts';
   const mod = await import(pathToFileURL(path.join(installDir, entry)).href) as unknown as Plugin;
-  return ctx.plugin(mod);
+  // 装载边界硬闸（cr-1074 批3）：官方命名空间冒充即拒载 + fiber 名钉死
+  // manifest.name（无名模块归属确定——owner/信任面/grants 查询键单源）
+  const manifestName = typeof manifest.name === 'string' && manifest.name !== '' ? manifest.name : row.id;
+  return ctx.plugin(guardPluginModule(mod, manifestName));
+}
+
+/**
+ * 插件 risk 授予快照查询工厂（cr-1074 批3 D11）：registry.json 授予面 →
+ * Set<manifest.name>。fail-soft（registry 损坏 = 空集——所有插件恒不可信，
+ * fail-closed 方向）。
+ */
+function makeRiskGranted(dataRoot: string): (owner: string) => boolean {
+  const { doc } = readRegistryFailSoft(dataRoot);
+  const granted = new Set<string>();
+  for (const [name, rec] of Object.entries(doc.plugins)) {
+    if (rec !== undefined && rec.permissions.includes('risk')) granted.add(name);
+  }
+  return (owner: string) => granted.has(owner);
 }
 
 // —— 装配面 ——
@@ -770,7 +783,12 @@ export async function bootShell(
     // 与 ledger agentDirOverride 同源——D4 每实例只写自己域）；fs/shell 族
     // 沙箱基准单源 = WorkspaceShim（files/<agentId> 懒建——cr-754 退役
     // 行 options 注入面）
-    rowOptions: rowOptionsFor(path.resolve(args.dataRoot), agentDir),
+    rowOptions: {
+      ...rowOptionsFor(path.resolve(args.dataRoot), agentDir),
+      // 权限门精确信任面（cr-1074 批3 D11）：插件 risk 授予查询——boot 期
+      // 读 registry 快照一次（插件重装需重启壳才装载，快照与装载面同步）
+      'permission-gate': { riskGranted: makeRiskGranted(path.resolve(args.dataRoot)) },
+    },
     customImplIds: rowset.replacedIds,
   });
   // 注册面归属反查回填（use-time 读面——垫片/conversation 持共享引用）
