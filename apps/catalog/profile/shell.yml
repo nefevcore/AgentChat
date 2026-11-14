@@ -1,4 +1,4 @@
-# ac-base-version: 5
+# ac-base-version: 6
 # shell 进程基座源文档（cr-902 / cr-1022 批2 双区化 / cr-1033 B3 能力
 # 定义归包后单区化）：本档只承载骨架区——会话循环结构性前提 + 平台设施
 #（恒装面，投影 zone=skeleton）。能力定义事实源 = 各能力包 package.json
@@ -26,6 +26,9 @@
 - id: tools
   name: link:packages/ac-tools
   description: 工具注册基座 + 授权门（ac-auth-core 投影，每 run 前重读）
+- id: permission-gate
+  name: link:packages/ac-permission-gate
+  description: 权限门（needPermission/risk 决策序——deny 直效、allow 直通、ask 上抛设置链+approval 审批卡；cr-1066 批1）
 - id: llm
   name: link:packages/ac-llm
   description: 模型会话

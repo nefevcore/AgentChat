@@ -75,6 +75,11 @@ export interface ConvSettings {
    * 前置拦截，优先于一切）。键面同 browserTier 口径：全形态会话。
    */
   issueSubmit?: 'enabled' | 'disabled';
+  /**
+   * 权限门审批归宿（cr-1066）：ask 建议在设置链第一层的归宿——allow 放行 /
+   * ask 弹审批卡（缺省）/ deny 拒绝。无人桶（self）恒拒不受本键影响（D7）。
+   */
+  approval?: 'allow' | 'ask' | 'deny';
   /** 生态扩展键（registerKey 注册的键以 string 值透出——索引签名尾巴） */
   [extensionKey: string]: string | undefined;
 }

@@ -1,0 +1,31 @@
+{
+  "name": "ac-permission-gate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "权限门行（cr-1066 批1）：needPermission/risk 决策序（deny 直效/allow 直通/ask 上抛设置链+approval 审批卡）+ run 级批准缓存 + 信任面批1 简化版",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-tools": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-durable-interaction": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

@@ -27,6 +27,7 @@ import type { Plugin } from '@agentchat/cordis';
 import ConsoleExporter from '@agentchat/cordis-logger';
 import * as configRow from 'ac-config';
 import * as toolsRow from 'ac-tools';
+import * as permissionGateRow from 'ac-permission-gate';
 import * as datetimeRow from 'ac-datetime';
 import * as personaRow from 'ac-persona';
 import * as conductRow from 'ac-conduct';
@@ -71,6 +72,7 @@ export const IMPORTED_ROWS: Record<string, Plugin> = {
   'logger-console': ConsoleExporter as unknown as Plugin,
   'config': configRow as unknown as Plugin,
   'tools': toolsRow as unknown as Plugin,
+  'permission-gate': permissionGateRow as unknown as Plugin,
   'datetime': datetimeRow as unknown as Plugin,
   'persona': personaRow as unknown as Plugin,
   // cr-881：system-prompt 行退役——分块装配拆散至各 owner 包的 PromptSection 段
@@ -168,6 +170,8 @@ export type { ArchiveRowOptions } from './archive.ts';
 // install·uninstall 永久档信封请求宿主受理；cr-866 改 execute 内即时执行）
 export { makePluginDevRow } from './plugin-dev.ts';
 export type { PluginDevRowOptions } from './plugin-dev.ts';
+// 动态插件装载边界守卫（cr-1074 批3）：官方命名空间硬闸 + fiber 名钉死
+export { guardPluginModule, isOfficialFiberName } from './plugin-guard.ts';
 // 安全重启行（cr-629）：restart_shell（中止回队续跑）/ restart_host（信封
 // 请求宿主 graceful 重启）
 export { makeRestartRow } from './restart.ts';

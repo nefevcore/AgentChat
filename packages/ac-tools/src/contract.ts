@@ -38,6 +38,17 @@ export interface ToolDefinition {
    */
   needPermission?: boolean;
   /**
+   * 风险自评建议（cr-1066 权限门）：纯函数——对本次调用参数给出
+   * 'allow' | 'ask' | 'deny' 建议。**建议非决定**——allow 不直通（环境
+   * 按信任面裁决）、deny 直效不可被设置放宽（工具自愿收紧）、ask 上抛
+   * 设置链（会话键 > Agent settings > 行 config 缺省）定归宿。有声明缺
+   * 函数（undefined）= 恒 'ask'；throw 按 'ask'（fail-closed 方向——门
+   * 消费侧约定，本契约只声明语义）。无 risk 声明 + needPermission: true
+   * ≡ risk: () => 'ask'（存量等价映射）；两者皆无 = 门视野外（零开销
+   * 放行）。执行面 = ac-permission-gate 行（tool/before-execute 决策序）。
+   */
+  risk?: (args: Record<string, unknown>) => 'allow' | 'ask' | 'deny';
+  /**
    * 发现谓词（cr-1049 两步投影·发现步）：本工具当前可否被发现进工具面。
    * 缺省 true。须为纯函数——入参是投影上下文纯数据（生效 toolMode 等，
    * effectiveToolMode 本就无 run 可求值——估算/预览/快照/真 run 四面同

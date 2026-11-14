@@ -93,6 +93,19 @@ const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
     },
   },
   {
+    // cr-1066 权限门：ask 建议的归宿键——值域 allow（放行）/ ask（弹审批卡，
+    // 缺省）/ deny（拒绝）。进内置键而非门行 registerKey：壳/宿主分树下
+    // 垫片注册的键宿主 set 面不认识（readSettings 回读校验滤掉 + UI 写键
+    // 被静默清除），内置注册打通宿主读写链全链。
+    key: 'approval',
+    enum: ['allow', 'ask', 'deny'],
+    description: '权限门审批（ask 建议的归宿：allow 直过 / ask 弹卡（缺省）/ deny 拒绝）',
+    group: 'experimental',
+    label: '工具审批',
+    order: 4,
+    options: { allow: '本会话自动放行', ask: '每次询问（缺省）', deny: '本会话一律拒绝' },
+  },
+  {
     // cr-41：submit_issue 会话开关（用户 2）——输入框「实验性」目录驱动
     // 出现（group experimental，零前端改动）。enabled = 跟随装载
     //（issue-tools 行在装即可用——cr-953 后授权 = 行装载单闸），

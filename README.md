@@ -198,6 +198,7 @@ packages/                  全部活包（120+）
 ├── ac-client-ui-*/        浏览器域行（29 通道 + layout/renderer 基础件）
 ├── ac-client-runtime/…    浏览器运行时（slot 注册/隔离/通信）
 ├── ac-{agent-loop,conversation,llm,llm-pool,agents,tools}/   核心链路
+├── ac-permission-gate/    权限门行（needPermission/risk 决策序 + approval 审批卡——cr-1066）
 ├── ac-{host-webui,webui,webui-core}/  web 面与 WebUI 服务半边
 ├── ac-webui-kit/          设计原语库（tokens + 基础组件）
 ├── ac-retired-types/      旧树退役类型增强声明（ctx.agentStore/session 等类型面，根 tsconfig 闭包）
@@ -255,13 +256,13 @@ pnpm bench              # 评测 CLI（BFCL 套件；真实跑批显式触发，
 ### 存量数据根迁移（v2.1 升级部署步）
 
 ```bash
-# 全量身份迁移（任何旧形态 → agent.json 档案 + agent.patch.yml v2 差量〔含 # ac-base 基线戳〕+ <unit>.json 插件配置；幂等、--rebase 重算戳）
+# 全量身份迁移（任何旧形态 → agent.json 档案 + agent.patch.yml v3 菜单片段 + <unit>.json 插件配置；幂等）
 node scripts/migrate-agent-patch.mjs <dataRoot>
 # 出问题回退（config.json 旧读窗口还原）：
 node scripts/migrate-agent-patch.mjs <dataRoot> --revert
 ```
 
-读序三窗口（v2 差量赢 → 旧映射 patch → config.json）——迁移可在服务运行期外任意时点执行；基座部署与 installed 登记由宿主 boot 自动完成（版本戳对账 fail-loud）。基线戳漂移（基座/安装态演化）= 壳 boot fail-loud 触发 rebase（重跑 migrate 或 `--rebase`）。
+读序三窗口（v3 菜单片段赢 → 旧映射 patch → config.json）——迁移可在服务运行期外任意时点执行；基座部署与 installed 登记由宿主 boot 自动完成（版本戳对账 fail-loud）。基座/安装态演化经壳 boot 定义面校准自动传导（cr-1067：v2 基线戳已退役，`restart_shell` 不再因漂移阻断）。
 ---
 
 ## 🖥️ WebUI

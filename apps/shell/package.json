@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "ac-host-face-client": "workspace:*",
+    "ac-plugin-core": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-rowset-core": "workspace:*",
     "ac-supervisor-core": "workspace:*",

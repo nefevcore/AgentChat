@@ -30,6 +30,7 @@ import { loadManifestFromDir } from 'ac-plugin-core';
 import { issueRequestId, makePluginRequestEnvelope } from 'ac-envelope-core';
 import type { Envelope } from 'ac-envelope-core';
 import { pluginRowsOf } from 'ac-rowset-core';
+import { guardPluginModule } from './plugin-guard.ts';
 
 /** 行配置（boot 装配参数） */
 export interface PluginDevRowOptions {
@@ -104,7 +105,9 @@ export function makePluginDevRow(options: PluginDevRowOptions): Plugin {
         const mod = (options.importModule !== undefined
           ? await options.importModule(entryUrl)
           : await import(entryUrl)) as unknown as Plugin;
-        const fiber = ctx.plugin(mod);
+        // 装载边界硬闸（cr-1074 批3）：官方命名空间冒充即拒载 + fiber 名
+        // 钉死 manifest.name（owner 归属确定——权限门信任面稳定键）
+        const fiber = ctx.plugin(guardPluginModule(mod, manifest.name));
         await fiber;
         // 行集条目现算（行 id 供指纹与目录合并口径——pluginRowsOf 单源）
         const rows = pluginRowsOf(manifest.name, dir, JSON.parse(

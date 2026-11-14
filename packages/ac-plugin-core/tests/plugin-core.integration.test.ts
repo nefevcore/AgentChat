@@ -68,6 +68,11 @@ describe('manifest 校验', () => {
 
   it('非法 name / version / 权限词 / 路径逃逸各自报错', () => {
     expect(validatePluginManifest({ name: 'Bad_Name', version: '1.0.0' }).errors[0]).toMatch(/name/);
+    // cr-1075：官方命名空间保留（ac- / shell- 前缀 + root）——安装期早失败
+    expect(validatePluginManifest({ name: 'ac-evil', version: '1.0.0' }).errors.join()).toMatch(/官方命名空间/);
+    expect(validatePluginManifest({ name: 'shell-fake', version: '1.0.0' }).errors.join()).toMatch(/官方命名空间/);
+    expect(validatePluginManifest({ name: 'root', version: '1.0.0' }).errors.join()).toMatch(/官方命名空间/);
+    expect(validatePluginManifest({ name: 'my-agent-tool', version: '1.0.0' }).ok).toBe(true);
     expect(validatePluginManifest({ name: 'ok', version: 'x' }).errors[0]).toMatch(/version/);
     expect(validatePluginManifest({ name: 'ok', version: '1.0.0', permissions: ['nope'] }).errors[0]).toMatch(/未知权限/);
     expect(validatePluginManifest({ name: 'ok', version: '1.0.0', entry: '../escape.ts' }).errors[0]).toMatch(/entry/);

@@ -56,6 +56,7 @@
     "@agentchat/cordis-logger": "workspace:*",
     "ac-config": "workspace:*",
     "ac-tools": "workspace:*",
+    "ac-permission-gate": "workspace:*",
     "ac-datetime": "workspace:*",
     "ac-persona": "workspace:*",
     "ac-artifacts": "workspace:*",

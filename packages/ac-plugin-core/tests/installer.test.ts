@@ -24,13 +24,13 @@ afterEach(() => {
 
 function writePlugin(extra: Record<string, unknown> = {}, manifestExtra: Record<string, unknown> = {}): void {
   fs.writeFileSync(path.join(SRC, 'package.json'), JSON.stringify({
-    name: 'ac-plugin-demo',
+    name: 'demo-plugin',
     version: '1.0.0',
     engines: { node: '>=20', agentchat: '^2' },
     ac: { permissions: ['fs', 'shell'], provides: { tools: ['demo-tool'] }, ...extra },
   }, null, 2));
   fs.writeFileSync(path.join(SRC, 'manifest.json'), JSON.stringify({
-    name: 'ac-plugin-demo', version: '1.0.0', entry: 'index.ts',
+    name: 'demo-plugin', version: '1.0.0', entry: 'index.ts',
     permissions: ['fs', 'shell'], provides: { tools: ['demo-tool'] },
     rows: [{ id: 'demo-row', tools: ['demo-tool'], description: '演示行' }],
     ...manifestExtra,
@@ -43,9 +43,9 @@ describe('admissionOf 门禁', () => {
     writePlugin();
     expect(admissionOf(SRC, ['fs', 'shell']).ok).toBe(true);
     expect(admissionOf(SRC, ['fs']).ok).toBe(false); // shell 强制显式授予（fs 默认授予）
-    writePlugin({}, { name: 'ac-plugin-bad-engines' });
+    writePlugin({}, { name: 'bad-engines-plugin' });
     fs.writeFileSync(path.join(SRC, 'package.json'), JSON.stringify({
-      name: 'ac-plugin-bad-engines', version: '1.0.0',
+      name: 'bad-engines-plugin', version: '1.0.0',
       engines: { agentchat: '^1' },
     }));
     const v = admissionOf(SRC, ['fs', 'shell']);
@@ -64,11 +64,11 @@ describe('installPackage 事务 + 登记 + 回执', () => {
     const r = await installPackage({ root: ROOT, sourceDir: SRC, owner: 'agent-1', grants: ['fs', 'shell'] });
     expect(r.result).toBe('applied');
     expect(r.effective).toBe('live');
-    expect(r.installedDir).toContain(path.join(ROOT, 'plugins', 'ac-plugin-demo'));
+    expect(r.installedDir).toContain(path.join(ROOT, 'plugins', 'demo-plugin'));
     expect(readInstalledDoc(ROOT)).toEqual([
-      { id: 'ac-plugin-demo', name: 'link:' + path.join(ROOT, 'plugins', 'ac-plugin-demo'), owner: 'agent-1' },
+      { id: 'demo-plugin', name: 'link:' + path.join(ROOT, 'plugins', 'demo-plugin'), owner: 'agent-1' },
     ]);
-    expect(listInstalled(ROOT).map((p) => p.manifest.name)).toContain('ac-plugin-demo');
+    expect(listInstalled(ROOT).map((p) => p.manifest.name)).toContain('demo-plugin');
   });
 
   it('活壳在场 → restart-required；门禁失败 → failed 回执不 throw', async () => {
@@ -93,23 +93,23 @@ describe('installPackage 事务 + 登记 + 回执', () => {
   it('uninstallPackage 对称摘除（物化 + 登记 + registry）', async () => {
     writePlugin();
     await installPackage({ root: ROOT, sourceDir: SRC, owner: 'a', grants: ['fs', 'shell'] });
-    const r = await uninstallPackage({ root: ROOT, name: 'ac-plugin-demo' });
+    const r = await uninstallPackage({ root: ROOT, name: 'demo-plugin' });
     expect(r.result).toBe('applied');
     expect(readInstalledDoc(ROOT)).toEqual([]);
     expect(listInstalled(ROOT)).toHaveLength(0);
-    expect(fs.existsSync(path.join(ROOT, 'plugins', 'ac-plugin-demo'))).toBe(false);
+    expect(fs.existsSync(path.join(ROOT, 'plugins', 'demo-plugin'))).toBe(false);
   });
 
   it('升级 = 换版本重装（replaced 带旧版本）', async () => {
     writePlugin();
     await installPackage({ root: ROOT, sourceDir: SRC, owner: 'a', grants: ['fs', 'shell'] });
     fs.writeFileSync(path.join(SRC, 'package.json'), JSON.stringify({
-      name: 'ac-plugin-demo', version: '1.1.0',
+      name: 'demo-plugin', version: '1.1.0',
       engines: { node: '>=20', agentchat: '^2' },
       ac: { permissions: ['fs'], provides: { tools: ['demo-tool'] } },
     }, null, 2));
     fs.writeFileSync(path.join(SRC, 'manifest.json'), JSON.stringify({
-      name: 'ac-plugin-demo', version: '1.1.0', entry: 'index.ts',
+      name: 'demo-plugin', version: '1.1.0', entry: 'index.ts',
       permissions: ['fs', 'shell'], provides: { tools: ['demo-tool'] },
     }, null, 2));
     const up = await installPackage({ root: ROOT, sourceDir: SRC, owner: 'a', grants: ['fs', 'shell'] });
@@ -131,9 +131,9 @@ describe('两轴求值器（纯函数）', () => {
   it('needs-reinstall：registry 记录在而物化目录缺席 → true', async () => {
     writePlugin();
     await installPackage({ root: ROOT, sourceDir: SRC, owner: 'a', grants: ['fs', 'shell'] });
-    expect(needsReinstallOf(ROOT, 'ac-plugin-demo')).toBe(false);
-    fs.rmSync(path.join(ROOT, 'plugins', 'ac-plugin-demo'), { recursive: true, force: true });
-    expect(needsReinstallOf(ROOT, 'ac-plugin-demo')).toBe(true);
+    expect(needsReinstallOf(ROOT, 'demo-plugin')).toBe(false);
+    fs.rmSync(path.join(ROOT, 'plugins', 'demo-plugin'), { recursive: true, force: true });
+    expect(needsReinstallOf(ROOT, 'demo-plugin')).toBe(true);
     expect(needsReinstallOf(ROOT, 'no-such')).toBe(false);
     expect(readRegistry(ROOT).version).toBe(1);
   });

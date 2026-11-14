@@ -103,7 +103,7 @@ interface ManifestValidation {
 }
 
 /** 插件可声明的权限词汇表 */
-export const KNOWN_PERMISSIONS = ['fs', 'network', 'process', 'shell', 'ui'] as const;
+export const KNOWN_PERMISSIONS = ['fs', 'network', 'process', 'shell', 'ui', 'risk'] as const;
 export type PluginPermission = (typeof KNOWN_PERMISSIONS)[number];
 
 // ------------------------------------------------------------
@@ -136,6 +136,27 @@ function highRiskSlotsOf(ui: PluginUiManifest | undefined): UISlotId[] {
 }
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]*$/;
+
+// ------------------------------------------------------------
+// 官方命名空间保留（cr-1075）：插件名不得占官方标识。
+// 单源理由：一条规则两个消费面——安装期失败早（validatePluginManifest，
+// 用户当场看到可诊断错误）+ 装载期硬闸（壳 plugin-guard，ctx.plugin 之前
+// 再拦一次——manifest 被事后改写/绕过安装器时仍 fail-closed）。
+// 覆盖面（全仓核实）：93 个官方能力包导出名全 ac-*；壳内工厂行全 shell-*；
+// 无名 fiber 的兜底名 root。
+// ------------------------------------------------------------
+
+/** 官方命名空间前缀（插件不得占用） */
+export const RESERVED_PLUGIN_NAME_PREFIXES: readonly string[] = ['ac-', 'shell-'];
+
+/** 官方保留名（插件不得占用） */
+export const RESERVED_PLUGIN_NAMES: readonly string[] = ['root'];
+
+/** 插件名是否占用官方命名空间 */
+export function isReservedPluginName(name: string): boolean {
+  if (RESERVED_PLUGIN_NAMES.includes(name)) return true;
+  return RESERVED_PLUGIN_NAME_PREFIXES.some((p) => name.startsWith(p));
+}
 const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 // param-case + 可选单冒号段（'settings-tab:global' 旧 8 id 词汇含两枚
 // 冒号形——M27 D13 前格式校验实际拒收，属历史漏洞）
@@ -156,6 +177,12 @@ export function validatePluginManifest(raw: unknown): ManifestValidation {
   const name = typeof obj.name === 'string' ? obj.name.trim() : '';
   if (!name) errors.push('name 必填');
   else if (!NAME_RE.test(name)) errors.push(`name "${name}" 非法（仅小写字母/数字/连字符，字母数字开头）`);
+  else if (isReservedPluginName(name)) {
+    errors.push(
+      `name "${name}" 占用官方命名空间（保留前缀：${RESERVED_PLUGIN_NAME_PREFIXES.join(' / ')}；保留名：${RESERVED_PLUGIN_NAMES.join(' / ')}）`
+      + '——请改用 <你的id>-<名> 形式',
+    );
+  }
 
   const version = typeof obj.version === 'string' ? obj.version.trim() : '';
   if (!version) errors.push('version 必填');
@@ -367,8 +394,10 @@ export const DEFAULT_GRANTED_PERMISSIONS: readonly PluginPermission[] = ['fs', '
 /** 执行期强制显式授予的权限（可执行任意进程/命令） */
 export const EXECUTION_EXPLICIT_REQUIRED: readonly PluginPermission[] = ['process', 'shell'];
 
-/** 人审层需要宿主显式勾选的权限（含 ui——与 process/shell 同级强制） */
-export const REVIEW_EXPLICIT_REQUIRED: readonly PluginPermission[] = ['process', 'shell', 'ui'];
+/** 人审层需要宿主显式勾选的权限（含 ui——与 process/shell 同级强制；
+ * risk = cr-1074 批3 D11——risk 自评被环境采信（allow 直通）的信任位，
+ * 人审显式授予，未授予即不可信（建议被覆盖为恒 ask，还能用） */
+export const REVIEW_EXPLICIT_REQUIRED: readonly PluginPermission[] = ['process', 'shell', 'ui', 'risk'];
 
 /** manifest 声明的权限中需要宿主显式授予/审查的集合（去重、保序） */
 export function requiredGrants(manifest: PluginManifest): PluginPermission[] {

@@ -191,6 +191,13 @@
       "path": "packages/ac-tools"
     },
     {
+      "id": "permission-gate",
+      "tree": "shell",
+      "zone": "skeleton",
+      "description": "权限门（needPermission/risk 决策序——deny 直效、allow 直通、ask 上抛设置链+approval 审批卡；cr-1066 批1）",
+      "path": "packages/ac-permission-gate"
+    },
+    {
       "id": "llm",
       "tree": "shell",
       "zone": "skeleton",

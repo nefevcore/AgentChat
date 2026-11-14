@@ -10,8 +10,9 @@ description: AgentChat 插件开发指南——manifest 纪律、工具/provider
 ## 1. 开发
 - 插件目录建在你的沙箱 files/<你的id>/<插件名>/ 下，含 manifest.json + 入口文件（index.ts，TS 直跑无需构建，但限可擦除语法——enum / 命名空间 / 类参数属性不可用）。
 - 最小起步（工具行）：manifest 写 `{ "name": "<你的id>-<名>", "version": "0.1.0", "provides": { "tools": ["<你的id>-<名>-run"] } }`，index.ts 导出 `apply(ctx)` 并在其中 `ctx.tools.register({ name, description, requiredTags: ['agent:<你的id>'], parameters, execute })`——这就是一个完整插件。provider / 事件行型见 §2。
-- manifest：必填 name（规约 <你的id>-<名>——内置注册名是保留字，工具/provider/Agent id 三面撞名 = 可诊断拒绝，带自己 id 前缀可避开）与 version（semver）；entry 缺省 index.ts；contracts / permissions / provides / rows 均可选。
-- permissions 词表：fs / network / process / shell / ui——fs / network 缺省授予，process / shell / ui 需显式声明；免审安装的授权面 = manifest 声明全集。
+- manifest：必填 name（规约 <你的id>-<名>——**不得占用官方命名空间**：`ac-` / `shell-` 前缀与 `root` 是保留名，安装期即拒绝装载；内置注册名（工具/provider/Agent id）也是保留字，撞名 = 可诊断拒绝，带自己 id 前缀可避开）与 version（semver）；entry 缺省 index.ts；contracts / permissions / provides / rows 均可选。
+- permissions 词表：fs / network / process / shell / ui / risk——fs / network 缺省授予；process / shell / ui / risk 需显式声明（人审环节由用户勾选）；免审安装的授权面 = manifest 声明全集。
+  - `risk` 是信任位（不是执行边界）：声明并经人审授予后，你工具 `risk` 自评的建议才被环境采信（评 allow 即直通）；未授予 = 建议被覆盖为恒 ask（每次调用都要用户批准，工具照样能用）。不声明 risk 字段就没必要声明该权限。
 - provides 形状：{ tools?, llmProviders?, events?, ui?, agents? }——装载后对账到注册面。
 - rows 是行集声明：[{ id, tools?, requires?, description? }]——id 为行 id（param-case），tools 列出本行工具名；install 后宿主把它物化进全局行集目录，新壳 boot 据此装载该插件。
 - 装好之后：直调面由你的行集点名决定（点名工具名或行 id 均可，新工具默认不在其中）——交付时告知用户把它加进你的行集。

@@ -152,7 +152,7 @@ export interface PluginMeta {
   [key: string]: unknown;
 }
 
-export type PluginPermission = 'fs' | 'network' | 'process' | 'shell' | 'ui';
+export type PluginPermission = 'fs' | 'network' | 'process' | 'shell' | 'ui' | 'risk';
 
 export type PluginSource = 'builtin' | 'installed' | 'dev' | 'session';
 

@@ -66,6 +66,12 @@ export class ToolsService extends Service {
     return [...this.defs.values()].map((e) => ({ ...e.def, owner: e.owner }));
   }
 
+  /** 单工具目录视图（cr-1066 权限门信任面：按注册方 origin 判可信度） */
+  getWithOwner(name: string): (ToolDefinition & { owner: string }) | undefined {
+    const entry = this.defs.get(name);
+    return entry === undefined ? undefined : { ...entry.def, owner: entry.owner };
+  }
+
   /**
    * 事件化执行链：
    *   waterfall tool/before-execute（veto：不调 next；改写：变异 execution.call 后 next()）
