@@ -63,7 +63,7 @@
 | 1 | conv-settings/set RPC 增形态校验：无人桶写键报错（fail-loud——与壳侧 Shim.set fail-loud 同姿态，防 UI 再造残值） | ac-host-webui web-api |
 | 2 | webui 会话设置面板 / 输入框实验性菜单：无人会话隐藏键操作（前端按会话形态过滤——后端校验兜底） | ac-client-ui-conversation / ac-client-ui-settings |
 | 3 | 扩展键 registerKey 契约注释：键默认仅有人会话作用域（行为由读取面统一保证，ConvSettingsKeyDef 不加字段） | ac-conv-settings contract |
-| 4 | 存量清理：一次性删除无人桶的 conv-settings 文件（勘察 9 个：admin~mathematician / admin~nana / admin~tester / editor~neko / editor~writer / g-mthfaf3e-tmx1~news / nana~neko / neko~neko / news~news——含旧位置与新位置、elevation 旧键一并）——内容全是残值无迁移价值；脚本清理 + CR 登记 | scripts 一次性 + meta/conv-settings |
+| 4 | 存量清理：一次性删除无人桶的 conv-settings 文件（勘察 9 个：admin~mathematician / admin~nana / admin~tester / editor~neko / editor~writer / g-mthfaf3e-tmx1~news / nana~neko / neko~neko / news~news——cr-1081 兼容窗收口后已集中 meta/conv-settings 单位置）——内容全是残值无迁移价值；脚本清理 + CR 登记 | scripts 一次性 + meta/conv-settings |
 
 ## 四、两层验收
 

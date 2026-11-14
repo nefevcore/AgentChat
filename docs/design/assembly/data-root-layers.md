@@ -65,17 +65,10 @@
 ## 四、兼容窗（迁居期纪律）
 
 迁居项一律**读旧写新**：读侧回落旧位置、写侧恒新位置、旧文件不物理
-迁移（等版本后清理）。当前兼容窗旧位置（doctor 认知、不告警）：
-
-- `viewer/sessions/<sid>/session.json` → `meta/sessions/<sid>.json`
-- `conv-settings/` → `meta/conv-settings/`
-- `groups/` → `meta/groups/`
-- `timer/state.json` → `meta/timer/state.json`
-- `remote/` → `meta/remote/`（单写者原子文件，boot 期一次性 rename 迁移）
-- `workspaces.json` → `meta/workspaces.json`
-
-例外语义：conv-settings 清空删键时**双位置一并清**（只清新位置会让旧
-文件复活旧值）；singles delete 摘除双位置元数据。
+迁移（等版本后清理）。**cr-1081（2026-11-14）兼容窗全部收口**：六项
+旧位置数据已物理迁移至 meta/ 并删除旧目录，开发数据根顶层不再存在
+回落源。读侧回落逻辑保留（防御旧部署数据根——新数据根已无数据可
+回落），代码注释中的兼容窗说明随下批清理。
 
 ## 五、boot 自愈与哨兵
 
