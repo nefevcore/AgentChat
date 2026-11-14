@@ -515,6 +515,13 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       web.registerRpc('conv-settings/set', (params) => {
         const p = obj(params);
         const conversationId = reqStr(p, 'conversationId');
+        // cr-1084：草稿哨兵词 fail-loud 拒收——新会话未物化时真实 sid 不在
+        // 场（humanPresentOf 单段词法判有人放行），写进哨兵键 = 键永远到
+        // 不了真实会话（approval 等对 run 不可见）。草稿期正路 = 前端暂存
+        // +物化搬运（SingleBoard.dispatchDraft）。
+        if (conversationId === '__pending__') {
+          throw new Error('会话设置不得写草稿哨兵键（新会话未物化——请在物化后写真实会话 id）');
+        }
         // cr-1083 conv-scope 批3：无人桶写键 fail-loud——会话键是用户偏好
         // 载体，无人桶无用户偏好可写（防 UI 再造残值；壳侧 Shim.set 同姿态）
         if (!humanPresentOf(conversationId)) {

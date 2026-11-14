@@ -1,6 +1,9 @@
 // ============================================================
 // ac-conv-settings/src/contract.ts —— 会话设置域类型
 //
+// 会话键全生命周期契约（注册/UI/写/读/消费/草稿/作用域七面）见
+// docs/design/session/conv-settings-conventions.md——新键落笔前先读。
+//
 // 会话设置 = 按 conversationId 寻址的会话级覆盖（llm-provider-model-plan
 // P6/D4 裁决：服务端会话元数据域）。承载：
 //   · model：模型覆盖（name@model 引用或裸模型名——deliver 边界由

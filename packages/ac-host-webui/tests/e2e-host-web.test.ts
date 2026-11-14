@@ -220,6 +220,10 @@ describe('8.5a 宿主 web 面接线', () => {
       .toEqual({ model: 'deepseek@deepseek-flash' });
     // 非法会话键 fail-closed（词法闸在 owning service）
     await expect(rpc(ws, 'conv-settings/get', { conversationId: '../escape' })).rejects.toThrow(/非法/);
+    // 草稿哨兵键拒收（cr-1084）：新会话未物化时写哨兵 = 键永远到不了真实
+    // 会话（approval 对 run 不可见）——写面 fail-loud，正路 = 前端暂存+搬运
+    await expect(rpc(ws, 'conv-settings/set', { conversationId: '__pending__', patch: { approval: 'allow' } }))
+      .rejects.toThrow(/哨兵/);
     // 键目录只回实验组（cr-613：主线同款 group 过滤——model/access/
     // toolMode 纯消费键不得混入输入框实验性菜单）
     const keys = await rpc<{ keys: Array<{ key: string; group?: string }> }>(ws, 'conv-settings/keys', {});

@@ -404,8 +404,7 @@ function selectModel(value: string) {
   const agentId = roster.activeAgentId.value;
   if (!agentId) return;
   const conversationId = [VIEWER_ID.value, agentId].sort().join('~');
-  if (!rpc) return;
-  void rpc.call('conv-settings/set', { conversationId, patch: { model: value || null } }).catch((err: any) => {
+  void setConvSetting(conversationId, { model: value || null }).catch((err: any) => {
     toastError('模型覆盖未保存：' + (err?.message ?? err));
     console.error('[ChatInput] 会话模型覆盖失败:', err?.message);
     if (selModel.value === value) selModel.value = prev;
@@ -433,6 +432,31 @@ const toolModeConvKey = computed(() => {
   return agentId ? [VIEWER_ID.value, agentId].sort().join('~') : null;
 });
 
+/** 草稿位判定（cr-1084）：新会话未发送——真实 sid 尚未签发，conv-settings
+ *  写口不得把键写到哨兵 __pending__（run 读真实 sid 读不到，权限门 approval
+ *  等键对 run 不可见）。写口经 setConvSetting 暂存进草稿（board 搬运面），
+ *  读侧经 convSettingStored 回显暂存值。 */
+const onDraft = computed(() => props.single?.id === PENDING_SINGLE_ID && singlesBoard?.isPending() === true);
+
+/** conv-settings 统一写口（会话键写口的公共边界）：草稿位 → 暂存草稿
+ *  （返回已受理；物化时搬到真实 sid）；常规 → RPC 真键。返回 promise 供
+ *  调用方回滚/告警（草稿位恒 resolve——暂存是本地操作）。
+ *  会话键全生命周期契约见 docs/design/session/conv-settings-conventions.md
+ *  （新键经 registerKey 注册后由 selectExtKey 泛写口自动接线，零改动）。 */
+function setConvSetting(conversationId: string | null, patch: Record<string, string | null>): Promise<unknown> {
+  if (onDraft.value) {
+    for (const [k, v] of Object.entries(patch)) singlesBoard?.setConvOverride(k, v);
+    return Promise.resolve();
+  }
+  if (!conversationId || !rpc) return Promise.resolve();
+  return rpc.call('conv-settings/set', { conversationId, patch });
+}
+
+/** conv-settings 统一读口（草稿位回显暂存值；常规读 undefined = 走 RPC 面） */
+function convSettingStored(key: string): string | undefined {
+  return onDraft.value ? singlesBoard?.convOverrideValue(key) : undefined;
+}
+
 /** 目标 Agent 的工具调用模式档（cr-953 结构化——toolMode 字段直读；
  *  single = 会话登记 Agent/默认预设；1v1 = 激活 Agent/默认预设）。
  *  名册无数据 = 视为 tc-base（缺席宽容——不误伤旧后端）。 */
@@ -459,6 +483,27 @@ const programmaticAvailable = computed(() => agentToolMode.value !== 'tc-none');
 watch(toolModeConvKey, async (conversationId) => {
   if (!conversationId || !rpc) { toolMode.value = ''; return; }
   try {
+    // 草稿位（cr-1084）：暂存键即真相（哨兵键存量脏值不回显），偏好
+    // 回放同样写暂存——物化时搬到真实 sid。
+    if (onDraft.value) {
+      const stashed = convSettingStored('toolMode');
+      if (stashed === 'tc-base' || stashed === 'tc-programmatic' || stashed === 'tc-none') {
+        toolMode.value = stashed;
+        store.setConvToolMode(stashed);
+        return;
+      }
+      const pref0 = loadComposePrefs()?.toolMode;
+      if (pref0 === undefined || pref0 === '') { toolMode.value = ''; store.setConvToolMode(''); return; }
+      if (pref0 === 'tc-programmatic' && !programmaticAvailable.value) {
+        toolMode.value = '';
+        store.setConvToolMode('');
+        return;
+      }
+      toolMode.value = pref0;
+      store.setConvToolMode(pref0);
+      setConvSetting(conversationId, { toolMode: pref0 }).catch(() => undefined);
+      return;
+    }
     const r = await rpc.call<{ settings?: { toolMode?: string } }>('conv-settings/get', { conversationId });
     if (conversationId !== toolModeConvKey.value) return; // 快速连切：迟到响应不覆盖当前会话
     const stored = r.settings?.toolMode;
@@ -477,7 +522,7 @@ watch(toolModeConvKey, async (conversationId) => {
     }
     toolMode.value = pref;
     store.setConvToolMode(pref);
-    const writing = rpc.call('conv-settings/set', { conversationId, patch: { toolMode: pref } })
+    const writing = setConvSetting(conversationId, { toolMode: pref })
       .catch((err: unknown) => {
         console.warn('[ChatInput] 工具调用模式继承写失败:', (err as { message?: string }).message ?? String(err));
       });
@@ -519,9 +564,8 @@ function selectToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
   toolMode.value = v;
   saveComposePrefs({ toolMode: v }); // 新会话跟随上次选择（挂载回读回放并落该会话）
   const conversationId = toolModeConvKey.value;
-  if (!conversationId || !rpc) return;
-  // wire 值域：合法枚举原样；''/null = 删键（web-api set 面）
-  void rpc.call('conv-settings/set', { conversationId, patch: { toolMode: v === '' ? null : v } })
+  // wire 值域：合法枚举原样；''/null = 删键（web-api set 面；草稿位暂存）
+  void setConvSetting(conversationId, { toolMode: v === '' ? null : v })
     .then(() => {
       // 写入成功 → bump 会话模式快照：system-prompt 预览（aux 侧栏常驻
       // 面板）/ Token 估算面 watch 得知装配面已变，重取反映 SDK 投影块
@@ -545,8 +589,7 @@ function selectBrowserTier(v: '' | 'observe' | 'manipulate' | 'inject' | 'disabl
   browserTier.value = v;
   saveComposePrefs({ browserTier: v }); // 新会话跟随上次选择（挂载回放并落该会话）
   const conversationId = toolModeConvKey.value;
-  if (!conversationId || !rpc) return;
-  void rpc.call('conv-settings/set', { conversationId, patch: { browserTier: v === '' ? null : v } })
+  void setConvSetting(conversationId, { browserTier: v === '' ? null : v })
     .then(() => {
       store.setConvBrowserTier(v); // bump 快照：browser 进/出工具面 → Token 估算固定开销重取
     })
@@ -606,8 +649,7 @@ function selectExtKey(key: string, value: string) {
   const prev = extKeyValues[key];
   extKeyValues[key] = value;
   const conversationId = toolModeConvKey.value;
-  if (!conversationId || !rpc) return;
-  void rpc.call('conv-settings/set', { conversationId, patch: { [key]: value || null } })
+  void setConvSetting(conversationId, { [key]: value || null })
     .catch((err: any) => {
       toastError(`实验设置未保存：${err?.message ?? err}`);
       extKeyValues[key] = prev; // 失败回滚（键此前不存在时回 undefined = 视同未覆盖）
@@ -621,6 +663,25 @@ watch(toolModeConvKey, async (conversationId) => {
   await loadExperimentalKeys(); // 先汇合目录——扩展键值回填依赖 experimentalKeys 就位
   if (!conversationId || !rpc) { browserTier.value = ''; return; }
   try {
+    // 草稿位（cr-1084）：暂存键即真相——无 RPC 读取面（哨兵键上可能有
+    // 存量脏值，不得回显），偏好回放路径同样写暂存（物化时搬运）。
+    if (onDraft.value) {
+      const stashed = convSettingStored('browserTier');
+      if (stashed !== undefined) {
+        browserTier.value = stashed as typeof browserTier.value;
+        if (stashed === 'observe' || stashed === 'manipulate' || stashed === 'inject' || stashed === 'disabled') {
+          store.setConvBrowserTier(stashed);
+        }
+      } else {
+        const pref = loadComposePrefs()?.browserTier ?? '';
+        browserTier.value = pref;
+        if (pref !== '') setConvSetting(conversationId, { browserTier: pref }).catch(() => undefined);
+      }
+      for (const k of experimentalKeys.value) {
+        if (k.key !== 'browserTier') extKeyValues[k.key] = convSettingStored(k.key) ?? '';
+      }
+      return;
+    }
     const r = await rpc.call<{ settings?: Record<string, string> }>('conv-settings/get', { conversationId });
     if (conversationId !== toolModeConvKey.value) return; // 快速连切：迟到响应不覆盖
     const stored = r.settings?.browserTier as typeof browserTier.value | undefined;
@@ -632,7 +693,7 @@ watch(toolModeConvKey, async (conversationId) => {
       const pref = loadComposePrefs()?.browserTier ?? '';
       browserTier.value = pref;
       if (pref !== '') {
-        void rpc.call('conv-settings/set', { conversationId, patch: { browserTier: pref } })
+        void setConvSetting(conversationId, { browserTier: pref })
           .catch((err: unknown) => {
             console.warn('[ChatInput] 浏览器档继承写失败:', (err as { message?: string }).message ?? String(err));
           });

@@ -110,6 +110,10 @@ interface PendingMeta {
   workspaceId?: string;
   /** 待发会话 id（create 发出后留存——失败重试同 id 幂等；落盘确认即清） */
   pendingId?: string;
+  /** 草稿期会话键暂存（cr-1084）：草稿位无真实 sid，conv-settings 写口
+   *  （工具模式/浏览器档/approval 等）先暂存于此（键级合并，null=删键），
+   *  dispatchDraft 物化时搬到真实 sid——服务端零哨兵键残留。 */
+  convOverrides?: Record<string, string>;
 }
 
 /** localStorage 面（jsdom/node 缺省 undefined——全兜底；与 lastContext 同款姿势） */
@@ -130,11 +134,16 @@ export function loadPending(): PendingMeta | null {
     if (!raw) return null;
     const e = JSON.parse(raw);
     if (e === null || typeof e !== 'object' || typeof e.agentId !== 'string') return null;
+    const overrides = e.convOverrides;
     return {
       agentId: e.agentId,
       ...(typeof e.model === 'string' && e.model !== '' ? { model: e.model } : {}),
       ...(typeof e.workspaceId === 'string' ? { workspaceId: e.workspaceId } : {}),
       ...(typeof e.pendingId === 'string' && e.pendingId !== '' ? { pendingId: e.pendingId } : {}),
+      ...(overrides !== null && typeof overrides === 'object' && !Array.isArray(overrides)
+        && Object.values(overrides).every((v) => typeof v === 'string' && v !== '')
+        ? { convOverrides: overrides as Record<string, string> }
+        : {}),
     };
   } catch { return null; }
 }
@@ -300,6 +309,30 @@ export class SingleBoardService extends Service {
     parkDraft('single:' + PENDING_SINGLE_ID, '');
   }
 
+  /**
+   * 草稿期会话键暂存（cr-1084）：草稿位（哨兵 __pending__）没有真实 sid，
+   * conv-settings 写口在此暂存键值（键级合并；value null/'' = 删键）。
+   * dispatchDraft 物化时经 flushConvOverrides 搬到真实 sid——写口不改
+   * 目标形状（读侧 convOverrideValue 回显），服务端零哨兵键残留。
+   */
+  setConvOverride(key: string, value: string | null): void {
+    const p = this.pending.value;
+    if (p === null || !key) return; // 无草稿 = 无处可暂存（写口自行回落）
+    const prev = { ...p.convOverrides };
+    delete prev[key];
+    const next = value !== null && value !== '' ? { ...prev, [key]: value } : prev;
+    this.pending.value = {
+      ...p,
+      ...(Object.keys(next).length > 0 || p.convOverrides !== undefined ? { convOverrides: next } : {}),
+    };
+    this.savePending();
+  }
+
+  /** 暂存读面（草稿位回显用；无草稿/无键 = undefined） */
+  convOverrideValue(key: string): string | undefined {
+    return this.pending.value?.convOverrides?.[key];
+  }
+
   /** 活跃独立会话 id（派生自 feed 活跃分区——会话上下文的唯一事实源在会话服务） */
   readonly activeSingleId: ComputedRef<string> = computed(() => this.own.sessions.feed.activeSingleId.value);
   /** 活跃会话：哨兵 → 草稿视图；否则真值行 */
@@ -451,7 +484,7 @@ export class SingleBoardService extends Service {
 
   /**
    * 发送草稿（首条消息出门前调用——ChatInput 侧）：首次签发 id（留存作
-   * 幂等锚）→ singles/create → 真值接管（草稿态清空 + 上下文重建）。
+   * 幂等锚）→ singles/create → 会话键搬运 → 真值接管（草稿态清空 + 上下文重建）。
    * 失败 = id 留存不动，重试同 id（create 幂等）——失败窗口不产生孤儿
    * 空会话。落盘确认后 pendingId 无用即清（整个草稿态退役）。
    */
@@ -466,6 +499,17 @@ export class SingleBoardService extends Service {
     try {
       const session = await this.create({ id, ...(p.agentId ? { agentId: p.agentId } : {}), ...(p.workspaceId ? { workspaceId: p.workspaceId } : {}) });
       if (p.model !== undefined) await this.updateSession(id, { model: p.model }).catch(() => undefined);
+      // 草稿期会话键搬运（cr-1084）：真实 sid 已定，把暂存的键搬到
+      // conv-settings 真键。取入口快照——create 内 created 帧会先触发
+      // retireDraft（真值接管），搬运点读现值已拿不到；失败不阻断发送
+      //（同 model 覆盖的尽力语义，键值丢失用户重选即恢复）。
+      const overrides = p.convOverrides;
+      if (overrides !== undefined) {
+        for (const [key, value] of Object.entries(overrides)) {
+          await this.own.rpc.call('conv-settings/set', { conversationId: id, patch: { [key]: value } })
+            .catch((err: unknown) => console.warn('[SingleBoard] 草稿会话键搬运失败:', key, err));
+        }
+      }
       // 真值接管：草稿态清空 + 上下文切到真值行（feed 身份映射刷新）。
       // cr-937 串台防线：create 内 selectSingleBy 已切 activeSingleId，
       // 若下方 model 覆盖的 await 窗口让 ChatInput 转场 watcher 抢先
