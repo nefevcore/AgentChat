@@ -21,7 +21,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
+import { isArchiveReviewRun, utcDayKey } from 'ac-core-utils'; // 机制 run 标记（cr-318）/ UTC 日键（cr-1052）——下沉纯库
 import type { LoopRunResult, LoopRunUsage } from 'ac-agent-loop';
 
 /** 行配置 */
@@ -193,14 +193,11 @@ function isStepCacheRow(v: unknown): v is { ts: number; hit: number; miss: numbe
   return typeof r.ts === 'number' && typeof r.hit === 'number' && typeof r.miss === 'number';
 }
 
-/** 本地日期键（YYYY-MM-DD；与流水文件名同口径） */
+/** UTC 日键（YYYY-MM-DD；与流水文件名同口径——ledger 时间戳即 UTC ISO，cr-1052 收口） */
 function dayKeyOf(line: UsageAuditLine): string {
   if (line.timestamp) {
     const d = new Date(line.timestamp);
-    if (!Number.isNaN(d.getTime())) {
-      const p = (n: number) => String(n).padStart(2, '0');
-      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-    }
+    if (!Number.isNaN(d.getTime())) return utcDayKey(d);
   }
   return 'unknown';
 }
@@ -322,7 +319,7 @@ export class UsageService extends Service {
     try {
       fs.mkdirSync(this.usageDir, { recursive: true });
       fs.appendFileSync(
-        path.join(this.usageDir, `usage-${line.timestamp.slice(0, 10)}.jsonl`),
+        path.join(this.usageDir, `usage-${utcDayKey(line.timestamp)}.jsonl`),
         `${JSON.stringify(line)}\n`,
         'utf-8',
       );
@@ -363,7 +360,7 @@ export class UsageService extends Service {
     try {
       fs.mkdirSync(this.usageDir, { recursive: true });
       fs.appendFileSync(
-        path.join(this.usageDir, `usage-${line.timestamp.slice(0, 10)}.jsonl`),
+        path.join(this.usageDir, `usage-${utcDayKey(line.timestamp)}.jsonl`),
         `${JSON.stringify(line)}\n`,
         'utf-8',
       );

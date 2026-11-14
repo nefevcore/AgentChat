@@ -22,6 +22,7 @@
 import { createServer } from 'node:http';
 import { createReadStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
+import { utcMonthKey } from '../packages/ac-core-utils/src/time-keys.ts'; // UTC 月键（cr-1052 收口）
 
 /** 计入配额的文件类型（安装包；其余走公开静态不计） */
 const INSTALLER_EXT = new Set(['.apk', '.exe', '.dmg', '.zip', '.appimage', '.msi']);
@@ -50,8 +51,8 @@ mkdirSync(stateDir, { recursive: true });
 
 /** 当月计数文件（按月分片——跨月自动归零，无需定时任务） */
 function statePath(now = new Date()) {
-  const ym = now.getUTCFullYear() + String(now.getUTCMonth() + 1).padStart(2, '0');
-  return join(stateDir, 'count-' + ym + '.json');
+  // UTC 月键与 packages/ac-relay-server/src/download-gate.ts 同口径（cr-1052 收口）
+  return join(stateDir, 'count-' + utcMonthKey(now) + '.json');
 }
 
 /** 读计数（缺失/损坏一律当 0——计数不该阻断服务） */

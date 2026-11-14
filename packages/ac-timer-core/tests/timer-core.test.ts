@@ -35,24 +35,25 @@ describe('ac-timer-core parseInterval', () => {
 describe('ac-timer-core msUntilTime', () => {
   const at = (iso: string) => new Date(iso);
 
-  it('每日 HH:mm：未来时刻；已过顺延次日', () => {
-    const now = at('2026-08-22T10:00:00');
-    expect(msUntilTime('10:30', now)).toBe(30 * 60_000);
-    expect(msUntilTime('09:30', now)).toBe(23.5 * 3600_000); // 次日
+  it('每日 HH:mm：未来时刻；已过顺延次日（缺省 = DEFAULT_TZ，cr-1053——宿主时区无关）', () => {
+    // 上海墙 18:00（UTC 10:00）：10:30 已过 → 次日 10:30（25.5h − 当地↔上海偏移由 tz 路径吸收）
+    const now = at('2026-08-22T10:00:00Z');
+    expect(msUntilTime('10:30', now)).toBe(16.5 * 3600_000); // 上海 18:00 → 次日 10:30 上海
+    expect(msUntilTime('19:30', now)).toBe(1.5 * 3600_000);  // 上海 18:00 → 当晚 19:30
   });
 
-  it('指定日期：未来有效；已过 → null', () => {
-    const now = at('2026-08-22T10:00:00');
-    expect(msUntilTime('2026-08-23T09:00', now)).toBe(23 * 3600_000);
-    expect(msUntilTime('2026-08-22 09:00', now)).toBeNull();
+  it('指定日期：未来有效；已过 → null（缺省 DEFAULT_TZ：墙钟按上海解释）', () => {
+    const now = at('2026-08-22T10:00:00Z'); // 上海 18:00
+    expect(msUntilTime('2026-08-23T09:00', now)).toBe(15 * 3600_000); // 次日 09:00 上海 = 01:00Z
+    expect(msUntilTime('2026-08-22 09:00', now)).toBeNull(); // 上海当天 09:00 已过（18:00）
     expect(msUntilTime('2026-08-22T10:00', now)).toBeNull(); // 恰好现在 = 已过
   });
 
-  it('周几：本周未到按差值；已过顺延下周', () => {
-    const now = at('2026-08-22T10:00:00'); // 周六
-    expect(msUntilTime('Sun 11:00', now)).toBe(25 * 3600_000); // 次日周日
-    expect(msUntilTime('周六 12:00', now)).toBe(2 * 3600_000); // 当天晚些
-    expect(msUntilTime('周六 09:00', now)).toBe(7 * 24 * 3600_000 - 3600_000); // 已过 → 下周六 09:00
+  it('周几：本周未到按差值；已过顺延下周（缺省 DEFAULT_TZ——宿主时区无关）', () => {
+    const now = at('2026-08-22T10:00:00Z'); // 上海周六 18:00
+    expect(msUntilTime('Sun 11:00', now)).toBe(17 * 3600_000); // 次日周日 11:00 上海 = 03:00Z
+    expect(msUntilTime('周六 12:00', now)).toBe((6 * 24 + 18) * 3600_000); // 上海 18:00 已过 12:00 → 下周六 12:00（6 天 18h）
+    expect(msUntilTime('周六 19:00', now)).toBe(1 * 3600_000); // 当天晚些
   });
 
   it('非法输入 → null', () => {
@@ -118,14 +119,14 @@ describe('ac-timer-core 节假日', () => {
 });
 
 describe('ac-timer-core localISO / renderHint', () => {
-  it('localISO：偏移推导（东八区整点）', () => {
+  it('localISO：偏移推导（缺省 DEFAULT_TZ——上海墙钟，宿主时区无关）', () => {
     const s = localISO(new Date('2026-08-22T02:00:00Z'));
     expect(s).toBe('2026-08-22T10:00:00+08:00');
   });
 
-  it('renderHint：模板变量', () => {
+  it('renderHint：模板变量（缺省 DEFAULT_TZ——上海墙钟，宿主时区无关）', () => {
     const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', time: '09:30', hint: '' };
-    const out = renderHint('现在 {{time}}，定时 {time}，日期 {{date}}', entry, new Date('2026-08-22T15:04:00'));
+    const out = renderHint('现在 {{time}}，定时 {time}，日期 {{date}}', entry, new Date('2026-08-22T07:04:00Z'));
     expect(out).toContain('现在 15:04');
     expect(out).toContain('定时 09:30');
     expect(out).toContain('2026');
@@ -145,8 +146,9 @@ describe('ac-timer-core nextDelayOf（恢复态）', () => {
 
   it('time：msUntilTime 语义', () => {
     const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', time: '23:59', hint: 'h' };
-    const d = nextDelayOf(entry, undefined, new Date('2026-08-22T10:00:00').getTime());
-    expect(d).toBe((23 * 60 + 59 - 10 * 60) * 60_000);
+    // 上海墙 18:00（UTC 10:00）：23:59 当晚（cr-1053 缺省 DEFAULT_TZ——宿主时区无关）
+    const d = nextDelayOf(entry, undefined, new Date('2026-08-22T10:00:00Z').getTime());
+    expect(d).toBe((23 * 60 + 59 - 18 * 60) * 60_000);
   });
 });
 
@@ -196,7 +198,7 @@ describe('ac-timer-core 活动窗口（activeHours）', () => {
   });
 });
 
-describe('ac-timer-core 时区墙上时钟（tz 参数；缺省路径零变化）', () => {
+describe('ac-timer-core 时区墙上时钟（tz 参数；缺省 = DEFAULT_TZ〔cr-1053〕）', () => {
   // 固定锚点：2026-06-01T00:30:00Z（UTC 墙 00:30 周一 / 上海墙 08:30 周一）
   const NOW = new Date('2026-06-01T00:30:00Z');
 
@@ -217,10 +219,10 @@ describe('ac-timer-core 时区墙上时钟（tz 参数；缺省路径零变化�
     expect(sh - utc).toBe(-8 * 3600_000);
   });
 
-  it('指定日按目标时区解释；非法 tz 降级本地（不抛错）', () => {
+  it('指定日按目标时区解释；非法 tz 归一 DEFAULT_TZ（不抛错）', () => {
     const full = msUntilTime('2026-06-02T09:00', NOW, 'Asia/Shanghai');
     expect(new Date(NOW.getTime() + full!).toISOString()).toBe('2026-06-02T01:00:00.000Z');
-    expect(typeof msUntilTime('09:00', NOW, 'Mars/Olympus')).toBe('number'); // 降级本地路径
+    expect(msUntilTime('09:00', NOW, 'Mars/Olympus')).toBe(msUntilTime('09:00', NOW)); // 非法 → DEFAULT_TZ（与缺省同值）
   });
 
   it('节假日判定按目标时区取"今天"（配置节假日集合）', () => {
@@ -262,8 +264,8 @@ describe('ac-timer-core 并源交叉锁定与 renderHint tz（cr-425）', () => 
     expect(sh).toContain('现在 10:00');
   });
 
-  it('renderHint：非法 tz 降级本地不抛错', () => {
+  it('renderHint：非法 tz 归一 DEFAULT_TZ 不抛错（cr-1053——上海墙钟）', () => {
     const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', hint: '', time: '09:30' };
-    expect(typeof renderHint('现在 {{time}}', entry, new Date(), 'Mars/Olympus')).toBe('string');
+    expect(renderHint('现在 {{time}}', entry, new Date('2026-06-01T02:00:00Z'), 'Mars/Olympus')).toContain('现在 10:00'); // 上海墙
   });
 });

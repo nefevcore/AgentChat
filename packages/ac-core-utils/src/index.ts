@@ -6,7 +6,7 @@
 // 域词汇本身（契约/事件/服务面）仍归 owning 包，本库只收"会成环的
 // 那一小块"。域逻辑、状态、cordis 注册面禁止入内。
 //
-// 现状八组词汇：
+// 现状词汇分组：
 //   · GROUP_HINT_META / isGroupHint —— 群 hint 投递标记协议
 //     （原住 ac-group；group 生产、session/conversation/ws-bridge
 //     消费。session→group 与 D11 存储归属方向相逆，环的一边）
@@ -40,6 +40,12 @@
 //     updateWorkspace / removeWorkspace / workspacePathOf —— 工作区登记表
 //     读写面（meta/workspaces.json 读旧写新；宿主行直读直写与主线
 //     WorkspaceService（ctx.workspace）两处共用——各写一份兼容窗必走散）
+//   · utcDayKey / utcMonthKey —— UTC 日/月键派生（cr-1052 下沉：ac-usage
+//     聚合键与流水文件名、relay 房间流量日键、两份 download-gate 配额
+//     月键——键派生单源，防本地/UTC 各写一份走散）
+//   · DEFAULT_TZ / resolveTimezone —— 缺省时区与降级链（cr-1053 下沉：
+//     timer-core 函数缺省 / timers-row 行基线 / ac-datetime 注入行
+//     三层同源——此前进程本地与 Asia/Shanghai 字面量并存，部署即漂移）
 // 下沉后 session 与 group 互相零 import：协作只经 ctx.get 服务面
 // （D11 跨域读写口），两行可独立停用。
 // ============================================================
@@ -160,3 +166,4 @@ export * from './persona.ts';
 export * from './session-title.ts';
 export * from './groups.ts'; // 群配置纯读面（cr-712 下沉——宿主 groups 行与壳侧 group 垫片共用）
 export * from './workspaces.ts'; // 工作区登记表读写面（数据分层第二批下沉——宿主行与主线 WorkspaceService 共用，防「读旧写新」两处走散）
+export * from './time-keys.ts'; // UTC 日/月键 + 缺省时区基线（cr-1052/1053 时间词法单源——usage/relay/timer-core/timers-row/datetime 共用）

@@ -2,6 +2,8 @@
 // host-log.ts —— 宿主控制台格式化出口（cr-742）
 //
 // 宿主/编排面的手写诊断行统一走本出口：HH:mm:ss LVL [src] msg。
+// 时间前缀 = 进程本地时区（cr-1052 声明：控制台面向操作者，本地时刻即
+// 正确口径；持久化事实源仍是 UTC ISO 时间戳）。
 // 与 cordis logger 行（yyyy-MM-dd hh:mm:ss [I] name msg）视觉协调：
 // 同列时间戳 + 同位置级别位，来源段 [host]/[host.orchestrator]/[host.supervise]/
 // [host.shell:agent] 直读可辨（cr-997：宿主内模块统一 host. 前缀——与独立进程

@@ -9,6 +9,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { utcMonthKey } from 'ac-core-utils'; // UTC 月键（cr-1052 收口——与 scripts/download-gate.mjs 同口径）
 
 const PORT = Number(process.env.DL_GATE_PORT ?? 12700);
 const ROOT = process.env.DL_GATE_ROOT ?? '/var/www/agentchat/downloads';
@@ -17,12 +18,8 @@ const QUOTA = Number(process.env.DL_GATE_QUOTA ?? 1000);
 /** 计入配额的扩展名（manifest/主页/图标不计） */
 const COUNTED = new Set(['.exe', '.msi', '.dmg', '.zip', '.apk', '.appimage', '.deb', '.rpm', '.exe.blockmap']);
 
-function monthKey(d = new Date()): string {
-  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-
 function statePath(): string {
-  return join(STATE_DIR, `count-${monthKey()}.json`);
+  return join(STATE_DIR, `count-${utcMonthKey()}.json`);
 }
 
 function readCount(): number {
@@ -38,7 +35,7 @@ function readCount(): number {
 function writeCount(n: number): void {
   mkdirSync(dirname(statePath()), { recursive: true });
   const tmp = `${statePath()}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ count: n, month: monthKey(), updatedAt: new Date().toISOString() }));
+  writeFileSync(tmp, JSON.stringify({ count: n, month: utcMonthKey(), updatedAt: new Date().toISOString() }));
   renameSync(tmp, statePath());
 }
 
@@ -76,7 +73,7 @@ const server = createServer((req: IncomingMessage, res: ServerResponse) => {
   if (path === '/api/quota') {
     // F-8：一次读盘复用（原实现同请求两次 readCount——低频路径顺手修正）
     const used = readCount();
-    return json(res, 200, { ok: true, quota: QUOTA, used, remaining: Math.max(0, QUOTA - used), month: monthKey() });
+    return json(res, 200, { ok: true, quota: QUOTA, used, remaining: Math.max(0, QUOTA - used), month: utcMonthKey() });
   }
 
   // 安装包下载：配额门 + X-Accel-Redirect

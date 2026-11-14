@@ -21,6 +21,7 @@ import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { listAgentIds, readAgentConfig, settingsOf, isPresetId } from 'ac-agents-core';
+import { DEFAULT_TZ } from 'ac-core-utils'; // 缺省时区基线（cr-1053 单源）
 
 /** entries 写口插槽（agents 编辑面服务键 'agents'——cr-551 单写者收口） */
 export interface EntriesEditFace {
@@ -131,7 +132,7 @@ export class HostTimersService extends Service {
     super(ctx, 'timers');
     this.dataRoot = path.resolve(options.dataRoot);
     this.po = options.postOffice;
-    this.baseTz = options.timezone ?? 'Asia/Shanghai';
+    this.baseTz = options.timezone ?? DEFAULT_TZ;
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
     this.gateTimeoutMs = options.gateTimeoutMs ?? GATE_TIMEOUT_MS;
     this.agentsEdit = options.agentsEdit;

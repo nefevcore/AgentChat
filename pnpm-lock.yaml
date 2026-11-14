@@ -2325,6 +2325,9 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
     devDependencies:
       ac-extension-core:
         specifier: workspace:*
@@ -2534,6 +2537,9 @@ importers:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
+      ac-jobs:
+        specifier: workspace:*
+        version: link:../ac-jobs
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -3076,6 +3082,31 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  packages/ac-permission-gate:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-durable-interaction:
+        specifier: workspace:*
+        version: link:../ac-durable-interaction
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
+    devDependencies:
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/ac-persona:
     dependencies:
       '@agentchat/cordis':
@@ -3151,6 +3182,9 @@ importers:
 
   packages/ac-relay-server:
     dependencies:
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
       ws:
         specifier: ^8.18.0
         version: 8.21.3
@@ -3428,6 +3462,9 @@ importers:
       ac-memory:
         specifier: workspace:*
         version: link:../ac-memory
+      ac-permission-gate:
+        specifier: workspace:*
+        version: link:../ac-permission-gate
       ac-persona:
         specifier: workspace:*
         version: link:../ac-persona
@@ -3625,6 +3662,9 @@ importers:
 
   packages/ac-timer-core:
     dependencies:
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
       chinese-lunar:
         specifier: ^0.1.4
         version: 0.1.4

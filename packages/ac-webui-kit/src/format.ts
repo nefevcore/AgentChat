@@ -23,7 +23,7 @@ export function formatDurationMs(ms: number): string {
   return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
 }
 
-/** 相对时间格式化 */
+/** 相对时间格式化（浏览器本地时区——展示语义，cr-1052 声明；勿用于键派生/服务端） */
 export function formatRelativeTime(ts: number): string {
   const d = new Date(ts);
   const now = new Date();

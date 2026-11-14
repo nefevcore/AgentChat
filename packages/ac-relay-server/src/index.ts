@@ -13,6 +13,8 @@
 //   · 无数据库、无磁盘卷——重启即失忆是特性。
 // ============================================================
 
+import { utcDayKey } from 'ac-core-utils'; // UTC 日键（cr-1052 收口）
+
 /** 控制帧（relay 全部词汇） */
 export type RelayClientMessage =
   | { op: 'join'; room: string }
@@ -279,7 +281,7 @@ export class RelayCore {
           }
           let room = this.rooms.get(msg.room);
           if (!room) {
-            room = { peers: [], createdAt: Date.now(), dayKey: dayKeyOf(), bytesIn: 0, lastSeen: [] };
+            room = { peers: [], createdAt: Date.now(), dayKey: utcDayKey(), bytesIn: 0, lastSeen: [] };
             this.rooms.set(msg.room, room);
             // 心跳超时由全局 sweep()（main.ts 每 15s，已 unref）兜底——
             // 房间级定时器会钉住事件循环（进程不退出事故）
@@ -307,7 +309,7 @@ export class RelayCore {
           const room = this.rooms.get(roomId);
           if (!room) { conn.close(); return; }
           // 流量记账（入向；自然日翻转即重置）
-          const dk = dayKeyOf();
+          const dk = utcDayKey();
           if (room.dayKey !== dk) { room.dayKey = dk; room.bytesIn = 0; }
           room.bytesIn += len;
           if (room.bytesIn > this.limits.roomDailyBytes) { this.destroyRoom(roomId); return; }
@@ -386,6 +388,4 @@ export class RelayCore {
   }
 }
 
-function dayKeyOf(d = new Date()): string {
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-}
+/** 流量记账日键已收口 utcDayKey（cr-1052：UTC + 补零——公网中继取服务器中立时区，存量内存态重启即新口径） */

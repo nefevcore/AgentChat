@@ -7,11 +7,12 @@
 //   · msUntilTime     —— 每日 HH:mm / 指定日期 / 周几 → 目标毫秒
 //   · 节假日判定      —— 农历（chinese-lunar）+ 阳历固定 + 周末 +
 //                        调休配置覆盖（makeup 优先于 holiday）
-//   · localISO        —— 指定时区的 ISO 串（降级 UTC+8）
+//   · localISO        —— 指定时区的 ISO 串（缺省 DEFAULT_TZ——cr-1053）
 //   · renderHint      —— {{now}}/{{time}}/{{date}}/{time} 模板
 //   · describeEntry   —— 条目的人类可读标签
 // ============================================================
 import * as lunar from 'chinese-lunar';
+import { DEFAULT_TZ, resolveTimezone } from 'ac-core-utils'; // 缺省时区单源（cr-1053）
 
 /**
  * 定时条目形状校验（timer/save 入站；非法抛错——防脏配置落盘）。
@@ -122,18 +123,13 @@ export function parseInterval(input: string): number | null {
  * 计算到目标时间的毫秒数（已过 → null，除每日 HH:mm 顺延次日）。
  * 支持：HH:mm（每天）、YYYY-MM-DDTHH:mm / YYYY-MM-DD HH:mm（指定）、
  * Sun 12:00 / 周日 12:00（每周）。
- * @param tz 目标时刻所在 IANA 时区（缺省 = 运行环境本地时区——历史行为
- *   原样；传入时"HH:mm"按该时区的墙上时钟解释，跨夏令时由目标时刻
- *   处的偏移收敛；非法 tz 降级本地）
+ * @param tz 目标时刻所在 IANA 时区（缺省 = DEFAULT_TZ〔cr-1053 单源〕；
+ *   "HH:mm"按该时区的墙上时钟解释，跨夏令时由目标时刻处的偏移收敛；
+ *   空/非法经 resolveTimezone 归一——原「进程本地缺省」移除，部署环境
+ *   不再影响定时语义）
  */
 export function msUntilTime(timeStr: string, now = new Date(), tz?: string): number | null {
-  if (!tz) return msUntilLocal(timeStr, now);
-  let p: ZonedParts;
-  try {
-    p = zonedParts(now, tz);
-  } catch {
-    return msUntilLocal(timeStr, now); // 非法 tz 降级本地（localISO 同款容错）
-  }
+  const p = zonedParts(now, resolveTimezone(tz));
   // 伪本地时刻：本地字段 = tz 墙上时钟 → 复用既有墙上时钟算术
   const pseudo = new Date(p.y, p.m - 1, p.d, p.h, p.mi, p.s);
   const localMs = msUntilLocal(timeStr, pseudo);
@@ -141,12 +137,13 @@ export function msUntilTime(timeStr: string, now = new Date(), tz?: string): num
   const targetLocal = new Date(pseudo.getTime() + localMs);
   const epoch = zonedWallToUtc(
     targetLocal.getFullYear(), targetLocal.getMonth() + 1, targetLocal.getDate(),
-    targetLocal.getHours(), targetLocal.getMinutes(), tz,
+    targetLocal.getHours(), targetLocal.getMinutes(), resolveTimezone(tz),
   );
   return epoch - now.getTime();
 }
 
-/** msUntilTime 的本地时区实现（历史行为原样；tz 路径经伪本地时刻复用） */
+/** msUntilTime 的墙上时钟算术内核（tz 路径经伪本地时刻复用——本地 Date
+ *  字段当墙钟字段用，仅内部消费，不再承担「进程本地缺省」角色） */
 function msUntilLocal(timeStr: string, now: Date): number | null {
   const s = timeStr.trim();
 
@@ -222,7 +219,8 @@ export function parseActiveHours(spec: string): ActiveWindow | null {
 }
 
 /**
- * 墙上时钟是否在活动窗口内（tz 缺省 = 运行环境本地）。
+ * 墙上时钟是否在活动窗口内（tz 缺省 = DEFAULT_TZ〔cr-1053 单源，resolveTimezone
+ * 归一〕——timers-row 调用点恒显式传 owner 时区）。
  * 跨午夜窗口（如 22:00-06:00）：now ≥ start 或 now < end 即在窗内；
  * start === end 视为全天（防御书写 "00:00-00:00" 的本意）。
  */
@@ -233,17 +231,8 @@ export function withinActiveHours(
 ): boolean {
   const win = parseActiveHours(spec);
   if (win === null) return true; // 非法窗口不挡触发（fail-open，排程日志另有告警）
-  let nowMin: number;
-  if (tz) {
-    try {
-      const p = zonedParts(now, tz);
-      nowMin = p.h * 60 + p.mi;
-    } catch {
-      nowMin = now.getHours() * 60 + now.getMinutes();
-    }
-  } else {
-    nowMin = now.getHours() * 60 + now.getMinutes();
-  }
+  const p = zonedParts(now, resolveTimezone(tz));
+  const nowMin = p.h * 60 + p.mi;
   if (win.startMin === win.endMin) return true;
   if (win.startMin < win.endMin) return nowMin >= win.startMin && nowMin < win.endMin;
   return nowMin >= win.startMin || nowMin < win.endMin;
@@ -374,22 +363,18 @@ function isSolarHoliday(date: Date): boolean {
 
 /**
  * 创建节假日判定器（调休优先 → 配置节假日 → 农历 → 阳历 → 周末）。
- * @param tz 判定所用时区（缺省 = 运行环境本地；传入时"今天/周几"按该
- *   时区墙上时钟取——per-Agent 时区的 workday/holiday 门控）
+ * @param tz 判定所用时区（缺省 = DEFAULT_TZ〔cr-1053 单源，resolveTimezone
+ *   归一〕；"今天/周几"按该时区墙上时钟取——per-Agent 时区的 workday/
+ *   holiday 门控）
  */
 export function createHolidayResolver(options: HolidayOptions = {}, tz?: string) {
   const holidays = new Set(options.holidays ?? []);
   const makeups = new Set(options.makeupWorkdays ?? []);
-  const toLocal = tz
-    ? (date: Date): Date => {
-        try {
-          const p = zonedParts(date, tz);
-          return new Date(p.y, p.m - 1, p.d, p.h, p.mi, p.s);
-        } catch {
-          return date; // 非法 tz 降级本地
-        }
-      }
-    : (date: Date): Date => date;
+  const zone = resolveTimezone(tz);
+  const toLocal = (date: Date): Date => {
+    const p = zonedParts(date, zone);
+    return new Date(p.y, p.m - 1, p.d, p.h, p.mi, p.s);
+  };
   const isHoliday = (date = new Date()): boolean => {
     const d = toLocal(date);
     const today = formatDate(d);
@@ -407,10 +392,12 @@ export function createHolidayResolver(options: HolidayOptions = {}, tz?: string)
 // 时区与模板
 // ============================================================
 
-/** 指定时区的 ISO 时间串（zonedParts 墙钟 + 偏移直减推导；降级 UTC+8） */
-export function localISO(date = new Date(), tz = 'Asia/Shanghai'): string {
-  try {
-    const wall = zonedParts(date, tz);
+/** 指定时区的 ISO 时间串（zonedParts 墙钟 + 偏移直减推导；缺省/非法归一
+ *  DEFAULT_TZ——cr-1053：原「降级 UTC+8」分支即 DEFAULT_TZ 直算，收口后
+ *  不再需要） */
+export function localISO(date = new Date(), tz = DEFAULT_TZ): string {
+  {
+    const wall = zonedParts(date, resolveTimezone(tz));
     const dateStr = `${wall.y}-${pad2(wall.m)}-${pad2(wall.d)}T${pad2(wall.h)}:${pad2(wall.mi)}:${pad2(wall.s)}`;
     // 偏移 = 墙钟按 UTC 解释的纪元 − 该时刻自身纪元（正向定义一次减法；
     // 墙钟串截到秒 → 毫秒尾差由 Math.round 消除）
@@ -418,34 +405,21 @@ export function localISO(date = new Date(), tz = 'Asia/Shanghai'): string {
     const sign = offsetMin >= 0 ? '+' : '-';
     const absMin = Math.abs(offsetMin);
     return `${dateStr}${sign}${pad2(Math.floor(absMin / 60))}:${pad2(absMin % 60)}`;
-  } catch {
-    // 降级：硬编码 UTC+8（src 语义）
   }
-  const bj = new Date(date.getTime() + 8 * 60 * 60 * 1000);
-  return `${bj.getUTCFullYear()}-${pad2(bj.getUTCMonth() + 1)}-${pad2(bj.getUTCDate())}T${pad2(bj.getUTCHours())}:${pad2(bj.getUTCMinutes())}:${pad2(bj.getUTCSeconds())}+08:00`;
 }
 
 /**
  * hint 模板渲染：{{now}}/{{time}}/{{date}}/{time}（nowDate 注入便于测试）。
- * tz 传入时全部墙上时钟按该时区渲染（per-owner 生效时区）；非法 tz 降级本地。
+ * 全部墙上时钟按 tz 渲染（per-owner 生效时区；缺省/非法归一 DEFAULT_TZ
+ * ——cr-1053，zonedParts 与 toLocaleString 同 zone 单源）。
  */
 export function renderHint(hint: string, entry: TimerEntry, nowDate = new Date(), tz?: string): string {
-  let zoned: ZonedParts | undefined;
-  if (tz) {
-    try {
-      zoned = zonedParts(nowDate, tz);
-    } catch {
-      /* 非法 tz 降级本地 */
-    }
-  }
-  const hh = String(zoned?.h ?? nowDate.getHours()).padStart(2, '0');
-  const mm = String(zoned?.mi ?? nowDate.getMinutes()).padStart(2, '0');
-  const zhDate: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+  const zone = resolveTimezone(tz);
+  const zoned = zonedParts(nowDate, zone);
+  const hh = String(zoned.h).padStart(2, '0');
+  const mm = String(zoned.mi).padStart(2, '0');
+  const zhDate: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: zone };
   const zhNow: Intl.DateTimeFormatOptions = { ...zhDate, hour: '2-digit', minute: '2-digit' };
-  if (zoned) {
-    zhDate.timeZone = tz;
-    zhNow.timeZone = tz;
-  }
   return (hint || '')
     .replace(/\{\{now\}\}/g, nowDate.toLocaleString('zh-CN', zhNow))
     .replace(/\{\{time\}\}/g, `${hh}:${mm}`)
