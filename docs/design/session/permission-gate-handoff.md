@@ -40,7 +40,7 @@
 
 | # | 项 | 内容与落点 | 量级 | 状态
 |---|---|---|---|---|
-| ① | **官方工具行声明 risk（价值兑现位）** | 全仓 0 个官方工具声明 risk 函数（15 处命中全是测试桩）。主档 §五自认的「审批卡泛滥根治位」空置——write/edit/pwsh 可按参数分级（如 `risk: (args) => 工作区内 ? 'allow' : 'ask'`），可信工具自评 allow 直通。**这是行为变更（base 档 Agent 开始免问部分操作），粒度与范围需用户裁决** | 每工具几行 + 测试锚 | ☐ 未立项
+| ① | **官方工具行声明 risk（价值兑现位）** | 已落地（cr-1078，用户裁决 A 全套 + 测试构建纳入）。write/edit/str_replace_editor：朴素相对路径（`isPlainRelativePath`——无盘符/无 .. 段）→ allow，其余 ask；pwsh/bash：只读白名单 `isLowRiskCommand`（纯查看 + 只读 git + pnpm/npm test·typecheck·lint·build·check + npx eslint/tsc/vitest run——重定向/脚本块/$/反引号/heredoc 全禁 fail-closed）→ allow，其余 ask；web_search/browser 恒 allow（读类面）。判定纯函数住 ac-sandbox-core（机制归位），工具行只挂引用。submit_issue/run_harness 裁决不动，恒 ask。**安全依据：allow ≠ full-access——直通后沙箱轴照拦（D9），实权限比「批准→full-access」更窄**。行为变更感受者 = `__creator__`（base 档缺省 ask）——pwsh 跑 git status/测试、write 写沙箱内文件不再弹卡 | 每工具几行 + 测试锚 | ✅ cr-1078 已落地
 | ② | **人审 UI 认识 risk 词** | `StagingReviewModal.vue:157-162` 勾选警示只覆盖 ui/process/shell——risk 出现时用户只见裸词复选框，不知授予的是什么（「此插件 risk 自评将被采信，allow 直通」）。`ExtToolsPane.vue:105` 徽章兜底词表也是旧三词。是 ① 的用户面配套 | 两文件加 risk 分支 | ☐ 未立项
 | ③ | **装载守卫 e2e 锚** | 「安装成功 + boot 装载被守卫拦下」全链无集成测试（单测已覆盖判定函数，风险低）；补一条经 `assemblePluginRow` 的用例 | 1 用例 | ☐ 未立项
 | ④ | harnessTier 键宿主设不进 | 老 bug（同批 1 偏差 2 的病根）：垫片注册键宿主 set 面不认，approval 已用 BUILTIN_KEYS 先例绕开——harnessTier 是否照修待裁决 | 键迁移 | ☐ 待用户裁决
