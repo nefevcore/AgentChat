@@ -1,6 +1,6 @@
 {
- "scannedHead": "291d152893ec5940c81ae0a7c0482419eb491d0c",
- "generatedAt": "2026-11-13T13:43:56.048Z",
+ "scannedHead": "944e3d1055c1edfff7f1955a3c6b08c478aa4211",
+ "generatedAt": "2026-11-13T13:44:00.157Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4714,6 +4714,11 @@
     "sha": "0db61888f2d7eec67e401967282933061b3a2c5f",
     "date": "2026-11-13",
     "subject": "fix(webui): cr-1059 deliver 边界 pair 缺省归一对桶键——直答会话碎化收口：前端 Agent 页发送不带 conversationId，web-api 透传 undefined → UserStub 每次新签发 uuid（148 碎片/64 发一条即蒸发）；边界显式 pairKey(user, agentId) 对齐 ac-conversation 对桶缺省与前端历史读键，model 合并点同源化；断言锚更新（/-7/ 新签发 → alpha~user）+ e2e-host-web 防回归锚"
+   },
+   {
+    "sha": "944e3d1055c1edfff7f1955a3c6b08c478aa4211",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1060 投影同步（cr-git sync 重建——含 cr-1059 尾账与 cr-1060 双提交）"
    }
   ],
   "1060": [
@@ -4726,6 +4731,11 @@
     "sha": "c8648482062ba7d5f6bc34d6d0e122e36ac4c747",
     "date": "2026-11-13",
     "subject": "fix(webui): cr-1060 会话路由与停止面双 bug——①草稿派发判据误用全局 isPending（草稿跨切换保留是 cr-848/894 特性），切离草稿位后在别的会话发送被误派发成新会话：判据改哨兵位（props.single?.id === PENDING_SINGLE_ID，send/sendNow 两处，与 freshWsGate 同口径）②conversation/interrupt face-shell 丢弃 conversationId 致壳缺省全中止（同 Agent 其他在途会话被牵连停止）：optStr 窄化透传，键口径与 deliver 归一同源（pairKey/bucketKey sort+~ / 壳侧 gateKey 自算），缺席不携带向后兼容；顺手修 cr-1058 freshWsGate s!==null 漏 undefined 分支（vue-tsc 18048 挡门）；回归 = interrupt 透传断言 + 判据静态对拍"
+   },
+   {
+    "sha": "944e3d1055c1edfff7f1955a3c6b08c478aa4211",
+    "date": "2026-11-13",
+    "subject": "chore(cr): cr-1060 投影同步（cr-git sync 重建——含 cr-1059 尾账与 cr-1060 双提交）"
    }
   ]
  }

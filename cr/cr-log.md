@@ -1079,4 +1079,20 @@
 - 【cr-1058 2026-11-13 fresh 新会话未选工作区锁输入：点击输入框直开工作区下拉，选择（含未分组）即解锁】
 - 【cr-1059 2026-11-13 修复 web deliver 边界 pair 缺省不归一对桶键：UserStub 每次新签发 uuid 致直答会话碎化（154 碎片）——边界显式传 pairKey(user, agentId) 对齐 ac-conversation D3 语义】
 - 【cr-1060 2026-11-13 fix(webui): 会话路由与停止面双 bug——草稿派发判据误用全局 isPending 致切离草稿位后消息误发新会话；conversation/interrupt 未透传 conversationId 致同 Agent 全部在途 run 被中止】
+- 【cr-1061 2026-11-14 权限模型域深设计成文（permission-model）：三轴底座×两轴暴露×三层插拔架构 + 门行/判定器分批映射】
+- 【cr-1062 2026-11-14 permission-model 修订：接入协议收敛为 risk 单声明（process 纯函数建议+预设库）+ 信任面（origin+安装声明）+ 裁决 D10-D12】
+- 【cr-1063 2026-11-14 权限门行实施计划成文（permission-gate-plan）：批1 ac-permission-gate 全文件级切分 + 决策矩阵 + 两层验收】
+- 【cr-1064 2026-11-14 退役 permission-model.md 设计档（用户裁决：设计推演已沉淀入 permission-gate-plan.md，独立设计档无保留价值）——计划档补来源注记 + README 域行同步】
+- 【cr-1065 2026-11-14 重写 permission-gate-plan：废弃照搬的旧设计框架（政策轴/12格矩阵/severityMax），以讨论终点模型（risk 建议+信任面+设置链）为准从头组织】
+- 【cr-1066 2026-11-14 权限门行批1实施：ac-tools risk 契约 + ac-permission-gate 门行（决策序0-5/信任面/设置链/approval生产）+ 骨架装配】
+- 【cr-1067 2026-11-14 装配链：agent.patch v3 基线戳 ac-base 全链退役（cr-1022 菜单代数下承重语义已亡，漂移门拦断自我迭代闭环）】
+- 【cr-1068 2026-11-14 权限门批1交接文档（permission-gate-handoff——进度快照/关键事实/批2-3接力入口）】
+- 【cr-1069 2026-11-14 权限门补档位免审环（决策序4.5：sandbox/full 档 ask 建议免审——修复权限栏 access 轴被门架空的断裂）】
+- 【cr-1070 2026-11-14 回滚 cr-1069 的 4.5 档位免审环（用户裁决：档位×审批耦合是被替换的旧框架——免审正路是 risk 自评与设置链，非调用方档位；4.5 还会架空会话键 deny）+ 守护测试固化新语义】
+- 【cr-1071 2026-11-14 权限门批1补丁：run 缓存命中路径补 full-access 注入——与首次批准同权（scope=run 批准后本轮免问调用不再撞沙箱墙）】
+- 【cr-1072 2026-11-14 权限门批2（accessCapsOf）裁撤裁决——概念源出已删旧框架，代码零残留，access 轴执行边界职责已由 effectiveAccessOfCall 单源承担（cr-1070 档位不参与审批），无未满足需求】
+- 【cr-1073 2026-11-14 权限门批3前置侦察：信任面伪造向量定级】
+- 【cr-1074 2026-11-14 权限门批3：装载边界硬闸+fiber 名钉死+D11 第6词 risk 精确信任面】
+- 【cr-1075 2026-11-14 修 cr-1074 引入的 ac-shell-rows 包内循环依赖：plugin-guard 去掉 IMPORTED_ROWS 导入，改前缀规则】
+- 【cr-1076 2026-11-14 插件技能文本同步：permissions 词表增 risk（D11 信任位）+ manifest name 禁占官方命名空间（cr-1074/1075 跟随）】
 
