@@ -110,11 +110,12 @@ describe('PTC 门控面单源（isModeToolFace / widenToolsForGating——2026-0
     // requiresInteraction 终滤：self 会话（机制 run）裁剪
     const selfFace = widenToolsForGating(faceOf('prog~prog'), 'prog', 'prog~prog', ['run_code']);
     expect(selfFace).not.toContain('ask_questions');
-    // cr-1079 无人语义：agent~agent 与群会话同样无人——交互性工具同样裁剪
+    // cr-1079：交互轴只裁 self 桶——agent~agent / 群会话里用户可能在看着
+    // （ask_questions 可回答），不随权限门「无人桶」语义一同收紧
     const p2pFace = widenToolsForGating(faceOf('prog~peer'), 'prog', 'prog~peer', ['run_code']);
-    expect(p2pFace).not.toContain('ask_questions');
+    expect(p2pFace).toContain('ask_questions');
     const grpFace = widenToolsForGating(faceOf('g-abc~prog'), 'prog', 'g-abc~prog', ['run_code']);
-    expect(grpFace).not.toContain('ask_questions');
+    expect(grpFace).toContain('ask_questions');
     // 常规面：request.tools 原样返回（含 run_code 混排的并存形态）
     const normal = widenToolsForGating(faceOf('user~prog'), 'prog', 'user~prog', ['read', 'run_code']);
     expect(normal).toEqual(['read', 'run_code']);

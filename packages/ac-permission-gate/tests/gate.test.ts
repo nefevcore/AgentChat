@@ -76,7 +76,7 @@ async function boot(opts: BootOpts = {}) {
   }
   // 环境缺省 = 全局 onAsk 'ask'（等价旧行 config 缺省——既有弹卡路径测试
   // 零改）；「四层缺省 deny」类用例显式传 {} 排空
-  const store = opts.globalConfig ?? { 'permission-gate': { onAsk: 'ask' as const } };
+  const store = opts.globalConfig ?? { settings: { 'permission-gate': { onAsk: 'ask' as const } } };
   if (store !== null) {
     const f = ctx.plugin(ConfigStub);
     await f; fibers.push(f);
@@ -258,7 +258,7 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
   });
 
   it('全局 config 层：无会话键无 settings → config[permission-gate].onAsk（cr-1079 第三层）', async () => {
-    const { ctx } = await boot({ globalConfig: { 'permission-gate': { onAsk: 'deny' } } });
+    const { ctx } = await boot({ globalConfig: { settings: { 'permission-gate': { onAsk: 'deny' } } } });
     await reg(ctx, { name: 'asker3', risk: () => 'ask' });
     const r = await ctx.tools.execute({ name: 'asker3', args: {}, conversationId: 'user~x' });
     expect(r.ok).toBe(false);
@@ -328,6 +328,15 @@ describe('D7（cr-1079 修订）：无人桶 = 无人类参与（self/agent~agen
     expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
   });
 
+  it('news 现场：self 桶（news~news）+ Agent settings onAsk=allow → 放行（机制轮巡恢复）', async () => {
+    const { ctx } = await boot({ agentSettings: { 'permission-gate': { onAsk: 'allow' } } });
+    const probe = await reg(ctx, { name: 'news-patrol', risk: () => 'ask' });
+    const r = await ctx.tools.execute({ name: 'news-patrol', args: {}, conversationId: 'news~news', agentId: 'news' });
+    expect(r.ok).toBe(true); // cr-1079 修复目标：旧序此格恒拒
+    expect(probe.executed).toBe(1);
+    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0); // 无人桶不弹卡
+  });
+
   it('agent~agent 会话（非 self）→ 恒无人：无预授权拒，Agent settings allow 放行', async () => {
     const { ctx } = await boot({ agentSettings: { 'permission-gate': { onAsk: 'allow' } } });
     await reg(ctx, { name: 'p2p-ask', risk: () => 'ask' });
@@ -342,7 +351,7 @@ describe('D7（cr-1079 修订）：无人桶 = 无人类参与（self/agent~agen
   });
 
   it('群会话 g-<gid>~member → 恒无人：无预授权拒，全局 config allow 放行', async () => {
-    const { ctx } = await boot({ globalConfig: { 'permission-gate': { onAsk: 'allow' } } });
+    const { ctx } = await boot({ globalConfig: { settings: { 'permission-gate': { onAsk: 'allow' } } } });
     await reg(ctx, { name: 'grp-ask', risk: () => 'ask' });
     const r1v = await ctx.tools.execute({ name: 'grp-ask', args: {}, conversationId: 'g-abc~news' });
     expect(r1v.ok).toBe(true); // 全局预授权 → 放行

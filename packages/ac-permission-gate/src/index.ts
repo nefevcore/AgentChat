@@ -12,8 +12,8 @@
 //   2 建议 := def.risk?.(args) ?? (needPermission ? 'ask' : 'allow')
 //   3 建议 deny → 拒绝（工具自愿收紧，不可被设置放宽）
 //   4 建议 allow → 直通（可信工具已自审——信任的收益）
-//   5 建议 ask：s := 设置链（会话键 approval > settings['permission-gate'].onAsk
-//     > 全局 config['permission-gate'].onAsk > 缺省 'deny'）；s=allow 放行
+//   5 建议 ask：s := 设置链（会话键 approval > Agent settings['permission-gate']
+//     .onAsk > 全局 config settings['permission-gate'].onAsk > 缺省 'deny'）；s=allow 放行
 //     （含无人桶——运营者预授权，问不出的问题不问）/ s=deny 拒绝 / s=ask →
 //     无人桶（humanPresentOf === false：self/agent~agent/g~member——问人
 //     不可达）→ 拒（D7 fail-closed：仅压「要弹卡」这一格，预授权层照常
@@ -67,9 +67,9 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
 
   /**
    * 设置链合成（cr-1079 四层）：会话键 approval（convSettings——第一层）>
-   * Agent settings ['permission-gate'].onAsk（settingsOf 两层合成——第二层）
-   * > 全局 config['permission-gate'].onAsk（第三层）> 缺省 'deny'（第四层，
-   * fail-closed）。非法值回落下一层（回落方向——非 'allow'）。
+   * Agent settings ['permission-gate'].onAsk（settingsOf——第二层）>
+   * 全局 config settings['permission-gate'].onAsk（第三层）> 缺省 'deny'
+   * （第四层，fail-closed）。非法值回落下一层（回落方向——非 'allow'）。
    */
   function onAskOf(call: ToolCall): OnAsk {
     // 第一层：会话键（壳 = ConvSettingsShim 只读 get；宿主 = 服务 get）
@@ -91,11 +91,14 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
       const v = s.onAsk;
       if (v === 'allow' || v === 'ask' || v === 'deny') return v;
     }
-    // 第三层：全局 config（数据根 config.json['permission-gate'].onAsk）
+    // 第三层：全局层（config.json settings['permission-gate'].onAsk——与
+    // Agent 侧 agents/<id>/permission-gate.json 同键命名空间）。此处直读
+    // 而非依赖 settingsOf：壳侧 AgentsShim.settingsOf 只取 Agent 差异层
+    // （全局层传 undefined），全局设置必须门行自读才在两侧同效。
     const config = ctx.get('config', false) as
       | { get<T>(key: string, fallback?: T): T | undefined }
       | undefined;
-    const g = config?.get<unknown>('permission-gate.onAsk');
+    const g = config?.get<unknown>('settings.permission-gate.onAsk');
     if (g === 'allow' || g === 'ask' || g === 'deny') return g;
     return 'deny'; // 第四层：缺省恒拒（fail-closed）
   }

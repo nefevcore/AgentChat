@@ -28,7 +28,7 @@ import {
 
 /** 全局配置可写键白名单（主线 settings 面板词汇）：点路径首段命中即放行。
  *  其余键（app 内部键）由各域服务自行拥有，设置面板不可触。 */
-export const CONFIG_KEY_PREFIXES = new Set(['llm', 'llmProviders', 'searchProviders', 'timer', 'tool', 'ui', 'session', 'settings', 'permission-gate']);
+export const CONFIG_KEY_PREFIXES = new Set(['llm', 'llmProviders', 'searchProviders', 'timer', 'tool', 'ui', 'session', 'settings']);
 
 /** 掩码值（与主线 API_KEY_MASK 同款：回传即「已设置」，回写则不动） */
 export const API_KEY_MASK = '••••••••';

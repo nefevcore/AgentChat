@@ -191,8 +191,8 @@ export function conversationFormOf(
 }
 
 /**
- * conversationId → 是否有人类参与（cr-1079 无人语义单源——权限门 D7 与
- * 交互性裁剪共用）：恰两段且任一段为 'user'（a~user 对桶，两向同判）或
+ * conversationId → 是否有人类参与（cr-1079 权限门 D7 判定单源）：恰两段
+ * 且任一段为 'user'（a~user 对桶，两向同判）或
  * 无 '~' 的 singles sid = 有人；self（a~a 机制桶）、agent~agent（self 的
  * 一般化）、g-<gid>~member（群——成员全 Agent，无人）= 无人。
  * Agent id 禁 `~`（assertAgentId），词法判定构造性可靠。纯查询零会话状态。
@@ -208,8 +208,11 @@ export function humanPresentOf(conversationId: string | undefined): boolean {
  * 工具是否被会话交互性裁剪（requiresInteraction 命中判定——list_tools /
  * run_code 等复制点与 router 同口径的方便入口；router 先解析
  * include/exclude 再终滤，故本函数只做单工具判定）：
- * requiresInteraction && 无人会话（humanPresentOf——cr-1079 语义：等待
- * 用户应答的工具在无人类参与的 run 里永无回音）→ 裁剪。
+ * requiresInteraction && self 会话（机制 run）→ 裁剪（等待用户应答的
+ * 工具在机制 run 里永无回音）。
+ * 注意（cr-1079）：本轴**不**换用 humanPresentOf——群/agent~agent 会话里
+ * 用户可能在界面上看着（ask_questions 是可回答的），与权限门「无人桶
+ * 不弹审批卡」的理由（避免审核风暴）不同轴。两轴各用各的判定。
  */
 export function formDeniedBy(
   ctx: Pick<Context, 'get'>,
@@ -217,7 +220,7 @@ export function formDeniedBy(
   conversationId: string | undefined,
 ): boolean {
   if (def.requiresInteraction !== true) return false;
-  return !humanPresentOf(conversationId);
+  return conversationFormOf(ctx, conversationId) === 'self';
 }
 
 /** llmParams 透传白名单（防覆盖 model/messages/tools 等保留键） */

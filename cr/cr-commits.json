@@ -1,6 +1,6 @@
 {
- "scannedHead": "12ba47d5f27e034cf790222be9bc25b7567f3140",
- "generatedAt": "2026-11-14T08:57:41.552Z",
+ "scannedHead": "0270eb95ff2d8f40cad6a248d70fea4271655de0",
+ "generatedAt": "2026-11-14T11:31:44.917Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4826,6 +4826,37 @@
     "sha": "caa7653f9fb89115c2c3504dd6c4ff3108323342",
     "date": "2026-11-14",
     "subject": "feat(permission): cr-1061~1076 权限门全链——risk 契约/门行/装配/精确信任面"
+   }
+  ],
+  "1077": [
+   {
+    "sha": "142b0099f18a244a8f5baa770cab5248bcfe7414",
+    "date": "2026-11-14",
+    "subject": "docs(session): cr-1077 权限门交接文档收官重写——批1-3全景/关键事实/遗留项五项/接力入口"
+   }
+  ],
+  "1078": [
+   {
+    "sha": "59446e576177f5e8437d4db0dd45b7f8395dd52f",
+    "date": "2026-11-14",
+    "subject": "chore(cr): cr-1078 台账登记行"
+   },
+   {
+    "sha": "f0129e04737daec6401fed9efe0f3de613529dba",
+    "date": "2026-11-14",
+    "subject": "docs(session): cr-1078 交接档遗留项①回填（已落地）+ CR log"
+   },
+   {
+    "sha": "2de44f58df9ed50ff7ba4fdfb6d9fc696943c999",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1078 官方工具行 risk 分级（遗留项① A 全套）——sandbox-core 判定纯函数（isPlainRelativePath/isLowRiskCommand）+ fs/shell/sre/web 五工具挂 risk + 测试锚"
+   }
+  ],
+  "1079": [
+   {
+    "sha": "0270eb95ff2d8f40cad6a248d70fea4271655de0",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1079 无人语义重构（humanPresentOf 单源）+ 设置链四层（会话>Agent>全局config>缺省deny）——D7 判定还原到 s=ask 分支内，预授权在无人桶生效；行 config onAsk 退役"
    }
   ]
  }
