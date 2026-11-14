@@ -1,6 +1,6 @@
 {
- "scannedHead": "0270eb95ff2d8f40cad6a248d70fea4271655de0",
- "generatedAt": "2026-11-14T11:31:44.917Z",
+ "scannedHead": "2b8f8bd5b2fdbb0e16a9e967576e32057a618e5a",
+ "generatedAt": "2026-11-14T12:03:15.670Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4857,6 +4857,16 @@
     "sha": "0270eb95ff2d8f40cad6a248d70fea4271655de0",
     "date": "2026-11-14",
     "subject": "feat(permission): cr-1079 无人语义重构（humanPresentOf 单源）+ 设置链四层（会话>Agent>全局config>缺省deny）——D7 判定还原到 s=ask 分支内，预授权在无人桶生效；行 config onAsk 退役"
+   },
+   {
+    "sha": "2b8f8bd5b2fdbb0e16a9e967576e32057a618e5a",
+    "date": "2026-11-14",
+    "subject": "feat(permission): cr-1079 续记——会话键 approval 仅有人会话参与设置链（无人桶跳过第一层，防残值压 Agent 设置）"
+   },
+   {
+    "sha": "48eebb372ebd96797e62ce9e5fe43710f1c43b5b",
+    "date": "2026-11-14",
+    "subject": "fix(permission): cr-1079 收口——全局层收敛到 settings[permission-gate].onAsk（门行自读，壳侧 settingsOf 无全局层）、交互裁剪轴保持原语义（群/p2p 不随无人桶收紧）、补 news 现场用例"
    }
   ]
  }
