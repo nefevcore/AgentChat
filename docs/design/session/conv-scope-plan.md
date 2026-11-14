@@ -23,7 +23,7 @@
 | approval | allow/ask/deny | 权限门 onAskOf 第一层 | ☑ 已修（cr-1079 续记） | 有人会话唯一 |
 | toolMode | tc-* 开放词 | effectiveToolMode（ac-agents：override ?? toolModeOf） | 残值收窄机制 run 工具面 | 有人会话唯一 |
 | browserTier | observe/manipulate/inject/disabled | ac-web-tools 覆盖 tags；sessionCapsOf grants 注入 | 残值 disabled 可整体禁 browser | 有人会话唯一 |
-| access | base/sandbox/full | ac-conversation（user 消息写键 + event 继承读键） | user 信封不到无人桶——写面天然限有人；读面 event 继承在无人桶可达 | 门加在继承读（无人桶不继承） |
+| access | base/sandbox/full | ac-conversation（user 消息写键 + event 继承读键） | user 信封不到无人桶——写面天然限有人；读面 event 继承在无人桶可达 | **整体退役**（cr-1082：执行面本就两态、857 键全 full、full 真实身份是审批——收归权限门，见 access-retirement-plan.md） |
 | model | name@model / 裸名 | user-stub deliver 合并 → 信封透传 router；subagent convOf.model 继承 | deliver 合并在宿主 user 面无人桶天然缺席；subagent 继承读需门 | 门加在 subagent 继承读 |
 | issueSubmit | enabled/disabled | ac-issue-tools 前置拦截 | 残值 disabled 禁用无人桶 submit_issue | 有人会话唯一 |
 | harnessTier | enabled/disabled（扩展键，ac-harness-tools registerKey） | ac-harness-tools 前置拦截 | 同上 | 有人会话唯一 |

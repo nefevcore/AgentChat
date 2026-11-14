@@ -1100,4 +1100,5 @@
 - 【cr-1079 2026-11-14 权限门无人语义重构：有人判定单源 humanPresentOf（a~user/sid 有人，self/agent~agent/g~member 恒无人）+ 设置链四层（会话>Agent>全局 config>缺省 deny）——D7 判定还原到 s=ask 分支内，行 config onAsk 退役 --no-git】
 - 【cr-1080 2026-11-14 会话键限有人会话原则推广计划成文（conv-scope-plan）——全键清单/消费点分批/单源判定形态裁决】
 - 【cr-1081 2026-11-14 数据根兼容窗收口（cr-939 收尾）：conv-settings 1121/groups 2/workspaces.json 物理迁移至 meta/ 后删除全部旧位置 + timer 旧 state.json/viewer 空目录清理 + data-root-layers.md §四清单收口】
+- 【cr-1082 2026-11-14 access 轴整体退役计划成文（access-retirement-plan）——沙箱常量化 + full 统一为门裁决（设置链 allow 补 full 注入），三档词汇/键/信封继承/UI 选档全链退役】
 
