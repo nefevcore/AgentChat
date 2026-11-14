@@ -76,8 +76,10 @@ export interface ConvSettings {
    */
   issueSubmit?: 'enabled' | 'disabled';
   /**
-   * 权限门审批归宿（cr-1066）：ask 建议在设置链第一层的归宿——allow 放行 /
-   * ask 弹审批卡（缺省）/ deny 拒绝。无人桶（self）恒拒不受本键影响（D7）。
+   * 权限门审批归宿（cr-1066；cr-1079 语义修订）：ask 建议在设置链第一层的
+   * 归宿——allow 放行（含无人桶：运营者预授权）/ ask 弹审批卡（无人桶
+   * fail-closed 拒）/ deny 拒绝。下层链：Agent settings > 全局 config
+   * ['permission-gate'].onAsk > 缺省 deny。
    */
   approval?: 'allow' | 'ask' | 'deny';
   /** 生态扩展键（registerKey 注册的键以 string 值透出——索引签名尾巴） */

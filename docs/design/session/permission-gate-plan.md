@@ -39,7 +39,7 @@
 | kind 分类词、auto 档、verdict 机器 | 全部不存在（未来需要再立，YAGNI） |
 | 「base 档审批、sandbox+ 档自由」（access-tier × needPermission 耦合） | 已废（cr-1070 回滚 cr-1069 的 4.5 环）：档位不参与审批决策——免审正路是 risk 自评与设置链；档位轴只管执行边界（full 跳复检/扫描等） |
 
-保留有效的旧裁决（编号沿用）：D7（无人桶恒拒，even 设置 allow）、D9（门缺席=dontAsk 化，边界轴照拦）、needPermission 等价映射、approval 走 registerKey。
+保留有效的旧裁决（编号沿用）：D7（无人桶 fail-closed——cr-1079 修订：无人 = 无人类参与（humanPresentOf 单源），判定在设置链后、仅压 s=ask 弹卡格，预授权层 allow 照常生效）、D9（门缺席=dontAsk 化，边界轴照拦）、needPermission 等价映射、approval 走 registerKey。
 
 批 3 精确信任面已落地（cr-1074）：① KNOWN_PERMISSIONS 增第 6 词 `risk` 进 REVIEW_EXPLICIT_REQUIRED（D11 人审授予——risk 是信任位非执行边界，未授予不拒载只降为不可信）；② 装载边界硬闸 `plugin-guard.ts`（ac-shell-rows）——插件名冒充官方命名空间即拒载 + fiber 名钉死 manifest.name（cr-1073 定级：fiber 名 = 源码自选与 manifest 独立；cordis 无名 fiber 继承祖先名，不钉死则 owner 错挂装载行）。**命名空间规则单源在 ac-plugin-core**（`isReservedPluginName`：`ac-` / `shell-` 前缀 + `root`，cr-1075 订正）——安装期 `validatePluginManifest` 早失败 + 装载期守卫再拦一次（防 manifest 事后改写）；守卫同时校验 manifestName 与模块名（只查模块名会漏 `ac-evil` 这类 manifest 冒充）；③ 门行 trusted() 双臂：官方 fiber 名 ∪ riskGranted(owner) 回调（boot 装配注入 registry.json 授予快照，fail-soft 空集 = 全插件不可信）；④ 免审通道（installFromDir grants = manifest permissions 全集）自动含 risk——声明即授予，信任归位安装审。
 
@@ -52,10 +52,13 @@
 3  建议 = deny                              → 拒绝
 4  建议 = allow                             → 放行
 5  建议 = ask：
-   s := 设置链(会话键 approval > settings['permission-gate'].onAsk > 行 config onAsk 缺省 'ask')
-   s = allow → 放行；s = deny → 拒绝；s = ask →
-     无人桶（agents 行在场且 formOf === 'self'）→ 拒绝（fail-closed；D7：设置 allow 不豁免本格）
-     有人桶 → open approval {tool, args, need} → 批准(call/run) → 放行 / 拒绝·超时 → 拒绝
+   s := 设置链(会话键 approval > settings['permission-gate'].onAsk > 全局 config['permission-gate'].onAsk > 缺省 'deny')   // cr-1079 四层
+   s = allow → 放行（含无人桶——运营者预授权，问不出的问题不问）
+   s = deny → 拒绝
+   s = ask → 无人桶（humanPresentOf === false：self / agent~agent / g-<gid>~member
+              ——无人类参与，问人不可达）→ 拒绝（fail-closed；D7 cr-1079 修订）
+             有人桶（a~user / singles sid）→ open approval {tool, args, need}
+              → 批准(call/run) → 放行 / 拒绝·超时 → 拒绝
 ```
 
 特判：risk 函数 throw → 按建议 'ask'（fail-closed 方向）。run 级批准缓存（scope=run）：Map<runKey>，loop/before-run 清——批准一次，本轮后续 ask 建议全免；缓存命中与首批准同权注入 full-access（cr-1071：免问 ≠ 降权，同一授权的后续兑现）。

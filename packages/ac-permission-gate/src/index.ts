@@ -6,33 +6,32 @@
 //   def.risk?(args) → 建议 allow/ask/deny（throw 按 ask——fail-closed）；
 //   无 risk 声明 + needPermission:true ≡ risk:() => 'ask'（存量等价映射）；
 //   两者皆无 = 门视野外（零开销放行）。
-// 决策序（门行为规格）：
+// 决策序（门行为规格；cr-1079 语义修订）：
 //   0 无 needPermission 且无 risk          → 放行
 //   1 不可信（origin 简化版：注册方非 packages/ 官方行）→ 建议 := 'ask'（覆盖）
 //   2 建议 := def.risk?.(args) ?? (needPermission ? 'ask' : 'allow')
 //   3 建议 deny → 拒绝（工具自愿收紧，不可被设置放宽）
 //   4 建议 allow → 直通（可信工具已自审——信任的收益）
 //   5 建议 ask：s := 设置链（会话键 approval > settings['permission-gate'].onAsk
-//     > 行 config onAsk 缺省 'ask'）；s=allow 放行 / s=deny 拒绝 / s=ask →
-//     无人桶（conversationFormOf === 'self'）→ 拒（D7：fail-closed，设置
-//     allow 不豁免——判定先于设置链）；有人桶 → durableInteraction approval
-//     审批卡 → 批准（call/run）→ 变异 call.access='full-access' 放行 /
-//     拒绝·超时 → 拒。
+//     > 全局 config['permission-gate'].onAsk > 缺省 'deny'）；s=allow 放行
+//     （含无人桶——运营者预授权，问不出的问题不问）/ s=deny 拒绝 / s=ask →
+//     无人桶（humanPresentOf === false：self/agent~agent/g~member——问人
+//     不可达）→ 拒（D7 fail-closed：仅压「要弹卡」这一格，预授权层照常
+//     生效）；有人桶 → durableInteraction approval 审批卡 → 批准
+//     （call/run）→ 变异 call.access='full-access' 放行 / 拒绝·超时 → 拒。
 // run 级批准缓存：Map<runId>，loop/before-run 清（批准一次本轮 ask 全免）。
 // 门缺席 = dontAsk 化（D9：沙箱边界轴照拦——workdir/命令级扫描在工具内）。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
 import type { LoopRunCall, LoopRunResult } from 'ac-agent-loop';
 import type { ToolCall, ToolExecution, ToolResult } from 'ac-tools';
-import { conversationFormOf } from 'ac-agents';
+import { humanPresentOf } from 'ac-agents';
 import type { JsonValue, DurableInteraction } from 'ac-durable-interaction';
 import { approvalNeedText } from './notice.ts';
 
 export const name = 'ac-permission-gate';
 
 export interface PermissionGateRowOptions {
-  /** 行 config onAsk 缺省（设置链第三层；缺省 'ask'） */
-  onAsk?: 'allow' | 'ask' | 'deny';
   /**
    * 插件 risk 授予查询（cr-1074 批3 D11 精确信任面）：fiber 名 → 该插件
    * 的 permissions 授予快照是否含 'risk'。缺席 = 查无（fail-closed——
@@ -51,7 +50,6 @@ type OnAsk = 'allow' | 'ask' | 'deny';
 interface ApprovalAnswer { approved?: boolean; scope?: unknown }
 
 export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
-  const configDefault: OnAsk = options.onAsk ?? 'ask';
   // run 级批准缓存：runId → true（scope=run 的批准面；before-run 清）
   const runApproved = new Set<string>();
 
@@ -68,9 +66,10 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
   }
 
   /**
-   * 设置链合成：会话键 approval（convSettings——第一层）> Agent settings
-   * ['permission-gate'].onAsk（settingsOf 两层合成——第二层）> 行 config
-   * 缺省（第三层）。非法值回落下一层（fail-closed 方向——非 'allow')。
+   * 设置链合成（cr-1079 四层）：会话键 approval（convSettings——第一层）>
+   * Agent settings ['permission-gate'].onAsk（settingsOf 两层合成——第二层）
+   * > 全局 config['permission-gate'].onAsk（第三层）> 缺省 'deny'（第四层，
+   * fail-closed）。非法值回落下一层（回落方向——非 'allow'）。
    */
   function onAskOf(call: ToolCall): OnAsk {
     // 第一层：会话键（壳 = ConvSettingsShim 只读 get；宿主 = 服务 get）
@@ -92,7 +91,13 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
       const v = s.onAsk;
       if (v === 'allow' || v === 'ask' || v === 'deny') return v;
     }
-    return configDefault;
+    // 第三层：全局 config（数据根 config.json['permission-gate'].onAsk）
+    const config = ctx.get('config', false) as
+      | { get<T>(key: string, fallback?: T): T | undefined }
+      | undefined;
+    const g = config?.get<unknown>('permission-gate.onAsk');
+    if (g === 'allow' || g === 'ask' || g === 'deny') return g;
+    return 'deny'; // 第四层：缺省恒拒（fail-closed）
   }
 
   /**
@@ -168,16 +173,17 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
       return veto(execution, `工具 ${call.name} 自评风险 deny（自愿收紧）——权限门拒绝（设置不可放宽）。`);
     }
     if (advice === 'allow') return next();
-    // 决策序 5：ask → 先 D7 无人桶（fail-closed，设置 allow 不豁免——判定
-    // 先于设置链，勿回潮「设置链内判 self」）
-    if (conversationFormOf(ctx, call.conversationId) === 'self') {
-      return veto(execution, `工具 ${call.name} 需要审批，但本会话为无人值守（self）——问人不可达，fail-closed 拒绝（会话键 allow 不豁免本格）。`);
-    }
-    // 设置链
+    // 决策序 5：ask → 设置链先行（预授权在无人桶同样生效——问不出的
+    // 问题不问，cr-1079 D7 修订：无人桶只压「要弹卡」这一格）
     const s = onAskOf(call);
     if (s === 'allow') return next();
     if (s === 'deny') {
-      return veto(execution, `工具 ${call.name} 的审批请求已被设置拒绝（approval=deny——会话键/Agent 设置/行 config 任一层）。`);
+      return veto(execution, `工具 ${call.name} 的审批请求已被设置拒绝（approval=deny——会话键/Agent 设置/全局 config 任一层或缺省）。`);
+    }
+    // s = ask 且无人桶（humanPresentOf：self/agent~agent/g~member——问人
+    // 不可达）→ fail-closed 拒（判定在设置链后——预授权层 allow 已放行）
+    if (!humanPresentOf(call.conversationId)) {
+      return veto(execution, `工具 ${call.name} 需要审批，但本会话无人类参与（机制/Agent 间/群会话）——问人不可达且未预授权（会话键/Agent 设置/全局 config 任一层设 allow 可解锁），fail-closed 拒绝。`);
     }
     // s = ask：run 级缓存 → 审批卡
     // 缓存命中 = 本 run 已获人批准——与首批准同权注入 full-access（否则

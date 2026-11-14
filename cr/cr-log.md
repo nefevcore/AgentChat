@@ -1097,4 +1097,5 @@
 - 【cr-1076 2026-11-14 插件技能文本同步：permissions 词表增 risk（D11 信任位）+ manifest name 禁占官方命名空间（cr-1074/1075 跟随）】
 - 【cr-1077 2026-11-14 权限门批1-3收官交接文档重写（permission-gate-handoff v2：遗留项清单/已批收口/接力入口）】
 - 【cr-1078 2026-11-14 权限门遗留项①：官方工具行 risk 分级（A 全套裁决——write/edit/sre 沙箱内相对路径 allow；pwsh/bash 只读+测试构建白名单 allow；web_search/browser 恒 allow；submit_issue/run_harness 不动恒 ask）】
+- 【cr-1079 2026-11-14 权限门无人语义重构：有人判定单源 humanPresentOf（a~user/sid 有人，self/agent~agent/g~member 恒无人）+ 设置链四层（会话>Agent>全局 config>缺省 deny）——D7 判定还原到 s=ask 分支内，行 config onAsk 退役 --no-git】
 

@@ -32,11 +32,23 @@ class AgentsStub extends Service {
   }
 }
 
+/** config 桩（全局层——测第三层；cr-1079 四层链） */
+class ConfigStub extends Service {
+  store: Record<string, unknown> = {};
+  constructor(ctx: Context) { super(ctx, 'config'); }
+  get<T>(key: string, fallback?: T): T | undefined {
+    const v = key.split('.').reduce<unknown>((acc, part) =>
+      acc !== null && typeof acc === 'object' ? (acc as Record<string, unknown>)[part] : undefined, this.store);
+    return (v === undefined ? fallback : v) as T | undefined;
+  }
+}
+
 interface BootOpts {
-  gateConfig?: { onAsk?: 'allow' | 'ask' | 'deny'; riskGranted?: (owner: string) => boolean };
+  gateConfig?: { riskGranted?: (owner: string) => boolean };
   convSettings?: Record<string, Record<string, string>>;
   agentSettings?: Record<string, Record<string, unknown>>;
   tiers?: Record<string, string>;
+  globalConfig?: Record<string, unknown>;
 }
 
 async function boot(opts: BootOpts = {}) {
@@ -61,6 +73,14 @@ async function boot(opts: BootOpts = {}) {
       await f; fibers.push(f);
     }
     ((ctx as any).agents as AgentsStub).tiers = opts.tiers;
+  }
+  // 环境缺省 = 全局 onAsk 'ask'（等价旧行 config 缺省——既有弹卡路径测试
+  // 零改）；「四层缺省 deny」类用例显式传 {} 排空
+  const store = opts.globalConfig ?? { 'permission-gate': { onAsk: 'ask' as const } };
+  if (store !== null) {
+    const f = ctx.plugin(ConfigStub);
+    await f; fibers.push(f);
+    ((ctx as any).config as ConfigStub).store = store;
   }
   const g = ctx.plugin(gateRow as any, opts.gateConfig); await g; fibers.push(g);
   booted.push({ ctx, fibers });
@@ -96,9 +116,11 @@ async function reg(ctx: Context, def: { name: string; needPermission?: boolean; 
   return { get executed() { return executed; } };
 }
 
-/** 执行（自动应答首张 approval 卡）——返回 {result, executed} */
+/** 执行（自动应答首张 approval 卡）——返回 {result, executed}。
+ *  缺省 conversationId 'user~probe'：弹卡流程用例需有人桶（cr-1079 无人
+ *  语义下裸调用 = 无人桶走 fail-closed，测不到审批卡面）。 */
 async function runWithReply(ctx: Context, call: { name: string; args?: Record<string, unknown>; conversationId?: string; agentId?: string; runId?: string }, answer: unknown = { approved: true, scope: 'call' }) {
-  const p = ctx.tools.execute(call);
+  const p = ctx.tools.execute({ ...call, conversationId: call.conversationId ?? 'user~probe' });
   // 等审批卡出现
   for (let i = 0; i < 100; i++) {
     const open = ctx.durableInteraction.listOpen({ kind: 'approval' });
@@ -235,11 +257,19 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('行 config 缺省层：无会话键无 settings → config onAsk', async () => {
-    const { ctx } = await boot({ gateConfig: { onAsk: 'deny' } });
+  it('全局 config 层：无会话键无 settings → config[permission-gate].onAsk（cr-1079 第三层）', async () => {
+    const { ctx } = await boot({ globalConfig: { 'permission-gate': { onAsk: 'deny' } } });
     await reg(ctx, { name: 'asker3', risk: () => 'ask' });
     const r = await ctx.tools.execute({ name: 'asker3', args: {}, conversationId: 'user~x' });
     expect(r.ok).toBe(false);
+  });
+
+  it('四层缺省：全无设置 → deny（cr-1079 fail-closed 缺省）', async () => {
+    const { ctx } = await boot({ globalConfig: {} });
+    await reg(ctx, { name: 'asker4', risk: () => 'ask' });
+    const r = await ctx.tools.execute({ name: 'asker4', args: {}, conversationId: 'user~x' });
+    expect(r.ok).toBe(false);
+    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0); // 缺省 deny 不弹卡
   });
 
   it('拒绝 → 拒绝执行；拒绝 answer 形状 false', async () => {
@@ -255,7 +285,7 @@ describe('守护（cr-1070）：档位不参与审批决策——免审正路是
   it('sandbox 档 Agent 的 ask 建议仍走设置链（旧「sandbox+ 档自由」语义已废）', async () => {
     const { ctx } = await boot({ tiers: { alice: 'sandbox-access' } });
     const probe = await reg(ctx, { name: 'tiered-tool', needPermission: true });
-    const r = await runWithReply(ctx, { name: 'tiered-tool', args: {}, conversationId: 'u~a', agentId: 'alice' });
+    const r = await runWithReply(ctx, { name: 'tiered-tool', args: {}, conversationId: 'user~a', agentId: 'alice' });
     expect(r.ok).toBe(true);
     expect(probe.executed).toBe(1);
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1); // 弹卡了
@@ -264,29 +294,70 @@ describe('守护（cr-1070）：档位不参与审批决策——免审正路是
   it('full 档 Agent 的 ask 建议同样走设置链（弹卡）', async () => {
     const { ctx } = await boot({ tiers: { alice: 'full-access' } });
     await reg(ctx, { name: 'full-tool', needPermission: true });
-    const r = await runWithReply(ctx, { name: 'full-tool', args: {}, conversationId: 'u~a', agentId: 'alice' });
+    const r = await runWithReply(ctx, { name: 'full-tool', args: {}, conversationId: 'user~a', agentId: 'alice' });
     expect(r.ok).toBe(true);
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1);
   });
 
   it('会话键 deny 对任意档位生效（设置链优先于一切档位语义）', async () => {
-    const { ctx } = await boot({ tiers: { alice: 'full-access' }, convSettings: { 'u~a': { approval: 'deny' } } });
+    const { ctx } = await boot({ tiers: { alice: 'full-access' }, convSettings: { 'user~a': { approval: 'deny' } } });
     const probe = await reg(ctx, { name: 'full-deny-key', needPermission: true });
-    const r = await ctx.tools.execute({ name: 'full-deny-key', args: {}, conversationId: 'u~a', agentId: 'alice' });
+    const r = await ctx.tools.execute({ name: 'full-deny-key', args: {}, conversationId: 'user~a', agentId: 'alice' });
     expect(r.ok).toBe(false);
     expect(probe.executed).toBe(0);
     expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
   });
 });
 
-describe('D7：无人桶恒拒（even 设置 allow）', () => {
-  it('self 会话 ask 建议 → 拒（fail-closed），会话键 allow 也不豁免', async () => {
-    const { ctx } = await boot({ convSettings: { 'alice~alice': { approval: 'allow' } } });
+describe('D7（cr-1079 修订）：无人桶 = 无人类参与（self/agent~agent/g~member）——预授权放行、缺省拒', () => {
+  it('self 会话无预授权 ask 建议 → 拒（fail-closed，缺省链尾 deny）', async () => {
+    const { ctx } = await boot();
     const probe = await await reg(ctx, { name: 'selftool', risk: () => 'ask' });
     const r = await ctx.tools.execute({ name: 'selftool', args: {}, conversationId: 'alice~alice' });
     expect(r.ok).toBe(false);
     expect(probe.executed).toBe(0);
     expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
+  });
+
+  it('self 会话 + 会话键 allow 预授权 → 放行（cr-1079：预授权在无人桶生效）', async () => {
+    const { ctx } = await boot({ convSettings: { 'alice~alice': { approval: 'allow' } } });
+    const probe = await await reg(ctx, { name: 'selftool2', risk: () => 'ask' });
+    const r = await ctx.tools.execute({ name: 'selftool2', args: {}, conversationId: 'alice~alice' });
+    expect(r.ok).toBe(true);
+    expect(probe.executed).toBe(1);
+    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
+  });
+
+  it('agent~agent 会话（非 self）→ 恒无人：无预授权拒，Agent settings allow 放行', async () => {
+    const { ctx } = await boot({ agentSettings: { 'permission-gate': { onAsk: 'allow' } } });
+    await reg(ctx, { name: 'p2p-ask', risk: () => 'ask' });
+    const r1v = await ctx.tools.execute({ name: 'p2p-ask', args: {}, conversationId: 'alice~bob' });
+    // Agent settings allow = 预授权 → 放行（不弹卡）
+    expect(r1v.ok).toBe(true);
+    const { ctx: ctx2 } = await boot();
+    await reg(ctx2, { name: 'p2p-ask', risk: () => 'ask' });
+    const r2v = await ctx2.tools.execute({ name: 'p2p-ask', args: {}, conversationId: 'alice~bob' });
+    expect(r2v.ok).toBe(false); // 无预授权 → 无人桶 fail-closed
+    expect(ctx2.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
+  });
+
+  it('群会话 g-<gid>~member → 恒无人：无预授权拒，全局 config allow 放行', async () => {
+    const { ctx } = await boot({ globalConfig: { 'permission-gate': { onAsk: 'allow' } } });
+    await reg(ctx, { name: 'grp-ask', risk: () => 'ask' });
+    const r1v = await ctx.tools.execute({ name: 'grp-ask', args: {}, conversationId: 'g-abc~news' });
+    expect(r1v.ok).toBe(true); // 全局预授权 → 放行
+    const { ctx: ctx2 } = await boot();
+    await reg(ctx2, { name: 'grp-ask', risk: () => 'ask' });
+    const r2v = await ctx2.tools.execute({ name: 'grp-ask', args: {}, conversationId: 'g-abc~news' });
+    expect(r2v.ok).toBe(false); // 缺省 deny → 拒
+  });
+
+  it('有人桶（user~agent）缺省 ask 仍弹卡（cr-1079 不改有人桶语义）', async () => {
+    const { ctx } = await boot();
+    await reg(ctx, { name: 'human-ask', risk: () => 'ask' });
+    const r = await runWithReply(ctx, { name: 'human-ask', args: {}, conversationId: 'alice~user' });
+    expect(r.ok).toBe(true);
+    expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1);
   });
 });
 
@@ -294,16 +365,16 @@ describe('run 级批准缓存（V2）', () => {
   it('scope=run 批准后本轮第二次 ask 免问；before-run 后失效', async () => {
     const { ctx } = await boot();
     await reg(ctx, { name: 'twice', risk: () => 'ask' });
-    const r1 = await runWithReply(ctx, { name: 'twice', args: {}, conversationId: 'u~a', runId: 'run-1' }, { approved: true, scope: 'run' });
+    const r1 = await runWithReply(ctx, { name: 'twice', args: {}, conversationId: 'user~a', runId: 'run-1' }, { approved: true, scope: 'run' });
     expect(r1.ok).toBe(true);
     // 第二次：同 run——免问直过
-    const r2 = await ctx.tools.execute({ name: 'twice', args: {}, conversationId: 'u~a', runId: 'run-1' });
+    const r2 = await ctx.tools.execute({ name: 'twice', args: {}, conversationId: 'user~a', runId: 'run-1' });
     expect(r2.ok).toBe(true);
     // before-run 清缓存：模拟新 run
     let afterRun: (() => Promise<unknown>) | null = null;
     ctx.on('loop/before-run', (c, n) => { afterRun = n; return n(); }, { description: 'test' });
     await (ctx as any).waterfall('loop/before-run', {}, async () => ({}));
-    const r3 = await runWithReply(ctx, { name: 'twice', args: {}, conversationId: 'u~a', runId: 'run-2' }, { approved: true, scope: 'run' });
+    const r3 = await runWithReply(ctx, { name: 'twice', args: {}, conversationId: 'user~a', runId: 'run-2' }, { approved: true, scope: 'run' });
     expect(r3.ok).toBe(true);
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(2); // 两张卡（run-1 + run-2）
   });
@@ -311,9 +382,9 @@ describe('run 级批准缓存（V2）', () => {
   it('scope=call 批准仅本次——第二次同 run 仍问', async () => {
     const { ctx } = await boot();
     await reg(ctx, { name: 'callscope', risk: () => 'ask' });
-    const r1 = await runWithReply(ctx, { name: 'callscope', args: {}, conversationId: 'u~a', runId: 'run-1' }, { approved: true, scope: 'call' });
+    const r1 = await runWithReply(ctx, { name: 'callscope', args: {}, conversationId: 'user~a', runId: 'run-1' }, { approved: true, scope: 'call' });
     expect(r1.ok).toBe(true);
-    const r2 = await runWithReply(ctx, { name: 'callscope', args: {}, conversationId: 'u~a', runId: 'run-1' }, { approved: true, scope: 'call' });
+    const r2 = await runWithReply(ctx, { name: 'callscope', args: {}, conversationId: 'user~a', runId: 'run-1' }, { approved: true, scope: 'call' });
     expect(r2.ok).toBe(true);
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(2);
   });
@@ -330,10 +401,10 @@ describe('run 级批准缓存（V2）', () => {
     } });
     await f;
     booted.at(-1)!.fibers.push(f);
-    const r1 = await runWithReply(ctx, { name: 'runscope-probe', args: {}, conversationId: 'u~a', runId: 'run-1' }, { approved: true, scope: 'run' });
+    const r1 = await runWithReply(ctx, { name: 'runscope-probe', args: {}, conversationId: 'user~a', runId: 'run-1' }, { approved: true, scope: 'run' });
     expect(r1.ok).toBe(true);
     // 第二次同 run：免问直过（无新卡）且同权注入 full-access
-    const r2 = await ctx.tools.execute({ name: 'runscope-probe', args: {}, conversationId: 'u~a', runId: 'run-1' });
+    const r2 = await ctx.tools.execute({ name: 'runscope-probe', args: {}, conversationId: 'user~a', runId: 'run-1' });
     expect(r2.ok).toBe(true);
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1);
     expect(accesses).toEqual(['full-access', 'full-access']);

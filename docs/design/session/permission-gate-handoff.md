@@ -29,7 +29,7 @@
 1. **两条硬红线（勿回潮）**：
    - **档位不参与审批**（cr-1070 用户裁决）：cr-1069 曾按旧「sandbox+ 档自由」语义补 4.5 档位免审环，被回滚并以守护测试固化。access 轴只管执行边界（full 跳复检/扫描），approval 轴管 ask 归宿——正交。
    - **旧框架已死**（cr-1065）：独立政策轴 / 12 格矩阵 / severityMax / kind / verdict 机器全部不存在。设计问题先回溯 cr-1061/1062/1065 轨迹，勿重新发明。
-2. **三处实施偏差（与主档初稿不同，已是正确形态）**：approval 会话键走 conv-settings BUILTIN_KEYS 而非门行 registerKey（垫片注册键宿主 set 面不认——读写链静默断，harnessTier 正受害于此）；D7 无人桶判定**先于**设置链（「设置 allow 不豁免」字面义）；批准/缓存命中都变异 `call.access = 'full-access'`（否则 base 档过门后撞工具内沙箱墙）。
+2. **三处实施偏差（cr-1079 修订第二处）**：approval 会话键走 conv-settings BUILTIN_KEYS 而非门行 registerKey（垫片注册键宿主 set 面不认——读写链静默断，harnessTier 正受害于此）；~~D7 无人桶判定先于设置链~~ **cr-1079 已还原为设置链后**（无人语义 = humanPresentOf 无人类参与，非 self 词法——预授权层 allow 在无人桶生效，缺省链尾 deny）；批准/缓存命中都变异 `call.access = 'full-access'`（否则 base 档过门后撞工具内沙箱墙）。
 3. **fiber 名的完整事实**（cr-1073 定级）：cordis fiber 名 = 插件源码自选字段（`Plugin.Base.name`——「display name」语义，可省略无校验），与 manifest.name 相互独立；无名 fiber 继承最近命名祖先。因此批 1 的「ac- 前缀即可信」有伪造向量，批 3 的解法是**钉死 + 双检 + grants 查询**三件套，不是单点封禁。
 4. **risk 是信任位不是执行边界**：故意不进 EXECUTION_EXPLICIT_REQUIRED——未授予 risk 的插件照常装载运行，只是其 risk 自评被覆盖为恒 ask（每次过审还能用）。这与 D11「不可信还能用」语义一致，勿改成装载拒绝。
 5. **门行对 ac-plugin-core 零依赖**：grants 查询经 `riskGranted` 回调注入（机制归位——编排层 boot 读快照，域行收回调）。改授予数据结构时只动 boot 的 `makeRiskGranted`。

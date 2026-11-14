@@ -4,7 +4,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as agentsRow from '../src/index.ts';
-import { resolveToolNames, filterLlmParams, effectiveToolMode, discoverTools, narrowToolsByMode, isModeToolFace, widenToolsForGating } from '../src/index.ts';
+import { resolveToolNames, filterLlmParams, effectiveToolMode, discoverTools, narrowToolsByMode, isModeToolFace, widenToolsForGating, humanPresentOf } from '../src/index.ts';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 
@@ -110,9 +110,28 @@ describe('PTC 门控面单源（isModeToolFace / widenToolsForGating——2026-0
     // requiresInteraction 终滤：self 会话（机制 run）裁剪
     const selfFace = widenToolsForGating(faceOf('prog~prog'), 'prog', 'prog~prog', ['run_code']);
     expect(selfFace).not.toContain('ask_questions');
+    // cr-1079 无人语义：agent~agent 与群会话同样无人——交互性工具同样裁剪
+    const p2pFace = widenToolsForGating(faceOf('prog~peer'), 'prog', 'prog~peer', ['run_code']);
+    expect(p2pFace).not.toContain('ask_questions');
+    const grpFace = widenToolsForGating(faceOf('g-abc~prog'), 'prog', 'g-abc~prog', ['run_code']);
+    expect(grpFace).not.toContain('ask_questions');
     // 常规面：request.tools 原样返回（含 run_code 混排的并存形态）
     const normal = widenToolsForGating(faceOf('user~prog'), 'prog', 'user~prog', ['read', 'run_code']);
     expect(normal).toEqual(['read', 'run_code']);
+  });
+});
+
+describe('humanPresentOf（cr-1079 无人语义单源——纯词法，零 ctx 状态）', () => {
+  it('有人：a~user 对桶（两向）与 singles sid', () => {
+    expect(humanPresentOf('news~user')).toBe(true);
+    expect(humanPresentOf('user~news')).toBe(true);
+    expect(humanPresentOf('018f-uuid-sid')).toBe(true); // singles：无 ~ 即用户独立会话
+  });
+  it('无人：self / agent~agent / 群成员桶 / undefined', () => {
+    expect(humanPresentOf('news~news')).toBe(false);
+    expect(humanPresentOf('designer~news')).toBe(false);
+    expect(humanPresentOf('g-mthfaf3e~news')).toBe(false);
+    expect(humanPresentOf(undefined)).toBe(false);
   });
 });
 

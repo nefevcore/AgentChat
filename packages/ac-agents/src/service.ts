@@ -177,7 +177,9 @@ export type ConversationForm = 'self';
 /**
  * conversationId → 会话形态（交互轴单源，2026-02-00 'self'）：对角线对桶
  * （恰两段且相等——Agent id 禁 `~`（assertAgentId），词法判定构造性
- * 可靠）= 'self'；其余 = null（有用户参与的会话）。纯查询零会话状态。
+ * 可靠）= 'self'；其余 = null。纯查询零会话状态。
+ * （cr-1079 注意：'self' 只表「机制自会话桶」，不再等价「无人」——人类
+ * 参与判定单源已移至 humanPresentOf。）
  */
 export function conversationFormOf(
   ctx: Pick<Context, 'get'>,
@@ -189,11 +191,25 @@ export function conversationFormOf(
 }
 
 /**
+ * conversationId → 是否有人类参与（cr-1079 无人语义单源——权限门 D7 与
+ * 交互性裁剪共用）：恰两段且任一段为 'user'（a~user 对桶，两向同判）或
+ * 无 '~' 的 singles sid = 有人；self（a~a 机制桶）、agent~agent（self 的
+ * 一般化）、g-<gid>~member（群——成员全 Agent，无人）= 无人。
+ * Agent id 禁 `~`（assertAgentId），词法判定构造性可靠。纯查询零会话状态。
+ */
+export function humanPresentOf(conversationId: string | undefined): boolean {
+  if (!conversationId) return false;
+  const parts = conversationId.split('~');
+  if (parts.length === 1) return true; // singles sid：用户独立会话
+  return parts.length === 2 && (parts[0] === 'user' || parts[1] === 'user');
+}
+
+/**
  * 工具是否被会话交互性裁剪（requiresInteraction 命中判定——list_tools /
  * run_code 等复制点与 router 同口径的方便入口；router 先解析
  * include/exclude 再终滤，故本函数只做单工具判定）：
- * requiresInteraction && self 会话（无人值守）→ 裁剪（等待用户应答的
- * 工具在机制 run 里永无回音）。
+ * requiresInteraction && 无人会话（humanPresentOf——cr-1079 语义：等待
+ * 用户应答的工具在无人类参与的 run 里永无回音）→ 裁剪。
  */
 export function formDeniedBy(
   ctx: Pick<Context, 'get'>,
@@ -201,7 +217,7 @@ export function formDeniedBy(
   conversationId: string | undefined,
 ): boolean {
   if (def.requiresInteraction !== true) return false;
-  return conversationFormOf(ctx, conversationId) === 'self';
+  return !humanPresentOf(conversationId);
 }
 
 /** llmParams 透传白名单（防覆盖 model/messages/tools 等保留键） */
