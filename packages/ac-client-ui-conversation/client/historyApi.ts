@@ -48,6 +48,8 @@ export interface PSessionRecord {
   runMs?: number;
   /** 行级单调序号（B1 行级 seq 持久化——writer 跨实例续接后单调；存量行缺席） */
   seq?: number;
+  /** 注入体字节数（cr-1109 渲染契约:foldViewRecords 投影派生 content.length——与直播帧 bytes 定义恒等;存量行/发言行缺席） */
+  bytes?: number;
   /** 注入结构化载荷（cr-765 #4 问答卡：context 注入行专用——Q/A 数据面；
    *  旧行缺席 → UI 回落纯文本正文） */
   payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' };
@@ -247,24 +249,25 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       continue;
     }
     // 词汇 v2：context 行（source:event 机制行 / source:skill 技能注入）与
-    // 存量 event 行同渲染位（分隔符）；注入型行（source:skill 等，UI 决策词
-    // 非 event/error）另行卡片化（2026-09-26 注入卡——原 label 条二期裁决落地）：
-    // 注入体原文（r.content，<system-reminder>…）随行透传 contextContent，
-    // 卡片展开体渲染之（展示期正文不再丢弃）；label 缺席按正文头行回落。
-    // cr-890：会话设置变更通知行（cr-889，source:event + label + content 双在场
-    // ——机制行恒无 label，content 即文案）同样卡片化——十类注入正文此前被
-    // 分隔符通道丢弃（只透传 label「会话设置变更」五字）。
-    const isInjectionRow = (r.source !== undefined && r.source !== 'event' && r.source !== 'error')
-      || (r.source === 'event' && r.label !== undefined && r.label !== '' && r.content.trim() !== '');
+    // cr-1109 渲染契约(方案 A):透传按数据面在场(payload/bytes/label+正文),
+    // 通道判定收敛 feed 单点(注册声明 > 兜底启发式);裸 event(无数据面)
+    // 维持分隔符。注入体原文随行透传 contextContent(卡片展开体渲染)。
+    // cr-1109 渲染契约(方案 A):透传判据从「按词黑名单」改「数据面在场」
+    // (payload / bytes 投影派生 / label+正文双在场)——通道判定收敛 feed 单点
+    // (注册声明 > 兜底启发式);裸 event(无数据面)维持分隔符,parity 不变。
+    const hasDataPlane = r.payload !== undefined || typeof r.bytes === 'number'
+      || (r.label !== undefined && r.label !== '' && r.content.trim() !== '');
     out.push({
       role: 'event',
       content: r.label ?? r.content,
       agent_id: r.agent_id ?? r.name ?? 'system',
       message_id: r.message_id,
       timestamp: r.timestamp,
-      ...(isInjectionRow ? { contextContent: r.content } : {}),
-      ...(isInjectionRow && r.payload !== undefined ? { payload: r.payload } : {}),
-      ...(r.source !== undefined ? { source: { summary: r.label ?? '', legacyRole: undefined, ...(typeof r.source === 'string' ? { kind: r.source } : {}) } as never } : {}),
+      ...(hasDataPlane ? { contextContent: r.content } : {}),
+      ...(hasDataPlane && r.payload !== undefined ? { payload: r.payload } : {}),
+      ...(typeof r.bytes === 'number' ? { injectBytes: r.bytes } : {}),
+      // cr-1112:kind 开放 string 后 as never 宽化退役——存储 source 决策词原样透传
+      ...(r.source !== undefined ? { source: { summary: r.label ?? '', ...(typeof r.source === 'string' ? { kind: r.source } : {}) } } : {}),
     });
     // B1 行级 seq 透传：本记录展开的全部行统一打标（展开前记录了 seqStart）
     if (r.seq !== undefined) {

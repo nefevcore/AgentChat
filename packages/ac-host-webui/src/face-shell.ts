@@ -441,6 +441,7 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
             source: typeof r.injectSource === 'string' && r.injectSource !== '' ? r.injectSource : 'inject',
             ...(r.label !== undefined ? { label: r.label } : {}),
             ...(r.payload !== undefined ? { payload: r.payload } : {}),
+            bytes: r.content.length, // cr-1110:bytes 派生——与主投影 foldViewRecords 对齐
             message_id: r.message_id,
             timestamp: r.timestamp,
             ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}),
@@ -457,6 +458,7 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
             source: r.source,
             label: r.label ?? r.source, // label 缺席回落 source 词
             ...(r.payload !== undefined ? { payload: r.payload } : {}),
+            bytes: r.content.length, // cr-1110:bytes 派生——与主投影对齐
             message_id: r.message_id,
             timestamp: r.timestamp,
             ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}),

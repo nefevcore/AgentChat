@@ -13,8 +13,9 @@
 //   · run-end 行 → `run/settled`（finish/usage/runMs + 同批终稿 message 行
 //     的 text——收敛单事实：落盘 durable 与前端重拉同一因果链，E-2 根治）；
 //   · inject 行不投影——直播注入卡由既有 session/context-injected 帧承载
-//     （与 journalInject 同锚同时发射；resume/resume-degraded 路径无 inject
-//     行，帧面未被事件行全覆盖——新增投影帧反而双渲染，cr-976 裁决）；
+//     （与 journalInject 同锚同时发射；resume 路径 cr-1111 起有落账 context 行
+//     〔source='resume'〕但同样不投影——帧面未被事件行全覆盖,新增投影帧反而
+//     双渲染,cr-976 裁决不变）；
 //   · 入站 message/context、compaction 机制行不投影（读面重拉覆盖）。
 //
 // 两个时标物理承认（D3-1）：llm/delta 流帧不经落盘（微批仍在传输层）；

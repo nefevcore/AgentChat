@@ -13,6 +13,7 @@ import { describe, it, expect } from 'vitest';
 import { computed } from 'vue';
 import { toHistoryMessages } from 'ac-client-ui-conversation/client/historyApi.ts';
 import { buildTurns, pairMessageToChatMessage } from 'ac-client-ui-conversation/client/feed.ts';
+import { registerInjectCardView } from 'ac-client-ui-conversation/client/injectCardViews.ts';
 import { useTurnDisplayItems } from 'ac-client-ui-conversation/client/useTurnDisplayItems.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
 
@@ -169,5 +170,26 @@ describe('真实管线回归：pairMessageToChatMessage 透传', () => {
     const turns = buildTurns([cm, stepMsg('s1', 2000)]);
     const inj = turns.find((t) => t.steps.length > 0)?.injects?.[0];
     expect(inj?.payload?.outcome).toBe('answered');
+  });
+});
+
+describe('渲染契约切片 A（cr-1109：注册声明优先）', () => {
+  it('已注册专用卡的词 → 无数据面也卡片化(声明压倒启发式);未注册裸 event 维持分隔符', () => {
+    const off = registerInjectCardView('ac-test:notice', { template: '<div/>' } as never);
+    try {
+      // 消息流:注册词 event 行(无 contextContent/bytes/payload) + 裸 event 行
+      const msgs = [
+        { id: 'a', role: 'event', content: '声明词标题', timestamp: 1, source: { kind: 'ac-test:notice' } },
+        { id: 'b', role: 'event', content: '裸机制通知', timestamp: 2, source: { kind: 'event' } },
+      ] as never;
+      const turns = buildTurns(msgs, false);
+      // 注册词 → 挂轮注入卡(降级独立卡——无在场轮),不是分隔符轮
+      const sep = turns.filter((t) => (t.final as { role?: string } | null | undefined)?.role === 'event');
+      const sepTexts = sep.map((t) => (t.final as { content?: string } | null | undefined)?.content ?? '');
+      expect(sepTexts).toContain('裸机制通知');
+      expect(sepTexts).not.toContain('声明词标题');
+    } finally {
+      off();
+    }
   });
 });

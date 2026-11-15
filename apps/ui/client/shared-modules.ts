@@ -75,7 +75,7 @@ import * as workspaceFilePreviewContent from 'ac-client-ui-workspace/client/file
 import * as workspaceWorkspaceFile from 'ac-client-ui-workspace/client/workspaceFile.ts';
 import * as workspaceOpenWithMenu from 'ac-client-ui-workspace/client/openWithMenu.ts';
 import * as workspaceOpenWithButton from 'ac-client-ui-workspace/client/OpenWithButton.vue';
-// @agentchat/protocol（类型 + isBackgroundRunSource 唯一运行时值——走主线
+// @agentchat/protocol（纯类型垫片——cr-1108 起无运行时值；走主线
 // 垫片与 vite alias 同源；settings 等 8.5b 四包外部化依赖它）
 import * as agentchatProtocol from '@agentchat/protocol';
 

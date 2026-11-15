@@ -68,6 +68,12 @@ export function registerInjectCardView(match: string, component: Component, opts
   };
 }
 
+/** 通道判定（cr-1109 渲染契约）：词是否已注册专用卡——渲染声明优先于
+ * 兜底启发式（前端注册表 = owning 插件的通道声明,方案 A） */
+export function hasInjectCardView(kind?: string): boolean {
+  return resolveInjectCardView(kind) !== null;
+}
+
 /** 解析注入卡 kind → 专用视图（未命中 null——调用方回落通用卡） */
 export function resolveInjectCardView(kind?: string): Component | null {
   const views = defs();

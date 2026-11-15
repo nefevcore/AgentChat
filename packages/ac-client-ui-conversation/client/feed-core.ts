@@ -16,7 +16,6 @@ import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
-import { isBackgroundRunSource } from '@agentchat/protocol';
 import { fetchGroupHistory, fetchPairHistory, toHistoryMessages } from './historyApi.ts';
 import {
   routeDialog, isUserConversation, streamOf, parseArgs, stringifyToolResult, errText,
@@ -2174,12 +2173,14 @@ export function createFeedCore(
       // 注入身份键（injectionId）贯通：直播行带服务端锚点——与刷新后的
       // 活投影行/提升行同 message_id，mergeHistoryPage 双键去重直接生效
       //（运行中切换会话回视的重复 context 行根修）；缺席（旧后端）回落本地 id
-      id: anchor ?? uid('msg'), role: 'event', content, agent_id: 'system', timestamp: Date.now(),
+      // cr-1111:agent_id 真值(注入目标)——群聊挂轮归属匹配生效;缺席回落 'system'(= 不代表归属,feed 特赦口径)
+        id: anchor ?? uid('msg'), role: 'event', content, agent_id: agent || 'system', timestamp: Date.now(),
       ...(anchor !== undefined ? { persistedMsgId: anchor } : {}),
       // 注入型行（source 非机制词）挂 source meta（2026-09-26 注入卡）：
       // useTurnDisplayItems 读 kind 判卡片化 + 挂轮；bytes/payload 随行
       //（cr-765 #4/#5：载入态与问答卡数据面）
-      ...(injectSource !== undefined ? { source: { kind: injectSource, summary: '' } as never } : {}),
+      // cr-1112:kind 开放 string 后 as never 宽化退役
+      ...(injectSource !== undefined ? { source: { kind: injectSource, summary: '' } } : {}),
       ...(injectBytes !== undefined ? { injectBytes } : {}),
       ...(payload !== undefined ? { payload } : {}),
     });
@@ -2632,7 +2633,8 @@ export function createFeedCore(
         // 轻量 meta（cr-765 #4/#5）：bytes = 载入态显示；payload = 问答卡数据面
         const injectBytes = typeof meta?.bytes === 'number' && meta.bytes > 0 ? meta.bytes : undefined;
         const payload = (meta?.payload && typeof meta.payload === 'object' ? meta.payload : undefined) as { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' } | undefined;
-        const text = label || (source === 'skill' ? '已注入技能上下文' : '已注入上下文');
+        // cr-1109:skill 写死文案退役——label 数据面同源直出,缺席统一通用文案
+        const text = label || '已注入上下文';
         // injectionId（注入身份键）：直播行带锚——与刷新后的活投影行/提升行
         // 同 message_id，历史合并去重恒等生效；缺席（旧后端帧）回落本地 id
         const anchor = typeof meta?.injectionId === 'string' && meta.injectionId ? meta.injectionId : undefined;

@@ -11,6 +11,7 @@
 
 import type { ChatMessage, FileAttachment, InjectCard, Turn, TurnStep } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
+import { hasInjectCardView } from './injectCardViews.ts';
 
 // ── Dialog 标识 ──
 
@@ -204,6 +205,9 @@ const MERGE_GAP_MS = 10 * 60 * 1000;
  *  即注入卡；纯机制 event 行（无载体）维持分隔符。 */
 function isInjectEvent(m: ChatMessage): boolean {
   const kind = m.source?.kind as string | undefined;
+  // cr-1109 渲染契约(方案 A):注册声明优先——词已注册专用卡即卡(o owning
+  // 插件自声明通道);未注册走兜底启发式(历史存量/行未装载降级)
+  if (kind !== undefined && hasInjectCardView(kind)) return true;
   if (!!kind && kind !== 'event' && kind !== 'error') return true;
   if (kind !== 'event' && kind !== 'error') return false;
   return m.contextContent !== undefined || m.injectBytes !== undefined || m.payload !== undefined;
@@ -368,9 +372,8 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
   for (let k = 0; k < msgs.length; k++) {
     const msg = msgs[k];
     // event 系统事件消息：渲染为独立系统分隔符，不进普通 turn 链。
-    // 兼容历史 API 归一化后的旧 trigger：user + source.legacyRole==='trigger'。
-    const isEventMsg = msg.role === 'event'
-      || (msg.role === 'user' && (msg.source as any)?.legacyRole === 'trigger');
+    // （cr-1108：旧 trigger 兼容分支随 legacyRole 退役删除——生产恒缺席）
+    const isEventMsg = msg.role === 'event';
     // 注入型 event（source.kind 非机制词）：不 flush 不拆轮——原位挂进
     // 当前在场轮（afterStep = 已积步数，run 中途注入落在两步之间还原
     // 落盘序；此前走 event 分隔符通道会把同一 run 拆成两个「思考过程」

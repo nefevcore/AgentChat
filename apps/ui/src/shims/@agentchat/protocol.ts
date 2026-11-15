@@ -1,8 +1,9 @@
 // ============================================================
 // shims/@agentchat/protocol.ts —— 协议契约自包含垫片（preview 同源迁移）
 //
-// src UI 从 '@agentchat/protocol' import 的类型 + 唯一运行时值
-// （isBackgroundRunSource）。原包 re-export 自 '@agentchat/types'，
+// src UI 从 '@agentchat/protocol' import 的类型（cr-1108 起纯类型垫片——
+// 唯一运行时值 isBackgroundRunSource 已随 src 轨道冻结退役删除）。
+// 原包 re-export 自 '@agentchat/types'，
 // 此处内联为单文件（零 workspace 依赖；vite alias + tsconfig paths
 // 双指向本文件）。内容与 src/sdk/protocol + src/core/types 逐字段
 // 一致——src UI 零改动的代价是本文件必须手动跟随上游演化（有
@@ -11,60 +12,22 @@
 
 // ---- 内联自 @agentchat/types（MessageSource 契约族） ----
 
-export type MessageSourceKind =
-  | 'user'
-  | 'agent'
-  | 'system'
-  | 'timer'
-  | 'group'
-  | 'subagent'
-  | 'continue'
-  | 'restart'
-  | 'archive';
-
-export type MessageForm =
-  | 'prompt'
-  | 'hint'
-  | 'notice'
-  | 'resume'
-  | 'relay';
+// cr-1112 渲染契约切片 D:MessageSourceKind 死枚举退役(六值零生产者,src
+// 轨道冻结遗产;cr-1112 复查:零导入者,别名一并删除)——kind 直接开放
+// string,运行时值 = 存储 source 决策词(词表见 scripts/check-replay-vocab.mjs),
+// 卡片注册表按词精确匹配。
 
 export interface MessageSource {
-  kind: MessageSourceKind;
-  form?: MessageForm;
+  /** 来源决策词(开放 string——cr-1112 开放化) */
+  kind: string;
   summary?: string;
   message_id?: string;
-  legacyRole?: 'trigger';
 }
 
 export interface PersistedToolCall {
   id: string;
   type: 'function';
   function: { name: string; arguments: string };
-}
-
-/**
- * 判断一次 run 是否属于"后台/系统注入"会话（src/core/types 原样）。
- * preview 的 ac-ws-bridge 已在桥接侧完成同类过滤——帧到达即可信；
- * 本函数仍被 feed.ts 的 chat.start 处理消费（保持 src 行为等价）。
- */
-export function isBackgroundRunSource(source?: MessageSource): boolean {
-  if (!source) return false;
-  switch (source.form) {
-    case 'hint':
-    case 'resume':
-    case 'notice':
-      return true;
-    case 'prompt':
-    case 'relay':
-      return false;
-  }
-  return source.kind === 'timer'
-    || source.kind === 'group'
-    || source.kind === 'subagent'
-    || source.kind === 'continue'
-    || source.kind === 'restart'
-    || source.kind === 'archive';
 }
 
 // ---- 以下与 @agentchat/protocol（src/sdk/protocol）逐字段一致 ----
