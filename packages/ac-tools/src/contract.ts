@@ -145,6 +145,53 @@ export interface ToolCall {
   [key: string]: unknown;
 }
 
+/**
+ * 工具源承诺面条目（cr-1114 批2）：boot 同步期可枚举的名 + schema。
+ * 「boot 期承诺名与形，run 期兑现连与果」——承诺面是静态投影（零 I/O），
+ * 与实际发现集对账后收敛（差异经 tools/source-changed 通知）。
+ */
+export interface ToolSourceFace {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+}
+
+/**
+ * 工具源契约（cr-1114 批2）：schema 不能在 boot 同步期可靠枚举的工具提供方
+ * 的共同形态——host-face（ipc 远程工具）与 MCP（子进程/HTTP 服务器）同构。
+ *
+ * 三方职责：
+ *   · bootFace() —— boot 同步期可承诺的名与形（零 I/O、零连接）。注册面
+ *     据此建立静态代理，模型首 run 即可见（不必等发现完成）。
+ *   · discover() —— 活发现（建连 + 列举），结果与注册面对账：增 / 删 /
+ *     schema 变 → 重建对应代理，并 emit `tools/source-changed`。
+ * 　 · execute —— 惰性连接后转发；源不可达 = 调用时报可读错误，不阻塞 boot。
+ *
+ * 归属词约定（改动 10）：`listWithOwner()` 的 owner = 注册方 fiber 名（包名
+ * 或动态插件 manifest.name），**不等于** AgentConfig.rows 的行 id。行 id →
+ * 工具名的展开靠 boot 的 fiberNames 桥（行 id ↔ fiber 名）现算——本契约不
+ * 引入第二套归属词汇。
+ */
+export interface ToolSource {
+  /** 源标识（诊断与事件载荷——如 'host-face' / 'mcp:<server>'） */
+  readonly source: string;
+  /** boot 期承诺面（同步、零 I/O） */
+  bootFace(): ToolSourceFace[];
+  /** 活发现（建连列举；失败应 reject，调用方降级） */
+  discover(): Promise<ToolSourceFace[]>;
+}
+
+/** 工具源对账差异（tools/source-changed 载荷） */
+export interface ToolSourceDiff {
+  source: string;
+  /** 新发现并注册的工具名 */
+  added: string[];
+  /** 发现集已无、被注销的工具名 */
+  removed: string[];
+  /** schema/描述变更后重建的工具名 */
+  changed: string[];
+}
+
 export interface ToolResult {
   ok: boolean;
   output?: unknown;

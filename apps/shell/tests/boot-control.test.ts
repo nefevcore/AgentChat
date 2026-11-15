@@ -67,7 +67,12 @@ describe('M8.3 boot 控制帧面', () => {
       const sys = await boot.control({ ctrl: 'preview', what: 'system-prompt' }) as { systemPrompt: string };
       expect(sys.systemPrompt).toContain('我是 kilo');
       const asm = await boot.control({ ctrl: 'preview', what: 'assembly-tools' }) as { tools: Array<{ name: string }>; enabled: string[] };
-      expect(asm.enabled).toEqual(['math']);
+      // cr-1114 批1：骨架行（host-face-client）承诺面工具不再被 include 白名单滤除
+      //（cr-1007「已知行 id 而 rowTools 无键 = 滤除」正是 timer 三面失明根因——活查询
+      // 化后骨架行工具恒可见）。点名行 math 照旧在面。
+      expect(asm.enabled).toContain('math');
+      expect(asm.enabled).toContain('timer');
+      expect(asm.enabled).toContain('update_agent_profile');
       expect(asm.tools.length).toBeGreaterThan(0);
     } finally { await boot.close(); }
   }, 30_000);

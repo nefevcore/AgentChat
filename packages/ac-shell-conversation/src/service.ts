@@ -37,12 +37,14 @@ export interface ConversationRowOptions {
   /** 跨壳投递面（邮局 ipc——send_agent 半边）；缺省 = 无邮局（CLI 直连形态） */
   postOfficeAddress?: string;
   /**
-   * 行 id → 工具名清单（cr-590：壳装配期行集目录投影——AgentConfig.tools
-   * 的词形是行 id〔cutover/模板/补迁单源〕，LLM 工具面要的是工具名。
-   * 行 id → 工具名的展开词汇 owning = ac-rowset-core 目录；装配期投影传入，
-   * 服务面零目录知识。缺席 = 不展开（词形已是工具名的存量直用）。
+   * 行 id → 工具名清单（cr-590 装配期投影 → cr-1114 批1 活查询化）：
+   * AgentConfig.rows 词形是行 id，LLM 工具面要的是工具名。boot 期一次性
+   * 回填投影退役——懒注册行（host-face-client 静态承诺面 / MCP 懒发现）
+   * 追不上静态快照（cr-1114 根因 1）。现由注册面现算：回调 = listWithOwner
+   * 按 fiber 归属分组（owner = 注册行 fiber 名 = 行名）。缺席 = 不展开
+   * （词形已是工具名的存量直用）。
    */
-  rowTools?: Record<string, string[]>;
+  rowToolFace?: () => Record<string, string[]>;
   /** 全部 shell 行 id（cr-1007：工具面滤除无工具行 id 的单源——白名单
    * 重建含无工具基础行，face 投影时滤除；行集目录引用兼作差量组合读面） */
   allRowIds?: string[];
@@ -116,7 +118,7 @@ export class ConversationService extends Service {
   private agentId: string;
   private parentId: string | undefined;
   private postOfficeAddress: string | undefined;
-  private rowTools: Record<string, string[]> | undefined;
+  private rowToolFace: (() => Record<string, string[]>) | undefined;
   private allRowIds: Set<string> | undefined;
   private catalogFileOpt: string | undefined;
   /** 在途 run 表（键 = 门键 runAddress(agent, conversationId)——值含中止信号
@@ -163,7 +165,7 @@ export class ConversationService extends Service {
     this.agentId = options.agentId;
     this.parentId = options.parentId;
     this.postOfficeAddress = options.postOfficeAddress;
-    this.rowTools = options.rowTools;
+    this.rowToolFace = options.rowToolFace;
     this.allRowIds = options.allRowIds !== undefined ? new Set(options.allRowIds) : undefined;
     this.catalogFileOpt = options.catalogFile;
     // 驻留面收割（注册即归属——主线 web-server 同款）：outbound 常驻 ipc
@@ -1404,28 +1406,40 @@ export class ConversationService extends Service {
   }
 
   /**
-   * 快照对账（run 入口）：① 无快照 → 全段求值物化；③ provider/model 变化或
-   * 段位漂移（cr-944 §3：sectionOrders 键变 = system 字节变 = 缓存域必死）→
-   * 重算（唯一快照重写通道——缓存域必死时重建基线，白纸无代价）；④ 其余
-   * 指纹键变化 → 通知行落账 + 指纹更新。快照正文不因 ④ 重写（指纹字段更新
-   * ≠ 重写正文）。崩溃顺序：先落账（await）后更新指纹——落账后崩 → 重复落
-   * 同内容行（requestId 幂等键收敛，冗余但如实）；反序则漏通知。
+   * 快照对账（run 入口）：① 无快照 → 全段求值物化；③ provider/model 变化、
+   * 段位漂移（cr-944 §3：sectionOrders 键变 = system 字节变 = 缓存域必死）
+   * 或正文域漂移（cr-1114 批1：ptcSdk / tools / sectionTexts 键变——SDK 投影
+   * 字节变 = KV cache 前缀必死，保留旧正文省不了缓存，重算白纸无代价；此前
+   * ④ 只通知不重写正文，懒注册工具的首 run 物化永久冻结旧投影）→
+   * 重算（唯一快照重写通道——缓存域必死时重建基线）；④ 其余指纹键变化 →
+   * 通知行落账 + 指纹更新。快照正文不因 ④ 重写（指纹字段更新 ≠ 重写正文）。
+   * 崩溃顺序：先落账（await）后更新指纹——落账后崩 → 重复落同内容行
+   *（requestId 幂等键收敛，冗余但如实）；反序则漏通知。
    * env = null（干跑）→ 只读：不落通知、不更新指纹。
    */
   private async syncPrefixSnapshot(sid: string, config: AgentConfig, env: Envelope | null, runId: string): Promise<FrozenPromptSection[]> {
     const modelRef = env !== null ? this.effectiveModelRef(config, env.model) : this.modelRefOf(config);
     const nextFp = this.fingerprintOf(sid, config, modelRef, env);
     const snap = readPrefixSnapshot(this.dataRoot, sid);
-    // ③ 重算触发：无快照 / model 域变 / 段位漂移。段位漂移判据 = 名集相等但
+    // ③ 重算触发：无快照 / model 域变 / 正文域漂移。段位漂移判据 = 名集相等但
     // 名+位序列变（名集增删走 ④ 通知——快照正文不含新段，system 不变，缓存
-    // 不死；仅既有段位变 = 快照正文序变 = 缓存域必死）。
-    const orderDrift = snap !== null
-      && snap.settingsFingerprint.sectionSet === nextFp.sectionSet
-      && snap.settingsFingerprint.sectionOrders !== nextFp.sectionOrders;
+    // 不死；仅既有段位变 = 快照正文序变 = 缓存域必死）。正文域漂移（cr-1114
+    // 批1）= ptcSdk / tools / sectionTexts 任一变——这些键承载正文字节，变 =
+    // KV cache 前缀必死，重算白纸无代价（④ 通知的对应句已不可达——见
+    // diffFingerprints 同批调整）。
+    const fp = snap?.settingsFingerprint;
+    const orderDrift = fp !== undefined
+      && fp.sectionSet === nextFp.sectionSet
+      && fp.sectionOrders !== nextFp.sectionOrders;
+    const textDrift = fp !== undefined
+      && (fp.ptcSdk !== nextFp.ptcSdk
+        || fp.tools !== nextFp.tools
+        || fp.sectionTexts !== nextFp.sectionTexts);
     if (snap === null
       || snap.settingsFingerprint.model !== nextFp.model
       || (snap.settingsFingerprint.provider as string | undefined ?? '') !== nextFp.provider
-      || orderDrift) {
+      || orderDrift
+      || textDrift) {
       const created: PrefixSnapshot = {
         version: 1,
         createdAt: new Date().toISOString(),
@@ -1547,27 +1561,24 @@ export class ConversationService extends Service {
   }
 
   /** 工具面（行集投影——AgentConfig.rows 点名 ∨ 行引用解析；缺省 = 全部注册）。
-   * per-config 值缓存：写口落盘后 config.rows 变化即键变，天然失效。
+   * cr-1114 批1 活查询化：展开每次现算（rowToolFace = 注册面 listWithOwner
+   * 按 fiber 归属分组——懒注册行 boot 后注册即感知，快照缓存退役）；缓存键
+   * 只剩 config.rows（resolveToolNames 纯函数），值缓存面收窄为键级。
    * 行 id 展开（cr-590）：条目词形 = 行 id 时换行工具名（'fs-tools' →
    * read/write/edit）；工具名词形原样透传（visible ∩ 在 toolDefs/run
    * 装配处收敛）。cr-1007：白名单重建含无工具基础行——已知行 id 而
    * rowTools 无键 = 无工具面行，滤除（不透传——face 只出工具名）。 */
-  private toolFaceCache: { key: string; face: string[] | undefined } | null = null;
   private toolFaceOf(config: { rows?: string[] | { include?: string[]; exclude?: string[] } }): string[] | undefined {
-    const key = JSON.stringify(config.rows ?? null);
-    if (this.toolFaceCache?.key !== key) {
-      const resolved = resolveToolNames(config.rows);
-      // 展开去重保序（多行别名/点名并集不产重复名——LLM schema 面干净）
-      const expanded = resolved === undefined ? undefined
-        : [...new Set(resolved.flatMap((token) => {
-          const tools = this.rowTools?.[token];
-          if (tools !== undefined) return tools;
-          if (this.allRowIds?.has(token) === true) return []; // 无工具行——滤除
-          return [token]; // 工具名/动态注册词形——透传（visible 收敛）
-        }))];
-      this.toolFaceCache = { key, face: expanded };
-    }
-    return this.toolFaceCache.face;
+    const resolved = resolveToolNames(config.rows);
+    if (resolved === undefined) return undefined;
+    const rowTools = this.rowToolFace?.();
+    // 展开去重保序（多行别名/点名并集不产重复名——LLM schema 面干净）
+    return [...new Set(resolved.flatMap((token) => {
+      const tools = rowTools?.[token];
+      if (tools !== undefined) return tools;
+      if (this.allRowIds?.has(token) === true) return []; // 无工具行——滤除
+      return [token]; // 工具名/动态注册词形——透传（visible 收敛）
+    }))];
   }
 
   /** inbox 取信（链跑消费） */

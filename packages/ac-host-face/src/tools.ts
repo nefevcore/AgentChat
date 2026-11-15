@@ -13,53 +13,11 @@ import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import { readAgentConfig, writeAgentConfig, isPresetId, type AgentConfig } from 'ac-agents-core';
 import { parseInterval, validateTimerEntries, type TimerEntry } from 'ac-timer-core';
-import type { HostFaceToolSpec } from 'ac-host-face-core';
-
 /** 档案字段白名单（与壳侧 PROFILE_ALLOWED_FIELDS 同源词表） */
 const PROFILE_ALLOWED_FIELDS = ['name', 'description', 'system', 'persona', 'tools', 'maxSteps', 'settings'] as const;
 
-export const HOST_FACE_TOOLS: HostFaceToolSpec[] = [
-  {
-    name: 'timer',
-    description:
-      '管理定时任务：set 安排一条提醒/延时任务（到点以新消息唤醒你并携带 hint）、list 查看自己的条目、cancel 按 id 取消。会话维度：在哪个会话设置就回哪个会话；时间串支持 HH:mm（每天）/ YYYY-MM-DDTHH:mm（一次）/ 周日 12:00（每周）/ 间隔（30m、1h）。',
-    parameters: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['set', 'list', 'cancel'], description: '操作' },
-        hint: { type: 'string', description: '[set] 触发时携带的提示词（到点唤醒你时看到的指令——写清楚要做什么）' },
-        time: { type: 'string', description: '[set] 时间串：HH:mm 每天定点 / YYYY-MM-DDTHH:mm 指定时刻 / 周日 12:00 每周 / 30m 间隔延时' },
-        entry_id: { type: 'string', description: '[cancel] 条目 id（list 可见）' },
-      },
-      required: ['action'],
-    },
-  },
-  {
-    name: 'update_agent_profile',
-    description:
-      '更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENTS.md。',
-    parameters: {
-      type: 'object',
-      properties: {
-        agent_id: { type: 'string', description: '目标 Agent（默认自己；仅 admin 可改他人）' },
-        fields: {
-          type: 'object',
-          description: '要更新的字段',
-          properties: {
-            name: { type: 'string', description: '显示名称（名册/群聊展示；空串 = 清除，回落简介/id）' },
-            description: { type: 'string', description: '一句话简介（其他 Agent 与用户可见；不是显示名）' },
-            system: { type: 'string', description: '基础系统提示词' },
-            persona: { type: 'string', description: '人物设定（写入 Agent 目录 AGENTS.md 并挂载 persona 装载）' },
-            tools: { type: 'array', items: { type: 'string' }, description: '工具白名单（空数组/缺省 = 全部）' },
-            maxSteps: { type: 'number', description: '步数预算（0 = 不限）' },
-            settings: { type: 'object', description: '具名扩展设置（settings[具名]——已装插件在该 Agent 的行为）' },
-          },
-        },
-      },
-      required: ['fields'],
-    },
-  },
-];
+// cr-1114 批1：HOST_FACE_TOOLS spec 已下沉 ac-host-face-core/promise.ts（壳
+// 侧 boot 同步注册需静态面，宿主行包不再是单源）——本文件只剩宿主执行面。
 
 const err = (msg: string): { ok: false; error: string } => ({ ok: false, error: msg });
 

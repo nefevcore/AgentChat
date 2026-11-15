@@ -98,7 +98,8 @@ describe('agent-admin 跨进程 dry-run（cr-552 e2e）', () => {
     const ws = await connect(host.web.port);
     try {
       const a = await rpc<{ assembly: { tools: { enabled: string[]; catalog: Array<{ name: string }> } } }>(ws, 'agents/assembly', { agentId: 'alpha' });
-      expect(a.assembly.tools.enabled).toEqual(['math']);
+      // cr-1114 批1：骨架行（host-face-client）承诺面工具恒可见（cr-1007 滤除退役）
+      expect(a.assembly.tools.enabled).toEqual(expect.arrayContaining(['math', 'timer', 'update_agent_profile']));
       expect(a.assembly.tools.catalog.map((t) => t.name)).toContain('math');
       // 写口：加 system 字段经 update-config（另一条已验路径），assembly/update 改 tools
       const up = await rpc<{ changed: string[] }>(ws, 'agents/assembly/update', {
@@ -108,7 +109,8 @@ describe('agent-admin 跨进程 dry-run（cr-552 e2e）', () => {
       // 再预览：system-prompt 干跑按新落盘 config（工具面变化不进 system 文本——
       // 验证链路往返即可；assembly 再读见新意图
       const a2 = await rpc<{ assembly: { tools: { enabled: string[] } } }>(ws, 'agents/assembly', { agentId: 'alpha' });
-      expect(a2.assembly.tools.enabled).toEqual(['math', 'datetime']);
+      // cr-1114 批1：骨架行承诺面工具恒可见（同 L101 断言语义）
+      expect(a2.assembly.tools.enabled).toEqual(expect.arrayContaining(['math', 'datetime', 'timer', 'update_agent_profile']));
     } finally {
       ws.close();
     }

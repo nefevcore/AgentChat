@@ -9,9 +9,8 @@
 // ============================================================
 import type { Context, Plugin } from '@agentchat/cordis';
 import { listenIpcConns, socketPathFor, encodeFrame } from 'ac-envelope-core';
-import { corrIdOf, type HostFaceFrame } from 'ac-host-face-core';
-import { HOST_FACE_TOOLS, executeHostTool } from './tools.ts';
-import { HOST_FACE_SECTIONS } from './sections.ts';
+import { corrIdOf, HOST_FACE_TOOLS, HOST_FACE_SECTIONS, type HostFaceFrame } from 'ac-host-face-core';
+import { executeHostTool } from './tools.ts';
 
 export const name = 'ac-host-face';
 

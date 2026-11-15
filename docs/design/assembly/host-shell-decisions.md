@@ -520,6 +520,37 @@ menu-assembly.md §四/§七。
   只改终态行与状态板。
 - 引用规则：母档案依据写 R-n / D-n / S-n；本簿条目按篇名引用。
 
+# 〈工具源统一：MCP 冷启动盲窗为显式取舍〉（2026-11-15，cr-1114 批2）
+
+## 裁决
+
+**MCP 服务器在无发现缓存的冷启动下，首 turn 工具面不全——此为显式取舍，不是待修缺陷。**
+
+| 项 | 内容 |
+|---|---|
+| 盲窗范围 | 仅「该数据根首次连该服务器」或「服务器定义变更（def-hash 变）」后的首个 run |
+| 缓解 | 发现缓存（`meta/mcp-discovery/<def-hash>.json`）——第二次 boot 起首 run 即全量 |
+| 业界同款 | Codex：启动期 1s 共享宽限内未就绪者缺席首 turn 目录（`mcp_optional_startup_grace_ms` 可配） |
+| 根除方向（不入批） | O3 恒定入口工具（粒度退化与 rows 白名单词汇冲突）/ O5 face 相位后移（request.tools 改 resolver——收益仅剩冷启动盲窗，不值得改 run 契约） |
+
+## 论据
+
+boot 同步期不可能枚举 MCP 工具（需建连子进程/HTTP）。两条路只有两条：
+① 拖长 boot 等发现（违背「壳 boot 不与外部可达性耦合」——host-face 批 1 已确立的软降级语义）；
+② 承诺面 + 缓存（本裁决）。②的代价是冷启动首 turn 的**部分可见**（缓存未命中那一次），
+收益是 boot 恒快且第二 boot 起全量——与 Claude Code discovery cache 同谱系。
+
+陈旧 schema 的正确性由执行期兜底：调用旧 schema 的参数在服务器侧报错（协议级 isError →
+工具失败形态回读，模型可重试），对账修正后下一 run 收敛（`tools/source-changed` 通知可达订阅方）。
+
+## 与 host-face 的关系
+
+host-face 工具 spec 是**静态常量**（timer / update_agent_profile）——无盲窗（批 1 承诺面）。
+MCP 工具面本质动态（服务器可换工具），故只有「缓存承诺面」形态。两者共用同一 ToolSource
+契约（`ac-tools/contract.ts`：bootFace / discover + `tools/source-changed` 事件），消费方
+无 per-source 分支。
+
+
 # 〈config 键面自述与守门〉（2026-11-12 立项定向，cr-1037 全批落地）
 
 行内 config（用户数据）的升级机制裁决，全文见 config-upgrade.md；本簿记两条

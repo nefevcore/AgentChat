@@ -6,7 +6,7 @@
 // 消费方 `import type {} from 'ac-tools'` 即获得类型增强。
 // ============================================================
 import type {} from '@agentchat/cordis';
-import type { ToolCall, ToolDefinition, ToolExecution, ToolResult, ToolTransform } from './contract.ts';
+import type { ToolCall, ToolDefinition, ToolExecution, ToolResult, ToolSourceDiff, ToolTransform } from './contract.ts';
 
 declare module '@agentchat/cordis' {
   interface Events {
@@ -91,5 +91,15 @@ declare module '@agentchat/cordis' {
      * @scope host
      */
     'tool/unregistered'(name: string): void;
+
+    /**
+     * 工具源对账完成通知（cr-1114 批2 ToolSource 契约）：提供方发现集与
+     * 注册面对账后 emit。消费方按 source 统一处理，无 per-source 分支——
+     * host-face（ipc）与 MCP（子进程/HTTP）是同一模式的两实例。
+     * 仅在差异非空时 emit（恒等对账零事件）。
+     * @mode emit
+     * @scope host
+     */
+    'tools/source-changed'(diff: ToolSourceDiff): void;
   }
 }

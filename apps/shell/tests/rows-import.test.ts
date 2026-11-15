@@ -394,10 +394,11 @@ describe('cr-593：agents 垫片词形展开（AgentConfig.rows 行 id → 工�
       rows: { include: ['fs-tools'], exclude: ['shell-tools', 'pwsh'] },
     }, { shellRows: MINI_ROWS });
     const rowTools = { 'fs-tools': ['read', 'write', 'edit'], 'shell-tools': ['pwsh', 'job'] };
+    const rowToolFace = () => rowTools;
     const ctx = new Context();
     const fibers: Array<{ uid: number | null; dispose(): Promise<void> }> = [];
     try {
-      const shim = ctx.plugin(makeShimsRow(ROOT, rowTools) as unknown as Plugin);
+      const shim = ctx.plugin(makeShimsRow(ROOT, rowToolFace) as unknown as Plugin);
       fibers.push(shim);
       await shim;
       const agents = ctx.get('agents') as unknown as { get(id: string): { rows: unknown } };

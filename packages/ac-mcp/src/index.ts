@@ -28,7 +28,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import z from '@agentchat/schemastery';
-import type { ToolDefinition } from 'ac-tools';
+import type { ToolDefinition, ToolSource, ToolSourceDiff, ToolSourceFace } from 'ac-tools';
+import { defHashOf, readDiscoveryCache, writeDiscoveryCache, type CachedTool } from './discovery-cache.ts';
 import {
   createSdkConnection,
   pickToolName,
@@ -40,6 +41,19 @@ import {
 
 /** 缺省服务器清单文件名（相对路径锚定数据根；存在即整体替换行基线） */
 const DEFAULT_SERVERS_FILE = 'mcp.json';
+
+/** MCP 工具声明 → 内部面形状（注册面/缓存面/对账面同构——单源转换） */
+function faceOf(tool: McpToolDef): { origName: string; description: string; parameters: Record<string, unknown> } {
+  return {
+    origName: tool.name,
+    description: tool.description ?? 'MCP 工具',
+    parameters: {
+      type: 'object',
+      properties: tool.inputSchema.properties ?? {},
+      ...(tool.inputSchema.required !== undefined ? { required: tool.inputSchema.required } : {}),
+    },
+  };
+}
 
 /** 服务器注册定义（Config.servers 单位；clientFactory 为测试注入面） */
 export interface McpServerDef extends McpServerConfig {
@@ -53,17 +67,30 @@ export interface McpRowOptions {
   servers?: McpServerDef[];
 }
 
+/** 工具面条目（内部统一形状——发现集与缓存承诺面同构） */
+interface FaceEntry {
+  /** 服务器侧原始工具名（callTool 用） */
+  origName: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  /** 注销器（对账增删按名定向回收） */
+  dispose: () => void;
+}
+
 /** 服务器运行态 */
 interface ServerEntry {
   def: McpServerDef;
   connection: McpConnection | null;
-  /** 本服务器注册的工具 disposer（移除服务器/重发现时回收） */
-  disposers: Array<() => void>;
-  /** 本服务器注册的工具最终名（暴露面收敛判定 + teardown 定向回收） */
-  toolNames: string[];
+  /** 已注册工具面：finalName → 条目（对账增删/schema 变定向处理） */
+  tools: Map<string, FaceEntry>;
+  /** 承诺面来自缓存（cr-1114 批2：发现后对账修正——schema 陈旧期由调用期
+   * validateInvoke/协议错误兜底） */
+  fromCache: boolean;
   synced: boolean;
   /** 在飞 sync（并发 run 单飞——在飞即等待复用，不重入） */
   syncing: Promise<void> | null;
+  /** 惰性建连单飞（承诺面工具首调用 / 并发 run 共用——重入会双建连泄漏） */
+  connecting: Promise<McpConnection> | null;
 }
 
 export class McpService extends Service {
@@ -94,6 +121,9 @@ export class McpService extends Service {
     // 配置热更：settings.mcp 变更 → 对账（撤/挂/热替换；config/set 热通路）
     this.ctx.on('config/changed', () => this.reconcile(), { description: 'MCP 服务器清单热更对账（settings.mcp 全局层）' });
     this.reconcile();
+    // cr-1114 批2 改动 12：boot 期缓存承诺面注册（零建连）——首个 run 即
+    // 全量可见；无缓存 = 冷启动盲窗（首 run prepareRun 发现，显式取舍）。
+    this.loadCachedFaces();
   }
 
   /**
@@ -103,7 +133,7 @@ export class McpService extends Service {
   registerServer(def: McpServerDef) {
     if (!def.name) throw new Error('MCP 服务器注册缺少 name');
     if (this.servers.has(def.name)) throw new Error(`MCP 服务器 "${def.name}" 已注册`);
-    const entry: ServerEntry = { def, connection: null, disposers: [], toolNames: [], synced: false, syncing: null };
+    const entry: ServerEntry = { def, connection: null, tools: new Map(), fromCache: false, synced: false, syncing: null, connecting: null };
     return this.ctx.fiber.effect(() => {
       this.servers.set(def.name, entry);
       return () => {
@@ -127,13 +157,27 @@ export class McpService extends Service {
     this.reconcile();
   }
 
+  /**
+   * 强制重发现并与在册面对账（cr-1114 批2 改动 13 的对账入口）：
+   * 服务器侧工具面变化（listChanged 通知 / 管理面手动触发 / 测试）时调用——
+   * 增 / 删 / schema 变定向处理，更新发现缓存并 emit tools/source-changed。
+   * 与 sync 共用单飞（并发重发现合成一次）。
+   */
+  async redetect(): Promise<void> {
+    for (const entry of this.servers.values()) {
+      if (entry.def.enabled === false) continue;
+      entry.synced = false; // 已同步者也重对账（差异即事实）
+    }
+    await this.sync();
+  }
+
   /** 服务器清单概览（诊断/管理面） */
   listServers(): Array<{ name: string; enabled: boolean; connected: boolean; toolCount: number }> {
     return [...this.servers.values()].map((e) => ({
       name: e.def.name,
       enabled: e.def.enabled !== false,
       connected: e.connection?.connected === true,
-      toolCount: e.disposers.length,
+      toolCount: e.tools.size,
     }));
   }
 
@@ -142,6 +186,33 @@ export class McpService extends Service {
    * description 前缀——LLM 可见面非契约） */
   serverOfTool(toolName: string): string | undefined {
     return this.toolServers.get(toolName);
+  }
+
+  // ── ToolSource 契约（cr-1114 批2 改动 10）──────────────────────────────
+  // bootFace = 在册 MCP 工具面投影（boot 期缓存承诺面已注册——零建连）；
+  // discover = 活发现（建连 tools/list，对账后注册面即真值——投影复用
+  // bootFace 单源）。归属词汇：ctx.tools.listWithOwner 的 owner = 本行
+  // fiber 名（'ac-mcp'），行 id 展开由 boot 的 fiberNames 桥承担（契约注释
+  // 见 ac-tools/contract.ts）。
+
+  readonly source = 'mcp';
+
+  /** 承诺面 = 在册 MCP 工具面投影（零建连；诊断/契约消费入口） */
+  bootFace(): ToolSourceFace[] {
+    const out: ToolSourceFace[] = [];
+    for (const name of this.toolServers.keys()) {
+      const def = this.ctx.get('tools', false)?.get(name);
+      if (def !== undefined) {
+        out.push({ name, description: def.description ?? '', parameters: (def.parameters ?? {}) as Record<string, unknown> });
+      }
+    }
+    return out;
+  }
+
+  /** 活发现：建连 + tools/list 全量（sync 幂等——对账后直接投影在册面） */
+  async discover(): Promise<ToolSourceFace[]> {
+    await this.sync();
+    return this.bootFace();
   }
 
   /**
@@ -171,78 +242,173 @@ export class McpService extends Service {
     }
   }
 
+  /**
+   * 发现并对账（cr-1114 批2 改动 13）：建连 tools/list → 与在册面对账
+   * （增 / 删 / schema 变）→ 更新发现缓存 → emit tools/source-changed。
+   * 承诺面（缓存注册的）在同一次对账里被修正为服务器真值。
+   */
   private async syncServer(entry: ServerEntry): Promise<void> {
-    if (!entry.connection) {
-      const factory = entry.def.clientFactory ?? createSdkConnection;
-      entry.connection = factory(entry.def);
-    }
-    const connection = entry.connection;
-    if (!connection.connected) await connection.connect();
-
+    const connection = await this.ensureConnection(entry);
     const tools = await connection.listTools();
-    // 撞名判定基准：当前已注册工具名 + 服务器内置去重
     const toolsService = this.ctx.get('tools');
     if (!toolsService) return;
+    // 撞名判定基准：当前已注册工具名（含本服务器承诺面已占的名——复用不重复注册）
     const taken = new Set(toolsService.list().map((t) => t.name));
-
-    for (const tool of tools) {
-      const finalName = pickToolName(entry.def.name, tool.name, taken);
+    const diff: ToolSourceDiff = { source: 'mcp:' + entry.def.name, added: [], removed: [], changed: [] };
+    const discovered = new Map<string, McpToolDef>();
+    for (const tool of tools) discovered.set(tool.name, tool);
+    // ① 既有面（承诺面/上次发现）：删与 schema 变
+    for (const [finalName, rec] of [...entry.tools]) {
+      const tool = discovered.get(rec.origName);
+      if (tool === undefined) {
+        rec.dispose();
+        entry.tools.delete(finalName);
+        this.toolServers.delete(finalName);
+        taken.delete(finalName);
+        diff.removed.push(finalName);
+        continue;
+      }
+      const next = faceOf(tool);
+      if (JSON.stringify(next.parameters) !== JSON.stringify(rec.parameters)
+        || next.description !== rec.description) {
+        rec.dispose();
+        entry.tools.delete(finalName);
+        taken.delete(finalName);
+        this.toolServers.delete(finalName);
+        this.registerFace(entry, next, finalName);
+        taken.add(finalName);
+        diff.changed.push(finalName);
+      }
+    }
+    // ② 新发现
+    const known = new Set([...entry.tools.values()].map((r) => r.origName));
+    for (const [origName, tool] of discovered) {
+      if (known.has(origName)) continue;
+      const finalName = pickToolName(entry.def.name, origName, taken);
       if (finalName === null) {
-        this.ctx.logger.warn(`[mcp] 工具名冲突跳过: ${entry.def.name}/${tool.name}`);
+        this.ctx.logger.warn(`[mcp] 工具名冲突跳过: ${entry.def.name}/${origName}`);
         continue;
       }
       taken.add(finalName);
-      // 注册即归属：随当前 tracer fiber（mcp 行/调用方）回收；
-      // disposer 同时记入服务器条目（手动移除/重发现时定向回收）
-      const disposer = toolsService.register(this.buildToolDef(entry, connection, tool, finalName));
-      entry.disposers.push(() => disposer());
-      entry.toolNames.push(finalName);
-      this.toolServers.set(finalName, entry.def.name);
+      this.registerFace(entry, faceOf(tool), finalName);
+      diff.added.push(finalName);
+    }
+    // ③ 缓存更新（发现即事实源；承诺面下一次 boot 用这份）
+    const cached: CachedTool[] = [...entry.tools].map(([finalName, rec]) => ({
+      name: rec.origName, finalName, description: rec.description, parameters: rec.parameters,
+    }));
+    try {
+      writeDiscoveryCache(this.dataRootOf(), entry.def.name, defHashOf(entry.def), cached);
+    } catch (err: unknown) {
+      this.ctx.logger.warn(`[mcp] 发现缓存写入失败（不影响工具面）: ${String(err)}`);
     }
     entry.synced = true;
+    entry.fromCache = false;
+    if (diff.added.length > 0 || diff.removed.length > 0 || diff.changed.length > 0) {
+      this.ctx.emit('tools/source-changed', diff);
+    }
     this.ctx.logger.info(
-      `[mcp] 服务器 "${entry.def.name}" 同步完成（${tools.length} 工具）`,
+      `[mcp] 服务器 "${entry.def.name}" 同步完成（${tools.length} 工具；+${diff.added.length} -${diff.removed.length} ~${diff.changed.length}）`,
     );
   }
 
-  private buildToolDef(
-    entry: ServerEntry,
-    connection: McpConnection,
-    tool: McpToolDef,
-    finalName: string,
-  ): ToolDefinition {
-    return {
+  /** 数据根（发现缓存落点锚——workspace.root 单源，与清单文件同锚） */
+  private dataRootOf(): string {
+    const workspace = this.ctx.get('workspace', false) as { root?: string } | undefined;
+    return workspace?.root ?? path.resolve(process.env.AGENTCHAT_DATA_ROOT ?? './data');
+  }
+
+  /**
+   * 惰性建连（cr-1114 批2）：承诺面工具首调用即连；并发/在飞单飞复用
+   * （重入会双建连泄漏——与 sync 单飞同因）。
+   */
+  private async ensureConnection(entry: ServerEntry): Promise<McpConnection> {
+    if (entry.connection !== null && entry.connection.connected) return entry.connection;
+    if (entry.connecting !== null) return entry.connecting;
+    entry.connecting = (async () => {
+      const factory = entry.def.clientFactory ?? createSdkConnection;
+      const conn = entry.connection ?? factory(entry.def);
+      entry.connection = conn;
+      if (!conn.connected) await conn.connect();
+      return conn;
+    })().finally(() => {
+      entry.connecting = null;
+    });
+    return entry.connecting;
+  }
+
+  /**
+   * boot 期承诺面注册（改动 12）：池内 enabled 服务器有发现缓存 → 按缓存
+   * 注册代理工具（连接照懒）。无缓存 = 冷启动盲窗（首 run 发现后自愈）。
+   */
+  private loadCachedFaces(): void {
+    for (const [name, def] of this.poolDefs) {
+      if (def.enabled === false) continue;
+      const entry = this.servers.get(name);
+      if (entry === undefined) continue;
+      let cache;
+      try {
+        cache = readDiscoveryCache(this.dataRootOf(), defHashOf(def));
+      } catch {
+        continue;
+      }
+      if (cache === null || cache.tools.length === 0) continue;
+      const toolsService = this.ctx.get('tools', false);
+      if (toolsService === undefined) return;
+      for (const tool of cache.tools) {
+        if (toolsService.has(tool.finalName)) continue; // 撞名（本地工具/其它源）→ 让位
+        this.registerFace(entry, { origName: tool.name, description: tool.description, parameters: tool.parameters }, tool.finalName);
+      }
+      entry.fromCache = true;
+      this.ctx.logger.info(`[mcp] 服务器 "${name}" 承诺面自缓存（${entry.tools.size} 工具，连接照懒）`);
+    }
+  }
+
+  /** 注册一个工具面代理（工具体惰性连接；注册即归属） */
+  private registerFace(entry: ServerEntry, face: { origName: string; description: string; parameters: Record<string, unknown> }, finalName: string): void {
+    const toolsService = this.ctx.get('tools');
+    if (!toolsService) return;
+    const def: ToolDefinition = {
       name: finalName,
-      description: `[MCP:${entry.def.name}] ${tool.description ?? 'MCP 工具'}`,
-      parameters: {
-        type: 'object',
-        properties: tool.inputSchema.properties ?? {},
-        ...(tool.inputSchema.required ? { required: tool.inputSchema.required } : {}),
-      },
-      async execute(args) {
-        // 工具体抛错由 ac-tools 统一收敛为 { ok:false, error }——只转换协议级错误
-        const result = await connection.callTool(tool.name, args);
-        // 协议级错误（isError）以工具失败形态回填——模型可读、可重试
-        return result.isError
-          ? { ok: false, error: result.text || `MCP 工具 "${tool.name}" 报错（无输出）` }
-          : { ok: true, output: result.text };
+      description: `[MCP:${entry.def.name}] ${face.description}`,
+      parameters: face.parameters,
+      execute: async (args) => {
+        try {
+          const conn = await this.ensureConnection(entry);
+          const result = await conn.callTool(face.origName, args);
+          // 协议级错误（isError）以工具失败形态回填——模型可读、可重试
+          return result.isError
+            ? { ok: false, error: result.text || `MCP 工具 "${face.origName}" 报错（无输出）` }
+            : { ok: true, output: result.text };
+        } catch (err) {
+          // 源不可达 = 调用时报可读错误（boot 不阻塞——承诺面语义）
+          return { ok: false, error: `MCP 服务器 "${entry.def.name}" 不可达：${err instanceof Error ? err.message : String(err)}` };
+        }
       },
     };
+    const disposer = toolsService.register(def);
+    entry.tools.set(finalName, { ...face, dispose: () => disposer() });
+    this.toolServers.set(finalName, entry.def.name);
   }
+
+
 
   /** 回收服务器资源：关闭连接 + 注销已注册工具 */
   private teardown(entry: ServerEntry): void {
-    for (const dispose of entry.disposers.splice(0)) {
+    for (const [finalName, rec] of [...entry.tools]) {
       try {
-        dispose();
+        rec.dispose();
       } catch {
         /* 回收尽力而为 */
       }
+      this.toolServers.delete(finalName);
     }
-    for (const toolName of entry.toolNames.splice(0)) this.toolServers.delete(toolName);
+    entry.tools.clear();
     entry.connection?.close();
     entry.connection = null;
     entry.synced = false;
+    entry.fromCache = false;
+    entry.connecting = null;
   }
 
   // ── 配置层（settings.mcp：全局默认层 + Agent 差异层，settingsOf 语义）──

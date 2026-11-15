@@ -25,20 +25,21 @@ export class AgentsShim extends Service {
    * 缺席回落嵌套域（主线 conversation readConfig 同款分支）。垫片
    * 此前只读顶层 → 影子壳 tags 全丢 → run_code SDK 投影空。 */
   private parentId: string | undefined;
-  /** 行 id → 工具名投影（cr-593）：AgentConfig.rows 盘上词形是行 id，
-   * 主线消费面（collab list_tools / read_agent_info 等按 config.rows
-   * 过滤注册工具名）拿原词形 = 词形断裂（行 id 落空、恰同名者幸存）。
-   * 垫片 = 盘上词汇 → 主线服务词汇的翻译边界（与 conversation 服务
-   * toolFaceOf 同展开语义；缺席 = 无目录投影，原样透传）。 */
-  private rowTools: Record<string, string[]> | undefined;
+  /** 行 id → 工具名投影（cr-593 → cr-1114 批1 活查询化）：AgentConfig.rows
+   * 盘上词形是行 id，主线消费面（collab list_tools / read_agent_info 等
+   * 按 config.rows 过滤注册工具名）拿原词形 = 词形断裂（行 id 落空、
+   * 恰同名者幸存）。垫片 = 盘上词汇 → 主线服务词汇的翻译边界（与
+   * conversation 服务 toolFaceOf 同展开语义；use-time 现算——懒注册行
+   * 追不上静态快照，cr-1114 根因 1 同修；缺席 = 无目录投影，原样透传）。 */
+  private rowToolFace: (() => Record<string, string[]>) | undefined;
   /** 扩展模式注册表（cr-1049）：内存态——垫片其余面是数据根直读，本面
    * 是壳内运行时注册（模式行 apply 期写入），与主线 AgentsService
    * registerToolMode 同构。 */
   private toolModes = new Map<string, ToolModeDef>();
-  constructor(ctx: Context, dataRoot: string, rowTools?: Record<string, string[]>, parentId?: string) {
+  constructor(ctx: Context, dataRoot: string, rowToolFace?: () => Record<string, string[]>, parentId?: string) {
     super(ctx, 'agents');
     this.dataRoot = dataRoot;
-    this.rowTools = rowTools;
+    this.rowToolFace = rowToolFace;
     this.parentId = parentId;
   }
 
@@ -69,15 +70,16 @@ export class AgentsShim extends Service {
     return this.toolModes.has(id);
   }
 
-  /** 条目词形展开：行 id → 行工具名（保序去重；非行 id 原样） */
+  /** 条目词形展开：行 id → 行工具名（保序去重；非行 id 原样）——use-time 现算 */
   private expandTokens(tokens: string[]): string[] {
-    return [...new Set(tokens.flatMap((token) => this.rowTools?.[token] ?? [token]))];
+    const rowTools = this.rowToolFace?.();
+    return [...new Set(tokens.flatMap((token) => rowTools?.[token] ?? [token]))];
   }
 
   get(id: string) {
     const config = (readAgentConfig(this.dataRoot, id)
       ?? (this.parentId !== undefined ? readChildConfig(this.dataRoot, this.parentId, id) : null)) ?? undefined;
-    if (config === undefined || this.rowTools === undefined) return config;
+    if (config === undefined || this.rowToolFace === undefined) return config;
     const rows = config.rows;
     if (Array.isArray(rows)) return { ...config, rows: this.expandTokens(rows) };
     if (typeof rows === 'object') {
@@ -552,13 +554,13 @@ export class GroupShim extends Service {
  * agentStore / credentials / workspace / convSettings / session / group
  * 七服务）。不进行集目录（非能力行——接缝件，归 boot 编排）。
  */
-export function makeShimsRow(dataRoot: string, rowTools?: Record<string, string[]>, postOfficeAddress?: string, parentId?: string) {
+export function makeShimsRow(dataRoot: string, rowToolFace?: () => Record<string, string[]>, postOfficeAddress?: string, parentId?: string) {
   return {
     name: 'shell-data-root-shims',
     inject: [],
     apply(ctx: Context) {
       ctx.plugin(class extends AgentsShim {
-        constructor(c: Context) { super(c, dataRoot, rowTools, parentId); }
+        constructor(c: Context) { super(c, dataRoot, rowToolFace, parentId); }
       });
       ctx.plugin(class extends AgentStoreShim {
         constructor(c: Context) { super(c, dataRoot); }

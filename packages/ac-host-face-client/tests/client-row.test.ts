@@ -1,8 +1,9 @@
 // ============================================================
-// ac-host-face-client/tests/client-row.test.ts —— 壳侧能力面行（cr-886）
+// ac-host-face-client/tests/client-row.test.ts —— 壳侧能力面行（cr-886 → cr-1114 批1）
 //
 // 不起真宿主：起最小 ipc echo 服务端按需回契约帧——验 client 行的
-// discover→装配（代理工具/远程段/Shim）、本地段优先、宿主缺席降级。
+// boot 静态承诺面（零 I/O 注册）、execute 惰性连接、对账重建、
+// 本地段优先、宿主缺席可读报错。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -12,10 +13,9 @@ import { Context, type Fiber } from '@agentchat/cordis';
 import * as toolsRow from 'ac-tools';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
-import { listenIpcConns, socketPathFor, encodeFrame, type IpcServer } from 'ac-envelope-core';
+import { listenIpcConns, socketPathFor, type IpcServer } from 'ac-envelope-core';
 import type { HostFaceContract, HostFaceFrame } from 'ac-host-face-core';
 import { makeHostFaceClientRow } from '../src/index.ts';
-import { HostFaceClient } from 'ac-host-face-core';
 
 const tmps: string[] = [];
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
@@ -73,68 +73,95 @@ async function bootClient(dataRoot: string) {
   await f;
   fibers.push(f);
   booted.push({ ctx, fibers });
-  console.log('[probe] client fiber state:', f.state, 'agentLoop:', ctx.get('agentLoop', false) !== undefined);
   return ctx;
 }
 
-/** 等代理面装配：周期性触发 run（首 run 拉契约 → 异步到达 → 后续 run 应用 staged） */
-async function until(ctx: Context, cond: () => boolean, ms = 3000): Promise<void> {
-  for (let i = 0; i < ms / 25 && !cond(); i++) {
-    void ctx.waterfall('loop/before-run', { request: { model: 'm', messages: [] } } as never, async () => ({ finish: 'stop' }) as never);
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  expect(cond()).toBe(true);
+/** 触发 prepare 对账（真实链路 = run() 入口第一拍；测试直接跑一轮 run） */
+async function runOnce(ctx: Context): Promise<void> {
+  await ctx.agentLoop.run({ runId: 'probe-' + Math.random().toString(36).slice(2, 6), agent: 'a', model: 'mock', tools: [], messages: [] });
 }
 
-describe('宿主能力面壳侧行（cr-886）', () => {
-  it('discover → 代理工具注册 + execute 经宿主 + singles/group Shim 装配', async () => {
+describe('宿主能力面壳侧行（cr-1114 批1 承诺面）', () => {
+  it('boot 静态承诺面：代理工具 + GUIDELINES_TIMER 段 boot 即在册（零 I/O，无需首 run）', async () => {
+    const root = tmpRoot(); // 不起 fakeHost——boot 不依赖宿主
+    const ctx = await bootClient(root);
+    expect(ctx.tools.has('timer')).toBe(true);
+    expect(ctx.tools.has('update_agent_profile')).toBe(true);
+    const prompt = ctx.agentLoop.assemblePreview({ model: 'm', tools: ['timer'], conversationId: 'c1', messages: [] });
+    expect(prompt).toContain('主动用 timer(action=\"set\")'); // 静态承诺面文本
+  });
+
+  it('宿主缺席：代理在册、execute 报可读错误（boot 不阻塞——软降级语义升级为可见性不丢）', async () => {
     const root = tmpRoot();
-    // singles 注册表盘上形态（facts Shim 直读——cr-973 迁 meta/sessions/）
-    fs.mkdirSync(path.join(root, 'meta', 'sessions'), { recursive: true });
-    fs.writeFileSync(path.join(root, 'meta', 'sessions', '.singles-registry.json'),
-      JSON.stringify({ version: 2, entries: { 's-1': { id: 's-1' } } }), 'utf-8');
+    const ctx = await bootClient(root);
+    const r = await ctx.tools.execute({ name: 'timer', args: { action: 'list' }, agentId: 'a1' } as never);
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain('宿主能力面不可达');
+  });
+
+  it('execute 惰性连接：宿主在场 → 经宿主执行（boot 零连接，首调用建连）', async () => {
+    const root = tmpRoot();
     await fakeHost(root, CONTRACT);
     const ctx = await bootClient(root);
-    await until(ctx, () => ctx.tools.has('timer'));
-    // Shim：singles 判定经数据根
-    const singles = ctx.get('singles') as unknown as { get(id: string): unknown };
-    expect(singles.get('s-1')).toBeDefined();
-    expect(singles.get('other')).toBeUndefined();
-    // 代理 execute → 宿主替身回执
     const r = await ctx.tools.execute({ name: 'timer', args: { action: 'list' }, agentId: 'a1' } as never);
     expect(r.ok).toBe(true);
     expect((r.output as { via: string }).via).toBe('host');
+    // Shim：singles 判定经数据根（cr-973 迁 meta/sessions/）
+    fs.mkdirSync(path.join(root, 'meta', 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'meta', 'sessions', '.singles-registry.json'),
+      JSON.stringify({ version: 2, entries: { 's-1': { id: 's-1' } } }), 'utf-8');
+    const singles = ctx.get('singles') as unknown as { get(id: string): unknown };
+    expect(singles.get('s-1')).toBeDefined();
+    expect(singles.get('other')).toBeUndefined();
   });
 
-  it('远程段注册 + 门控：timer 在场注入；singles 会话不注入', async () => {
+  it('prepare 对账：契约与承诺面漂移 → 重建为契约面 + emit tools/source-changed（cr-1114 批2 事件面同构）', async () => {
     const root = tmpRoot();
-    await fakeHost(root, CONTRACT);
+    await fakeHost(root, CONTRACT); // timer 描述与 GUIDELINES_TIMER 文本均异于静态面
     const ctx = await bootClient(root);
-    await until(ctx, () => ctx.tools.has('timer'));
+    const diffs: Array<{ source: string; added: string[]; removed: string[]; changed: string[] }> = [];
+    ctx.on('tools/source-changed', (d) => diffs.push(d as never));
+    // boot 静态面（正典描述）
+    expect((ctx.tools.get('timer') as { description: string }).description).not.toContain('测试 timer 代理');
+    await runOnce(ctx); // run() 入口 prepare → discover → 对账重建
+    expect((ctx.tools.get('timer') as { description: string }).description).toBe('测试 timer 代理');
     const prompt = ctx.agentLoop.assemblePreview({ model: 'm', tools: ['timer'], conversationId: 'c1', messages: [] });
     expect(prompt).toContain('[远程段] 主动安排测试文本');
+    // 事件面：与 MCP 对账同构（source 词区分，载荷结构相同）
+    //（CONTRACT = timer(描述变) + 无 update_agent_profile(删)——重建 diff 应含 changed+removed）
+    expect(diffs.length).toBe(1);
+    expect(diffs[0]!.source).toBe('host-face');
+    expect(diffs[0]!.changed).toEqual(['timer']);
+    expect(diffs[0]!.removed).toContain('update_agent_profile');
+    // 基准面不累积：再跑一轮（恒等）零事件零重建
+    await runOnce(ctx);
+    expect(diffs.length).toBe(1);
   });
 
-  it('段位占用：宿主补位段占位后 owner 同名注册抛错（位唯一性）', async () => {
+  it('prepare 对账：契约与承诺面恒等 → 零操作（在册 spec 不变）', async () => {
     const root = tmpRoot();
-    await fakeHost(root, CONTRACT);
+    const core = await import('ac-host-face-core');
+    const IDENTICAL: HostFaceContract = {
+      version: 1,
+      // 同源静态面（真实宿主 discover 回的就是 HOST_FACE_* 常量本体）
+      tools: core.HOST_FACE_TOOLS.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
+      sections: core.HOST_FACE_SECTIONS,
+      facts: [],
+    };
+    await fakeHost(root, IDENTICAL);
     const ctx = await bootClient(root);
-    await until(ctx, () => ctx.tools.has('timer'));
-    // 位唯一性：宿主补位段已占位，owner 行同名注册抛错（fail-loud）——
-    // 行集装配序保证 owner 行先装则宿主段被吞（applyContract 的 catch 路径）
+    const before = ctx.tools.listWithOwner().map((t) => t.name).sort().join(',');
+    await runOnce(ctx);
+    expect(ctx.tools.listWithOwner().map((t) => t.name).sort().join(',')).toBe(before);
+    expect(ctx.tools.has('update_agent_profile')).toBe(true); // 承诺面全量保持
+  });
+
+  it('段位占用：boot 静态段占位后 owner 同名注册抛错（位唯一性）', async () => {
+    const root = tmpRoot();
+    const ctx = await bootClient(root);
+    // boot 即占位（不再需要 until 等待 discover）
     expect(() => ctx.agentLoop.registerPromptSection({ name: 'GUIDELINES_TIMER', text: '[本地段]' }, 'test')).toThrow();
     const prompt = ctx.agentLoop.assemblePreview({ model: 'm', tools: ['timer'], conversationId: 'c1', messages: [] });
-    expect(prompt).toContain('[远程段]'); // 初态保持（宿主补位段未被顶掉）
-  });
-
-  it('宿主缺席 → 软降级（零代理零段零报错）', async () => {
-    const root = tmpRoot(); // 不起 fakeHost
-    const ctx = await bootClient(root);
-    await new Promise((r) => setTimeout(r, 300));
-    expect(ctx.tools.has('timer')).toBe(false);
-    const prompt = ctx.agentLoop.assemblePreview({ model: 'm', tools: ['timer'], messages: [] });
-    expect(prompt).toBeUndefined();
+    expect(prompt).toContain('主动用 timer'); // 静态面保持
   });
 });
-
-void encodeFrame;

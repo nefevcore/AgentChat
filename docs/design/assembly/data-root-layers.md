@@ -48,6 +48,7 @@
 | `meta/timer/state.json` | 定时排程状态（停机补偿依据） | timer/state.json |
 | `meta/remote/` | 配对身份/设备绑定（删了静默丢功能——配对失联） | remote/ |
 | `meta/workspaces.json` | 工作区登记表 | workspaces.json |
+| `meta/mcp-discovery/<def-hash>.json` | MCP 工具发现缓存（cr-1114 批2——可重建派生物寄居第二层避免顶层新目录；def-hash = 服务器定义指纹，定义变即新键、旧键成孤儿） | —（新增） |
 
 **主存储形态 = 每会话/每域单文件**（conv-settings 模式）：单文件原子写、
 坏一个丢一个、可 grep。单文件 JSON 清单被否——单点爆炸半径是本次事故

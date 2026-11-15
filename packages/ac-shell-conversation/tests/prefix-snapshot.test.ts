@@ -128,7 +128,7 @@ function msg(sid: string, requestId: string, text: string, model?: string): Enve
 const SID = 'sid-snap-1';
 
 describe('cr-888 singles system prompt 物化', () => {
-  it('① 物化：首 run 落 prefix-snapshot.json（段数组 + 指纹）；② 冻结：注册面后续变化不进 system', async () => {
+  it('① 物化：首 run 落 prefix-snapshot.json（段数组 + 指纹）；② 正文域漂移（cr-1114）→ ③ 重算：注册面段变化进正文', async () => {
     seedAgent('alpha');
     seedSingles(SID);
     const { ctx, fibers, conv, sysPrompts } = await bootTree('alpha');
@@ -140,10 +140,17 @@ describe('cr-888 singles system prompt 物化', () => {
       // 快照含 ENV_MODEL 段（红线前提）
       expect(snap!.sections.some((s) => s.name === 'ENV_MODEL')).toBe(true);
       const first = sysPrompts[0];
-      // 注册面后续变化：新注册一个段（模拟行装卸/描述更新）
+      expect(first).toContain('[模型能力]');
+      // 注册面后续变化：新注册一个段（模拟行装卸/描述更新）——sectionTexts
+      // 漂移升 ③ 重算（cr-1114 批1：正文域字节变 = KV cache 前缀必死，重算
+      // 白纸无代价；旧「冻结」语义正是懒注册工具三面失明的根因）
       ctx.agentLoop.registerPromptSection({ name: 'TERMINOLOGY', text: '后注册段' }, 'test');
       await conv.receiveEnvelope(msg(SID, 'r2', '第二问'), { fresh: true });
-      expect(sysPrompts[1]).toBe(first); // 字节恒定
+      expect(sysPrompts[1]).not.toBe(first); // 正文已重算（新段进正文）
+      expect(sysPrompts[1]).toContain('后注册段');
+      // 重算后稳定：再跑一轮不再变（新基线冻结）
+      await conv.receiveEnvelope(msg(SID, 'r3', '第三问'), { fresh: true });
+      expect(sysPrompts[2]).toBe(sysPrompts[1]);
     } finally {
       for (const f of [...fibers].reverse()) await f.dispose();
     }
@@ -204,9 +211,9 @@ describe('cr-888 singles system prompt 物化', () => {
       provider: '', model: 'm', tools: 'read,write', toolMode: 'tc-base', browserTier: '',
       issueSubmit: '', workspace: '', ptcSdk: 'h1', skills: '',
     };
-    // #1 工具集
+    // #1 工具集（cr-1114 批1：tools 漂移升 ③ 重算抢先——diff 句退役，零通知）
     expect(diffFingerprints(base, { ...base, tools: 'read' }, { defaultWorkdir: '/w' }).notices)
-      .toEqual(['[会话设置] 生效工具集已变化：-write。']);
+      .toEqual([]);
     // #2 toolMode →tc-programmatic / →tc-none / →tc-base 恢复
     expect(diffFingerprints(base, { ...base, toolMode: 'tc-programmatic' }, { defaultWorkdir: '/w' }).notices)
       .toEqual(['[会话设置] 工具调用模式已切换：程序化——一切工具调用经 run_code 编排完成，不再逐个直调。']);
@@ -241,15 +248,15 @@ describe('cr-888 singles system prompt 物化', () => {
       .toEqual(['[会话设置] 安全档位已调整：full-access → 默认，部分工具调用将需要授权。']);
     expect(diffFingerprints(base, base, { defaultWorkdir: '/w' }).notices)
       .toEqual([]);
-    // #9 PTC_SDK 漂移
+    // #9 PTC_SDK 漂移（cr-1114 批1：ptcSdk 漂移升 ③ 重算抢先——diff 句退役，零通知）
     expect(diffFingerprints({ ...base, ptcSdk: 'h1' }, { ...base, ptcSdk: 'h2' }, { defaultWorkdir: '/w' }).notices)
-      .toEqual(['[会话设置] run_code SDK 已更新，以当前工具 schema 与运行报错为准。']);
+      .toEqual([]);
     // #10 扩展键
     expect(diffFingerprints(base, { ...base, 'ext.ui-theme': 'dark' }, { defaultWorkdir: '/w' }).notices)
       .toEqual(['[会话设置] ui-theme 已变化：无 → dark。']);
-    // 合并规则：多项变化 → 多句并列（一条 context 行）
+    // 合并规则：多项变化 → 多句并列（一条 context 行）——tools 漂移句已退役
     const multi = diffFingerprints(base, { ...base, tools: 'read', issueSubmit: 'disabled' }, { defaultWorkdir: '/w' });
-    expect(multi.notices.length).toBe(2);
+    expect(multi.notices.length).toBe(1);
     // toolMode 连带的清单变化归 toolMode 一句
     const modeAndTools = diffFingerprints(base, { ...base, toolMode: 'tc-none', tools: '' }, { defaultWorkdir: '/w' });
     expect(modeAndTools.notices).toEqual(['[会话设置] 工具调用模式已切换：工具已全部停用，纯对话。']);

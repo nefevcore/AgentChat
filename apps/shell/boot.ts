@@ -564,7 +564,7 @@ export interface ShellBootResult {
   transportHint: string;
   /** 主体指纹（R-7 boot 单元——boot.ready 自报同源） */
   fingerprint: { root: string; entries: Record<string, string> };
-  /** 行 id → 工具名（注册面 fiber 归属反查——cr-1022 批2：dump 驱动面消费） */
+  /** 行 id → 工具名（cr-1114 批1：boot 收尾快照——审计面专用；承重路径走活查询回调） */
   rowTools: Record<string, string[]>;
   /** B3 流式旁带发射面（壳 → 宿主单向；无订阅连接 = 丢弃返回 false） */
   emitStream(frame: StreamFrame): boolean;
@@ -708,13 +708,33 @@ export async function bootShell(
   // 沿用行（IMPORTED_ROWS）按行集清单逐行 ctx.plugin；数据根行 options 显式
   // 注入（preview 数据根隔离红线——不走环境变量缺省）。
   const ctx = new Context();
-  // 行 id → 工具名投影（cr-590 → cr-1022 批2 换轨）：tools 声明词汇退役，
-  // 共享可变对象先传垫片/conversation（use-time 读），装配完成后由注册面按
-  // fiber 归属反查回填（owner = 注册行 fiber 名；同包多行并集——行粒度
-  // 随声明词汇退役，cr-1025 裁决自然结果）。
-  const rowTools: Record<string, string[]> = {};
+  // 行 id → 工具名投影（cr-590 → cr-1022 批2 → cr-1114 批1 活查询化）：
+  // boot 一次性回填退役——懒注册行（host-face-client 承诺面 / MCP）追不上
+  // 静态快照（cr-1114 根因 1）。承重面改活查询：rowToolFace 回调 use-time
+  // 现算（listWithOwner 按 fiber 归属分组 → fiber 名经 fiberNames 桥回行 id）。
+  // boot 回填只剩审计快照职责（boot-graph.json 落盘——非承重面）。
   const allRowIds: string[] = rowset.rowIds;
-  const shimFiber = ctx.plugin(makeShimsRow(path.resolve(args.dataRoot), rowTools, args.postOffice, args.parentId));
+  const rowToolFace = (): Record<string, string[]> => {
+    const toolsSvc = ctx.get('tools', false) as
+      | { listWithOwner(): Array<{ name: string; owner: string }> }
+      | undefined;
+    if (toolsSvc === undefined) return {};
+    // fiber 名 → 行 id 集（同包多行并集——行粒度随声明词汇退役，cr-1025 裁决）
+    const byFiber = new Map<string, string[]>();
+    for (const [id, fiberName] of Object.entries(fiberNames)) {
+      const list = byFiber.get(fiberName);
+      if (list === undefined) byFiber.set(fiberName, [id]);
+      else list.push(id);
+    }
+    const out: Record<string, string[]> = {};
+    for (const t of toolsSvc.listWithOwner()) {
+      const rowIds = byFiber.get(t.owner);
+      if (rowIds === undefined) continue; // 动态插件等未桥接 owner——不可白名单点名
+      for (const id of rowIds) (out[id] ??= []).push(t.name);
+    }
+    return out;
+  };
+  const shimFiber = ctx.plugin(makeShimsRow(path.resolve(args.dataRoot), rowToolFace, args.postOffice, args.parentId));
   await shimFiber;
   // M8.2 会话域行（ledger/conversation）经 rowAssemblers 注册面按行集装配
   //（与 IMPORTED_ROWS 两来源互补——catalog 行集清单是装配事实源：点名子集
@@ -727,13 +747,13 @@ export async function bootShell(
     // usage 事件信投递面（cr-538：无邮局不发——CLI 直连形态计量只落 journal）
     ...(args.postOffice !== undefined ? { postOfficeAddress: args.postOffice } : {}),
   })));
-  // 行 id → 工具名投影词汇见 ctx 创建处（rowTools——垫片与 conversation 共用）。
+  // 行 id → 工具名投影词汇见 ctx 创建处（rowToolFace 活查询——垫片与 conversation 共用）。
   registerRowAssembler('conversation', (c) => (c as Context).plugin(makeConversationRow({
     dataRoot: path.resolve(args.dataRoot), agentId: args.agentId,
     ...(args.parentId !== undefined ? { parentId: args.parentId } : {}),
     ...(args.postOffice !== undefined ? { postOfficeAddress: args.postOffice } : {}),
     catalogFile: args.catalogFile ?? path.join(path.resolve(args.dataRoot), 'row-catalog.json'),
-    rowTools,
+    rowToolFace,
     allRowIds,
   })));
   // 会话查询行（cr-544）：D10 收敛为 agent 只搜自己——读面单源 = 本 agent
@@ -792,18 +812,9 @@ export async function bootShell(
     },
     customImplIds: rowset.replacedIds,
   });
-  // 注册面归属反查回填（use-time 读面——垫片/conversation 持共享引用）
-  const toolsSvc = ctx.get('tools', false) as
-    | { listWithOwner(): Array<{ name: string; owner: string }> }
-    | undefined;
-  if (toolsSvc !== undefined) {
-    for (const t of toolsSvc.listWithOwner()) {
-      for (const [id, fiberName] of Object.entries(fiberNames)) {
-        if (fiberName === t.owner) (rowTools[id] ??= []).push(t.name);
-      }
-    }
-  }
-  writeBootGraphSnapshot(path.resolve(args.dataRoot), args.agentId, args.parentId, rowset, rowTools);
+  // 审计快照（cr-1114 批1 改动6）：rowTools 回填退役为 boot-graph 专用——
+  // 承重路径（垫片/conversation）已换 rowToolFace 活查询，此处一次性快照仅审计落盘。
+  writeBootGraphSnapshot(path.resolve(args.dataRoot), args.agentId, args.parentId, rowset, rowToolFace());
   // tools 授权门（M8.6 cr-527，manifest R2 tools 行「授权门」半边）：行集
   // 含 tools 行即挂（无门禁壳非合法降级）——loop/before-run 每 run 前重读
   // 投影 + tool/before-execute MCP 服务器资产硬闸（fail-closed）。
@@ -1238,7 +1249,7 @@ export async function bootShell(
       ...(result.error !== undefined ? [String(result.error).replaceAll('\t', ' ').replaceAll('\n', ' ').slice(0, 300)] : []));
   });
   return {
-    lockInfo, rowset, rowsReady, ctx, transportHint, fingerprint, rowTools,
+    lockInfo, rowset, rowsReady, ctx, transportHint, fingerprint, rowTools: rowToolFace(),
     emitStream: emitStreamFrame,
     control,
     close: async () => {

@@ -96,8 +96,8 @@ async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<v
     dataRoot: ROOT, agentId,
     ...(parentId !== undefined ? { parentId } : {}),
     ...(postOfficeAddress !== undefined ? { postOfficeAddress } : {}),
-    // cr-590：行 id → 工具名展开词汇（boot 装配期目录投影——测试注入样例）
-    rowTools: { 'fs-tools': ['read', 'write', 'edit'], 'shell-tools': ['pwsh'] },
+    // cr-590：行 id → 工具名展开词汇（cr-1114 批1 活查询回调——测试注入静态样例）
+    rowToolFace: () => ({ 'fs-tools': ['read', 'write', 'edit'], 'shell-tools': ['pwsh'] }),
   }));
   fibers.push(convFiber);
   for (const fiber of fibers) await fiber;

@@ -504,3 +504,157 @@ describe('ac-mcp per-Agent 覆盖（settingsOf 合成：差异层 file 指向自
     expect(visibleTools()).toEqual(['echo', 'local']);
   });
 });
+
+// ============================================================
+// cr-1114 批2：MCP 发现缓存（改动 11/12/13）
+//
+// ① 冷启动首 run 发现 → 缓存落盘 meta/mcp-discovery/<def-hash>.json
+// ② 第二次 boot（缓存命中）首 run 前即全量工具面（连接照懒）
+// ③ 服务器定义变更（def-hash 变）→ 旧缓存不命中；新定义发现后写新键
+// ④ 重发现对账：工具删除 → 注销 + 缓存更新 + tools/source-changed
+// ⑤ schema 变 → 在册面重建为新 schema + changed 事件
+// ============================================================
+describe('cr-1114 批2：MCP 发现缓存', () => {
+  afterEach(() => {
+    delete process.env.AGENTCHAT_DATA_ROOT;
+  });
+
+  function tmpRoot(): string {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-mcp-cache-'));
+    process.env.AGENTCHAT_DATA_ROOT = root;
+    return root;
+  }
+
+  /** 让假连接返回动态工具集（重发现场景） */
+  function liveTools(fake: FakeHandle, get: () => McpToolDef[]): void {
+    (fake.connection as unknown as { listTools(): Promise<McpToolDef[]> }).listTools = async () => get();
+  }
+
+  async function disposeAll(): Promise<void> {
+    for (const { fibers } of booted.splice(0)) {
+      for (const fiber of [...fibers].reverse()) if (fiber.uid !== null) await fiber.dispose();
+    }
+  }
+
+  /** MCP 行装配并等待激活（fiber 登记进 booted——afterEach 统一收割） */
+  async function bootMcp(ctx: Context, servers: McpServerDef[]): Promise<Fiber> {
+    const fiber = ctx.plugin(mcpRow, { servers });
+    await fiber;
+    const last = booted[booted.length - 1];
+    if (last !== undefined) last.fibers.push(fiber);
+    return fiber;
+  }
+
+  it('① 冷启动：首 run 发现 → 缓存落盘（meta/mcp-discovery/<def-hash>.json）', async () => {
+    const root = tmpRoot();
+    const fake = fakeServer('srv', [ECHO]);
+    const ctx = new Context();
+    await boot(ctx, baseRows());
+    await bootMcp(ctx, [fake.def]);
+    await ctx.agentLoop.run({ model: 'mock-1', messages: USER });
+    const dir = path.join(root, 'meta', 'mcp-discovery');
+    const files = fs.readdirSync(dir);
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatch(/^[0-9a-f]{16}\.json$/);
+    const cached = JSON.parse(fs.readFileSync(path.join(dir, files[0]!), 'utf-8')) as {
+      version: number; server: string; tools: Array<{ name: string; finalName: string }>;
+    };
+    expect(cached.version).toBe(1);
+    expect(cached.server).toBe('srv');
+    expect(cached.tools.map((t) => t.name)).toEqual(['echo']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('② 缓存命中：新 boot 首个 run 前即全量工具面（连接照懒——零建连）', async () => {
+    const root = tmpRoot();
+    const TOOLS: McpToolDef[] = [ECHO, { name: 'ping', description: '探活', inputSchema: { type: 'object' } }];
+    const first = fakeServer('srv', TOOLS);
+    const ctx1 = new Context();
+    await boot(ctx1, baseRows());
+    await bootMcp(ctx1, [first.def]);
+    await ctx1.agentLoop.run({ model: 'mock-1', messages: USER });
+    await disposeAll();
+    // 第二代：缓存命中——boot 后（未跑 run）工具面即全量
+    const second = fakeServer('srv', TOOLS);
+    const ctx2 = new Context();
+    await boot(ctx2, baseRows());
+    await bootMcp(ctx2, [second.def]);
+    expect(ctx2.tools.has('echo')).toBe(true);
+    expect(ctx2.tools.has('ping')).toBe(true);
+    expect(second.state.connectCount).toBe(0); // 连接照懒
+    const r = await ctx2.tools.execute({ name: 'echo', args: { text: 'x' } });
+    expect(r).toEqual({ ok: true, output: 'srv:echo' });
+    expect(second.state.connectCount).toBe(1); // 首调用建连
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('③ 服务器定义变更（def-hash 变）→ 旧缓存不命中；新定义发现后写新键', async () => {
+    const root = tmpRoot();
+    const first = fakeServer('srv', [ECHO]);
+    const ctx1 = new Context();
+    await boot(ctx1, baseRows());
+    await bootMcp(ctx1, [first.def]);
+    await ctx1.agentLoop.run({ model: 'mock-1', messages: USER });
+    const dir = path.join(root, 'meta', 'mcp-discovery');
+    const oldHash = fs.readdirSync(dir)[0]!;
+    await disposeAll();
+    const second = fakeServer('srv', [{ name: 'newTool', description: '新的', inputSchema: { type: 'object' } }]);
+    second.def.args = ['--changed'];
+    const ctx2 = new Context();
+    await boot(ctx2, baseRows());
+    await bootMcp(ctx2, [second.def]);
+    expect(ctx2.tools.has('echo')).toBe(false); // 旧缓存不命中（冷启动盲窗）
+    await ctx2.agentLoop.run({ model: 'mock-1', messages: USER });
+    expect(ctx2.tools.has('newTool')).toBe(true);
+    const files = fs.readdirSync(dir);
+    expect(files).toHaveLength(2); // 新键生效（旧键留作孤儿，不影响读）
+    expect(files).toContain(oldHash);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('④ 重发现对账：工具删除 → 注销 + 缓存更新 + tools/source-changed', async () => {
+    const root = tmpRoot();
+    let tools: McpToolDef[] = [ECHO, { name: 'gone', description: '将被移除', inputSchema: { type: 'object' } }];
+    const fake = fakeServer('srv', tools);
+    liveTools(fake, () => tools);
+    const ctx = new Context();
+    await boot(ctx, baseRows());
+    await bootMcp(ctx, [fake.def]);
+    const diffs: Array<{ source: string; added: string[]; removed: string[]; changed: string[] }> = [];
+    ctx.on('tools/source-changed', (d) => diffs.push(d as never));
+    await ctx.agentLoop.run({ model: 'mock-1', messages: USER });
+    expect(ctx.tools.has('gone')).toBe(true);
+    tools = [ECHO];
+    await ctx.mcp.redetect(); // 服务器侧变化 → 重发现对账
+    expect(ctx.tools.has('gone')).toBe(false); // 删除对账生效
+    expect(diffs.some((d) => d.removed.includes('gone'))).toBe(true);
+    const cacheDir = path.join(root, 'meta', 'mcp-discovery');
+    const cached = JSON.parse(fs.readFileSync(path.join(cacheDir, fs.readdirSync(cacheDir)[0]!), 'utf-8')) as {
+      tools: Array<{ name: string }>;
+    };
+    expect(cached.tools.map((t) => t.name)).toEqual(['echo']);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('⑤ schema 变：在册面重建为新 schema + tools/source-changed changed', async () => {
+    const root = tmpRoot();
+    let tools: McpToolDef[] = [ECHO];
+    const fake = fakeServer('srv', tools);
+    liveTools(fake, () => tools);
+    const ctx = new Context();
+    await boot(ctx, baseRows());
+    await bootMcp(ctx, [fake.def]);
+    const diffs: Array<{ source: string; added: string[]; removed: string[]; changed: string[] }> = [];
+    ctx.on('tools/source-changed', (d) => diffs.push(d as never));
+    await ctx.agentLoop.run({ model: 'mock-1', messages: USER });
+    expect((ctx.tools.get('echo')?.parameters as { properties?: Record<string, unknown> }).properties).toHaveProperty('text');
+    tools = [{ ...ECHO, description: '回声 v2', inputSchema: { type: 'object', properties: { text: { type: 'string' }, loud: { type: 'boolean' } }, required: ['text'] } }];
+    await ctx.mcp.redetect(); // schema 变 → 重发现对账
+    const params = ctx.tools.get('echo')?.parameters as { properties?: Record<string, unknown> };
+    expect(params.properties).toHaveProperty('loud');
+    expect(ctx.tools.get('echo')?.description).toContain('回声 v2');
+    expect(diffs.some((d) => d.changed.includes('echo'))).toBe(true);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+

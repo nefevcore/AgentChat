@@ -7,4 +7,5 @@
 export const name = 'ac-host-face-core';
 
 export * from './contract.ts';
+export { HOST_FACE_TOOLS, HOST_FACE_SECTIONS, HOST_FACE_PROMISE_SECTIONS } from './promise.ts';
 export { HostFaceClient } from './client.ts';

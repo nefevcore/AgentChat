@@ -6,10 +6,12 @@
 // 现场求值，直接喂快照段给 assembleSystemPrompt（段序由 order 承载）。
 //
 // 四机制（docs/design/platform/single-system-prompt-materialization-plan.md）：
-//   ① 物化（首 run）/ ② diff（每 run 指纹对比）/ ③ 重算（仅 provider+
-//   model 变化——唯一快照重写通道，缓存域必死时重建基线）/ ④ 注入（变化
-//   清单变化 → ledger context 通知行 + 指纹更新）。
-// 快照正文（人格层）永不重写；指纹字段更新 ≠ 重写正文。
+//   ① 物化（首 run）/ ② diff（每 run 指纹对比）/ ③ 重算（缓存域必死时
+//   重建基线——触发面 cr-944 段位漂移 → cr-1114 扩 ptcSdk/tools/
+//   sectionTexts 正文域漂移）/ ④ 注入（变化清单 → ledger context 通知行
+//   + 指纹更新）。
+// 快照正文（人格层）不因 ④ 重写；③ 是唯一重写通道。tools/ptcSdk 漂移随
+// cr-1114 升 ③——对应 ④ 通知句已退役（service.ts 同批）。
 // 崩溃窗口：先落账（await）后更新指纹——落账后崩 → 重复落同内容行
 //（requestId 幂等键收敛冗余，冗余但如实）；反序则漏通知。
 //
@@ -121,15 +123,9 @@ export function diffFingerprints(
       notices.push('[会话设置] 工具调用模式已恢复工具直调。');
     }
   }
-  // #1 工具集
-  if (!modeChanged && oldFp.tools !== nextFp.tools) {
-    const oldNames = oldFp.tools === '' ? [] : oldFp.tools.split(',');
-    const nextNames = nextFp.tools === '' ? [] : nextFp.tools.split(',');
-    const added = nextNames.filter((n) => !oldNames.includes(n)).map((n) => '+' + n);
-    const removed = oldNames.filter((n) => !nextNames.includes(n)).map((n) => '-' + n);
-    const parts = [...added, ...removed];
-    if (parts.length > 0) notices.push('[会话设置] 生效工具集已变化：' + parts.join('、') + '。');
-  }
+  // #1 工具集（cr-1114 批1：tools 键漂移已升 ③ 重算——syncPrefixSnapshot 抢先
+  // 重写快照，本句不可达，退役。语义：工具集变化 = 正文字节变 = KV cache
+  // 前缀必死，重算即对齐，无需通知行。）
   // #3 browserTier：降档/停用/从停用恢复都通知；observe→'' 等 knob 清除 = 回落
   // tags——若 Agent 本有 browser 档标签则档位静默变化，无法区分，静默
   if (oldFp.browserTier !== nextFp.browserTier) {
@@ -192,10 +188,8 @@ export function diffFingerprints(
     // 物化自然收编；此处通知引导模型以当前 system 为准）。
     notices.push('[会话设置] 系统提示词段落构成已变化（新增/移除了指引段落），以当前会话为准。');
   }
-  // #9 PTC_SDK 漂移
-  if (oldFp.ptcSdk !== nextFp.ptcSdk) {
-    notices.push('[会话设置] run_code SDK 已更新，以当前工具 schema 与运行报错为准。');
-  }
+  // #9 PTC_SDK 漂移（cr-1114 批1：ptcSdk 键漂移已升 ③ 重算——本句不可达，
+  // 退役。快照正文重写即携带新 SDK 投影，无需通知行。）
   // #10 生态扩展键
   const extKeys = [...new Set([...Object.keys(oldFp), ...Object.keys(nextFp)].filter((k) => k.startsWith('ext.')))].sort();
   for (const k of extKeys) {
