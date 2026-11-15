@@ -1,6 +1,6 @@
 {
- "scannedHead": "3e4bf8b8b29a9b12ad92f51569a419d7a596264a",
- "generatedAt": "2026-11-15T03:30:54.800Z",
+ "scannedHead": "6abd767fbc7b989178bd4238475d919d19a2ceb8",
+ "generatedAt": "2026-11-15T12:20:43.175Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4941,6 +4941,20 @@
     "subject": "fix(session): cr-1084 approval 等会话键草稿期写哨兵键未物化进真实 sid；cr-1085 会话键全生命周期契约成文"
    }
   ],
+  "1091": [
+   {
+    "sha": "7ec79ae7c9f1f30724359d5cf41e0f0e2452cbfe",
+    "date": "2026-11-15",
+    "subject": "feat: cr-1091~1100 前批收尾(conv-settings 四批/grants 退役/技能面腐化指导/deny 分层/dev 模式/restart_host 通知/prefix-snapshots 迁移)"
+   }
+  ],
+  "1092": [
+   {
+    "sha": "9df3d15f3d794c9f6f7fbd7eec1fa88ef5bcba8c",
+    "date": "2026-11-15",
+    "subject": "feat(ledger): cr-1101~1108 回放契约后端——词汇表(original/wrapper/none)+注册制+live 注入对齐+error/孤儿run/context 全量准入+memory/ac-skill v2 断裂修复+水位 payload 显式化+词表 watchdog+退役清理(agent-loop 内含 cr-1092 grants 撤用残段,主面见前一提交)"
+   }
+  ],
   "1096": [
    {
     "sha": "d9d6266d569c7a6d8e1e364b99e8b09ef7077138",
@@ -4975,6 +4989,40 @@
     "sha": "c9843cc3b23362182889c21938b6641cc4d0f5fd",
     "date": "2026-11-15",
     "subject": "feat(host): cr-1099 restart_host 完成通知——marker 落盘+boot 兑现投机制信，回执去自查指引"
+   },
+   {
+    "sha": "7e341eda8036e56afe328adf8d608faf6f8ab361",
+    "date": "2026-11-15",
+    "subject": "fix(host): cr-1099 通知信 lane=next-turn——busy 会话竞态下排队下一轮，恒为独立轮次"
+   },
+   {
+    "sha": "59b2dbbb6dbe53d2dfb9067c3f0dae1e02ee77ad",
+    "date": "2026-11-15",
+    "subject": "chore(cr): cr-1099 收口（restart_host 完成通知端到端验证通过）"
+   }
+  ],
+  "1101": [
+   {
+    "sha": "da151c687a64cd858cd9f513806782bbe00be141",
+    "date": "2026-11-15",
+    "subject": "docs(design): cr-1101~1113 回放契约与渲染契约设计正本(replay-contract/render-contract)"
+   },
+   {
+    "sha": "9df3d15f3d794c9f6f7fbd7eec1fa88ef5bcba8c",
+    "date": "2026-11-15",
+    "subject": "feat(ledger): cr-1101~1108 回放契约后端——词汇表(original/wrapper/none)+注册制+live 注入对齐+error/孤儿run/context 全量准入+memory/ac-skill v2 断裂修复+水位 payload 显式化+词表 watchdog+退役清理(agent-loop 内含 cr-1092 grants 撤用残段,主面见前一提交)"
+   },
+   {
+    "sha": "6abd767fbc7b989178bd4238475d919d19a2ceb8",
+    "date": "2026-11-15",
+    "subject": "chore(cr): 台账 cr-1101~1113(回放/渲染契约批次) + cr↔commit 投影重建"
+   }
+  ],
+  "1109": [
+   {
+    "sha": "67f944197e8223b14dfe89d5d32902fa997859c8",
+    "date": "2026-11-15",
+    "subject": "feat(webui): cr-1109~1113 渲染契约(方案 A 前端席位声明制)——bytes 投影派生+注册声明优先通道判定+数据面白名单透传+ViewRow 类型化+resume 收编(none 机制词)+直播行 agent_id 真值+MessageSourceKind 开放化+as never 退役"
    }
   ]
  }

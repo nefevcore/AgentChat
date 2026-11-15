@@ -1116,4 +1116,20 @@
 - 【cr-1095 2026-11-15 技能面 requiredTags 腐化指导清除：对齐 cr-953 行装载单闸（plugin-dev SKILL.md 三处 + agentchat-dev references/plugin.md 四处，顺带对齐 cr-1049 injection→discover）】
 - 【cr-1096 2026-11-15 双禁词表与数据分层对齐：meta 整树+credentials 目录+index/outbox/.runtime 入 deny，死锚点清理（cr-1008/1081 迁移遗留）】
 - 【cr-1097 2026-11-15 开发者模式 AGENTCHAT_DEV_MODE：env 进程级开关解锁系统域 deny（凭据恒禁），单点 createDenyListsFactory】
+- 【cr-1098 2026-11-15 修复 cr-1097 GeneralSection config/save 全量 replace 误删 llmProviders/searchProviders 兄弟域（改走 config/set 单键写）+ 数据根连接池数据恢复】
+- 【cr-1099 2026-11-15 restart_host 完成通知：宿主 boot 后向请求方会话投机制信（marker 落盘→兑现），回执去自查指引】
+- 【cr-1100 2026-11-15 meta/sessions 前缀快照分目录迁移 meta/prefix-snapshots——listIds 通配误收快照文件成幻影「新会话」根因修复】
+- 【cr-1101 2026-11-15 回放契约第一阶段:original/wrapper/none 词汇表落 ac-ledger,fold 落实 error 回放/孤儿 run 轨迹/回放时包裹/判重 v1 门控 #replay-contract】
+- 【cr-1102 2026-11-15 修 ac-memory v2 断裂:before-start 挂点失效+records 面缺席 #fix】
+- 【cr-1103 2026-11-15 修 ac-skill 跨 run 去重失效:扫描面迁 injectSource 行 #fix】
+- 【cr-1104 2026-11-15 回放契约第二阶段:wrapper/replay 声明注册制(registerToolMode 范式)——词表声明回归各 owning 插件,fold/live 按声明分档 #replay-contract】
+- 【cr-1105 2026-11-15 回放契约裁决:不引入闭包式 content 重写钩子(确定性/live恒等/注入面三根因,静态串退路预留) →cr-1104】
+- 【cr-1106 2026-11-15 回放契约收口批:context 行全量时间线准入(拆 once 面 #2 结构坑)+ recordContext run 死窗口落账兜底(#3)+ 词表 watchdog 脚本 #replay-contract】
+- 【cr-1107 2026-11-15 memory 水位显式化:记忆基线 seq=N 从 content 寄生迁 payload.memoryBaseline(公共数据面),读侧存量兼容 #replay-contract】
+- 【cr-1108 2026-11-15 退役清理批:协议垫片死代码(MessageForm/isBackgroundRunSource/legacyRole)+过时注释修正在库 #cleanup】
+- 【cr-1109 2026-11-15 渲染契约第三阶段立项:ViewRow 判别联合 + 判据收敛投影层 + resume 收编 none 词 + 前端减脂(分析稿) #render-contract】
+- 【cr-1110 2026-11-15 渲染契约切片 B:ViewRow 类型化 + fold 恒等化判据修正 + face-shell 第四处判据对齐(补 bytes) #render-contract】
+- 【cr-1111 2026-11-15 渲染契约切片 C:resume 落账收编(none 词)+ 直播行 agent_id 真值 + system 特赦删除 #render-contract】
+- 【cr-1112 2026-11-15 渲染契约切片 D:MessageSourceKind 开放化(kind:string)+ as never ×2 清 + shim 瘦身 #render-contract】
+- 【cr-1113 2026-11-15 渲染契约复查批:resume 落账行补 label 数据面 + 注释修正在库(shim 别名删除/历史判据描述/ledger-projection resume 口径)+ 文档交叉引用 #render-contract】
 
