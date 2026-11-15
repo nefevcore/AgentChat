@@ -1,6 +1,6 @@
 {
- "scannedHead": "a276c3ddf6693b66a44f7ec29c0757158ef9ff1d",
- "generatedAt": "2026-11-15T12:20:51.491Z",
+ "scannedHead": "c436644077cb2818f48a3e2b0050af6a9ad33b5f",
+ "generatedAt": "2026-11-15T15:58:41.198Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5023,6 +5023,25 @@
     "sha": "67f944197e8223b14dfe89d5d32902fa997859c8",
     "date": "2026-11-15",
     "subject": "feat(webui): cr-1109~1113 渲染契约(方案 A 前端席位声明制)——bytes 投影派生+注册声明优先通道判定+数据面白名单透传+ViewRow 类型化+resume 收编(none 机制词)+直播行 agent_id 真值+MessageSourceKind 开放化+as never 退役"
+   }
+  ],
+  "1114": [
+   {
+    "sha": "c436644077cb2818f48a3e2b0050af6a9ad33b5f",
+    "date": "2026-11-15",
+    "subject": "chore(cr): 台账 cr-1114~1115 登记 + 投影重建"
+   },
+   {
+    "sha": "1f7cea8f37b895cac46ba37a7f845cec047f1d62",
+    "date": "2026-11-15",
+    "subject": "feat(tools): cr-1114 工具源统一批1+2——host-face boot 静态承诺面(spec 下沉 core+段拆承诺/补位)+prepare 缝对账重建(emit tools/source-changed)+rowTools 活查询化(listWithOwner+fiberNames 桥,boot 反查退役审计面)+前缀快照正文域漂移升③重算(diff 句退役)+ToolSource 契约与两源实现+MCP 发现缓存(meta/mcp-discovery def-hash 键)与发现对账(redetect)——修 timer 三面失明"
+   }
+  ],
+  "1115": [
+   {
+    "sha": "9abdc3ca20921135ce540b8a3beb6c4de1479fc1",
+    "date": "2026-11-15",
+    "subject": "fix(struct): cr-1115 结构消除 boot 窗口可达登记竞态——锁活不等于 ipc 就绪,rescue/peek/adoptLiveShells 登记前先探 pipe 实连"
    }
   ]
  }
