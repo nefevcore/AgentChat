@@ -9,7 +9,7 @@
 ```
 - cr 号为正整数、单调递增、永不复用（不固定位数，前导零禁止）；日期 = 登记当日真实日期。
 - 描述一句话说清改了什么；细节写对应设计文档或 CHANGELOG，目录行保持一行。
-- 一次会话内的一组关联小改可合并为一条 CR。
+- 粒度 = 一个变更面（一件事），不是一次会话或一轮修改：同变更面的后续调整/审后修改复用原 cr 号（细节续写 logs/cr-N.md），变更面实质变化（对象/根因/方案转向）才新开并 `→cr-原` 引用；跨批次回归已 done 条目则新开。
 - 可选尾部元数据块（cr-982 v2）：`】{状态|#标签…|→cr-引用…}`——状态 ∈ plan/doing/done/drop（缺省 done = 登记随批闭环；跨会话 WIP 显式 `--status doing`，立项 `--status plan`）；无块存量条目一律视为 done。`#标签` = 域/类型检索维度（如 `#webui` `#fix`）；`→cr-N` = 显式依赖/落地/勘误引用（须存在）。状态流转用 `set <crN> <状态>`。
 - 描述 >200 字 append 打警告（软门）——细节迁设计文档或 CHANGELOG，条目保持一句话。
 ## 目录
@@ -1104,4 +1104,16 @@
 - 【cr-1083 2026-11-14 conv-scope×access 两计划实施完毕：批1 effective 读取面+六处挂门 → 批A 设置链 allow 补 full 注入（通过即 full）+12 Agent 迁移 → 批B 词汇两态化 isFullAccess+deliver/subagent 继承链退役 → 批2 grants/subagent 挂门 → 批3+C 合流（写面 fail-loud+UI 选档退役+脚本清 11 无人桶+857 elevation 键→approval=allow 迁移）；全量 test/integration/webui:typecheck 绿】
 - 【cr-1084 2026-11-14 approval 等会话键草稿期写哨兵键__pending__未物化进真实sid（新会话首条消息后权限门读不到approval——设置链回落deny）：ChatInput会话键写口toolModeConvKey=props.single.id，草稿位即哨兵词；humanPresentOf单段词法判有人放行落盘。修复=草稿期键暂存进pending草稿+dispatchDraft签发后create前搬到真实sid+清哨兵残留】
 - 【cr-1085 2026-11-14 会话键全生命周期契约成文（conv-settings-conventions.md 规约档：注册/UI/写/读/消费/草稿/继承七面统一口径 + 例外清单 + 三道防线；contract.ts 与 ChatInput 注释互指）——新键作者单入口，cr-1084 草稿暂存边界纳入规约】
+- 【cr-1086 2026-11-14 conv-settings-conventions 规约重组：以键值数据流为主线（草稿物化并入写路径），七面清单降级为站点】
+- 【cr-1087 2026-11-15 conv-settings-conventions 深度调查订正：grants 消费面验尸（六决定点宣称不实）+ 写时机裁决固化（消息边界写）+ harnessTier 死键登记】
+- 【cr-1088 2026-11-15 conv-settings-conventions 订正：enum/pattern 值域校验判无意义（enum 实为 UI 选项列表；pattern 零消费）——并入 §七④实施轨道】
+- 【cr-1089 2026-11-15 cr 技能增粒度裁决节（同话题迭代复用原 cr 号防条目膨胀）+ cr-log 头部规约同步扩展（粒度=变更面非会话轮次）】
+- 【cr-1090 2026-11-15 conv-settings 精简批交接档：四批实施轨道（发送时写/grants 退役/harnessTier 处置/值域校验退役）的进度、锚点与接力入口】
+- 【cr-1091 2026-11-15 conv-settings 批④：值域校验退役——删 pattern/isValid/回读过滤，落盘即真相】
+- 【cr-1092 2026-11-15 conv-settings 批②：grants 退役——web-tools 直读合一 + toolAllowedFor 恒 true 链清零 + sessionCapsOf 整删】
+- 【cr-1093 2026-11-15 conv-settings 批①：发送时写——控件表单化 + 发送链单次 patch，草稿三件套/偏好继承写/写失败回滚蒸发】
+- 【cr-1094 2026-11-15 conv-settings 批③：harnessTier 整键退役——删键注册与 disabled 拦截臂，run_harness 保留】
+- 【cr-1095 2026-11-15 技能面 requiredTags 腐化指导清除：对齐 cr-953 行装载单闸（plugin-dev SKILL.md 三处 + agentchat-dev references/plugin.md 四处，顺带对齐 cr-1049 injection→discover）】
+- 【cr-1096 2026-11-15 双禁词表与数据分层对齐：meta 整树+credentials 目录+index/outbox/.runtime 入 deny，死锚点清理（cr-1008/1081 迁移遗留）】
+- 【cr-1097 2026-11-15 开发者模式 AGENTCHAT_DEV_MODE：env 进程级开关解锁系统域 deny（凭据恒禁），单点 createDenyListsFactory】
 
