@@ -471,11 +471,28 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     fs.rmSync(notifyFile, { force: true });
     if (raw !== null && typeof raw.sender === 'string' && raw.sender !== '') {
       const { makeEnvelope, issueRequestId } = await import('ac-envelope-core');
+      // uuid = 会话键原值 + sender = 桶对端（cr-1099 现场修正）：机制信复用
+      // 原会话桶。两个坑：① uuid 前缀形态被壳当新会话键开孤儿桶（通知进不了
+      // 原上下文）；② sender = 请求方自身会撞 participants 校验（信被静默吞）。
+      // restart_shell 注入（cr-658 restartNoteSender）同款裁决：对键取对端、
+      // 自会话取自身、非 ~ 键取 user。
+      const sender = raw.sender; // typeof 已在 if 收窄（string）
+      const conv = typeof raw.conversationId === 'string' && raw.conversationId !== ''
+        ? raw.conversationId
+        : undefined;
+      const senderOf = (): string => {
+        const parts = (conv ?? '').split('~');
+        if (parts.length === 2) {
+          if (parts[0] === parts[1]) return sender;
+          return parts[0] === sender ? parts[1]! : parts[0]!;
+        }
+        return 'user';
+      };
       await po.dispatch(makeEnvelope({
-        uuid: 'restart-host-notify-' + (typeof raw.conversationId === 'string' ? raw.conversationId : raw.sender),
+        uuid: conv ?? raw.sender,
         requestId: 'restart-host-notify-' + issueRequestId(),
-        sender: raw.sender,
-        ...(typeof raw.conversationId === 'string' ? { conversationId: raw.conversationId } : {}),
+        sender: senderOf(),
+        ...(conv !== undefined ? { conversationId: conv } : {}),
         to: raw.sender,
         kind: 'message',
         budget: 1,
