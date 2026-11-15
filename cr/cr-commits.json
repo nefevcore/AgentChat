@@ -1,6 +1,6 @@
 {
- "scannedHead": "6abd767fbc7b989178bd4238475d919d19a2ceb8",
- "generatedAt": "2026-11-15T12:20:43.175Z",
+ "scannedHead": "a276c3ddf6693b66a44f7ec29c0757158ef9ff1d",
+ "generatedAt": "2026-11-15T12:20:51.491Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4400,14 +4400,14 @@
   ],
   "1008": [
    {
-    "sha": "d65201f350fdd2c338249f2ef430b006d956d4b3",
-    "date": "2026-11-11",
-    "subject": "docs: cr-1008 整理批——docs 全域重组八域目录 + 20 篇归档 + 文档规范成文"
-   },
-   {
     "sha": "34b2283bb9d95fd0794a3417a3a49719f98f7b96",
     "date": "2026-11-15",
     "subject": "fix(security): cr-1096 双禁词表对齐数据分层 meta/ 迁居 + cr-1097 开发者模式（env 开关 + 全局设置）"
+   },
+   {
+    "sha": "d65201f350fdd2c338249f2ef430b006d956d4b3",
+    "date": "2026-11-11",
+    "subject": "docs: cr-1008 整理批——docs 全域重组八域目录 + 20 篇归档 + 文档规范成文"
    }
   ],
   "1009": [
@@ -4969,27 +4969,17 @@
   ],
   "1097": [
    {
-    "sha": "34b2283bb9d95fd0794a3417a3a49719f98f7b96",
-    "date": "2026-11-15",
-    "subject": "fix(security): cr-1096 双禁词表对齐数据分层 meta/ 迁居 + cr-1097 开发者模式（env 开关 + 全局设置）"
-   },
-   {
     "sha": "a82e915b8a34d4448edf737dc62b97ad6ac9851e",
     "date": "2026-11-15",
     "subject": "fix(host): cr-1097 devEnv 注入挪 adopter 层——restart 快路复用首拉快照停留旧开关态"
+   },
+   {
+    "sha": "34b2283bb9d95fd0794a3417a3a49719f98f7b96",
+    "date": "2026-11-15",
+    "subject": "fix(security): cr-1096 双禁词表对齐数据分层 meta/ 迁居 + cr-1097 开发者模式（env 开关 + 全局设置）"
    }
   ],
   "1099": [
-   {
-    "sha": "3e4bf8b8b29a9b12ad92f51569a419d7a596264a",
-    "date": "2026-11-15",
-    "subject": "fix(host): cr-1099 通知信 uuid 用会话键原值 + sender 桶对端裁决——修孤儿桶/静默吞"
-   },
-   {
-    "sha": "c9843cc3b23362182889c21938b6641cc4d0f5fd",
-    "date": "2026-11-15",
-    "subject": "feat(host): cr-1099 restart_host 完成通知——marker 落盘+boot 兑现投机制信，回执去自查指引"
-   },
    {
     "sha": "7e341eda8036e56afe328adf8d608faf6f8ab361",
     "date": "2026-11-15",
@@ -4999,9 +4989,24 @@
     "sha": "59b2dbbb6dbe53d2dfb9067c3f0dae1e02ee77ad",
     "date": "2026-11-15",
     "subject": "chore(cr): cr-1099 收口（restart_host 完成通知端到端验证通过）"
+   },
+   {
+    "sha": "3e4bf8b8b29a9b12ad92f51569a419d7a596264a",
+    "date": "2026-11-15",
+    "subject": "fix(host): cr-1099 通知信 uuid 用会话键原值 + sender 桶对端裁决——修孤儿桶/静默吞"
+   },
+   {
+    "sha": "c9843cc3b23362182889c21938b6641cc4d0f5fd",
+    "date": "2026-11-15",
+    "subject": "feat(host): cr-1099 restart_host 完成通知——marker 落盘+boot 兑现投机制信，回执去自查指引"
    }
   ],
   "1101": [
+   {
+    "sha": "a276c3ddf6693b66a44f7ec29c0757158ef9ff1d",
+    "date": "2026-11-15",
+    "subject": "chore(cr): 台账 cr-1101~1113(回放/渲染契约批次) + cr↔commit 投影重建"
+   },
    {
     "sha": "da151c687a64cd858cd9f513806782bbe00be141",
     "date": "2026-11-15",
@@ -5011,11 +5016,6 @@
     "sha": "9df3d15f3d794c9f6f7fbd7eec1fa88ef5bcba8c",
     "date": "2026-11-15",
     "subject": "feat(ledger): cr-1101~1108 回放契约后端——词汇表(original/wrapper/none)+注册制+live 注入对齐+error/孤儿run/context 全量准入+memory/ac-skill v2 断裂修复+水位 payload 显式化+词表 watchdog+退役清理(agent-loop 内含 cr-1092 grants 撤用残段,主面见前一提交)"
-   },
-   {
-    "sha": "6abd767fbc7b989178bd4238475d919d19a2ceb8",
-    "date": "2026-11-15",
-    "subject": "chore(cr): 台账 cr-1101~1113(回放/渲染契约批次) + cr↔commit 投影重建"
    }
   ],
   "1109": [

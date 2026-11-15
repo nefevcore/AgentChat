@@ -1132,4 +1132,6 @@
 - 【cr-1111 2026-11-15 渲染契约切片 C:resume 落账收编(none 词)+ 直播行 agent_id 真值 + system 特赦删除 #render-contract】
 - 【cr-1112 2026-11-15 渲染契约切片 D:MessageSourceKind 开放化(kind:string)+ as never ×2 清 + shim 瘦身 #render-contract】
 - 【cr-1113 2026-11-15 渲染契约复查批:resume 落账行补 label 数据面 + 注释修正在库(shim 别名删除/历史判据描述/ledger-projection resume 口径)+ 文档交叉引用 #render-contract】
+- 【cr-1114 2026-11-15 工具源统一（批1+2）：host-face boot 静态承诺面 + rowTools 活查询化 + 前缀快照漂移升重算 + ToolSource 契约与 MCP 发现缓存——修 timer 代理工具三面失明】
+- 【cr-1115 2026-11-15 结构消除 boot 窗口可达登记竞态：锁活不等于 ipc 就绪，rescue/peek/adoptLiveShells 登记前先探 pipe 实连】
 
