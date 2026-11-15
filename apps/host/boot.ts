@@ -206,8 +206,22 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   };
   // 安全重启收信面：restart_host（cr-629）/ restart_shell 退出重拉（cr-648）
   inbox.on(async (env) => {
-    const payload = env.payload as { restartHost?: unknown; restartShell?: unknown; agentId?: unknown } | null;
+    const payload = env.payload as { restartHost?: unknown; restartShell?: unknown; agentId?: unknown; conversationId?: unknown } | null;
     if (payload?.restartHost === true) {
+      // cr-1097 配套：落盘通知标记——新宿主 boot 完成后向请求方会话投「宿主已重启」
+      // 机制信（restart_shell「已重启」通知同款模式），Agent 无需自查 healthz/facts。
+      try {
+        fs.mkdirSync(path.join(dataRoot, '.runtime'), { recursive: true });
+        fs.writeFileSync(
+          path.join(dataRoot, '.runtime', 'restart-host-notify.json'),
+          JSON.stringify({
+            sender: env.sender,
+            conversationId: typeof payload.conversationId === 'string' ? payload.conversationId : null,
+            requestedAt: new Date().toISOString(),
+          }, null, 2),
+          'utf-8',
+        );
+      } catch { /* 尽力面：写失败 = 新宿主无通知（重启本身不受影响） */ }
       options.onRestartRequest?.(env.sender);
       return;
     }
@@ -442,6 +456,37 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
       'utf-8',
     );
   } catch { /* 尽力面：写失败不阻塞 boot */ }
+
+  // ---- restart_host 完成通知（cr-1097 配套）：上一代宿主退出前落盘的
+  // 标记 → 本代 boot 完成（监护面就绪 + web 起监听）即向请求方会话投
+  // 「宿主已重启」机制信——restart_shell「已重启」通知（cr-658）同款模式，
+  // Agent 无需再自查 healthz/host-facts。投递经 po.dispatch：壳按需拉起
+  // 由 ensureHook 承载（活壳恒在场——restart_host 不杀壳，直投快路即可）。
+  // 标记读后即删（换代一次一兑现，重启失败不重投——失败时宿主不 boot 到此）。 ----
+  try {
+    const notifyFile = path.join(dataRoot, '.runtime', 'restart-host-notify.json');
+    const raw = JSON.parse(fs.readFileSync(notifyFile, 'utf-8')) as
+      | { sender?: unknown; conversationId?: unknown }
+      | null;
+    fs.rmSync(notifyFile, { force: true });
+    if (raw !== null && typeof raw.sender === 'string' && raw.sender !== '') {
+      const { makeEnvelope, issueRequestId } = await import('ac-envelope-core');
+      await po.dispatch(makeEnvelope({
+        uuid: 'restart-host-notify-' + (typeof raw.conversationId === 'string' ? raw.conversationId : raw.sender),
+        requestId: 'restart-host-notify-' + issueRequestId(),
+        sender: raw.sender,
+        ...(typeof raw.conversationId === 'string' ? { conversationId: raw.conversationId } : {}),
+        to: raw.sender,
+        kind: 'message',
+        budget: 1,
+        payload: {
+          text: '宿主已重启完成（restart_host 已兑现）：宿主行集与运行时状态已重载（新代 pid ' + process.pid + '，web 端口 ' + web.port + '）。重启前发起的 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤。',
+          mechanism: true,
+        },
+      }));
+      hostLog('I', 'host', 'restart_host 完成通知已投递（sender=' + raw.sender + '）');
+    }
+  } catch { /* 尽力面：标记缺席/投递失败不阻塞 boot */ }
 
   return {
     ctx,

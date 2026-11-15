@@ -99,7 +99,7 @@ export function makeRestartRow(options: RestartRowOptions): Plugin {
       const restartHostTool = {
         name: 'restart_host',
         description:
-          '改了宿主装载的代码、且需要它在运行时生效（继续开发/验证/交付）时才调本工具——宿主进程不热更新，不重启则运行的一直是旧代码（测试全绿 ≠ 运行时已生效；只改码不跑即无需重启）。触发判据（满足即调，无需用户指示）：改动了宿主侧装载的源码——宿主基座（apps/catalog/profile/host.yml）点名的包（ac-host-rows、ac-post-office、ac-web-server、ac-host-webui 等）、apps/host 源码、宿主侧基座文档/装配（apps/catalog/）；或宿主侧状态坏、宿主级行集目录/插件库变更需重载。机制：「退出即复活」的无损重载原语（退出码 42 优雅重启，非停机窗口、非崩溃）——拉起恒归活壳探测，supervisor 在场时为其快路；webui 短暂断连后恢复。保壳保 run：模型调用不经过宿主，本壳与当前 run 不受影响——调用后继续当前任务即可，run 终稿在宿主恢复后送达。回执为壳侧送达确认（宿主退出后无法自回响应——crashed/超时类结果不等于失败），复活证据以回执给出的 healthz 探测地址/事实源文件为准，勿盲猜端口。批处理/迁移等宿主静止期执行（idle 宿主只在 run 收束时写盘，「需要停机窗口」的担忧通常不存在）。改的只是壳侧装载面（shell.yml 或你的行集点名的包）→ 用 restart_shell，不用本工具。',
+          '改了宿主装载的代码、且需要它在运行时生效（继续开发/验证/交付）时才调本工具——宿主进程不热更新，不重启则运行的一直是旧代码（测试全绿 ≠ 运行时已生效；只改码不跑即无需重启）。触发判据（满足即调，无需用户指示）：改动了宿主侧装载的源码——宿主基座（apps/catalog/profile/host.yml）点名的包（ac-host-rows、ac-post-office、ac-web-server、ac-host-webui 等）、apps/host 源码、宿主侧基座文档/装配（apps/catalog/）；或宿主侧状态坏、宿主级行集目录/插件库变更需重载。机制：「退出即复活」的无损重载原语（退出码 42 优雅重启，非停机窗口、非崩溃）——拉起恒归活壳探测，supervisor 在场时为其快路；webui 短暂断连后恢复。保壳保 run：模型调用不经过宿主，本壳与当前 run 不受影响——调用后继续当前任务即可，run 终稿在宿主恢复后送达。回执为壳侧送达确认（宿主退出后无法自回响应——crashed/超时类结果不等于失败）；重启完成后新宿主自动向本会话投「宿主已重启完成」机制通知——收到通知即知换代完成，无需自行探测宿主状态。批处理/迁移等宿主静止期执行（idle 宿主只在 run 收束时写盘，「需要停机窗口」的担忧通常不存在）。改的只是壳侧装载面（shell.yml 或你的行集点名的包）→ 用 restart_shell，不用本工具。',
         parameters: { type: 'object', properties: {}, required: [] },
         execute: async (_args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> => {
           if (options.postOfficeAddress === undefined) {
@@ -130,21 +130,17 @@ export function makeRestartRow(options: RestartRowOptions): Plugin {
           } finally {
             client.close();
           }
-          // cr-806：回执 = 壳侧送达确认（宿主退出后无法自报）+ 结构化探测锚点
-          //（oldPid/webuiPort 来自 boot 落盘的事实源——消除盲猜端口的排查轮回）。
+          // cr-1097 配套：回执 = 壳侧送达确认 + 完成通知承诺（新宿主 boot 后自动
+          // 投「宿主已重启」机制信到本会话——cr-658 restart_shell 通知同款模式），
+          // Agent 无需自查 healthz/host-facts。oldPid/webuiPort 仍随附（排查用）。
           const facts = readHostFacts(options.dataRoot);
-          const factsPath = path.join(path.resolve(options.dataRoot), '.runtime', 'host-facts.json');
-          const healthzUrl = facts !== undefined ? 'http://127.0.0.1:' + facts.port + '/api/healthz' : undefined;
           return {
             ok: true,
             output: {
               restarting: true,
               ackBy: 'shell',
-              ...(facts !== undefined ? { oldPid: facts.pid, webuiPort: facts.port, healthzUrl } : {}),
-              note: '重启请求已送达宿主（本回执为壳侧送达确认——宿主退出后无法自回响应，后续收到 crashed/超时类结果不等于失败）。宿主将优雅退出重启，由活壳/supervisor 拉回，通常 ~10s 内恢复；本 run 不受影响，继续当前任务即可。'
-                + (facts !== undefined
-                  ? '复活验证：读 ' + factsPath + '（pid 变化即换代完成，当前旧 pid=' + facts.pid + '）或 GET ' + healthzUrl + '（宿主监听恒 127.0.0.1，勿盲猜端口）。'
-                  : '本数据根无 host-facts.json（旧宿主代）——复活验证读 .runtime/logs 下最新 host-*.log。'),
+              ...(facts !== undefined ? { oldPid: facts.pid, webuiPort: facts.port } : {}),
+              note: '重启请求已送达宿主（本回执为壳侧送达确认——宿主退出后无法自回响应，后续收到 crashed/超时类结果不等于失败）。宿主将优雅退出重启，由活壳/supervisor 拉回，通常 ~10s 内恢复；本 run 不受影响，继续当前任务即可。重启完成后会收到「宿主已重启完成」通知消息——届时直接按上一步终稿继续，无需自行探测宿主状态。',
             },
           };
         },
