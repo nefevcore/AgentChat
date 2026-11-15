@@ -151,12 +151,15 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     ...(options.hostBoot !== undefined ? { hostBoot: options.hostBoot } : {}),
     ...(options.hostPort !== undefined ? { hostPort: options.hostPort } : {}),
     mockProvider: options.mockProvider ?? false,
-    // cr-1097 开发者模式：宿主合成 AGENTCHAT_DEV_MODE 注入壳 env——
-    // 每次拉壳现取（config 热更后新拉壳即时生效，已活壳不受影响）
-    ...(options.devModeOf?.() === true ? { devEnv: { AGENTCHAT_DEV_MODE: '1' } } : {}),
   });
 
   const baseAdopter: SuperviseAdopter = options.adopt ?? ((input) => adoptShell(input));
+  // cr-1097 开发者模式注入：adopter 层现取（非 spawnInputOf 快照——首拉后
+  // ensureAgent 幂等快路 existing.restart() 复用旧 input 快照，快照字段
+  // 停留首拉时刻开关态；adopter 每次 adopt〔首拉/respawn/restart〕现取，
+  // config 热更后任意重拉路径即时反映当前开关）。
+  const devTagged = (input: SuperviseSpawnInput): SuperviseSpawnInput =>
+    options.devModeOf?.() === true ? { ...input, devEnv: { AGENTCHAT_DEV_MODE: '1' } } : input;
   // 换代接管首拉面（cr-967）：adoptLiveShells 预登记的活锁壳首次 adopt 返回
   // socket-only 句柄（无 spawn）；后续 respawn 走常规 spawn 链（kill 后锁已
   // 自然释放，ensureAgent 语义不变）。
@@ -176,7 +179,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
         },
       );
     }
-    return baseAdopter(input);
+    return baseAdopter(devTagged(input));
   };
 
   // 拉起并发门 + 失败冷却（cr-962 冷启韧性）：并发门消群体冷启互拖；冷却窗

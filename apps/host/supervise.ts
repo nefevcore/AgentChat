@@ -34,6 +34,9 @@ export interface SuperviseSpawnInput {
   hostBoot?: string;
   hostPort?: number;
   mockProvider?: boolean;
+  /** 拉壳时注入壳进程的额外 env（cr-1097 开发者模式——orchestrator
+   *  adopter 层现取合成；缺省无注入 = 继承宿主 env） */
+  devEnv?: Record<string, string>;
 }
 
 /** 已拉起壳（adoptShell 返回面的结构子集——本面消费的持续订阅面） */

@@ -76,6 +76,42 @@ describe('run 节拍落盘（cr-740 运维日志）', () => {
   });
 });
 
+describe('开发者模式 env 注入（cr-1097）', () => {
+  it('adopter 层现取开关态：首拉后开关翻转，restart 重拉反映当前态（不停留首拉快照）', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    const inputs: Array<{ devEnv?: Record<string, string> }> = [];
+    const shells: FakeShell[] = [];
+    let devMode = false;
+    const shellOf = (): FakeShell => {
+      const s = new FakeShell([
+        'boot.lock.acquired\tb1\tT',
+        'boot.rows.ready\tb1\t12',
+        'boot.ready\tb1\tpipe\\\\.\\mock-dm',
+      ]);
+      shells.push(s);
+      return s;
+    };
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      devModeOf: () => devMode,
+      adopt: async (input) => { inputs.push(input); return shellOf(); },
+    });
+    try {
+      await orch.ensureAgent('dm-agent'); // 首拉：devMode=false → 无 devEnv
+      expect(inputs[0].devEnv).toBeUndefined();
+      devMode = true;
+      shells[0].exit(0, null); // 正常退出 → done 态（等来件按需拉起）
+      await new Promise((r) => setTimeout(r, 100));
+      await orch.ensureAgent('dm-agent'); // 死态重拉：现取 → devEnv 注入
+      expect(inputs.length).toBe(2);
+      expect(inputs[1].devEnv).toEqual({ AGENTCHAT_DEV_MODE: '1' });
+    } finally {
+      orch.close();
+    }
+  });
+});
+
 describe('撞活锁救援（cr-612 D5 边 2 配套；cr-647 前置化）', () => {
   it('活壳持锁 → ensureHook 前置探活回登记 + 转投发件箱（不 spawn 必被拒的子壳）', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
