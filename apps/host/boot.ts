@@ -499,6 +499,11 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
         payload: {
           text: '宿主已重启完成（restart_host 已兑现）：宿主行集与运行时状态已重载（新代 pid ' + process.pid + '，web 端口 ' + web.port + '）。重启前发起的 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤。',
           mechanism: true,
+          // cr-1099 现场修正（竞态双态）：通知到达时原 run 可能仍 busy（工具
+          // 回执后模型还在写终稿）——默认 busy-steer 会把通知注入原 run 当
+          // 素材（被消费、不呈现为独立轮）。lane=next-turn：busy 排队下一轮、
+          // idle 即开轮——通知恒为独立轮次（cr-575 队列产品化既有语义）。
+          lane: 'next-turn',
         },
       }));
       hostLog('I', 'host', 'restart_host 完成通知已投递（sender=' + raw.sender + '）');
