@@ -32,6 +32,32 @@ export interface IpcServer {
 }
 
 /**
+ * 连接探针（连上即断——listenIpc 对裸连接零语义，cr-1115）：可达登记以
+ * pipe 实连为据。壳 boot 早期即持 activation.lock，ipc listen 在整段行集
+ * 装配之后——「锁在 = 可达」会把 boot 窗口内的 connect ENOENT 误判为端点
+ * 死亡。探连成功 = 可登记；失败 = 未 listen（或已死），由调用方按锁活判
+ * boot 窗口。半开连接兜底：超时视为不可连。
+ */
+export function probeIpc(address: string, timeoutMs = 2_000): Promise<boolean> {
+  return new Promise((resolve) => {
+    let settled = false;
+    let socket: net.Socket | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== null) clearTimeout(timer);
+      socket?.destroy();
+      resolve(ok);
+    };
+    socket = net.connect(address, () => finish(true));
+    socket.once('error', () => finish(false));
+    timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref();
+  });
+}
+
+/**
  * 起 ipc 监听（host 进程内）。onFrame 每帧回调（可异步——IpcClient
  * 逐帧等回执，无并发乱序）；返回值经 write 回帧。
  */

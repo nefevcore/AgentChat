@@ -15,7 +15,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type PostOffice, type ReachabilityTable } from 'ac-post-office';
-import { IpcClient } from 'ac-envelope-core';
+import { IpcClient, probeIpc } from 'ac-envelope-core';
 import { isManageReply, makeManageRequest, type ManageReply } from 'ac-envelope-core';
 import { adoptShell, appendRollingLine } from './orchestrate.ts';
 import { hostLog } from './host-log.ts';
@@ -289,18 +289,22 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       return null;
     }
   };
-  const liveShellHintOf = (agentId: string): string | null => liveShellLockOf(agentId)?.hint ?? null;
 
   // 撞活锁救援（cr-612 D5 边 2 配套）：宿主被壳复活后可达表空白，旧壳
   // 持 activation.lock 使 adopt 必拒（单例语义）——救援 = 探活 holder
   // pid，活着即按锁内 transportHint 回登记可达（消息路径立即恢复）。监护
   // 接管的主面 = boot adoptLiveShells（cr-967）；此处只兜 boot 后新出现
   // 的盘上活锁（消息路径前置探活，不 spawn）。
-  const rescueReachableFromLock = (agentId: string): boolean => {
-    const hint = liveShellHintOf(agentId);
-    if (hint === null) return false;
-    reach.markReachable(agentId, hint);
-    return true;
+  // cr-1115：锁活 ≠ ipc 就绪——壳 boot 早期即持锁，ipc listen 在整段行集
+  // 装配之后。登记一律以 pipe 实连为据：探连失败但锁活 = boot 窗口常态
+  //（cr-681 manage 通道同语义），不登记、不冲刷、不 spawn（锁在必拒），
+  // 滞留信由 adopted 转投与 poller 下拍兜底。
+  const rescueReachableFromLock = async (agentId: string): Promise<'ready' | 'booting' | null> => {
+    const lock = liveShellLockOf(agentId);
+    if (lock === null) return null;
+    if (!(await probeIpc(lock.hint))) return 'booting';
+    reach.markReachable(agentId, lock.hint);
+    return 'ready';
   };
 
   // 宿主换代后活壳完整接管（cr-967，替代 cr-659 降级收复）：boot 扫
@@ -320,9 +324,13 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       takeoverLocks.set(agentId, { bootId: lock.bootId, pid: lock.pid, hint: lock.hint });
       try {
         await ensureAgent(agentId);
-        // 可达恢复 = 通道恢复（cr-885 同语义）：登记 + 滞留信即刻冲刷
-        reach.markReachable(agentId, lock.hint);
-        void options.postOffice.flushOutbox().catch(() => { /* 转投失败留箱重试 */ });
+        // 可达恢复 = 通道恢复（cr-885 同语义）：登记 + 滞留信即刻冲刷。
+        // cr-1115：接管壳若仍在 boot 窗口（宿主换代恰好撞壳冷启，pipe 未
+        // listen）本拍不登记——poller peek 下拍就绪后回登记冲刷。
+        if (await probeIpc(lock.hint)) {
+          reach.markReachable(agentId, lock.hint);
+          void options.postOffice.flushOutbox().catch(() => { /* 转投失败留箱重试 */ });
+        }
         adopted += 1;
       } catch (err) {
         takeoverLocks.delete(agentId);
@@ -430,7 +438,10 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
       // 信。此前只登记不冲刷，滞留信要等「下一个任何 agent 的壳 adopted」的
       // 全量 flush 顺带救出（现场：creator 壳 boot 后滞留 18 分钟，靠 news 定
       // 时信间接触发才送达——poller 周期冲刷兜底见 boot.ts）。
-      if (reach.hintFor(agentId) !== lock.hint) {
+      // cr-1115：登记前探 pipe 实连——boot 窗口（锁已持、ipc 未 listen）内
+      // 不登记不冲刷（否则 connect ENOENT 被当端点死：摘项 + 「转投失败」W），
+      // 下拍重探即收敛；壳真死由锁观察/判死面承载。
+      if (reach.hintFor(agentId) !== lock.hint && await probeIpc(lock.hint)) {
         reach.markReachable(agentId, lock.hint);
         options.onReconciled?.({ type: 'shell-emerged', agentId });
         void options.postOffice.flushOutbox().catch(() => { /* 转投失败留箱重试 */ });
@@ -527,16 +538,24 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     // 此前救援只挂在 adopt 失败分支且按错误文本「activation 锁被进程」匹配，
     // 而真链 adoptShell 只产「壳进程早退（code=…）」（壳内拒绝理由不回流），
     // 救援恒不触发 → 宿主重启后活壳消息全部滞留 outbox（cr-647 现场 Phase B）。
-    if (rescueReachableFromLock(target)) {
-      void options.postOffice.flushOutbox();
-      return;
-    }
-    // 拉起拒绝（熔断/已停）不阻塞投递——信已落箱，恒 at-least-once；
-    // 拒因上 stderr（宿主此前静默吞 = 「deliver ok 但壳永不起」零诊断面）。
-    void ensureAgent(target).catch((err: unknown) => {
-      const msg = err instanceof Error ? err.message : String(err);
-      hostLog('E', 'host.orchestrator', `ensureAgent(${target}) 拉起拒绝——信封滞留发件箱待转投：${msg}`);
-    });
+    // cr-1115：rescue 探连异步化——boot 窗口（锁活 pipe 未 listen）返回
+    // 'booting'，同样不 spawn（锁在必拒），滞留信等 listen 后由 adopted
+    // 转投 / peek 回登记冲刷兜底。
+    void (async () => {
+      const rescued = await rescueReachableFromLock(target);
+      if (rescued !== null) {
+        if (rescued === 'ready') void options.postOffice.flushOutbox();
+        return;
+      }
+      // 拉起拒绝（熔断/已停）不阻塞投递——信已落箱，恒 at-least-once；
+      // 拒因上 stderr（宿主此前静默吞 = 「deliver ok 但壳永不起」零诊断面）。
+      try {
+        await ensureAgent(target);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        hostLog('E', 'host.orchestrator', 'ensureAgent(' + target + ') 拉起拒绝——信封滞留发件箱待转投：' + msg);
+      }
+    })();
   };
 
   return {

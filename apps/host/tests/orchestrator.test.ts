@@ -113,15 +113,18 @@ describe('开发者模式 env 注入（cr-1097）', () => {
 });
 
 describe('撞活锁救援（cr-612 D5 边 2 配套；cr-647 前置化）', () => {
-  it('活壳持锁 → ensureHook 前置探活回登记 + 转投发件箱（不 spawn 必被拒的子壳）', async () => {
+  it('活壳持锁且 pipe 已 listen → ensureHook 前置探活回登记 + 转投发件箱（不 spawn 必被拒的子壳）', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();
+    // cr-1115：登记以 pipe 实连为据——假 pipe 路径探连必败，需真 listener
+    const betaHint = socketPathFor(path.resolve(ROOT), 'beta');
+    const betaServer = await listenIpc(betaHint, () => undefined);
     const agentDir = path.join(ROOT, 'agents', 'beta');
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
       pid: process.pid, // 本测试进程恒活
       bootId: 'b-old', acquiredAt: new Date().toISOString(),
-      transportHint: 'pipe\\\\.\\mock-beta-alive',
+      transportHint: betaHint,
     }), 'utf-8');
     let flushed = 0;
     const poFlush = po.flushOutbox.bind(po);
@@ -137,10 +140,52 @@ describe('撞活锁救援（cr-612 D5 边 2 配套；cr-647 前置化）', () =>
       orch.ensureHook('beta'); // 消息路径入口（fire-and-forget）
       await new Promise((r) => setTimeout(r, 100));
       expect(spawned).toBe(0); // 前置探活命中——不 spawn
-      expect(reach.hintFor('beta')).toBe('pipe\\\\.\\mock-beta-alive');
+      expect(reach.hintFor('beta')).toBe(betaHint);
       expect(flushed).toBe(1); // 滞留信即刻转投
     } finally {
       orch.close();
+      await betaServer.close();
+    }
+  });
+
+  it('【cr-1115】boot 窗口（锁活、ipc 未 listen）→ 不登记不冲刷不 spawn；listen 后收敛', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    const reach = new ReachabilityTable();
+    // 现场形态：壳 spawn 后早期即持 activation.lock，ipc listen 在整段行集
+    // 装配之后——窗口内「锁在 = 可达」误登记 → connect ENOENT → cr-885
+    // 摘项 + 「转投失败」W 刷屏（可达表抖动）。收口：登记前探 pipe 实连。
+    const bwHint = socketPathFor(path.resolve(ROOT), 'bw-beta');
+    const agentDir = path.join(ROOT, 'agents', 'bw-beta');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'b-bw', acquiredAt: new Date().toISOString(),
+      transportHint: bwHint,
+    }), 'utf-8');
+    let flushed = 0;
+    const poFlush = po.flushOutbox.bind(po);
+    po.flushOutbox = async () => { flushed += 1; return poFlush(); };
+    let spawned = 0;
+    const orch = createOrchestrator({
+      dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', postOffice: po, reach,
+      adopt: async () => { spawned += 1; throw new Error('壳进程早退（code=1）——未达 boot.ready'); },
+    });
+    let server: Awaited<ReturnType<typeof listenIpc>> | null = null;
+    try {
+      orch.ensureHook('bw-beta'); // boot 窗口：锁活、pipe 未 listen
+      await new Promise((r) => setTimeout(r, 150));
+      expect(spawned).toBe(0); // 锁在必拒——不 spawn
+      expect(reach.hintFor('bw-beta')).toBeUndefined(); // 不登记
+      expect(flushed).toBe(0); // 不冲刷（ENOENT 不再被当端点死）
+      // pipe 就绪（壳 ipc listen 完成）→ 下拍收敛：登记 + 转投
+      server = await listenIpc(bwHint, () => undefined);
+      orch.ensureHook('bw-beta');
+      await new Promise((r) => setTimeout(r, 150));
+      expect(spawned).toBe(0);
+      expect(reach.hintFor('bw-beta')).toBe(bwHint);
+      expect(flushed).toBe(1);
+    } finally {
+      orch.close();
+      await server?.close();
     }
   });
 
@@ -172,12 +217,15 @@ describe('换代壳完整接管（cr-967——socket-only 句柄入池）', () =
   it('adoptLiveShells：活壳句柄入池 + 可达登记 + re-tap；死锁/无锁跳过；不 spawn', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();
-    // 活壳 beta（本测试进程 pid）+ 陈锁 gamma + 无锁 delta
+    // 活壳 beta（本测试进程 pid + 真 listener——cr-1115 登记以 pipe 实连为据）
+    // + 陈锁 gamma + 无锁 delta
+    const liveHint = socketPathFor(path.resolve(ROOT), 'adopt-live');
+    const liveServer = await listenIpc(liveHint, () => undefined);
     const liveDir = path.join(ROOT, 'agents', 'beta');
     fs.mkdirSync(liveDir, { recursive: true });
     fs.writeFileSync(path.join(liveDir, 'activation.lock'), JSON.stringify({
       pid: process.pid, bootId: 'b-live', acquiredAt: new Date().toISOString(),
-      transportHint: 'pipe\\\\.\\mock-beta-alive',
+      transportHint: liveHint,
     }), 'utf-8');
     const staleDir = path.join(ROOT, 'agents', 'gamma');
     fs.mkdirSync(staleDir, { recursive: true });
@@ -198,13 +246,14 @@ describe('换代壳完整接管（cr-967——socket-only 句柄入池）', () =
       const h = orch.handles().get('beta');
       expect(h).toBeDefined();
       expect(h!.superviseEvents.some((ev) => ev.type === 'adopted')).toBe(true);
-      expect(reach.hintFor('beta')).toBe('pipe\\\\.\\mock-beta-alive');
+      expect(reach.hintFor('beta')).toBe(liveHint);
       expect(reach.hintFor('gamma')).toBeUndefined();
       expect(reach.hintFor('delta')).toBeUndefined();
       // re-tap 只打给活壳
       await new Promise((r) => setTimeout(r, 50));
-      expect(taps).toEqual([{ agentId: 'beta', hint: 'pipe\\\\.\\mock-beta-alive' }]);
+      expect(taps).toEqual([{ agentId: 'beta', hint: liveHint }]);
     } finally {
+      await liveServer.close();
       orch.close();
     }
   });
