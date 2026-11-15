@@ -1,6 +1,6 @@
 {
- "scannedHead": "d9d6266d569c7a6d8e1e364b99e8b09ef7077138",
- "generatedAt": "2026-11-15T01:22:27.551Z",
+ "scannedHead": "3e4bf8b8b29a9b12ad92f51569a419d7a596264a",
+ "generatedAt": "2026-11-15T03:30:54.800Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4958,6 +4958,23 @@
     "sha": "34b2283bb9d95fd0794a3417a3a49719f98f7b96",
     "date": "2026-11-15",
     "subject": "fix(security): cr-1096 双禁词表对齐数据分层 meta/ 迁居 + cr-1097 开发者模式（env 开关 + 全局设置）"
+   },
+   {
+    "sha": "a82e915b8a34d4448edf737dc62b97ad6ac9851e",
+    "date": "2026-11-15",
+    "subject": "fix(host): cr-1097 devEnv 注入挪 adopter 层——restart 快路复用首拉快照停留旧开关态"
+   }
+  ],
+  "1099": [
+   {
+    "sha": "3e4bf8b8b29a9b12ad92f51569a419d7a596264a",
+    "date": "2026-11-15",
+    "subject": "fix(host): cr-1099 通知信 uuid 用会话键原值 + sender 桶对端裁决——修孤儿桶/静默吞"
+   },
+   {
+    "sha": "c9843cc3b23362182889c21938b6641cc4d0f5fd",
+    "date": "2026-11-15",
+    "subject": "feat(host): cr-1099 restart_host 完成通知——marker 落盘+boot 兑现投机制信，回执去自查指引"
    }
   ]
  }
