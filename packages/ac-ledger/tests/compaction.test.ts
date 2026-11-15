@@ -76,7 +76,7 @@ describe('压缩事件化（cr-974 §2.3）', () => {
     await w.compaction('cmp-1', '摘要文案', 1);
     const view = foldViewRecords(foldSession(ROOT, UUID), ROOT, UUID);
     expect(view.some((r) => JSON.stringify(r).includes('摘要文案'))).toBe(false);
-    expect(view.some((r) => String(r.type ?? '').startsWith('compaction'))).toBe(false);
+    expect(view.some((r) => String((r as unknown as Record<string, unknown>).type ?? '').startsWith('compaction'))).toBe(false); // ViewRow 无 type——防御性断言保留
   });
 
   it('物理回收（S5）：压缩段 gzip 单流 + 主日志保留 compaction 事件与尾部 + 尾部投影不变 + 索引重建', async () => {

@@ -18,6 +18,9 @@ import { readDomainFacts, type DomainFacts, type RunFactsV2, type SpeechEvent, t
 import { conversationDirs } from './manage.ts';
 import type { JournalToolResult, ProjectedStep } from './records.ts';
 import type { UserReplayRow } from './user.ts';
+import { UNCOMMITTED_TOOL_ERROR } from './reader.ts';
+import { wrapForReplay, REPLAY_BUILTIN_NONE, type ReplayKind } from './replay.ts';
+import type { ViewRow } from './view.ts';
 
 /** 活跃 run 聚集行（view.ts RunningEntry 同形——配平门控输入；异名避免导出冲撞） */
 export interface FoldRunningEntry {
@@ -264,12 +267,12 @@ function liteProjectStep(step: ProjectedStep): ProjectedStep {
   return { ...step, ...(reasoning !== undefined ? { reasoning } : {}), ...(toolCalls !== undefined ? { toolCalls } : {}) };
 }
 
-function liteRow(r: Record<string, unknown>): Record<string, unknown> {
+function liteRow(r: ViewRow): ViewRow {
   if (!Array.isArray(r.steps)) return r;
   return { ...r, steps: (r.steps as ProjectedStep[]).map(liteProjectStep) };
 }
 
-export function foldViewRecords(fold: SessionFold, dataRoot: string, conversationId: string, opts: FoldViewOptions = {}): Array<Record<string, unknown>> {
+export function foldViewRecords(fold: SessionFold, dataRoot: string, conversationId: string, opts: FoldViewOptions = {}): ViewRow[] {
   // subcall 档案取值：索引钩子优先（D-1——按 run 定位 seek）；回落惰性全读
   const subcallCache = new Map<string, JournalToolResult[]>();
   const subcallsFor = (domain: string, run: string): JournalToolResult[] => {
@@ -289,13 +292,13 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
   };
   const replay = foldUserReplay(fold);
   // 注入卡归口（run 键）
-  const injectRowsOf = new Map<string, Array<Record<string, unknown>>>();
+  const injectRowsOf = new Map<string, ViewRow[]>();
   const seenInjectAnchors = new Set<string>();
   const viewerOwnRequestIds = new Set<string>();
   for (const r of replay) {
     if (r.role === 'user' && r.requestId !== undefined) viewerOwnRequestIds.add(r.requestId);
   }
-  const projectInject = (run: string, row: Record<string, unknown>): void => {
+  const projectInject = (run: string, row: ViewRow): void => {
     const anchor = String(row.message_id);
     if (seenInjectAnchors.has(anchor)) return;
     seenInjectAnchors.add(anchor);
@@ -306,14 +309,16 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
     injectRowsOf.set(run, bucket);
   };
   for (const c of fold.contexts) {
-    const isInjectCard = c.source === 'inject'
-      || c.source !== 'error';
-    if (!isInjectCard || c.run === undefined) continue;
+    // cr-1110:恒等化写法修正(原 source==='inject'||source!=='error' 前项永真)
+    // ——实际语义:非 error 的带 run 键 context 行进 run 归口;error 走尾段红条,
+    // 无 run 键行走尾段直落。数据面透传判据在前端(historyApi 数据面在场)。
+    if (c.source === 'error' || c.run === undefined) continue;
     projectInject(c.run, {
       role: 'context',
       content: c.content,
       ...(c.label !== undefined ? { label: c.label } : c.source !== 'inject' && c.source !== 'event' ? { label: c.source } : {}),
       ...(c.payload !== undefined ? { payload: c.payload } : {}),
+      bytes: c.content.length, // cr-1109:bytes 投影派生(与直播帧 content.length 定义恒等)——前端兜底链 parity 前提
       source: c.injectSource ?? (c.source !== 'event' && c.source !== 'inject' ? c.source : 'inject'),
       message_id: c.messageId,
       timestamp: c.timestamp,
@@ -331,6 +336,7 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
         content: ev.content,
         ...(ev.label !== undefined ? { label: ev.label } : {}),
         ...(ev.payload !== undefined ? { payload: ev.payload } : {}),
+        bytes: ev.content.length, // cr-1109:bytes 投影派生
         source: ev.injectSource ?? 'inject',
         message_id: ev.injectionId ?? 'jinj-' + ev.run + '-' + (ev.seq ?? 0),
         timestamp: new Date(ev.ts || Date.now()).toISOString(),
@@ -342,7 +348,7 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
     }
   }
   // 终稿层主投影
-  const all: Array<Record<string, unknown>> = [];
+  const all: ViewRow[] = [];
   const viewerRuns = new Set<string>();
   for (const r of replay) {
     const projected = r.role === 'peer' && r.run !== undefined ? stepsFor(r.agentId, r.run) : null;
@@ -406,13 +412,14 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       role: 'context', content: c.content,
       label: c.label ?? c.source, source: c.source,
       message_id: c.messageId, timestamp: c.timestamp, agent_id: c.agentId,
+      bytes: c.content.length, // cr-1109:bytes 投影派生
       ...(c.seq !== undefined ? { seq: c.seq } : {}),
     });
   }
   // 机制通知行（cr-946）：event 分隔符——现行 context+event 行与 cr-946 前
   // 存量落形（speech 行 agent_id='user' + restarted-*）按时间线归并（位次
   // 不敏感——前端按 timestamp 排序，此处归并保对拍恒等）
-  const eventRows: Array<Record<string, unknown>> = [];
+  const eventRows: ViewRow[] = [];
   for (const r of fold.speech) {
     if (r.agentId === 'user' && r.requestId !== undefined && r.requestId.startsWith('restarted-')) {
       eventRows.push({
@@ -449,12 +456,23 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
  *（协议对，含末步与终稿同文让位）；注入 requestId 判重防双喂。
  * summary 头由调用方置首（summaryTextOf 取源）。
  */
+export interface FoldLlmOptions {
+  /** 活动 run 排除（cr-1101）：driveRun 传当前 runId——防轮间重派生把
+   *  在途 run 自己的轨迹喂回自己（双喂）；续跑（resume）前缀与回放各管
+   *  一半（回放管其他 run 的一切事实，resume 管本 run 前缀），无交集。 */
+  excludeRun?: string;
+  /** 声明查值（cr-1104 注册制）：source/injectSource 词 → 注册档；
+   *  缺省（未注册/未传）= wrapper（非 speech 事实行默认档） */
+  replayOf?: (word: string) => ReplayKind | undefined;
+}
+
 export function foldLlmReplay(
   fold: SessionFold,
   viewer: string,
   dataRoot: string,
   conversationId: string,
   subcallsOf?: (domain: string, run: string) => JournalToolResult[] | undefined,
+  opts: FoldLlmOptions = {},
 ): LlmMessage[] {
   const out: LlmMessage[] = [];
   const traced = new Set<string>();
@@ -462,27 +480,61 @@ export function foldLlmReplay(
   // 行（shadowed 前缀仍在日志但不再注入）；v1 无压缩 → 调用方概要兼容窗
   const compaction = foldSummaryOf(fold);
   if (compaction !== null) out.push({ role: 'system', content: compaction.text });
-  // 注入判重（cr-713）：注入行（物化/journal 两源归一后同在 runs.events）
-  // 携带 requestId 的——对应入站行文本不再复读
+  // cr-1104 注册制分档：声明词按注册档（original 原文/none 跳过），缺省 wrapper
+  const kindOf = (word: string | undefined): ReplayKind =>
+    (word !== undefined && REPLAY_BUILTIN_NONE.has(word)) ? 'none' : (word !== undefined ? opts.replayOf?.(word) : undefined) ?? 'wrapper';
+  // 注入判重（cr-713）→ v1 门控（cr-1101）：注入行携带 requestId 的对应
+  // 入站行文本不再复读——只为 v1 双写遗产兜底（数据根实证 202 对共存，
+  // 全部 v1）。v2 写面三重幂等（machine 准入 / writer requestId 门 /
+  // 恢复面盘面查重 receiveEnvelope）+ 实证 0 对共存 → 跳过。
   const injected = new Set<string>();
-  for (const rf of fold.runs.values()) {
-    for (const ev of rf.events) {
-      if (ev.kind === 'inject' && ev.requestId !== undefined && ev.requestId !== '') injected.add(ev.requestId);
+  if (fold.version === 1) {
+    for (const rf of fold.runs.values()) {
+      for (const ev of rf.events) {
+        if (ev.kind === 'inject' && ev.requestId !== undefined && ev.requestId !== '') injected.add(ev.requestId);
+      }
     }
   }
-  // 时间线（文件序 ≈ 时间序；稳定归并——speech 先于同刻 context）
-  type Slot = { ts: string; ord: number; speech?: SpeechEvent; notice?: ContextEvent };
+  // 时间线（文件序 ≈ 时间序；稳定归并——speech 先于同刻 context）。
+  // cr-1101：error 行进时间线（曾进入 run 的失败事实必须回放——user
+  // 语义位 + wrapper 包裹）；孤儿 run（有步/注入事实、无 run-end、无终稿
+  // 行锚——settle 前崩溃）轨迹按末事实 ts 插入时间线。有 run-end 无终稿
+  // 行 = 机制 run（归档整理三不）仍排除；活动 run 由 excludeRun 排除。
+  type Slot = { ts: string; ord: number; speech?: SpeechEvent; notice?: ContextEvent; orphan?: string; orphanSeq?: number };
   const timeline: Slot[] = [];
   let ord = 0;
   for (const s of fold.speech) timeline.push({ ts: s.timestamp, ord: ord++, speech: s });
+  // cr-1106 全量准入:一切 context 行进时间线(词 → 回放档由声明分派:
+  // none 跳过、original 裸文、缺省 wrapper)——拆掉「非 event 词天生 once」
+  // 的结构坑。v1 存量 skill/memory/durable context 行随之恢复跨 run 回放
+  // (原则 1:曾进入 run 的事实必须回放);数据根实证 context/inject 零双写。
   for (const c of fold.contexts) {
-    if (c.source === 'event' && c.content.trim() !== '') timeline.push({ ts: c.timestamp, ord: ord++, notice: c });
+    if (c.content.trim() !== '') timeline.push({ ts: c.timestamp, ord: ord++, notice: c });
+  }
+  const anchored = new Set<string>();
+  for (const s of fold.speech) {
+    const r0 = s.run ?? s.sourceRun;
+    if (r0 !== undefined && r0 !== '') anchored.add(r0);
+  }
+  for (const [run, rf] of fold.runs) {
+    if (anchored.has(run) || run === opts.excludeRun || rf.end !== undefined) continue;
+    const hasFacts = rf.events.some((ev) => ev.kind !== 'tool-call-result') || rf.aggregated !== undefined;
+    if (!hasFacts) continue;
+    let lastTs = 0;
+    let lastSeq: number | undefined;
+    for (const ev of rf.events) {
+      if (ev.kind === 'tool-call-result') continue;
+      if ((ev.ts ?? 0) > lastTs) lastTs = ev.ts ?? 0;
+      if (ev.seq !== undefined && ev.seq > (lastSeq ?? 0)) lastSeq = ev.seq;
+    }
+    if (lastTs <= 0) continue; // 无 ts 事实（极端存量）——无锚不插
+    timeline.push({ ts: new Date(lastTs).toISOString(), ord: ord++, orphan: run, ...(lastSeq !== undefined ? { orphanSeq: lastSeq } : {}) });
   }
   timeline.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.ord - b.ord));
   // 压缩边界过滤（shadowed 前缀不进回放——v2 行恒带 seq；无 seq 存量行放行）
   const bounded = compaction !== null
     ? timeline.filter((s) => {
-        const seq = s.speech?.seq ?? s.notice?.seq;
+        const seq = s.speech?.seq ?? s.notice?.seq ?? s.orphanSeq;
         return seq === undefined || seq > compaction.boundarySeq;
       })
     : timeline;
@@ -490,8 +542,17 @@ export function foldLlmReplay(
     subcallsOf?.(domain, run) ?? foldSubcallArchive(fold, dataRoot, conversationId, domain);
   for (const slot of bounded) {
     if (slot.notice !== undefined) {
-      // cr-888 机制通知行（context+event）：按 user 回放（落账先于 run 入口读）
-      out.push({ role: 'user', content: slot.notice.content });
+      // cr-888/1101/1106：context 行按 user 回放（事件通知/错误/注入材料
+      // 全量准入）；cr-1104 分档：声明词按注册档（none = 不进回放），缺省 wrapper
+      if (kindOf(slot.notice.source) === 'none') continue;
+      out.push({ role: 'user', content: wrapForReplay(slot.notice.content, kindOf(slot.notice.source)) });
+      continue;
+    }
+    if (slot.orphan !== undefined) {
+      // cr-1101 孤儿 run 轨迹：无终稿行锚也回放（once 绝不允许）；无终稿
+      // 行 = 无末步去重对象，全量直发
+      const rf = fold.runs.get(slot.orphan);
+      if (rf !== undefined) out.push(...trajectoryOfFacts(rf, slot.orphan, subcallsFor));
       continue;
     }
     const r = slot.speech!;
@@ -500,7 +561,7 @@ export function foldLlmReplay(
       traced.add(run);
       const rf = fold.runs.get(run);
       if (rf !== undefined) {
-        const traj = trajectoryOfFacts(rf, run, subcallsFor);
+        const traj = trajectoryOfFacts(rf, run, subcallsFor, opts.replayOf);
         // 末步去重（v1 trajFromRows 消费点同款）：自然收束 run 的末步 content
         // 即终稿——轨迹末条无工具 assistant 与终稿行同文时让位给终稿行
         const last = traj.at(-1);
@@ -542,14 +603,33 @@ export function trajectoryOfFacts(
   rf: RunFactsV2 & { domain: string },
   run: string,
   subcallsFor: (domain: string, run: string) => JournalToolResult[],
+  replayOf?: (word: string) => ReplayKind | undefined,
 ): LlmMessage[] {
-  const steps = foldStepsOf(rf, subcallsFor(rf.domain, run))?.steps ?? [];
+  // cr-1104 注册制分档（trajectory 内 inject 同口径；缺省 wrapper）
+  const kindOfT = (word: string | undefined): ReplayKind =>
+    (word !== undefined && REPLAY_BUILTIN_NONE.has(word)) ? 'none' : (word !== undefined ? replayOf?.(word) : undefined) ?? 'wrapper';
+  const steps0 = foldStepsOf(rf, subcallsFor(rf.domain, run))?.steps ?? [];
+  // cr-1101 未收束 run（孤儿）读方配平：无结果调用合成「结果未知/未
+  // 启动」终态（resumeStateFor / UNCOMMITTED_TOOL_ERROR 同语义）——回放
+  // 不许出现盲 ok；已收束 run 的合成仍由 foldStepsOf 收口（不变）。
+  const steps = rf.end === undefined
+    ? steps0.map((s) => s.toolCalls === undefined ? s : {
+        ...s,
+        toolCalls: s.toolCalls.map((tc) => tc.result == null
+          ? { ...tc, result: { ok: false, error: s.aborted === true ? 'TOOL_NOT_STARTED' : UNCOMMITTED_TOOL_ERROR } }
+          : tc),
+      })
+    : steps0;
   const out: LlmMessage[] = [];
   // v1 聚合形态：按物化文件序（aggOrder）还原步块/注入插位
   if (rf.aggOrder !== undefined) {
     let idx = 0;
     for (const mark of rf.aggOrder) {
-      if (mark.type === 'inject') { out.push({ role: 'user', content: mark.ev.content }); continue; }
+      if (mark.type === 'inject') {
+        if (kindOfT(mark.ev.injectSource) === 'none') continue;
+        out.push({ role: 'user', content: wrapForReplay(mark.ev.content, kindOfT(mark.ev.injectSource)) });
+        continue;
+      }
       for (let k = 0; k < mark.count; k++) { pushStep(out, steps[idx]); idx++; }
     }
     for (; idx < steps.length; idx++) pushStep(out, steps[idx]);
@@ -558,9 +638,9 @@ export function trajectoryOfFacts(
   // 事件行序 → 步/注入交错（步号按首见序对应 foldStepsOf 的 acc 序）
   const stepOrder: number[] = [];
   const seenStep = new Set<number>();
-  const slots: Array<{ kind: 'step'; step: number } | { kind: 'inject'; content: string }> = [];
+  const slots: Array<{ kind: 'step'; step: number } | { kind: 'inject'; content: string; injectSource?: string }> = [];
   for (const ev of rf.events) {
-    if (ev.kind === 'inject') { slots.push({ kind: 'inject', content: ev.content }); continue; }
+    if (ev.kind === 'inject') { slots.push({ kind: 'inject', content: ev.content, ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}) }); continue; }
     if (ev.kind === 'tool-call-result') continue;
     if (!seenStep.has(ev.step)) { seenStep.add(ev.step); stepOrder.push(ev.step); slots.push({ kind: 'step', step: ev.step }); }
   }
@@ -568,7 +648,11 @@ export function trajectoryOfFacts(
   stepOrder.forEach((s, i) => byStep.set(s, steps[i]!));
   let covered = 0;
   for (const slot of slots) {
-    if (slot.kind === 'inject') { out.push({ role: 'user', content: slot.content }); continue; }
+    if (slot.kind === 'inject') {
+      if (kindOfT(slot.injectSource) === 'none') continue;
+      out.push({ role: 'user', content: wrapForReplay(slot.content, kindOfT(slot.injectSource)) });
+      continue;
+    }
     pushStep(out, byStep.get(slot.step));
     covered++;
   }

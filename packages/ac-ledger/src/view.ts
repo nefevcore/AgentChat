@@ -8,6 +8,41 @@
 //   · historyView：跨域 stat 复合指纹（fingerprint 短路判据，原
 //     2026-09-19 切换重入优化回填）。
 // ============================================================
+
+/**
+ * 渲染契约数据行(cr-1110 / docs/design/webui/render-contract.md 方案 A):
+ * foldViewRecords 输出的类型化形态——盘上事实 + 确定性派生(bytes),
+ * **不含渲染裁决**(通道判定在前端注册表 + 兜底链)。ProjectedStep 先例:
+ * 字段即契约。
+ */
+export interface ViewRow {
+  /** 行角色(盘上事实投影):user/assistant 发言;context 注入材料;error 错误;event 机制通知 */
+  role: 'user' | 'assistant' | 'context' | 'error' | 'event';
+  content: string;
+  /** 说话人/归属端点 */
+  agent_id?: string;
+  /** run 关联键(轨迹联查/拆轮锚) */
+  run?: string;
+  /** run 墙钟耗时(毫秒,终稿行) */
+  runMs?: number;
+  /** 行级单调序号 */
+  seq?: number;
+  /** ReAct 步投影(assistant 终稿行/活投影/盲区行) */
+  steps?: import('./records.ts').ProjectedStep[];
+  /** 未收束 run 配平标记(仅读侧投影,不落盘) */
+  partial?: boolean;
+  /** context 行来源决策词(开放——卡片注册 match 键) */
+  source?: string;
+  /** context 行 UI 文案(与直播帧同源) */
+  label?: string;
+  /** 结构化载荷(公共数据面,键域随 source 词开放) */
+  payload?: unknown;
+  /** 注入体字节数(投影派生 content.length——与直播帧定义恒等) */
+  bytes?: number;
+  message_id?: string;
+  requestId?: string;
+  timestamp?: string;
+}
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { conversationDirs } from './manage.ts';
@@ -44,7 +79,7 @@ export function assembleSessionView(
   dataRoot: string,
   conversationId: string,
   opts: SessionViewOptions = {},
-): Array<Record<string, unknown>> {
+): ViewRow[] {
   return foldViewRecords(foldSession(dataRoot, conversationId), dataRoot, conversationId, {
     ...(opts.view !== undefined ? { view: opts.view } : {}),
     ...(opts.running !== undefined ? { running: opts.running } : {}),

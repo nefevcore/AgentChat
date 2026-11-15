@@ -61,7 +61,7 @@ describe('cr-974 v2 写面 → 读回恒等（service 全链：相位/结果/注
         { role: 'user', content: '任务' },
         { role: 'assistant', content: '先想后查', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{}' } }] },
         { role: 'tool', tool_call_id: 'c1', content: JSON.stringify({ ok: true, output: '内容' }) },
-        { role: 'user', content: '补充要求' },
+        { role: 'user', content: '<system-reminder>补充要求</system-reminder>' }, // cr-1101 wrapper 回放包裹
         { role: 'assistant', content: '终稿正文' },
       ]);
       // webui 视图（fold）：终稿行带 steps（含 reasoning/usage/耗时/相位序）
@@ -418,9 +418,9 @@ describe('轨迹读面（cr-658——fold 单源）', () => {
         historyMessagesFor(uuid2: string): Array<{ role: string; content: string }>;
       };
       await svc.journalStep(uuid, 'run-z', { index: 0, text: '硬死前的推理', toolCalls: [], toolResults: [] });
-      // 孤儿 run 无终稿行 = 轨迹不进 historyMessagesFor（无 run 键行锚）——
-      // 上下文可见性归 run 键锚定面；零回写（不再补 settled）
-      expect(svc.historyMessagesFor(uuid).some((m) => m.content === '硬死前的推理')).toBe(false);
+      // cr-1101 回放契约：孤儿 run（settle 前硬死）轨迹进 historyMessagesFor
+      //（once 绝不允许）；零回写不变式保持（不补 settled/run-end）
+      expect(svc.historyMessagesFor(uuid).some((m) => m.content === '硬死前的推理')).toBe(true);
       const rows = readLedger(sessionDir(ROOT, 'traj-4', uuid)).rows as unknown as Array<Record<string, unknown>>;
       expect(rows.some((r) => r.type === 'run-end' && r.run === 'run-z')).toBe(false);
       // webui 盲区投影：未闭合 run 配平为 partial（读方配平——显示形态归读面）

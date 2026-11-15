@@ -27,7 +27,7 @@
 //   finish='interrupted' + interruptReason。
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
-import { sessionCapsOf, toolAllowedFor } from 'ac-agents';
+// (cr-1092 grants 退役：sessionCapsOf/toolAllowedFor 撤用——闸门放行面不再依赖 caps)
 import { describeError } from 'ac-error-core';
 // run 寻址/工具规范化——cr-318 下沉 ac-core-utils 的词汇（本包仍是协议
 // owning，单源住纯库；其余三词汇包内无使用、不在本包导出）
@@ -140,6 +140,7 @@ function mergeUsage(
 // runAddress / pairKey / ARCHIVE_REVIEW_META / isArchiveReviewRun /
 // normalizeToolSpecs 已下沉 ac-core-utils（cr-318：跨行协议词汇单源，
 // 8+ 包值导入免拉插件行）——本包 import 自用，protocol 注释见彼处。
+import { wrapSystemReminder } from 'ac-core-utils';
 
 /**
  * steer 队列（run 生灭）：
@@ -155,7 +156,7 @@ function mergeUsage(
  */
 interface SteerQueue {
 
-  items: Array<{ message: LlmMessage; sender?: string; source?: string; requestId?: string }>;
+  items: Array<{ message: LlmMessage; sender?: string; source?: string; requestId?: string; replay?: 'original' | 'wrapper' | 'none' }>;
 
   durable: LlmMessage[];
 
@@ -387,7 +388,7 @@ export class AgentLoopService extends Service {
    * @returns false = 该地址无活跃 run 或已收束（sealed——D3：收束判定后
    *          的注入不再受理，调用方回落 next-run）
    */
-  steer(handle: string, message: LlmMessage, meta?: { sender?: string; source?: string; requestId?: string }): boolean {
+  steer(handle: string, message: LlmMessage, meta?: { sender?: string; source?: string; requestId?: string; replay?: 'original' | 'wrapper' | 'none' }): boolean {
     const queue = this.steerQueues.get(handle);
     if (!queue || queue.sealed) return false;
     queue.items.push({
@@ -395,6 +396,8 @@ export class AgentLoopService extends Service {
       ...(meta?.sender !== undefined ? { sender: meta.sender } : {}),
       ...(meta?.source !== undefined ? { source: meta.source } : {}),
       ...(meta?.requestId !== undefined ? { requestId: meta.requestId } : {}),
+      // cr-1104 注册制：生产方按其声明档传词（缺省 wrapper——与回放分档同源）
+      ...(meta?.replay !== undefined ? { replay: meta.replay } : {}),
     });
     return true;
   }
@@ -435,11 +438,10 @@ export class AgentLoopService extends Service {
     const specs = this.toolSpecs(request);
     // 请求面硬闸基线（cr-5）：run 开始时刻的注册面快照——run 期间动态
     // 注册的工具（插件安装中途启用等）不在其中，差集即「动态进面」放行集。
-    // 闸门能力面判据用的 caps 同 router 口径（sessionCapsOf：会话授权注入
-    // 含实验档 grants）——闸门只拦「本 Agent 能力面内的收窄越面」，不越权
+    // 闸门只拦「本 Agent 能力面内的收窄越面」（能力面 = 注册面——cr-953
+    // 起授权 = 行装载单闸，cr-1092 caps 判据随 grants 退役撤用），不越权
     // 替安全行执法能力面外的调用。
     const baselineFace = new Set(this.ctx.tools.list().map((t) => t.name));
-    const caps = sessionCapsOf(this.ctx, request.agent, request.conversationId);
     // 动态进面（run 期间新注册工具）：每步现算注册面 − 基线——插件安装等
     // 中途启用即自动进放行集，无需预知
     const dynamicFace = () => new Set(this.ctx.tools.list().map((t) => t.name).filter((n) => !baselineFace.has(n)));
@@ -465,7 +467,10 @@ export class AgentLoopService extends Service {
         // （bade5362 实测：边界消费晚一步可见，模型困惑正文是否在场）
         const steering = steerQueue?.items.splice(0);
         if (steering && steering.length > 0) {
-          messages.push(...steering.map((s) => s.message));
+          // cr-1101 live 注入对齐：steer 消息统一包裹（与回放投影同字节源
+          // wrapSystemReminder）——在途所见 = 事后回放所见，轮边界跨 run
+          // 前缀字节一致；存量烘焙（ac-skill injectDurable 等）原样放行。
+          messages.push(...steering.map((s) => ({ ...s.message, content: (s.replay ?? 'wrapper') === 'wrapper' ? wrapSystemReminder(String(s.message.content ?? '')) : String(s.message.content ?? '') })));
           // 消费点通知（cr-971）：注入行落账面订阅本事件——账本文件序 =
           // 模型消息序（受理时刻落账比消费点早一步）。agent/conversationId
           // 缺席（宿主直调）无壳落账面，跳过通知。
@@ -522,7 +527,8 @@ export class AgentLoopService extends Service {
           // 分叉），注入材料尾部追加其后：run 内消息序与 settlement 回放
           // 序一致，跨 run 前缀可继承。契约注释见 events.ts
           messages.push(this.assistantOf(step));
-          messages.push(...injected);
+          // cr-1101 live 对齐续记:idle 注入与 steer 消费同口径统一包裹(烘焙 passthrough)
+          messages.push(...injected.map((m) => ({ ...m, content: m.role === 'user' ? wrapSystemReminder(String(m.content ?? '')) : String(m.content ?? '') })));
           continue; // 续走步不占预算（budget 不加；index 自然递增保步序唯一）
         }
         budget++;
@@ -553,8 +559,7 @@ export class AgentLoopService extends Service {
           // 工具对低权 Agent 本就不可见，interrupt/审批链路是既有语义——闸门
           // 不越权替安全行执法）；run 期间动态进面（插件安装中途启用）。
           const offFace = face !== undefined && !face.has(tc.name)
-            && !dynamicFace().has(tc.name)
-            && toolAllowedFor(this.ctx.tools.get(tc.name), caps);
+            && !dynamicFace().has(tc.name);
           if (face === undefined || !offFace) {
             return this.ctx.tools.execute({
               name: tc.name,
@@ -739,9 +744,12 @@ export class AgentLoopService extends Service {
 
       if (pendingDurable !== undefined && pendingDurable.length > 0) {
 
-        stepCall.messages = [...stepCall.messages, ...pendingDurable];
+        // cr-1101 live 对齐续记:durable 注入同口径(烘焙 passthrough——裸文也包)
+        const wrappedDurable = pendingDurable.map((m) => ({ ...m, content: m.role === 'user' ? wrapSystemReminder(String(m.content ?? '')) : String(m.content ?? '') }));
 
-        messages.push(...pendingDurable);
+        stepCall.messages = [...stepCall.messages, ...wrappedDurable];
+
+        messages.push(...wrappedDurable);
 
       }
 

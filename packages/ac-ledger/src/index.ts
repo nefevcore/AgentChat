@@ -15,6 +15,7 @@ export * from './writer.ts';
 export * from './reader.ts';
 export * from './events-v2.ts';
 export * from './fold.ts';
+export * from './replay.ts';
 export * from './project.ts';
 export * from './archive.ts';
 export * from './user.ts';

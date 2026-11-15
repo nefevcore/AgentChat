@@ -23,7 +23,8 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-agents-core": "workspace:*",
-    "ac-memory-core": "workspace:*"
+    "ac-memory-core": "workspace:*",
+    "ac-core-utils": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",

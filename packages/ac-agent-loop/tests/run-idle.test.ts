@@ -15,6 +15,7 @@ import type { LlmChatInput, LlmMessage, LlmStreamChunk } from 'ac-llm';
 import * as llmRow from 'ac-llm';
 import * as loopRow from '../src/index.ts';
 import * as toolsRow from 'ac-tools';
+import { wrapSystemReminder } from 'ac-core-utils';
 
 // ---- 脚手架（与 loop.test.ts 同款：脚本化 provider，第 n 次调用出第 n 套片） ----
 
@@ -131,7 +132,8 @@ describe('loop/run-idle 自然停点拦截', () => {
       ['system', '系统提示词'],
       ['user', 'q'],
       ['assistant', '终文本'],
-      ['user', '注入材料'],
+      // cr-1101 live 对齐:idle 注入统一包裹(烘焙 passthrough)
+      ['user', wrapSystemReminder('注入材料')],
     ]);
   });
 

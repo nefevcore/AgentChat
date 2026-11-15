@@ -167,3 +167,5 @@ export * from './session-title.ts';
 export * from './groups.ts'; // 群配置纯读面（cr-712 下沉——宿主 groups 行与壳侧 group 垫片共用）
 export * from './workspaces.ts'; // 工作区登记表读写面（数据分层第二批下沉——宿主行与主线 WorkspaceService 共用，防「读旧写新」两处走散）
 export * from './time-keys.ts'; // UTC 日/月键 + 缺省时区基线（cr-1052/1053 时间词法单源——usage/relay/timer-core/timers-row/datetime 共用）
+
+export * from './replay-wrap.ts';

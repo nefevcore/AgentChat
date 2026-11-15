@@ -3,12 +3,14 @@
 //
 // · 存储：files/<agentId>/memory/timeline.md 单文件（条目 = 宿主铸造头
 //   + 正文；seq 位置派生）；persist=false 纯内存后端同语义
-// · 注入：checkpoint/delta 协议（conversation/before-start seam 直落
-//   context 行——锚检测 H>S delta / H=S 稳态 / 无锚或 H<S 快照重定基线）
+// · 注入：checkpoint/delta 协议（loop/before-run seam——cr-1102 迁移：
+//   落账 + 工作数组双写；锚检测 H>S delta / H=S 稳态 / 无锚或 H<S 快照
+//   重定基线；records() 读面兼容存量 context 行与 v2 inject 行形态）
 // · system 侧：恒定静态指引（memory-guide）
 // · 工具：memory_write / memory_grep（memory 标签门禁）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
+import { wrapSystemReminder } from 'ac-core-utils';
 import { mkdtempSync, rmSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -42,23 +44,18 @@ function scriptedProvider() {
 
 /** 假 session（注入协议测试）：context 行内存列表 + 触发 seam */
 class FakeSession extends Service {
-  rows = new Map<string, Array<{ role: string; source?: string; content: string; agent_id?: string }>>();
+  rows = new Map<string, Array<{ role: string; source?: string; content: string; agent_id?: string; injectSource?: string; payload?: unknown }>>();
   constructor(ctx: Context) {
     super(ctx, 'session');
   }
   async records(id: string) {
     return this.rows.get(id) ?? [];
   }
-  recordContext(id: string, agentId: string, content: string, extra: { source: string; label?: string }) {
+  recordContext(id: string, agentId: string, content: string, extra: { source: string; label?: string; payload?: unknown }) {
     const list = this.rows.get(id) ?? [];
-    list.push({ role: 'context', source: extra.source, content, agent_id: agentId });
+    list.push({ role: 'context', source: extra.source, content, agent_id: agentId, ...(extra.payload !== undefined ? { payload: extra.payload } : {}) });
     this.rows.set(id, list);
     return `inj-${list.length}`;
-  }
-  /** 手动触发 seam（集成中由 conversation.startRun 发）；emit 后 flush 微任务（async 监听器落定） */
-  async fireBeforeStart(agentId: string, conversationId: string) {
-    this.ctx.emit('conversation/before-start', agentId, conversationId);
-    await new Promise((r) => setTimeout(r, 5));
   }
 }
 
@@ -163,92 +160,146 @@ describe('ac-memory 服务面（write/entries/grep 三口）', () => {
   });
 });
 
-describe('ac-memory 注入协议（before-start seam + 锚检测状态机）', () => {
-  it('无锚（新会话）→ 快照注入（统计行 + 条目 + 基线尾行）', async () => {
-    const { ctx } = await boot({ fakeSession: true });
+describe('ac-memory 注入协议（loop/before-run seam + 锚检测状态机——cr-1102）', () => {
+  /** 经真实 seam 触发（agentLoop.run → loop/before-run waterfall） */
+  async function runOnce(ctx: Context, agent: string, conversationId: string) {
+    await ctx.agentLoop.run({ agent, model: 'mock-1', system: 'BASE', messages: USER, conversationId });
+  }
+  /** 尾部 user 消息内容（cr-1101 live 注入对齐：工作数组 = 落账行的包裹形） */
+  function tailUser(i = 0): string {
+    const m = captured[i]?.messages?.at(-1);
+    return m && m.role === 'user' ? String(m.content) : '';
+  }
+
+  async function bootSession() {
+    const { ctx } = await boot({ fakeSession: true, withAgents: true });
+    for (const id of ['a1', 'news', 'user']) ctx.agents.register({ id, model: 'mock@mock-1' });
+    return ctx;
+  }
+
+  it('无锚（新会话）→ 快照注入：context 行落账 + 同字节 user 消息进工作数组（双写同源）', async () => {
+    const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;
     ctx.memory.write('a1', { content: '记忆一' });
     ctx.memory.write('a1', { content: '记忆二' });
-    await session.fireBeforeStart('a1', 'alice~a1');
+    await runOnce(ctx, 'a1', 'alice~a1');
     const rows = session.rows.get('alice~a1')!;
     expect(rows).toHaveLength(1);
     expect(rows[0].source).toBe('memory-snapshot');
     expect(rows[0].content).toContain('记忆时间线：2 条');
     expect(rows[0].content).toContain('记忆二');
-    expect(rows[0].content).toMatch(/记忆基线 seq=2$/);
+    expect(rows[0].content).not.toMatch(/记忆基线 seq=/); // cr-1107:水位不寄生正文
+    expect((rows[0].payload as { memoryBaseline: number }).memoryBaseline).toBe(2);
+    expect(tailUser()).toBe(wrapSystemReminder(rows[0].content!)); // cr-1101：落账裸文（Plan B），工作数组包裹 = 回放投影同字节
   });
 
-  it('H = S（稳态）→ 不注入', async () => {
-    const { ctx } = await boot({ fakeSession: true });
+  it('H = S（稳态）→ 不注入（工作数组不加行）', async () => {
+    const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;
     ctx.memory.write('a1', { content: '记忆一' });
-    await session.fireBeforeStart('a1', 'alice~a1');
-    await session.fireBeforeStart('a1', 'alice~a1'); // 第二次：H=S
+    await runOnce(ctx, 'a1', 'alice~a1');
+    captured.length = 0;
+    await runOnce(ctx, 'a1', 'alice~a1'); // 第二次：H=S
     expect(session.rows.get('alice~a1')).toHaveLength(1);
+    expect(tailUser()).toBe('hi'); // 只有触发消息，无注入体
   });
 
   it('H > S（他源新写入）→ delta 注入（本会话 origin 过滤）', async () => {
-    const { ctx } = await boot({ fakeSession: true });
+    const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;
     ctx.memory.write('a1', { content: '基线条目' });
-    await session.fireBeforeStart('a1', 'alice~a1');
+    await runOnce(ctx, 'a1', 'alice~a1');
     // 本会话写入（origin = alice~a1）：不进 delta（tool-call 历史已有副本）
     ctx.memory.write('a1', { content: '本会话写的', origin: 'alice~a1' });
     // 他源写入（origin = bob~a1）
     ctx.memory.write('a1', { content: '他源写的', origin: 'bob~a1' });
-    await session.fireBeforeStart('a1', 'alice~a1');
+    await runOnce(ctx, 'a1', 'alice~a1');
     const rows = session.rows.get('alice~a1')!;
     expect(rows).toHaveLength(2);
     expect(rows[1].source).toBe('memory-delta');
     expect(rows[1].content).toContain('他源写的');
     expect(rows[1].content).not.toContain('本会话写的');
-    expect(rows[1].content).toMatch(/记忆基线 seq=3$/);
+    expect((rows[1].payload as { memoryBaseline: number }).memoryBaseline).toBe(3);
+  });
+
+  it('锚检测兼容 v2 inject 行形态（cr-1102 回归——壳现行落账经 records 读面投影）', async () => {
+    const ctx = await bootSession();
+    const session = ctx.get('session') as unknown as FakeSession;
+    // 壳内现行落账形：recordContext → journalInject（injectSource），读面
+    // （SessionShim.records → ledger.recordsFor）投影为 source=injectSource
+    // 的 context 行——锚检测须同口径命中（存量 context 行 + 现行 inject 行）
+    session.rows.set('alice~a1', [
+      { role: 'context', source: 'memory-snapshot', injectSource: 'memory-snapshot', content: '旧快照\n记忆基线 seq=1', agent_id: 'a1' },
+    ]);
+    ctx.memory.write('a1', { content: '基线条目', origin: 'bob~a1' });
+    ctx.memory.write('a1', { content: '他源新增', origin: 'bob~a1' });
+    await runOnce(ctx, 'a1', 'alice~a1');
+    const rows = session.rows.get('alice~a1')!;
+    expect(rows).toHaveLength(2);
+    expect(rows[1].source).toBe('memory-delta'); // 锚命中（非快照重定基线）
+    expect(rows[1].content).toContain('他源新增');
+    expect((rows[1].payload as { memoryBaseline: number }).memoryBaseline).toBe(2);
+  });
+
+  it('锚检测:现行行 payload 优先,存量行 content 正则回落(cr-1107)', async () => {
+    const ctx = await bootSession();
+    const session = ctx.get('session') as unknown as FakeSession;
+    // 存量形态(content 寄生)与现行形态(payload)混排——两者都能命中
+    session.rows.set('alice~a1', [
+      { role: 'context', source: 'memory-delta', content: '旧 delta\n记忆基线 seq=1', agent_id: 'a1' },
+      { role: 'context', source: 'memory-delta', content: '新 delta(水位在 payload)', agent_id: 'a1', payload: { memoryBaseline: 4 } },
+    ]);
+    for (let i = 1; i <= 5; i++) ctx.memory.write('a1', { content: i < 5 ? `第${i}条` : '第五条', origin: 'bob~a1' });
+    await runOnce(ctx, 'a1', 'alice~a1');
+    const rows = session.rows.get('alice~a1')!;
+    // 锚 = 4(payload 优先,流尾最近行)→ H=5 > S → delta 而非快照重定基线
+    expect(rows[2].source).toBe('memory-delta');
+    expect(rows[2].content).toContain('第五条');
+    expect((rows[2].payload as { memoryBaseline: number }).memoryBaseline).toBe(5);
   });
 
   it('H < S（文件被人工缩短）→ 全量重定基线（快照自愈）', async () => {
-    const { ctx } = await boot({ fakeSession: true });
+    const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;
     ctx.memory.write('a1', { content: '一' });
     ctx.memory.write('a1', { content: '二' });
-    await session.fireBeforeStart('a1', 'alice~a1');
-    // 模拟锚在 seq=2 但盘上只剩 1 条（人工删行）——直接把锚行内容改成 seq=2 保持、清 store
+    await runOnce(ctx, 'a1', 'alice~a1');
+    // 模拟锚在 seq=5 但盘上只剩 1 条（人工删行）——锚行保留、时间线缩短
     const rows = session.rows.get('alice~a1')!;
     rows.length = 0;
-    rows.push({ role: 'context', source: 'memory-snapshot', content: '旧快照\n记忆基线 seq=2', agent_id: 'a1' });
-    // persist=false 无文件——用 entries 数无法缩；改为写 1 条后重开（模拟缩短后 H=1 < S=2）
-    // FakeSession 场景下直接构造：新 boot 一组写 1 条
-    const second = await boot({ fakeSession: true });
-    const s2 = second.ctx.get('session') as unknown as FakeSession;
+    rows.push({ role: 'context', source: 'memory-snapshot', content: 'x\n记忆基线 seq=5', agent_id: 'a1' });
+    const secondCtx = await bootSession();
+    const s2 = secondCtx.get('session') as unknown as FakeSession;
     s2.rows.set('alice~a1', [{ role: 'context', source: 'memory-snapshot', content: 'x\n记忆基线 seq=5', agent_id: 'a1' }]);
-    second.ctx.memory.write('a1', { content: '仅存一条' });
-    await s2.fireBeforeStart('a1', 'alice~a1');
+    secondCtx.memory.write('a1', { content: '仅存一条' });
+    await runOnce(secondCtx, 'a1', 'alice~a1');
     const r2 = s2.rows.get('alice~a1')!;
     expect(r2).toHaveLength(2);
     expect(r2[1].source).toBe('memory-snapshot'); // H<S → 快照重定基线
-    expect(r2[1].content).toMatch(/记忆基线 seq=1$/);
+    expect((r2[1].payload as { memoryBaseline: number }).memoryBaseline).toBe(1);
   });
 
   it('双人格共桶（cr-46）：对方人格的注入行不是本 Agent 的锚——基线不互打', async () => {
-    const { ctx } = await boot({ fakeSession: true });
+    const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;
     // news 人格：4 条，已注入锚 seq=4
     for (let i = 0; i < 4; i++) ctx.memory.write('news', { content: `news 记忆 ${i + 1}` });
-    await session.fireBeforeStart('news', 'news~user');
+    await runOnce(ctx, 'news', 'news~user');
     // user 人格：1 条，已注入锚 seq=1（桶内 news 的锚 seq=4 在场）
     ctx.memory.write('user', { content: 'user 记忆' });
-    await session.fireBeforeStart('user', 'news~user');
+    await runOnce(ctx, 'user', 'news~user');
     const rows = session.rows.get('news~user')!;
     expect(rows).toHaveLength(2); // user 侧一次快照即稳；若误认 news 锚（S=4>H=1）会反复全量重定基线
     expect(rows[1].agent_id).toBe('user');
     // news 侧稳态复跑（user 锚 seq=1 在场——S=1<H=4 若误认会注入 3 条重复 delta）
-    await session.fireBeforeStart('news', 'news~user');
+    await runOnce(ctx, 'news', 'news~user');
     expect(rows).toHaveLength(2); // H=S=4 稳态不注入
   });
 
   it('空时间线不注入', async () => {
-    const { ctx } = await boot({ fakeSession: true });
+    const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;
-    await session.fireBeforeStart('a1', 'alice~a1');
+    await runOnce(ctx, 'a1', 'alice~a1');
     expect(session.rows.get('alice~a1')).toBeUndefined();
   });
 

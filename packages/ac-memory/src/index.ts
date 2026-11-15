@@ -14,6 +14,7 @@
 //     （tool-call 历史已有副本），他源 delta 注入。
 // ============================================================
 import * as fs from 'node:fs';
+import { wrapSystemReminder } from 'ac-core-utils';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { grepEntries, mintEntry, parseTimeline, renderDelta, renderGrepResult, renderSnapshot, type MemoryEntry } from 'ac-memory-core';
@@ -81,46 +82,93 @@ export class MemoryService extends Service {
 
 
 
-    // ---- checkpoint/delta 注入协议（before-start seam：history 装配前直落流） ----
-    this.ctx.on('conversation/before-start', async (agentId, conversationId) => {
+    // 回放声明（cr-1104 注册制）：memory 两词的回放档由本行 owning 声明
+    //（wrapper——快照/delta 注入体）。账本行未装 = 降级缺省 wrapper。
+    {
+      const ledger = this.ctx.get('ledger', false) as { registerReplayPolicy?: (d: { source: string; replay: 'original' | 'wrapper' | 'none' }) => unknown } | undefined;
+      ledger?.registerReplayPolicy?.({ source: 'memory-snapshot', replay: 'wrapper' });
+      ledger?.registerReplayPolicy?.({ source: 'memory-delta', replay: 'wrapper' });
+    }
+
+    // ---- checkpoint/delta 注入协议（loop/before-run seam——cr-1102 迁移） ----
+    // 原挂 conversation/before-start（主线 ac-conversation 事件）：生产壳树
+    // ConversationService 从不 emit 该事件（主线行不在壳装配），注入协议
+    // 整体失效；且锚检测依赖 session.records() 读面，壳侧 SessionShim 原
+    // 缺该方法（cr-1102 补齐）。迁移到 loop/before-run waterfall——两树
+    // （主线 host / 生产壳）唯一共有的 run 前 seam（ac-skill 手势注入同款
+    // 先例），注入双写同源：
+    //   · session.recordContext 落账（壳内活跃 run → journalInject 事件，
+    //     injectSource=memory-snapshot/delta；主线 → context 行）；
+    //   · 同字节 user 消息 append 进 request.messages（当前 run 即刻可见；
+    //     下一轮回放取自落账行——字节一致，无双计）。
+    // 水位锚检测走 session.records() 统一读面（context 行〔存量〕+ inject
+    // 行〔v2 现行〕同口径）。cr-1107 水位显式化：新行 payload.memoryBaseline
+    //（recordsFor 投影随行）；存量行回落 content 正则兼容。
+    this.ctx.on('loop/before-run', async (call, next) => {
+      const req = call.request;
+      if (req.conversationId === undefined || req.agent === undefined) return next();
       const session = this.ctx.get('session', false) as
-        | { records(id: string): Promise<Array<{ role: string; source?: string; content: string; agent_id?: string }>>; recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string }): string }
+        | { records(id: string): Promise<Array<{ role: string; source?: string; content: string; agent_id?: string; payload?: unknown }>>; recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string; payload?: unknown }): string }
         | undefined;
-      if (session === undefined) return;
+      if (session === undefined) return next(); // session 行未装——无落账面，不注入
+      const agentId = req.agent;
+      const conversationId = req.conversationId;
       const entries = this.entries(agentId);
       const H = entries.length;
       // 锚检测：流尾向后扫最近一条记忆行（cr-46：只认 agent_id === 本
       // Agent 的注入行——1v1 双人格共桶（如 news~user）里对方人格的锚
       // seq 是对方时间线的高度，误认会导致 S>H 走「文件缩短」全量快照、
-      // S<H 走大批「新 delta」重复注入，双方每次开口互相打掉对方基线震荡）
-      const records = await session.records(conversationId);
+      // S<H 走大批「新 delta」重复注入，双方每次开口互相打掉对方基线震荡）。
+      // 读失败按无历史可判处理：跳过注入（fail-closed——盲快照重定基线会
+      // 与既有锚产生重复注入震荡）
+      let records: Array<{ role: string; source?: string; content: string; agent_id?: string; payload?: unknown }>;
+      try {
+        records = await session.records(conversationId);
+      } catch {
+        return next();
+      }
       let S = -1;
       for (let i = records.length - 1; i >= 0; i--) {
         const r = records[i];
         if (r.role !== 'context') continue;
         if (r.agent_id !== undefined && r.agent_id !== agentId) continue;
         if (r.source !== MEMORY_SNAPSHOT_SOURCE && r.source !== MEMORY_DELTA_SOURCE) continue;
-        const m = /记忆基线 seq=(\d+)/.exec(r.content);
-        S = m ? Number(m[1]) : 0;
+        // cr-1107 水位显式化:payload.memoryBaseline 优先(现行),存量行
+        // 回落 content 正则(「记忆基线 seq=N」寄生正文的历史形态)
+        const p = (r.payload ?? null) as { memoryBaseline?: unknown } | null;
+        if (p !== null && typeof p.memoryBaseline === 'number') S = p.memoryBaseline;
+        else {
+          const m = /记忆基线 seq=(\d+)/.exec(r.content);
+          S = m ? Number(m[1]) : 0;
+        }
         break;
       }
       const maxTokens = this.maxTokensFor(agentId);
+      /** 落账（裸正文——Plan B）+ 工作数组双写（包裹后 = 回放投影同字节，
+       * cr-1101 live 注入对齐；wrapSystemReminder 与 ac-ledger 回放同源） */
+      const inject = (text: string, source: string, label: string, baseline: number): void => {
+        // cr-1107:水位走 payload.memoryBaseline(公共数据面),content 不再
+        // 寄生「记忆基线 seq=N」——注入正文对模型是纯记忆内容,无水位噪声
+        session.recordContext(conversationId, agentId, text, { source, label, payload: { memoryBaseline: baseline } });
+        req.messages = [...req.messages, { role: 'user', content: wrapSystemReminder(text) }];
+      };
       if (S === -1 || S > H) {
         // 无锚（新会话/压缩裁锚）或 H<S（文件被缩短）→ 全量快照重定基线
-        if (H === 0) return; // 空时间线不注入（静态指引已告知 memory_write）
-        session.recordContext(conversationId, agentId, `${renderSnapshot(entries, { maxTokens })}\n记忆基线 seq=${H}`, { source: MEMORY_SNAPSHOT_SOURCE, label: '长期记忆快照注入' });
-        return;
+        if (H === 0) return next(); // 空时间线不注入（静态指引已告知 memory_write）
+        inject(renderSnapshot(entries, { maxTokens }), MEMORY_SNAPSHOT_SOURCE, '长期记忆快照注入', H);
+        return next();
       }
       if (H > S) {
         // delta = (S, H] 且 origin ≠ 本会话（本会话写入已有 tool-call 副本）
         const delta = entries.filter((e) => e.seq > S && e.origin !== conversationId);
         const text = renderDelta(delta, { from: S, to: H });
         if (text !== undefined) {
-          session.recordContext(conversationId, agentId, `${text}\n记忆基线 seq=${H}`, { source: MEMORY_DELTA_SOURCE, label: '长期记忆增量注入' });
+          inject(text, MEMORY_DELTA_SOURCE, '长期记忆增量注入', H);
         }
       }
       // H === S：正常稳态，不注入
-    }, { description: '记忆 checkpoint/delta 注入（锚检测 + 尾部追加 context 行）' });
+      return next();
+    }, { description: '记忆 checkpoint/delta 注入（loop/before-run：锚检测 + 落账/工作数组双写）' });
   }
 
   private maxTokensFor(agentId: string): number {
@@ -308,8 +356,8 @@ export const extension: ExtensionMeta = {
     { name: 'maxTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_MAX_TOKENS, description: '快照注入 token 预算（整数条截断 + 溢出注记）' },
   ],
   listeners: [
-    { event: 'loop/before-run', role: '静态指引注入', description: '字节恒定的 memory-guide（内容走 context 行协议）' },
-    { event: 'conversation/before-start', role: 'checkpoint/delta 注入', description: '锚检测（H>S delta / H=S 稳态 / H<S 或无锚快照重定基线）+ 尾部追加 context 行' },
+    { event: 'loop/before-run', role: '静态指引注入（段注册制）', description: '字节恒定的 memory-guide（内容走 context 行协议）' },
+    { event: 'loop/before-run', role: 'checkpoint/delta 注入（cr-1102）', description: '锚检测（H>S delta / H=S 稳态 / H<S 或无锚快照重定基线）+ 落账/工作数组双写' },
   ],
 };
 

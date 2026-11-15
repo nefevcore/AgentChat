@@ -345,7 +345,9 @@ export class WorkspaceShim extends Service {
  *（每 run 前重读语义）。
  *
  * 键注册面（registerKey/listKeys）住本垫片：主线「注册即归属」的扩展键
- *（如 harness-tools 的 harnessTier）由壳内扩展行自持，壳不写盘。
+ * 由壳内扩展行自持，壳不写盘。注意跨树可见性：垫片注册的键只在壳侧目录
+ *（宿主 `conv-settings/keys` 看不到，cr-1094 起无活案例——harnessTier 已
+ * 整键退役）；需 UI 可见的内置语义键应进宿主 BUILTIN_KEYS。
  * 回读不做枚举校验——写侧由宿主服务单源把关（同一数据目录，双校验无益）；
  * 已回收键的存量值因此仍可见，消费方按未知值回落即可。
  */
@@ -430,14 +432,30 @@ export class SessionShim extends Service {
     return ledger === undefined ? [] : ledger.historyFor(conversationId, options.viewer);
   }
 
+  /**
+   * 已落账行读面（cr-1102/1103：主线 SessionService.records 的壳侧转发——
+   * 此前缺席致 ac-memory 锚检测 TypeError / ac-skill 跨 run 去重恒空
+   * fail-open 同根因）。转发 ledger.recordsFor 统一投影（context 行
+   * 〔存量〕+ inject 事件〔v2 现行，source=injectSource〕）；ledger 行
+   * 未装 / 域不可读 = 空清单（读失败不阻断消费方）。
+   */
+  async records(
+    conversationId: string,
+  ): Promise<Array<{ role: string; source?: string; agent_id?: string; content: string; injectSource?: string; label?: string; run?: string; seq?: number }>> {
+    const ledger = this.ctx.get('ledger', false) as
+      | { recordsFor(uuid: string): Array<{ role: string; source?: string; agent_id?: string; content: string; injectSource?: string; label?: string; run?: string; seq?: number }> }
+      | undefined;
+    return ledger === undefined ? [] : ledger.recordsFor(conversationId);
+  }
+
   recordContext(
     conversationId: string,
     _agentId: string,
     content: string,
-    extra: { source: string; label?: string },
+    extra: { source: string; label?: string; injectionId?: string; payload?: unknown },
   ): void {
     const conversation = this.ctx.get('conversation', false) as
-      { recordContext(conversationId: string, content: string, extra: { source: string; label?: string; injectionId?: string }): Promise<void> } | undefined;
+      { recordContext(conversationId: string, content: string, extra: { source: string; label?: string; injectionId?: string; payload?: unknown }): Promise<void> } | undefined;
     if (conversation === undefined) return; // 会话行未装——降级不阻断（主线同语义）
     void conversation.recordContext(conversationId, content, extra).catch(() => {
       // 落账失败不阻断注入链（run 内消息已就位）——事件面仍发（直播行不丢）

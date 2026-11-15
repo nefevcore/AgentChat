@@ -2882,6 +2882,9 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
       ac-envelope-core:
         specifier: workspace:*
         version: link:../ac-envelope-core
@@ -3020,6 +3023,9 @@ importers:
       ac-agents-core:
         specifier: workspace:*
         version: link:../ac-agents-core
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
       ac-memory-core:
         specifier: workspace:*
         version: link:../ac-memory-core

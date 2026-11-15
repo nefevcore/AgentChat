@@ -196,6 +196,12 @@ export class SkillsService extends Service {
     this.locationPrefix =
       options.locationPrefix ?? `${root.replace(/\\/g, '/').replace(/\/+$/, '')}/skills`;
 
+    // 回放声明（cr-1104 注册制）：skill 词的回放档由本行 owning 声明——
+    // wrapper（<system-reminder> 外壳 + <skill_content> 内芯，历史已烘焙）。
+    // 账本行未装 = 降级缺省 wrapper（同语义，无功能损失）。
+    const ledgerDecl = this.ctx.get('ledger', false) as { registerReplayPolicy?: (d: { source: string; replay: 'original' | 'wrapper' | 'none' }) => unknown } | undefined;
+    ledgerDecl?.registerReplayPolicy?.({ source: 'skill', replay: 'wrapper' });
+
     // ---- SKILLS 段（cr-881）：<available_skills> 会话工作区（约定目录） +
     //      全局（白名单过滤）+ 本 Agent 专属 ----
     this.ctx.agentLoop.registerPromptSection({
@@ -302,10 +308,11 @@ export class SkillsService extends Service {
         this.subcallPending.set(key, pending);
       }
       if (!pending.has(out.name)) {
-        // 跨 run 去重（每技能一行 bug 根修）：已落账的注入体在历史 context
-        // 行在场（回放已可见）→ 不再登记。原实现每 run 重新登记 + 每步重
-        // 注入 + 收束再落一行 = 同一技能 3+ 份正文在场。records() 含在途
-        // flush（mtime 门控缓存，低频 load 成本可忽略）。
+        // 跨 run 去重（每技能一行 bug 根修）：已落账的注入体在历史行在场
+        // （回放已可见）→ 不再登记。原实现每 run 重新登记 + 每步重注入 +
+        // 收束再落一行 = 同一技能 3+ 份正文在场。cr-1103：扫描面经
+        // records() 统一读面覆盖 v2 inject 行（壳内现行形态）与存量
+        // context 行——此前 SessionShim 缺 records 恒返 []，去重形同虚设。
         const recorded = await this.recordedSkillContexts(agentId, conversationId);
         if (recorded.includes(out.name)) return;
         if (this.subcallPending.get(key) !== pending) {
@@ -588,11 +595,15 @@ export class SkillsService extends Service {
       label,
     });
   }
-  /** 已落账技能 context 行的技能名清单（跨 run 在场判定）：扫历史行
-   *  source='skill' 且 content 含 <skill_content name="<name>"> 的注入体，
-   *  提取已注入技能名。手势行（"用户调用技能"）同源扫——两种通道去重
-   *  口径一致：注入体在场即不再重注。session 行未装 → 空清单（回落
-   *  旧行为：无历史可判，登记不拦截）。 */
+  /** 已落账技能注入体的技能名清单（跨 run 在场判定）：扫 session.records()
+   *  统一读面 source='skill' 且 content 含 <skill_content name="<name>"> 的
+   *  行，提取已注入技能名。cr-1103：v2 壳内技能落账实际是 inject 事件
+   *  （injectSource='skill'，recordContext → journalInject），非 context 行
+   *  ——读面（SessionShim.records → ledger.recordsFor）已把 inject 事件
+   *  投影为 source=injectSource 的 context 形态行，存量 context 行与现行
+   *  inject 行同口径覆盖。手势行（"用户调用技能"）同源扫——两种通道去重
+   *  口径一致：注入体在场即不再重注。session 行未装/读失败 → 空清单
+   *  （fail-open：无历史可判，登记不拦截）。 */
   private async recordedSkillContexts(agentId: string, conversationId: string): Promise<string[]> {
     const session = this.ctx.get('session', false) as SessionRecordFace | undefined;
     if (!session || typeof session.records !== 'function') return [];

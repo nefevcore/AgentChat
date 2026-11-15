@@ -580,7 +580,14 @@ export class ConversationService extends Service {
       this.activeRuns.set(this.gateKey(uuid), { conversationId: uuid, startedAt: Date.now(), abort });
       if (resume !== null) {
         // A2 标注（事件归位：观察通知 emit——boot 旁带转发链既有消费面）
-        this.ctx.emit('session/context-injected', uuid, this.agentId, { source: 'resume', label: '上一轮被中断，已原地续跑' });
+        this.ctx.emit('session/context-injected', uuid, this.agentId, { source: 'resume', label: '上一轮被中断，已原地续跑', injectionId: 'resume-' + runId });
+        // cr-1111 resume 收编:生命周期事实落账(context 行,source='resume')
+        // ——刷新后 UI 可恢复;回放档 = none(机制词集,从未进入过模型消息数组)
+        await this.ctx.ledger.deliverRow(uuid, [this.agentId], 'user', {
+          role: 'context', source: 'resume', content: '上一轮被中断，已原地续跑',
+          label: '上一轮被中断，已原地续跑', // cr-1111 复查:label 数据面随行(与直播帧同形)——缺席时 UI 回落 source 词
+          agent_id: this.agentId, requestId: 'resume-' + runId, uuid,
+        });
       }
       for (;;) {
         // 在途标记（cr-639 at-least-once）：run 起步即入 inbox durable、收束
@@ -606,7 +613,9 @@ export class ConversationService extends Service {
         // 每轮收双份当前消息（01a16af1 probe 实锤）。链跑循环每轮顶复读
         // history，队信消费同理自带行（busy-steer 直注消息无入站行——
         // cr-713 记录归 inject 行，轨迹读面自带）。
-        const history = this.ctx.ledger.historyMessagesFor(uuid);
+        // cr-1101：排除本 run 在途轨迹——孤儿 run 回放 + resume 前缀各管
+        // 一半（回放管其他 run 事实，resume 管本 run 前缀），轮间重派生无双喂
+        const history = this.ctx.ledger.historyMessagesFor(uuid, { excludeRun: runId });
         // 机制标记透明通道贯通（cr-1050）：deliver options.meta 经信封
         // payload 携带，随本请求进 loop/after-run 等订阅面——主线
         // router.send 半边同语义（goal-round 轮次记账消费此键）。链跑轮
@@ -876,7 +885,13 @@ export class ConversationService extends Service {
         // null（无轨迹或已收束）→ 常规重投（cr-658 语义——轨迹经读面进上下文）。
         const resume = this.ctx.ledger.resumeStateFor(uuid, 'run-' + env.requestId);
         if (resume === 'degraded') {
-          this.ctx.emit('session/context-injected', uuid, this.agentId, { source: 'resume-degraded', label: '上一轮被中断，已按摘要继续' });
+          this.ctx.emit('session/context-injected', uuid, this.agentId, { source: 'resume', label: '上一轮被中断，已按摘要继续', injectionId: 'resume-degraded-' + env.requestId });
+          // cr-1111 同源落账(词归 'resume'——UI 文案差异走 label)
+          await this.ctx.ledger.deliverRow(uuid, [this.agentId], 'user', {
+            role: 'context', source: 'resume', content: '上一轮被中断，已按摘要继续',
+            label: '上一轮被中断，已按摘要继续',
+            agent_id: this.agentId, requestId: 'resume-degraded-' + env.requestId, uuid,
+          });
         }
         try {
           await (resume !== null && resume !== 'degraded'
@@ -1113,7 +1128,8 @@ export class ConversationService extends Service {
    * run 活跃 journal-inject 落账〔消费点真序〕+ session/context-injected
    * 事件发射〔前端直播行〕。主线 ask-questions 行经 SessionShim 零改动
    * 消费：作答注入（已收到用户回答）/ 未响应通知两形态同口）。run 不活跃
-   * 不落账（该路径调用点恒 run 活跃；跨 run 持久归 late-reply deliver）。
+   * 时 cr-1106 兜底直落会话级 context 行（不再丢落账；跨 run 持久归
+   * late-reply deliver 的口径不变）。
    *
    * cr-707 两处根修：
    *  · 注入身份缺省即铸（injectionId）——直播帧与 settlement 物化行同锚
@@ -1140,7 +1156,21 @@ export class ConversationService extends Service {
       ...(extra.payload !== undefined ? { payload: extra.payload } : {}),
     });
     const run = this.machines.get(this.gateKey(conversationId))?.state().currentRun ?? '';
-    if (run === '') return;
+    // cr-1106 run 死窗口兜底:run 不活跃(收束竞态/迟到注入)不再只发直播帧
+    // 丢落账——降级直落会话级 context 行(source 词 + label + payload 随行),
+    // 回放经时间线全量准入在场(cr-1106),UI 注入卡同形。
+    if (run === '') {
+      await this.ctx.ledger.deliverRow(conversationId, [this.agentId], 'user', {
+        role: 'context',
+        source: extra.source,
+        content,
+        agent_id: this.agentId,
+        ...(extra.injectionId !== undefined ? { requestId: extra.injectionId } : {}),
+        ...(extra.label !== undefined ? { label: extra.label } : {}),
+        ...(extra.payload !== undefined ? { payload: extra.payload } : {}),
+      });
+      return;
+    }
     // cr-971：落账挂 pending——消费点（loop/steer-consumed / steer 受理同批）落，
     // 文件序 = 模型消息序。直播帧已发（上），injectionId 已铸——前端锚点不变。
     this.pendingSteerInjects.set(run, [
@@ -1679,8 +1709,8 @@ export class ConversationService extends Service {
 // 服务键 'conversation' 不重复 declare——主线 ac-conversation 已占用该键
 //（declare module 全局合并同键须同类型）；preview 运行时注册同名服务，
 // 方法面提供主线消费方言叶子集（deliver→ConversationOutcome）+ preview
-// 专属信封入站（receiveEnvelope——boot 收信面经 ctx.get 软取，主线
-// sessionCapsOf 同惯例）。cutover 后主线行退役，本行成为唯一提供者。
+// 专属信封入站（receiveEnvelope——boot 收信面经 ctx.get 软取）。
+// cutover 后主线行退役，本行成为唯一提供者。
 
 /** conversation 行工厂（boot rowAssemblers 装配） */
 export function makeConversationRow(options: ConversationRowOptions): Plugin {

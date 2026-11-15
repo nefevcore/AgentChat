@@ -7,6 +7,7 @@ import type { LlmChatInput, LlmMessage, LlmStreamChunk } from 'ac-llm';
 import * as llmRow from 'ac-llm';
 import * as loopRow from '../src/index';
 import * as toolsRow from 'ac-tools';
+import { wrapSystemReminder } from 'ac-core-utils';
 
 // ---- 脚手架（同 loop.test.ts：脚本化 provider，第 n 次调用出第 n 套片） ----
 
@@ -99,7 +100,7 @@ describe('steer 注入（Service 方法，ADR-1）', () => {
     expect(result.finish).toBe('stop');
     expect(result.steps).toHaveLength(2);
     const contents = s2.calls[0].messages.map((m) => m.content);
-    expect(contents).toContain('中途插入指令');
+    expect(contents).toContain(wrapSystemReminder('中途插入指令')); // cr-1101：消费点统一包裹
     // run 已收束 → 同地址无活跃 run
     expect(ctx.agentLoop.steer('a1', { role: 'user', content: '迟到的' })).toBe(false);
   });
@@ -124,7 +125,7 @@ describe('steer 注入（Service 方法，ADR-1）', () => {
     });
     expect(result.steps).toHaveLength(2); // 末轮 steer 驱动追加一步
     expect(result.text).toBe('补充完成');
-    expect(s2.calls[0].messages.map((m) => m.content)).toContain('等等，还有一件事');
+    expect(s2.calls[0].messages.map((m) => m.content)).toContain(wrapSystemReminder('等等，还有一件事'));
   });
 
   it('cr-971 消费点事件：steer-consumed 在注入并入下一步请求的边界发出（不在受理时）', async () => {
@@ -157,7 +158,7 @@ describe('steer 注入（Service 方法，ADR-1）', () => {
     expect(result.finish).toBe('stop');
     // 消费事件恰一次、requestId 随行、时序 = 步2 请求前（注入已在步2 消息里）
     expect(events).toEqual([{ at: 'consumed', requestId: 'req-1' }]);
-    expect(s2.calls[0].messages.map((m) => m.content)).toContain('插话');
+    expect(s2.calls[0].messages.map((m) => m.content)).toContain(wrapSystemReminder('插话'));
   });
 
   it('before-run 阶段即可注入（注册先于拦截链）→ 首步消费', async () => {
@@ -168,7 +169,7 @@ describe('steer 注入（Service 方法，ADR-1）', () => {
       return next();
     });
     await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', messages: USER('q'), conversationId: 'a1' });
-    expect(s1.calls[0].messages.map((m) => m.content)).toContain('开跑前注入');
+    expect(s1.calls[0].messages.map((m) => m.content)).toContain(wrapSystemReminder('开跑前注入'));
   });
 
   it('群聊地址按参与者区分：同组两个 agent 各自独立队列', async () => {
@@ -191,7 +192,7 @@ describe('steer 注入（Service 方法，ADR-1）', () => {
       conversationId: 'g1',
     });
     expect(result.finish).toBe('stop');
-    expect(s2.calls[0].messages.map((m) => m.content)).toContain('给 a1 的');
+    expect(s2.calls[0].messages.map((m) => m.content)).toContain(wrapSystemReminder('给 a1 的'));
   });
 
   it('agent 缺省（subagent 直连形态）→ 无地址，steer 不适用', async () => {
@@ -384,5 +385,26 @@ describe('finish:interrupted（ADR-2 最小中断方案）', () => {
     expect(result.finish).toBe('interrupted');
     expect(result.error).toBeUndefined();
     expect(result.interruptReason).toEqual({ type: 'user-abort', reason: '看门狗超时' });
+  });
+
+});
+
+describe('steer replay 分档（cr-1104 注册制）', () => {
+  it('meta.replay=original → 消费点不包裹（裸文进数组）；缺省包裹', async () => {
+    const s1: Script = { calls: [], chunks: () => toolCallChunks('c1', 'steer_decl', '{}') };
+    const s2: Script = { calls: [], chunks: () => textChunks('完成') };
+    const { ctx } = await boot([s1, s2]);
+    ctx.tools.register({
+      name: 'steer_decl',
+      execute: () => {
+        ctx.agentLoop.steer('a1', { role: 'user', content: '裸文注入' }, { replay: 'original' });
+        ctx.agentLoop.steer('a1', { role: 'user', content: '缺省注入' });
+        return { ok: true };
+      },
+    });
+    await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', messages: USER('开始'), conversationId: 'a1' });
+    const contents = s2.calls[0]!.messages.map((m) => m.content);
+    expect(contents).toContain('裸文注入'); // cr-1104:声明 original 裸文
+    expect(contents).toContain(wrapSystemReminder('缺省注入')); // 缺省 wrapper
   });
 });

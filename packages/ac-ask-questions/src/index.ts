@@ -428,6 +428,12 @@ export function apply(ctx: Context) {
     }
   }
 
+  // 回放声明（cr-1104 注册制）：durable-interaction 词的回放档由本行
+  // owning 声明（wrapper——问答/作答/超时通知注入体）。账本行未装 =
+  // 降级缺省 wrapper（同语义）。
+  (ctx.get('ledger', false) as { registerReplayPolicy?: (d: { source: string; replay: 'original' | 'wrapper' | 'none' }) => unknown } | undefined)
+    ?.registerReplayPolicy?.({ source: 'durable-interaction', replay: 'wrapper' });
+
   ctx.tools.register({
     name: 'ask_questions',
     requiresInteraction: true, // 交互轴：self 会话（机制 run）自动排除（formDeniedBy 单源）

@@ -67,7 +67,9 @@ describe('fold 单源（cr-974 §2.5 性质化）', () => {
     expect(view.some((r) => r.role === 'error' && r.content === '工具炸了')).toBe(true);
     expect(view.some((r) => r.role === 'event')).toBe(true);
     const llm = foldLlmReplay(foldSession(ROOT, UUID), AGENT, ROOT, UUID);
-    expect(llm.some((m) => m.content === '进行中')).toBe(false); // 未闭合 run 不进 LLM 回放
+    // cr-1101 回放契约：未闭合 run（孤儿）轨迹进 LLM 回放——once 绝不允许
+    //（excludeRun 才可排除；不回写不变式由 D-3 用例锁定）
+    expect(llm.some((m) => m.content === '进行中')).toBe(true);
   });
 
   it('读方配平（D-3）：未闭合 run 投 partial 不回写', () => {
@@ -171,5 +173,160 @@ describe('fold 单源（cr-974 §2.5 性质化）', () => {
     cmp(UUID1, UUID2);
     // v2 fold 确有产出（非空对拍非平凡）
     expect(v1View.length).toBeGreaterThan(0);
+  });
+
+
+describe('回放契约（cr-1101 / docs/design/session/replay-contract.md）', () => {
+  it('error 行进回放：user 语义位 + wrapper 包裹（曾进入 run 的失败事实不失忆）', () => {
+    seedV1();
+    const llm = foldLlmReplay(foldSession(ROOT, UUID), AGENT, ROOT, UUID);
+    const err = llm.filter((m) => m.content.includes('工具炸了'));
+    expect(err).toHaveLength(1);
+    expect(err[0]!.role).toBe('user');
+    expect(err[0]!.content).toBe('<system-reminder>工具炸了</system-reminder>');
+  });
+
+  it('wrapper：非 speech 回放统一包裹；存量烘焙行原样放行（不双壳）', () => {
+    seedV1();
+    const llm = foldLlmReplay(foldSession(ROOT, UUID), AGENT, ROOT, UUID);
+    expect(llm.some((m) => m.content === '<system-reminder>插一句</system-reminder>')).toBe(true);
+    expect(llm.some((m) => m.content === '<system-reminder>[会话设置] 已重启</system-reminder>')).toBe(true);
+    // 存量烘焙：content 已以 <system-reminder> 开头 → 原样回放（不双壳）
+    const dir = sessionDir(ROOT, AGENT, 'conv-baked');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 2, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { type: 'inject', run: 'run-b', content: '<system-reminder>技能正文</system-reminder>', injectSource: 'skill', ts: 1, seq: 2 },
+      { type: 'message', role: 'agent', agent_id: AGENT, content: '终稿', message_id: 'a', requestId: 'a', run: 'run-b', timestamp: '2026-11-09T10:00:10.000Z', seq: 3 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const llm2 = foldLlmReplay(foldSession(ROOT, 'conv-baked'), AGENT, ROOT, 'conv-baked');
+    expect(llm2.filter((m) => m.content.includes('技能正文')).map((m) => m.content)).toEqual(['<system-reminder>技能正文</system-reminder>']);
+  });
+
+  it('excludeRun：活动 run 轨迹排除（轮间重派生防双喂），其他 run 照常回放', () => {
+    seedV1();
+    const fold = foldSession(ROOT, UUID);
+    const excl = foldLlmReplay(fold, AGENT, ROOT, UUID, undefined, { excludeRun: 'run-3' });
+    expect(excl.some((m) => m.content === '进行中')).toBe(false);
+    expect(excl.some((m) => m.content === '答一')).toBe(true);
+  });
+
+  it('判重 v1 门控：v1 双写遗产兜底保留；v2 跳过（写面幂等是唯一防线）', () => {
+    // v1：同 requestId 的入站行 + 注入行 → 入站行不复读（cr-713 兜底）
+    const d1 = sessionDir(ROOT, AGENT, 'conv-dup-v1');
+    fs.mkdirSync(path.join(d1, 'journal'), { recursive: true });
+    fs.writeFileSync(path.join(d1, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: 'dup文', agent_id: 'user', requestId: 'dup-1', message_id: 'dup-1', timestamp: '2026-11-09T10:00:01.000Z', seq: 1 },
+      { role: 'agent', content: '', agent_id: AGENT, run: 'run-d', source: 'segment', steps: [{ content: '中途', ts: 1 }], message_id: 'seg-d', timestamp: '2026-11-09T10:00:02.000Z', seq: 2 },
+      { role: 'agent', content: 'dup文', agent_id: AGENT, run: 'run-d', source: 'inject', requestId: 'dup-1', message_id: 'inj-d', timestamp: '2026-11-09T10:00:03.000Z', seq: 3 },
+      { role: 'agent', content: '终稿', agent_id: AGENT, requestId: 'a-d', run: 'run-d', message_id: 'a-d', timestamp: '2026-11-09T10:00:04.000Z', seq: 4 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const llm1 = foldLlmReplay(foldSession(ROOT, 'conv-dup-v1'), AGENT, ROOT, 'conv-dup-v1');
+    expect(llm1.filter((m) => m.content.includes('dup文')).map((m) => m.content)).toEqual(['<system-reminder>dup文</system-reminder>']);
+    // v2：同形态 → 判重不生效（数据根实证 0 对共存；写面三重幂等唯一防线）
+    const d2 = sessionDir(ROOT, AGENT, 'conv-dup-v2');
+    fs.mkdirSync(d2, { recursive: true });
+    fs.writeFileSync(path.join(d2, 'messages.jsonl'), [
+      { type: 'session-header', version: 2, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { type: 'message', role: 'agent', agent_id: 'user', content: 'dup文', message_id: 'dup-1', requestId: 'dup-1', timestamp: '2026-11-09T10:00:01.000Z', seq: 1 },
+      { type: 'inject', run: 'run-d', content: 'dup文', requestId: 'dup-1', ts: 2, seq: 2 },
+      { type: 'message', role: 'agent', agent_id: AGENT, content: '终稿', message_id: 'a-d', requestId: 'a-d', run: 'run-d', timestamp: '2026-11-09T10:00:04.000Z', seq: 3 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const llm2 = foldLlmReplay(foldSession(ROOT, 'conv-dup-v2'), AGENT, ROOT, 'conv-dup-v2');
+    expect(llm2.filter((m) => m.content === 'dup文')).toHaveLength(1);
+    expect(llm2.filter((m) => m.content === '<system-reminder>dup文</system-reminder>')).toHaveLength(1);
+  });
+
+  it('孤儿 run 未收束调用合成终态：结果未知（不盲 ok）+ 轨迹整体在场', () => {
+    const dir = sessionDir(ROOT, AGENT, 'conv-orph');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 2, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { type: 'message', role: 'agent', agent_id: 'user', content: '问', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+      { type: 'step/content', run: 'run-o', step: 0, text: '先说', ts: 1000, seq: 2 },
+      { type: 'step/tool-call', run: 'run-o', step: 1, toolCallId: 'c1', name: 'run_code', arguments: '{}', ts: 2000, seq: 3 },
+      // c1 无 tool-call-result、无 run-end（硬死窗口）→ 合成结果未知
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const llm = foldLlmReplay(foldSession(ROOT, 'conv-orph'), AGENT, ROOT, 'conv-orph');
+    const tool = llm.find((m) => m.role === 'tool');
+    expect(tool?.tool_call_id).toBe('c1');
+    expect(String(tool?.content)).toContain('请先核查');
+    expect(llm.some((m) => m.content === '先说')).toBe(true);
+  });
+});
+});
+
+describe('回放声明注册制（cr-1104）', () => {
+  function seedDecl(conv: string, injectSource?: string): void {
+    const dir = sessionDir(ROOT, AGENT, conv);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 2, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { type: 'inject', run: 'run-w', content: '声明注入体', ...(injectSource !== undefined ? { injectSource } : {}), ts: 1, seq: 2 },
+      { type: 'message', role: 'agent', agent_id: AGENT, content: '终稿', message_id: 'a', requestId: 'a', run: 'run-w', timestamp: '2026-11-09T10:00:10.000Z', seq: 3 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+  }
+
+  it('声明 original → 原文回放；声明 none → 不进回放；未注册 → 缺省 wrapper', () => {
+    seedDecl('conv-decl-o', 'ac-demo:notice');
+    seedDecl('conv-decl-n', 'ac-demo:ui-only');
+    seedDecl('conv-decl-w', 'ac-demo:plain');
+    const decls: Record<string, 'original' | 'wrapper' | 'none'> = { 'ac-demo:notice': 'original', 'ac-demo:ui-only': 'none' };
+    const replayOf = (w: string) => decls[w];
+    const o = foldLlmReplay(foldSession(ROOT, 'conv-decl-o'), AGENT, ROOT, 'conv-decl-o', undefined, { replayOf });
+    expect(o.some((m) => m.content === '声明注入体')).toBe(true); // original 裸文
+    const n = foldLlmReplay(foldSession(ROOT, 'conv-decl-n'), AGENT, ROOT, 'conv-decl-n', undefined, { replayOf });
+    expect(n.some((m) => m.content.includes('声明注入体'))).toBe(false); // none 不进
+    const w = foldLlmReplay(foldSession(ROOT, 'conv-decl-w'), AGENT, ROOT, 'conv-decl-w', undefined, { replayOf });
+    expect(w.some((m) => m.content === '<system-reminder>声明注入体</system-reminder>')).toBe(true); // 缺省 wrapper
+  });
+});
+
+describe('context 行全量时间线准入（cr-1106——拆 once 面 #2）', () => {
+  it('非 event/error 的 context 行进 LLM 回放:裸文包裹、烘焙 passthrough、none 跳过', () => {
+    const dir = sessionDir(ROOT, AGENT, 'conv-admit');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'context', source: 'memory-delta', content: '（记忆时间线 delta）\n记忆基线 seq=3', agent_id: AGENT, message_id: 'm1', timestamp: '2026-11-09T10:00:02.000Z', seq: 2 },
+      { role: 'context', source: 'skill', content: '<system-reminder>技能正文</system-reminder>', agent_id: AGENT, message_id: 's1', timestamp: '2026-11-09T10:00:03.000Z', seq: 3 },
+      { role: 'context', source: 'ac-demo:ui-only', content: '只进 UI', agent_id: AGENT, message_id: 'n1', timestamp: '2026-11-09T10:00:04.000Z', seq: 4 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const fold = foldSession(ROOT, 'conv-admit');
+    const llm = foldLlmReplay(fold, AGENT, ROOT, 'conv-admit', undefined, { replayOf: (w) => (w === 'ac-demo:ui-only' ? 'none' : undefined) });
+    // 裸文 context → 包裹;烘焙 → passthrough;none → 缺席(曾全量缺席,现在声明可控)
+    expect(llm.some((m) => m.content.includes('记忆基线 seq=3') && m.content.startsWith('<system-reminder>'))).toBe(true);
+    expect(llm.some((m) => m.content === '<system-reminder>技能正文</system-reminder>')).toBe(true);
+    expect(llm.some((m) => m.content.includes('只进 UI'))).toBe(false);
+  });
+});
+
+describe('渲染契约切片 A（cr-1109）', () => {
+  it('bytes 投影派生:注入卡归口行与尾段直落行带 bytes = content.length', () => {
+    seedV1();
+    const view = foldViewRecords(foldSession(ROOT, UUID), ROOT, UUID);
+    // 注入卡归口行(run 键归口)
+    const card = view.find((r) => r.role === 'context' && r.content === '插一句');
+    expect(card?.bytes).toBe('插一句'.length);
+  });
+});
+
+describe('resume 收编（cr-1111 渲染契约切片 C）', () => {
+  it('resume 生命周期行:none 档不进 LLM 回放(机制词集确定性生效),视图在场可刷新恢复', () => {
+    const dir = sessionDir(ROOT, AGENT, 'conv-resume');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 2, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { type: 'message', role: 'agent', agent_id: 'user', content: '问', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+      { type: 'context', role: 'context', source: 'resume', content: '上一轮被中断，已原地续跑', agent_id: AGENT, message_id: 'rz1', timestamp: '2026-11-09T10:00:01.000Z', seq: 2 },
+      { type: 'message', role: 'agent', agent_id: AGENT, content: '答', message_id: 'a', requestId: 'a', run: 'run-r', timestamp: '2026-11-09T10:00:10.000Z', seq: 3 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const fold = foldSession(ROOT, 'conv-resume');
+    const llm = foldLlmReplay(fold, AGENT, ROOT, 'conv-resume');
+    expect(llm.some((m) => m.content.includes('已原地续跑'))).toBe(false); // none——从未进入过模型
+    const view = foldViewRecords(fold, ROOT, 'conv-resume');
+    const row = view.find((r) => r.source === 'resume');
+    expect(row?.bytes).toBe('上一轮被中断，已原地续跑'.length); // 视图在场(label/bytes 数据面)——刷新可恢复
   });
 });

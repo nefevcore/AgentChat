@@ -437,7 +437,8 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       // 不计入）——注入行进轨迹，无入站行复读
       const notice = '[子 Agent kid1 完成]\nmid-run 结果正文';
       const ledgerFace = ctx.get('ledger', false) as unknown as { historyMessagesFor(u: string): Array<{ content: string }> };
-      expect(ledgerFace.historyMessagesFor(INIT).filter((m) => m.content === notice)).toHaveLength(1);
+      // cr-1101 wrapper：注入行回放统一包裹——按包裹形精确一份（不双喂）
+      expect(ledgerFace.historyMessagesFor(INIT).filter((m) => m.content === '<system-reminder>' + notice + '</system-reminder>')).toHaveLength(1);
       // 重放（壳重启 inbox 重投）：注入行同键判重 → 不再唤醒、不二份
       expect(await conv.receiveEnvelope(done, { fresh: true }, { recovered: true })).toBe('ledger-only');
       expect(readLedger(dir).rows.filter((r) => (r as unknown as Record<string, unknown>).type === 'inject')).toHaveLength(1);
@@ -1747,9 +1748,9 @@ describe('cr-946 机制通知信封（壳重启「已重启」续跑通知）', 
         agent_id: 'alpha',
       });
       // LLM 回放仍作 user 上下文（historyMessagesFor 的 context+event 分支）——
-      // mock 回声证明模型收到了这条通知
+      // mock 回声证明模型收到了这条通知；cr-1101 wrapper：回放统一包裹
       const lastUser = chatMessages[0]!.filter((m) => m.role === 'user').at(-1);
-      expect(lastUser?.content).toBe('壳已重启完成（restart_shell 已兑现）');
+      expect(lastUser?.content).toBe('<system-reminder>壳已重启完成（restart_shell 已兑现）</system-reminder>');
       // 终稿行照常落账（run 键随 requestId 派生）
       expect(rows.some((r) => r.run === 'run-restarted-r1' && r.role === 'agent')).toBe(true);
     } finally {
@@ -1770,4 +1771,22 @@ describe('cr-946 机制通知信封（壳重启「已重启」续跑通知）', 
       await dispose(fibers);
     }
   }, 15_000);
+
+});
+
+describe('recordContext run 死窗口兜底（cr-1106——拆 once 面 #3）', () => {
+  it('run 不活跃 → 直落会话级 context 行(不丢落账),回放时间线在场', async () => {
+    const { ctx, fibers, conv } = await bootTree('alpha');
+    try {
+      await conv.recordContext('user~alpha', '[系统通知] 迟到注入', { source: 'durable-interaction', label: '迟到' });
+      const ledger = ctx.get('ledger', false) as unknown as { historyMessagesFor(u: string): Array<{ content: string }> };
+      // cr-1106 时间线全量准入 + 缺省 wrapper:迟到注入跨 run 在场
+      expect(ledger.historyMessagesFor('user~alpha').some((m) => typeof m.content === 'string' && m.content.includes('迟到注入'))).toBe(true);
+      const file = path.join(ROOT, 'agents', 'alpha', 'sessions', 'user~alpha', 'messages.jsonl');
+      const rows = fs.readFileSync(file, 'utf8').split('\n').filter((x) => x.trim() !== '').map((l) => JSON.parse(l) as Record<string, unknown>);
+      expect(rows.some((r) => r.role === 'context' && r.source === 'durable-interaction')).toBe(true);
+    } finally {
+      await dispose(fibers);
+    }
+  });
 });

@@ -13,6 +13,8 @@ import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
 import { summaryTextOf, UNCOMMITTED_TOOL_ERROR } from './reader.ts';
 import { foldLlmReplay, foldSession, foldSummaryOf, foldTextReplay } from './fold.ts';
+import { REPLAY_BUILTIN_WORDS, type ReplayDecl, type ReplayKind } from './replay.ts';
+import { wrapSystemReminder } from 'ac-core-utils';
 import { readDomainFacts, type RunFactsV2 } from './events-v2.ts';
 import { readAnchor, type CompactOptions, type CompactReport } from './archive.ts';
 import type { LedgerRow, JournalInject, RunUsage } from './records.ts';
@@ -28,6 +30,23 @@ export interface ToolCallLike {
   args?: Record<string, unknown>;
   runCodeSubcall?: boolean;
 }
+/**
+ * 结构化行投影（recordsFor 输出——cr-1102/1103）：主线 SessionRecordFace
+ * 消费形态（ac-memory 锚检测 / ac-skill 跨 run 去重同口径）。source 在
+ * inject 事件上取 injectSource（现行注入词汇）；context 行保持行自有 source。
+ */
+export interface LedgerRecordRow {
+  role: string;
+  source?: string;
+  agent_id?: string;
+  content: string;
+  injectSource?: string;
+  label?: string;
+  payload?: unknown;
+  run?: string;
+  seq?: number;
+}
+
 /** tool/after-execute 次参最小面（主线 ToolResult 子集） */
 export interface ToolResultLike {
   ok: boolean;
@@ -355,13 +374,59 @@ export class LedgerService extends Service {
    * run（收束即清后 journal 只剩 settled 行）。cr-640 时代的存量文本段行
    * （message_id 前缀 seg-、无 source 标记）过滤防双计；归档 compact
    * 重写后 run 键行随 keep 面消失 = 轨迹注入自然有界。 */
-  historyMessagesFor(uuid: string): LlmMessage[] {
+  // —— 回放声明注册表（cr-1104 注册制——registerToolMode 范式） ——
+
+  private replayDecls = new Map<string, ReplayKind>();
+
+  /**
+   * 注册回放声明（cr-1104）：注入源词 → 回放档。fiber 归属——随注册行
+   * 卸载自动回收（声明退场 → 该词回落默认 wrapper）。机制词封闭不可
+   * 注册；撞名 fail-loud（同 toolMode 口径）。
+   * @returns effect disposer
+   */
+  registerReplayPolicy(decl: ReplayDecl) {
+    if (typeof decl.source !== 'string' || decl.source === '') {
+      throw new Error('回放声明词非法（非空字符串）');
+    }
+    if (REPLAY_BUILTIN_WORDS.has(decl.source)) {
+      throw new Error('机制词不可注册（封闭词表）: ' + decl.source);
+    }
+    if (decl.replay !== 'original' && decl.replay !== 'wrapper' && decl.replay !== 'none') {
+      throw new Error('回放档非法（original|wrapper|none）: ' + JSON.stringify(decl.replay));
+    }
+    if (this.replayDecls.has(decl.source)) {
+      throw new Error(`回放声明已注册: ${decl.source}`);
+    }
+    return this.ctx.fiber.effect(() => {
+      this.replayDecls.set(decl.source, decl.replay);
+      return () => {
+        this.replayDecls.delete(decl.source);
+      };
+    }, `ledger.registerReplayPolicy(${decl.source})`);
+  }
+
+  /** 已注册声明清单（词表 watchdog / UI 展示用） */
+  listReplayPolicies(): ReplayDecl[] {
+    return [...this.replayDecls.entries()].map(([source, replay]) => ({ source, replay }));
+  }
+
+  /** 词 → 回放档（注册声明优先；缺省 wrapper——非 speech 事实行默认） */
+  replayKindOf(word: string | undefined): ReplayKind {
+    return (word !== undefined ? this.replayDecls.get(word) : undefined) ?? 'wrapper';
+  }
+
+  historyMessagesFor(uuid: string, opts: { excludeRun?: string } = {}): LlmMessage[] {
     const dir = path.join(this.agentDirOf(), 'sessions', uuid);
     // cr-974：LLM 回放走 fold 单源——压缩在场时摘要头与 shadowed 过滤
     // 均由 fold 三态承载（system 头在 foldLlmReplay 内置）；v1 概要
     // 兼容窗仍取 summary.md（fold 无压缩时）。parity 由 fold.test.ts 锁定。
+    // cr-1101：excludeRun——活动 run 轨迹排除（driveRun 轮间重派生防双喂）。
     const fold = foldSession(this.dataRoot, uuid, [dir]);
-    const out = foldLlmReplay(fold, this.agentId, this.dataRoot, uuid);
+    const out = foldLlmReplay(fold, this.agentId, this.dataRoot, uuid, undefined, {
+      excludeRun: opts.excludeRun,
+      // cr-1104 注册制：声明词按 owning 插件的注册档回放（缺省 wrapper）
+      replayOf: (word) => this.replayDecls.get(word),
+    });
     if (foldSummaryOf(fold) === null) {
       const summary = summaryTextOf(dir);
       return summary !== '' ? [{ role: 'system', content: summary }, ...out] : out;
@@ -389,7 +454,7 @@ export class LedgerService extends Service {
     if (!hasSteps) return null;
     if (rf.end !== undefined) return null; // 已收束（run-end）
     try {
-      return resumeFromFacts(rf);
+      return resumeFromFacts(rf, (w) => this.replayDecls.get(w));
     } catch {
       return 'degraded'; // 轨迹重建失败（版本不兼容等）——降级重投
     }
@@ -419,6 +484,50 @@ export class LedgerService extends Service {
         } catch { /* 坏封跳过 */ }
       }
     }
+    return out;
+  }
+
+  /**
+   * 结构化行读面（cr-1102/1103：SessionShim.records 转发目标——主线
+   * SessionService.records 的壳侧等价）。context 行（v1 role 判别 + v2
+   * type:'context'，存量）与 inject 事件（v2 现行——run 活跃期注入经
+   * recordContext → journalInject 落账）统一投影为「role:context 行」，
+   * seq 升序：source = 行自有 source（context）/ injectSource（inject
+   * 事件——注入行的来源词汇在 injectSource 键上）。纯读侧——不触写面
+   * 与 fold。域目录不可读 = 空清单（fail-open，消费方去重/锚检测降级）。
+   */
+  recordsFor(uuid: string): Array<LedgerRecordRow> {
+    let facts: ReturnType<typeof readDomainFacts>;
+    try {
+      facts = readDomainFacts(path.join(this.agentDirOf(), 'sessions', uuid), this.agentId);
+    } catch {
+      return [];
+    }
+    const out: Array<LedgerRecordRow & { seq?: number }> = [];
+    for (const c of facts.contexts) {
+      out.push({
+        role: 'context', source: c.source, agent_id: c.agentId, content: c.content,
+        ...(c.injectSource !== undefined ? { injectSource: c.injectSource } : {}),
+        ...(c.label !== undefined ? { label: c.label } : {}),
+        ...(c.payload !== undefined ? { payload: c.payload } : {}),
+        ...(c.run !== undefined ? { run: c.run } : {}),
+        ...(c.seq !== undefined ? { seq: c.seq } : {}),
+      });
+    }
+    for (const rf of facts.runs.values()) {
+      for (const ev of rf.events) {
+        if (ev.kind !== 'inject') continue;
+        out.push({
+          role: 'context', source: ev.injectSource ?? 'inject', agent_id: this.agentId, content: ev.content,
+          ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}),
+          ...(ev.label !== undefined ? { label: ev.label } : {}),
+          ...(ev.payload !== undefined ? { payload: ev.payload } : {}),
+          run: ev.run,
+          ...(ev.seq !== undefined ? { seq: ev.seq } : {}),
+        });
+      }
+    }
+    out.sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER));
     return out;
   }
 
@@ -477,7 +586,7 @@ export class LedgerService extends Service {
  * 未提交调用合成 UNCOMMITTED_TOOL_ERROR（结果未知）；中止步整调用剔除
  * （aborted 是明确未执行）、不计 committedSteps。无有效消息 → null。
  */
-function resumeFromFacts(rf: RunFactsV2): { messages: LlmMessage[]; committedSteps: number } | null {
+function resumeFromFacts(rf: RunFactsV2, replayOf?: (word: string) => 'original' | 'wrapper' | 'none' | undefined): { messages: LlmMessage[]; committedSteps: number } | null {
   const results = new Map<string, { ok: boolean; output?: unknown; error?: string }>();
   for (const ev of rf.events) {
     if (ev.kind === 'tool-call-result' && ev.subcall !== true) results.set(ev.toolCallId, ev.result);
@@ -499,7 +608,14 @@ function resumeFromFacts(rf: RunFactsV2): { messages: LlmMessage[]; committedSte
   // 注入点 = 事件行序（步首见序与注入交错还原——v1 seq 序同构）
   const seenSteps = new Set<number>();
   for (const ev of rf.events) {
-    if (ev.kind === 'inject') { out.push({ role: 'user', content: ev.content }); continue; }
+    if (ev.kind === 'inject') {
+      // cr-1101 live 对齐续记:续跑前缀的 inject 与 settle 后回放同字节(包裹 +
+      // cr-1104 声明分档;烘焙 passthrough)——否则 resume 所见 ≠ 事后回放所见
+      const kind = (ev.injectSource !== undefined ? replayOf?.(ev.injectSource) : undefined) ?? 'wrapper';
+      if (kind === 'none') continue;
+      out.push({ role: 'user', content: kind === 'wrapper' ? wrapSystemReminder(ev.content) : ev.content });
+      continue;
+    }
     if (ev.kind !== 'reasoning' && ev.kind !== 'content' && ev.kind !== 'tool-call') continue;
     if (seenSteps.has(ev.step)) continue;
     seenSteps.add(ev.step);
