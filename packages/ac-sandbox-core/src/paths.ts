@@ -38,6 +38,10 @@ export const BUILTIN_DENY_PATTERNS: string[] = [
  *   · ac-security 行——工具沙箱 denyPaths 注入（M23 E4/F1、G3）；
  *   · ac-workspace 行——HTTP 树/预览面的敏感遮蔽（会话区重构二轮：
  *     工作区树自 <root>/files 扩面到数据根后的读面防线）。
+ * cr-1096 2026-11-15：对齐数据分层现状（data-root-layers §二）——
+ * plugins/ 已不存在（目录缺席、词表保留为部署形态防御——远程/旧数据根
+ * 仍可能存在）；credentials.json 文件名形态保留（BUILTIN 同款兜底——
+ * 远程部署可能未迁）；config.json 留根级不变。
  */
 export const CONTROL_PLANE_FILES: readonly string[] = [
   'cordis.patch.yml',
@@ -58,17 +62,30 @@ export const CONTROL_PLANE_FILES: readonly string[] = [
  * 处，tags = 档位住在这里）此前不在黑名单——预设 Agent 可 fs 直写任意
  * Agent 的档位，绕过管理面与 update_agent_profile 白名单；sessions/ 同理
  * （改写 jsonl = 伪造历史/给未来上下文投毒）。
+ *
+ * cr-1096 2026-11-15：对齐数据分层第二层（data-root-layers §二）——
+ * cr-1008/1081 把 sessions/subagents/usage/backups 迁入 meta/ 并物理删除
+ * 旧根级目录后，词表未跟：根级锚点悬空（deny 面对真实数据树失配——
+ * meta/sessions 实测可直读，写侧同查同表 = 篡改审批键/定时器/配对身份
+ * 的静默通道）。修复：meta/ 整树 + 凭据目录 + 索引 + 在途队列 + 运行态
+ * 一并入表（第二层用户域源数据全量 + 派生面）；usage/backups 为旧数据根
+ * 防御性保留（新数据根不再生成）；agents/ 仍根级（真值账本）。
  */
 export const PERSISTENCE_TREES: readonly string[] = [
   'agents',
-  'sessions',
-  'subagents',
-  'usage',
-  'backups',
+  'meta',
+  'credentials',
+  'index',
+  'outbox',
+  '.runtime',
   // 会话文件首见快照（ac-file-snapshots owning 数据目录；实测复盘
   // 4cd1a90d：glob **/*run*code* 返回 48 条中约 40 条是快照路径——检索面
   // 纯噪音且量随会话数无界增长，收录标准与本表其余条目一致）
   'file-snapshots',
+  // 旧数据根防御（cr-1081 已物理删除本地目录——远程/旧部署可能仍存在）
+  'usage',
+  'backups',
+  'subagents',
 ];
 
 /**
@@ -87,12 +104,26 @@ export const DEFAULT_READ_DENY: readonly string[] = [
 ];
 
 /**
+ * 开发者模式（cr-1097 2026-11-15）：AGENTCHAT_DEV_MODE=1 时系统域默认表
+ * 不注入 accessDeny（解锁全部范围——控制面 + 持久化域，供开发迭代直读
+ * 直写系统域）。凭据面**恒禁不随 dev 解锁**：BUILTIN_DENY_PATTERNS
+ * （~/.agentchat、credentials.json 文件名模式等）与 readDeny 全量照常
+ * ——凭据机密性与开发无关。env 是进程级开关：supervisor→host→shell
+ * 全链继承（spawnOpts 不传 env = 子进程继承父 env；子 Agent 与父同进程
+ * 不可逃逸）；recipe 盘面只记 argv 不记 env，开关不落盘——unset 后重拉
+ * 壳即回到守卫态。
+ */
+export const DEV_MODE = process.env.AGENTCHAT_DEV_MODE === '1';
+
+/**
  * 组装访问黑名单（读 + 写双禁；access-tier §9.2）：控制面文件 +
  * 持久化域树（均按数据根解析为绝对路径——deny 目录前缀判定）+ 调用方
  * 追加项（settings/行配置原样：绝对路径前缀或任意层级文件名模式）。
  * 消费方：ac-security 复检 + fs 工具行基线（两层同源不漂移）。
+ * cr-1096 2026-11-15：sessions/ 已并入 meta/ 整树（数据分层第二层）。
  */
 export function accessDenyPatterns(dataRoot: string, extra: readonly string[] = []): string[] {
+  if (DEV_MODE) return [...extra];
   return [
     ...CONTROL_PLANE_FILES.map((rel) => path.join(dataRoot, rel)),
     ...PERSISTENCE_TREES.map((rel) => path.join(dataRoot, rel)),

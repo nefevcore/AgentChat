@@ -21,6 +21,7 @@ export {
   CONTROL_PLANE_FILES,
   PERSISTENCE_TREES,
   DEFAULT_READ_DENY,
+  DEV_MODE,
   accessDenyPatterns,
   readDenyPatterns,
   denyExtrasOf,

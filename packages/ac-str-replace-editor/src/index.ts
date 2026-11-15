@@ -24,6 +24,7 @@ import type { Context } from '@agentchat/cordis';
 import {
   createAgentSandboxCache,
   createDenyListsFactory,
+  DEV_MODE,
   isDeniedPath,
   isPlainRelativePath,
   type DenyRowOptions,
@@ -301,15 +302,17 @@ export function apply(ctx: Context, options: StrReplaceEditorRowOptions = {}) {
       // 读面另过 readDeny（§9.1 口径对齐 read/glob/grep；cr-363 修本行原
       // 只查 accessDeny 的走散）。路径判定与目录列表条目过滤共用单源。
       const hit = readDenyHitOf(call)(target);
+      // cr-1097：dev 模式下系统域默认表不注入——命中即追加项（消息如实呈现）
+      const devTag = DEV_MODE ? '（开发者模式：系统域默认表已解除，此为显式追加项拦截）' : '';
       if (command !== 'view' && hit === 'access') {
-        return { ok: false, error: `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${pathInput}` };
+        return { ok: false, error: '路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）' + devTag + '：' + pathInput };
       }
       if (command === 'view' && hit !== undefined) {
         return {
           ok: false,
           error: hit === 'access'
-            ? `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${pathInput}`
-            : `路径被读黑名单拒绝（用户域机密；full-access 档跳过）：${pathInput}`,
+            ? '路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）' + devTag + '：' + pathInput
+            : '路径被读黑名单拒绝（用户域机密；full-access 档跳过）：' + pathInput,
         };
       }
 

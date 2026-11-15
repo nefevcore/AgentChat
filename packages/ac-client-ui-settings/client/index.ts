@@ -14,7 +14,10 @@
 // → 设置入口空态（ui.openGlobalSettings 无消费面），宿主不残废。
 // ============================================================
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
+import { defineAsyncComponent } from 'vue';
 import SettingsOverlayHost from './SettingsOverlayHost.vue';
+
+const GeneralSectionAsync = defineAsyncComponent(() => import('./components/GeneralSection.vue'));
 
 // SlotMap 类型化声明：settings 基础件拥有的席位词表（自 hostLedger 转正）
 declare module 'ac-client-slots' {
@@ -75,6 +78,16 @@ export const settingsClientPlugin = clientPlugin({
       description: '设置节选举席（SettingsPanel 按 selectedNode × meta.section 选举渲染；左树叶自贡献 meta.label + 顶层 order 派生——一节一叶同源，行装卸叶/节同步退场；M28 P2 / M30 D1 / 2026-09-11 左树数据化）',
       ownerProps: { noExtraTogglePath: true },
     });
+    // 「通用」节（cr-1097 开发者模式全局设置——settings.devMode；order 10
+    // 头位，域行大件节〔agents 20 / llmPools 20 / …〕之前）
+    ctx.slots.inject('settings:section', () =>
+      ctx.slots.register('settings:section', {
+        id: 'webui-base-settings.general',
+        component: GeneralSectionAsync,
+        order: 10,
+        meta: { section: 'general', label: '通用' },
+      }),
+    );
     // 设置面板出厂贡献（overlay 席位——原 AppFrame 内联内容）
     ctx.slots.register('overlay', {
       id: 'webui-base-settings.panel',

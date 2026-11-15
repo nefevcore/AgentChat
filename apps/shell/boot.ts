@@ -31,6 +31,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis';
 import { readCatalog, fitInstalledRows, readAssemblyPatch, resolveReplacements, mergeMenu, applyAssemblyLayer, menuDefinitionFingerprint, type RowDescriptor, type MenuEntry } from 'ac-rowset-core';
 import { readRegistryFailSoft } from 'ac-plugin-core';
+import { DEV_MODE } from 'ac-sandbox-core';
 import { readAgentConfig, readChildConfig, readAgentPatchV3At, writeAgentPatchV3At, migrateAgentPatchAt, needsConfigMigration, runConfigMigration, aggregateConfigChains, type ConfigMigrationEdge } from 'ac-agents-core';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { IMPORTED_ROWS, COMPANION_ROWS, COMPANION_ROW_ROOTS, rowOptionsFor, makeShimsRow, makeToolsGateRow, makeSessionQueryRow, makeArchiveRow, makePluginDevRow, makeRestartRow, makeAutoTitleRow, guardPluginModule } from 'ac-shell-rows';
@@ -1335,6 +1336,9 @@ export async function main(argv: string[]): Promise<number> {
       onShutdown: () => { setTimeout(() => decideExit(0), 200); },
     });
     process.stderr.write('[shell] boot 完成：agent=' + args.agentId + ' rows=' + result.rowsReady + '\n');
+    // cr-1097：开发者模式警示——env 进程级开关（AGENTCHAT_DEV_MODE=1），
+    // 系统域双禁默认表不注入。boot 行显著提示，防误用态被当成守卫态。
+    if (DEV_MODE) process.stderr.write('[shell] AGENTCHAT_DEV_MODE=1 开发者模式：系统域访问双禁已解除（凭据面恒禁不变）\n');
     // 常驻（监护下的常命壳）：stdin = 控制通道（拉起方行协议）——
     // 'shutdown' 行 = 优雅退出；{"ctrl":...} JSON 行 = 控制帧（interrupt/bench，
     // 经 bootShell.control 执行，回执写 stdout TSV ctrl.done/ctrl.error）。

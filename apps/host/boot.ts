@@ -316,6 +316,14 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   // 投影（projectUserReplay），viewer 不再物化——「清 viewer 树自愈」成为
   // 读面固有属性，boot 无需补建。 ----
 
+  // ---- 开发者模式开关（cr-1097）：config settings.devMode 全局设置，
+  // 宿主拉壳时合成 AGENTCHAT_DEV_MODE 注入壳 env（壳侧系统域双禁默认表
+  // 不注入）。UI 经 config/save 写入 → 宿主进程内 ctx.config 热更 →
+  // 每次 ensureAgent 现取——新拉壳即时生效，已活壳不受影响（重启壳切换）。 ----
+  const devModeOf = (): boolean =>
+    (ctx.get('config', false) as { get<T>(key: string, fallback?: T): T | undefined } | undefined)
+      ?.get<boolean>('settings.devMode', false) === true;
+
   // ---- 编排面（cr-551）：supervise 句柄池 + 按需拉起 + re-tap ----
   // boot 即接线邮局 ensure 钩子：不可达来信 → 落箱 → 拉壳 → adopted 转投。
   const orchestrate = options.orchestrate ?? true;
@@ -330,6 +338,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
         hostBoot: path.resolve(HERE, 'boot.ts'),
         hostPort: web.port,
         tap: (agentId, hint) => web.tapAgent(agentId, hint),
+        devModeOf,
         ...(options.mockProvider === true ? { mockProvider: true } : {}),
         ...(options.adopt !== undefined ? { adopt: options.adopt } : {}),
       })

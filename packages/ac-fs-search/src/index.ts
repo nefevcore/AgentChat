@@ -23,6 +23,7 @@ import type { Context } from '@agentchat/cordis';
 import {
   createAgentSandboxCache,
   createDenyListsFactory,
+  DEV_MODE,
   isDeniedPath,
   type DenyRowOptions,
   type SandboxResolverOptions,
@@ -455,7 +456,9 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       // 只过双黑名单（根自身命中即拒；子树由 walk 逐文件过滤）
       const rootAbs = path.resolve(sandbox.workdir, rootInput);
       if (isDenied(rootAbs)) {
-        return { ok: false, error: `搜索根被黑名单拒绝（系统域/机密）：${rootInput}` };
+        // cr-1097：dev 模式下命中 = 追加项/机密读禁（默认表已解除）
+        const devTag = DEV_MODE ? '（开发者模式：系统域默认表已解除）' : '';
+        return { ok: false, error: '搜索根被黑名单拒绝（系统域/机密）' + devTag + '：' + rootInput };
       }
       let stat: fs.Stats;
       try {
@@ -601,7 +604,8 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       // 只过双黑名单（目录走 walk 逐文件过滤）
       const targetAbs = path.resolve(sandbox.workdir, targetInput);
       if (isDenied(targetAbs)) {
-        return { ok: false, error: `搜索目标被黑名单拒绝（系统域/机密）：${targetInput}` };
+        const devTag = DEV_MODE ? '（开发者模式：系统域默认表已解除）' : '';
+        return { ok: false, error: '搜索目标被黑名单拒绝（系统域/机密）' + devTag + '：' + targetInput };
       }
       let stat: fs.Stats;
       try {

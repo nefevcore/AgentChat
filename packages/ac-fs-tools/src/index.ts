@@ -22,6 +22,7 @@ import type { Context } from '@agentchat/cordis';
 import {
   createAgentSandboxCache,
   createDenyListsFactory,
+  DEV_MODE,
   isDeniedPath,
   isPlainRelativePath,
   type DenyRowOptions,
@@ -133,8 +134,13 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     raw: string,
   ): string | undefined {
     const hit = readDenyHitOf(call)(file);
-    if (hit === 'access') return `路径被访问黑名单拒绝（系统域读+写双禁）：${raw}`;
-    if (hit === 'read') return `路径被读黑名单拒绝（用户域机密；full-access 档跳过）：${raw}`;
+    // cr-1097：dev 模式下系统域默认表不注入，命中 access = 追加项（行配置/
+    // settings 显式追加）——消息如实呈现，不误导为默认表拦截
+    if (hit === 'access') {
+      const tag = DEV_MODE ? '（开发者模式：系统域默认表已解除，此为显式追加项拦截）' : '';
+      return '路径被访问黑名单拒绝（系统域读+写双禁）' + tag + '：' + raw;
+    }
+    if (hit === 'read') return '路径被读黑名单拒绝（用户域机密；full-access 档跳过）：' + raw;
     return undefined;
   }
 
@@ -277,7 +283,10 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
           : sandbox.resolve(p);
         const deny = denyListsOf(call);
         if (isDeniedPath(deny.accessDeny, file)) {
-          return { ok: false, error: `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${p}` };
+          // cr-1097：dev 模式下系统域默认表不注入——命中即追加项（行配置/
+          // settings 显式追加），消息如实呈现
+          const devTag = DEV_MODE ? '（开发者模式：系统域默认表已解除，此为显式追加项拦截）' : '';
+          return { ok: false, error: '路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）' + devTag + '：' + p };
         }
         snapshotBefore(call, file); // 首见快照（方案 C——覆盖写前存底；幂等）
         await withFileMutationQueue(file, async () => {
@@ -351,7 +360,8 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
           : sandbox.resolve(filePath);
         const deny = denyListsOf(call);
         if (isDeniedPath(deny.accessDeny, file)) {
-          return { ok: false, error: `路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）：${filePath}` };
+          const devTag = DEV_MODE ? '（开发者模式：系统域默认表已解除，此为显式追加项拦截）' : '';
+          return { ok: false, error: '路径被访问黑名单拒绝（系统域读+写双禁，不随档位跳过）' + devTag + '：' + filePath };
         }
         snapshotBefore(call, file); // 首见快照（方案 C——编辑前存底；幂等）
         call.onProgress?.(`正在编辑: ${filePath}（1 处文本匹配）...\n`);

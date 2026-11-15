@@ -39,6 +39,10 @@ export interface OrchestratorOptions {
   hostPort?: number;
   /** 拉起链注入（测试替身）；缺省 = adoptShell 真链 */
   adopt?: SuperviseAdopter;
+  /** 开发者模式开关读取（cr-1097）：true = 拉壳时注入
+   *  AGENTCHAT_DEV_MODE=1（壳侧系统域双禁默认表不注入）。每次拉壳现取——
+   *  boot 侧闭包读 config settings.devMode，UI 保存热更后新拉壳即时生效。 */
+  devModeOf?: () => boolean;
   /** supervise 面板注入（测试——退避档/心跳） */
   superviseOptions?: Omit<Partial<import('./supervise.ts').SuperviseOptions>, 'adopt'>;
   /** socket manage 探活超时（缺省 4s） */
@@ -147,6 +151,9 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
     ...(options.hostBoot !== undefined ? { hostBoot: options.hostBoot } : {}),
     ...(options.hostPort !== undefined ? { hostPort: options.hostPort } : {}),
     mockProvider: options.mockProvider ?? false,
+    // cr-1097 开发者模式：宿主合成 AGENTCHAT_DEV_MODE 注入壳 env——
+    // 每次拉壳现取（config 热更后新拉壳即时生效，已活壳不受影响）
+    ...(options.devModeOf?.() === true ? { devEnv: { AGENTCHAT_DEV_MODE: '1' } } : {}),
   });
 
   const baseAdopter: SuperviseAdopter = options.adopt ?? ((input) => adoptShell(input));

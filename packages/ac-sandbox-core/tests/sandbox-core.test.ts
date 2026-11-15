@@ -1,7 +1,7 @@
 // ============================================================
 // ac-sandbox-core：沙箱路径解析/bash 扫描/双黑名单装配/脱敏/防自杀
 // ============================================================
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -99,6 +99,26 @@ describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-
     expect(d.readDeny).toContain('**/*.kdbx'); // 行配置追加项
   });
 
+  it('cr-1096：词表对齐数据分层第二层——meta/credentials/index/outbox/.runtime 全锚定，sessions 旧锚点已并入 meta', () => {
+    const denyOf = createDenyListsFactory({}, mkSource('C:/data'));
+    const d = denyOf({ agentId: 'a1' });
+    // 第二层用户域源数据整树 + 派生面（data-root-layers §二）
+    expect(d.accessDeny).toContain(path.join('C:/data', 'meta'));
+    expect(d.accessDeny).toContain(path.join('C:/data', 'credentials'));
+    expect(d.accessDeny).toContain(path.join('C:/data', 'index'));
+    expect(d.accessDeny).toContain(path.join('C:/data', 'outbox'));
+    expect(d.accessDeny).toContain(path.join('C:/data', '.runtime'));
+    // 真值账本仍在根级
+    expect(d.accessDeny).toContain(path.join('C:/data', 'agents'));
+    // 真实攻击路径（修复前可直读/直写）：approval 会话键 / 定时器 / 配对身份
+    expect(isDeniedPath(d.accessDeny, path.join('C:/data', 'meta', 'conv-settings', 'sid.json'))).toBe(true);
+    expect(isDeniedPath(d.accessDeny, path.join('C:/data', 'meta', 'sessions', 'sid.json'))).toBe(true);
+    expect(isDeniedPath(d.accessDeny, path.join('C:/data', 'meta', 'timer', 'state.json'))).toBe(true);
+    expect(isDeniedPath(d.accessDeny, path.join('C:/data', 'meta', 'remote', 'pair.json'))).toBe(true);
+    // 死锚点清理：sessions 不再单独出现在词表（已由 meta 前缀覆盖）
+    expect(d.accessDeny).not.toContain(path.join('C:/data', 'sessions'));
+  });
+
   it('settings[security] 追加项并入；非字符串数组值被 denyExtrasOf 过滤', () => {
     const denyOf = createDenyListsFactory({}, mkSource('C:/data', { accessDenyPaths: ['E:/x'], readDenyPaths: [42, 'ok'] }));
     const d = denyOf({ agentId: 'a1' });
@@ -116,6 +136,28 @@ describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-
     const d = denyOf({});
     expect(d.accessDeny).toEqual(['D:/only']); // 系统部分缺失（best-effort）
     expect(d.readDeny).toEqual([...DEFAULT_READ_DENY]);
+  });
+
+  it('cr-1097：AGENTCHAT_DEV_MODE=1 时 accessDeny 仅含追加项（默认表解除）；readDeny 照常全量（凭据机密不随 dev 解锁）', async () => {
+    process.env.AGENTCHAT_DEV_MODE = '1';
+    try {
+      vi.resetModules();
+      const { createDenyListsFactory: factoryOf, isDeniedPath: deniedOf, accessDenyPatterns: patternsOf } = await import('../src/paths.ts');
+      const denyOf = factoryOf({ accessDenyPaths: ['D:/explicit'] }, mkSource('C:/data'));
+      const d = denyOf({ agentId: 'a1' });
+      // 默认表解除：仅追加项（行配置显式追加仍拦）
+      expect(d.accessDeny).toEqual(['D:/explicit']);
+      expect(deniedOf(d.accessDeny, path.join('C:/data', 'meta', 'sessions', 'sid.json'))).toBe(false);
+      expect(deniedOf(d.accessDeny, path.join('C:/data', 'agents', 'a1', 'messages.jsonl'))).toBe(false);
+      expect(deniedOf(d.accessDeny, 'D:/explicit/sub/f.txt')).toBe(true);
+      // readDeny 全量照常（凭据机密与开发无关）
+      expect(d.readDeny).toEqual([...DEFAULT_READ_DENY]);
+      // workspace 缺失告警语义：dev 下系统表本就不注入，root 缺失仍走 best-effort 分支（追加项照查）
+      expect(patternsOf('C:/data')).toEqual([]);
+    } finally {
+      delete process.env.AGENTCHAT_DEV_MODE;
+      vi.resetModules();
+    }
   });
 
   it('无 agentId（无执行身份）不读 settings；无 onDegraded 不炸', () => {

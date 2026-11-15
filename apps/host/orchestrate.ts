@@ -28,9 +28,10 @@ export interface SpawnHooks {
   onStderrLine?(line: string): void;
 }
 
-/** spawn 注入面（测试替身） */
+/** spawn 注入面（测试替身）。env：额外注入子进程的环境变量（cr-1097
+ *  开发者模式——宿主合成 AGENTCHAT_DEV_MODE 注入壳；缺省不传 = 继承） */
 export interface SpawnFn {
-  (cmd: string, args: string[], hooks?: SpawnHooks): {
+  (cmd: string, args: string[], hooks?: SpawnHooks, env?: Record<string, string>): {
     pid: number;
     stdout: AsyncIterable<string>;
     /** 控制帧通道（shutdown 优雅退出——stdin 可写；测试替身可空实现） */
@@ -74,8 +75,12 @@ const AGENTCHAT_EXE = (() => {
   return fs.existsSync(p) && process.env.VITEST === undefined ? p : process.execPath;
 })();
 
-function spawnOpts(): SpawnOptions {
-  return { stdio: ['pipe', 'pipe', 'pipe'], detached: true };
+function spawnOpts(extraEnv?: Record<string, string>): SpawnOptions {
+  // cr-1097：env 显式合成（process.env 基底 + extraEnv）——缺省不传 env
+  // 字段即继承（既有行为）；传则显式合成，开发者模式随拉壳注入壳进程。
+  return extraEnv === undefined
+    ? { stdio: ['pipe', 'pipe', 'pipe'], detached: true }
+    : { stdio: ['pipe', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...extraEnv } };
 }
 
 /** 滚动追加一行（cr-662 诊断面）：超 capBytes 即滚成 .1（旧 .1 覆弃）。
@@ -90,13 +95,13 @@ export function appendRollingLine(file: string, line: string, capBytes: number):
   } catch { /* 诊断面失败不反噬 */ }
 }
 
-export const defaultSpawn: SpawnFn = (cmd, args, hooks) => {
+export const defaultSpawn: SpawnFn = (cmd, args, hooks, env) => {
   // detached（cr-642）：壳独立进程组——宿主 exit 42/崩溃时不被 Windows Job 对象
   // 连带杀灭（保壳保 run；宿主死后壳经 host-revive/stdio 管道断检测自持存活）。
   // stdio 仍 pipe：监护面（心跳/控制帧）照常；spawn 返回对象需 unref() 由宿主退出时自然断链。
   // argv 必达（cr-643 热修）：三参形态——此前 spawn(cmd, opts) 丢 args，壳裸启
   // 不 boot、零注册，全部投递积压 outbox（前端消息唤不起会话的现场根因）。
-  const child: ChildProcess = spawn(cmd, args, spawnOpts());
+  const child: ChildProcess = spawn(cmd, args, spawnOpts(env));
   let buffer = '';
   const lines: string[] = [];
   const waiters: Array<(l: string) => void> = [];
@@ -193,6 +198,9 @@ export async function adoptShell(
     hostPort?: number;
     spawnFn?: SpawnFn;
     timeoutMs?: number;
+    /** 拉壳时注入壳进程的额外 env（cr-1097 开发者模式——宿主读 config
+     *  settings.devMode 合成；undefined = 无注入 = 继承宿主 env） */
+    devEnv?: Record<string, string>;
   },
 ): Promise<AdoptResult> {
   const spawnFn = input.spawnFn ?? defaultSpawn;
@@ -243,7 +251,7 @@ export async function adoptShell(
       writtenAt: new Date().toISOString(),
     });
   } catch { /* 盘面退化不反噬拉起链 */ }
-  const proc = spawnFn(AGENTCHAT_EXE, shellArgs, { onStderrLine: (line) => reportStderr(line) });
+  const proc = spawnFn(AGENTCHAT_EXE, shellArgs, { onStderrLine: (line) => reportStderr(line) }, input.devEnv);
   // 拉起链观测（cr-993）：spawn → 三拍 → adopted 全程落宿主日志——空窗耗时
   // 可拆分（boot.* 节拍行在下方行循环统一计时，此处只记起点）
   const spawnAt = Date.now();
