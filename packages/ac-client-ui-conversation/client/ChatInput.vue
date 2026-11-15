@@ -28,7 +28,6 @@ import { detectMention, replaceMentionToken, mentionMatches, formatFileMention, 
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { loadComposePrefs, saveComposePrefs, type ComposeEffort } from './composePrefs.ts';
 
-import { persistToolMode } from './toolModeInherit.ts';
 import InputMention, { type MentionItem, type MentionGroup } from './InputMention.vue';
 import PromptEditor from './PromptEditor.vue';
 
@@ -78,17 +77,16 @@ const reasoningEffort = ref<'' | 'low' | 'high' | 'max'>((lastPrefs?.effort ?? '
 /** 工具调用模式（2026-09-17 tc-* 标签轴统一重构：与提权档位同构——
  *  Agent tags 定默认档、conv-settings.toolMode 会话覆盖）：'' = 跟随
  *  Agent（tags 档，缺省 tc-base）；'tc-base' | 'tc-programmatic' |
- *  'tc-none' = 会话覆盖。选择即写会话 conv-settings（键面同 access
- *  口径，全形态生效）。旧 programmatic 布尔开关与「新会话继承写」
- *  （toolModeInherit）已随重构退役——持久程序化 = 给 Agent 配
+ *  'tc-none' = 会话覆盖。cr-1093 起**选择只改表单**——发送边界一次 patch
+ *  落盘（消息边界生效，进行中的 run 不受干扰）；持久程序化 = 给 Agent 配
  *  tc-programmatic 标签。退役预设防御见 presetRetired。 */
 const toolMode = ref<'' | 'tc-base' | 'tc-programmatic' | 'tc-none'>('');
 /** 浏览器能力档（2026-09-26 CDP 化收尾——「实验性 → 浏览器」档位钮）：'' =
  *  跟随 Agent tags（browser-tier 抉择组，全关 = browser 不可见）；
  *  'observe'|'manipulate'|'inject' = 会话级临时授权（只升不降）；
- *  'disabled' = 本会话禁用 browser 工具。选择即写会话 conv-settings
- *  （browserTier 键——web-tools 分层门禁消费，全形态会话含 singles
- *  sid 生效——独立会话接入浏览器能力的通路）。 */
+ *  'disabled' = 本会话禁用 browser 工具。cr-1093 起选择只改表单，发送
+ *  边界一次 patch 落盘（browserTier 键——web-tools 分层门禁消费，全形态
+ *  会话含 singles sid 生效）。 */
 const browserTier = ref<'' | 'observe' | 'manipulate' | 'inject' | 'disabled'>('');
 const attachedFiles = ref<FileAttachment[]>([]);
 const uploading = ref(false);
@@ -111,7 +109,8 @@ const modelPanel = ref<'root' | 'model' | 'effort'>('root');
 const llmPools = ref<Record<string, Record<string, unknown>>>({});
 /** 池数据已装载（首载完成前"未配置"判定不生效——防误报） */
 const poolsLoaded = ref(false);
-/** 本地选择态（即时生效：选择即 PATCH/写 conv-settings；刷新后回写校准） */
+/** 本地选择态（cr-1093：model/agent 侧仍是表单；1v1 model 发送边界写、
+ *  singles model 走 session.json 即时写——见 selectModel 注释） */
 const selWorkspace = ref('');
 const selAgent = ref('');
 const selModel = ref('');
@@ -384,9 +383,13 @@ const modelGroups = computed(() => {
     .filter((g) => g.models.length > 0);
 });
 
-/** 选择模型：即时生效——singles 走 updateSession；1v1 直答走 conv-settings
- *  （deliver 边界合并生效，服务端持久化）。'' = 清除覆盖。回滚校验当前值：
- *  快速连选时旧请求的迟到失败不得覆盖新选择。选择写回组合偏好（新开会话回放）。 */
+/** 选择模型（'' = 清除覆盖）。两域分流（contract.ts 既有裁决，cr-1093 复核）：
+ *  · singles → session.json 域（updateSession）**即时写**：单条消息的信封模型
+ *    取自会话上下文（chat-core deliver 带 ctx.model），延迟写会让信封与会话
+ *    元数据双源（模型分流例外）。
+ *  · 1v1 直答 → conv-settings 域，**只改表单**：发送边界一次 patch 落盘
+ *    （deliver 侧 storedModelOf 读盘合并——写必须赶在消息出门前，发送链 await）。
+ *  选择一律写回组合偏好（新开会话表单初值来源）。 */
 function selectModel(value: string) {
   modelPanel.value = 'root'; // 参数类选择回一级（可连续调整）
   const prev = selModel.value;
@@ -400,27 +403,22 @@ function selectModel(value: string) {
     });
     return;
   }
-  // 1v1 直答会话：覆盖键 = pairKey(viewer, agent)（与后端 deliver 同口径）
-  const agentId = roster.activeAgentId.value;
-  if (!agentId) return;
-  const conversationId = [VIEWER_ID.value, agentId].sort().join('~');
-  void setConvSetting(conversationId, { model: value || null }).catch((err: any) => {
-    toastError('模型覆盖未保存：' + (err?.message ?? err));
-    console.error('[ChatInput] 会话模型覆盖失败:', err?.message);
-    if (selModel.value === value) selModel.value = prev;
-  });
+  // 1v1 直答：覆盖键 = pairKey(viewer, agent)——表单态，发送边界写
 }
 
 /** 1v1 直答：激活 Agent 切换 → 回读该会话的模型覆盖（conv-settings） */
 watch(() => roster.activeAgentId.value, async (id) => {
   if (props.single || !id) return;
   const conversationId = [VIEWER_ID.value, id].sort().join('~');
-  if (!rpc) { selModel.value = ''; return; }
+  if (!rpc) { selModel.value = ''; convBaseline.model = ''; return; }
   try {
     const r = await rpc.call<{ settings?: { model?: string } }>('conv-settings/get', { conversationId });
-    selModel.value = r.settings?.model ?? '';
+    const stored = r.settings?.model ?? '';
+    convBaseline.model = stored;
+    selModel.value = stored;
   } catch {
     selModel.value = ''; // 行未装/会话设置面不可用 → 无覆盖语义
+    convBaseline.model = '';
   }
 }, { immediate: true });
 
@@ -432,29 +430,58 @@ const toolModeConvKey = computed(() => {
   return agentId ? [VIEWER_ID.value, agentId].sort().join('~') : null;
 });
 
-/** 草稿位判定（cr-1084）：新会话未发送——真实 sid 尚未签发，conv-settings
- *  写口不得把键写到哨兵 __pending__（run 读真实 sid 读不到，权限门 approval
- *  等键对 run 不可见）。写口经 setConvSetting 暂存进草稿（board 搬运面），
- *  读侧经 convSettingStored 回显暂存值。 */
+/** 草稿位判定（cr-1084/cr-1093）：新会话未发送——真实 sid 尚未签发。
+ *  草稿位无服务端读面（哨兵键上可能有存量脏值，不得回显）：表单初值 =
+ *  组合偏好、基线全空；发送边界连同表单脏值一次 patch 写到签发后的真实 sid
+ *  （不再有草稿暂存面与物化搬运）。 */
 const onDraft = computed(() => props.single?.id === PENDING_SINGLE_ID && singlesBoard?.isPending() === true);
 
-/** conv-settings 统一写口（会话键写口的公共边界）：草稿位 → 暂存草稿
- *  （返回已受理；物化时搬到真实 sid）；常规 → RPC 真键。返回 promise 供
- *  调用方回滚/告警（草稿位恒 resolve——暂存是本地操作）。
- *  会话键全生命周期契约见 docs/design/session/conv-settings-conventions.md
- *  （新键经 registerKey 注册后由 selectExtKey 泛写口自动接线，零改动）。 */
-function setConvSetting(conversationId: string | null, patch: Record<string, string | null>): Promise<unknown> {
-  if (onDraft.value) {
-    for (const [k, v] of Object.entries(patch)) singlesBoard?.setConvOverride(k, v);
-    return Promise.resolve();
-  }
-  if (!conversationId || !rpc) return Promise.resolve();
-  return rpc.call('conv-settings/set', { conversationId, patch });
+/** 会话键基线（读面已存值快照——'' = 无显式键）：发送边界据此 diff 出脏值 */
+const convBaseline = reactive<Record<string, string>>({});
+
+/** 表单当前值（会话键视图——发送边界写盘的唯一数据源） */
+function formConvValue(key: string): string {
+  if (key === 'toolMode') return toolMode.value;
+  if (key === 'browserTier') return browserTier.value;
+  if (key === 'model') return selModel.value;
+  return extKeyValues[key] ?? '';
 }
 
-/** conv-settings 统一读口（草稿位回显暂存值；常规读 undefined = 走 RPC 面） */
-function convSettingStored(key: string): string | undefined {
-  return onDraft.value ? singlesBoard?.convOverrideValue(key) : undefined;
+/** 脏值 patch（表单 vs 基线）：有变化的键 → 新值 / null（删键回跟随态）；
+ *  无变化 = null（零写）。键面 = 内置两会话键 + 实验目录键 + 基线里出现过的键。 */
+function dirtyConvPatch(): Record<string, string | null> | null {
+  const keys = new Set<string>(['toolMode', 'browserTier', ...Object.keys(convBaseline)]);
+  for (const def of experimentalKeys.value) keys.add(def.key);
+  // singles 的 model 归 session.json 域（防双源）——不进 conv-settings patch
+  if (props.single) keys.delete('model');
+  const patch: Record<string, string | null> = {};
+  for (const key of keys) {
+    const current = formConvValue(key);
+    if (current === (convBaseline[key] ?? '')) continue;
+    patch[key] = current === '' ? null : current;
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+/**
+ * 发送边界单次写（cr-1093 消息边界生效模型）：表单脏值一次 patch 落到真实
+ *  会话键——首条消息（草稿物化拿到签发 sid 后）与续聊同一条链。写失败不阻断
+ *  发送：不回滚表单、不弹 toast（表单即真相，下次发送重试；消费方天然回落
+ *  兜底）。成功 = 基线追平 + bump 装配面快照（预览/估算面重取）。
+ */
+async function flushConvSettings(conversationId: string | null): Promise<void> {
+  if (!conversationId || !rpc) return;
+  const patch = dirtyConvPatch();
+  if (patch === null) return;
+  try {
+    await rpc.call('conv-settings/set', { conversationId, patch });
+  } catch (err: unknown) {
+    console.warn('[ChatInput] 会话设置写入失败（下次发送重试）:', (err as { message?: string }).message ?? String(err));
+    return;
+  }
+  for (const [key, value] of Object.entries(patch)) convBaseline[key] = value ?? '';
+  store.setConvToolMode(toolMode.value);
+  store.setConvBrowserTier(browserTier.value);
 }
 
 /** 目标 Agent 的工具调用模式档（cr-953 结构化——toolMode 字段直读；
@@ -473,60 +500,39 @@ const agentToolMode = computed<'tc-base' | 'tc-programmatic' | 'tc-none'>(() => 
  *  选：形态是选择非授权门槛；行未装时覆盖由 router 惰性 warn 兜底）。 */
 const programmaticAvailable = computed(() => agentToolMode.value !== 'tc-none');
 
-/** 挂载/会话切换：回读会话工具调用模式覆盖（conv-settings toolMode）。
- *  会话有显式键 = 存储为准（用户在该会话的覆盖）；无键（新会话）=
- *  **跟随上次选择**——回放组合偏好并写该会话 conv-settings（2026-09-17
- *  恢复：覆盖必须落存储才生效——router 收窄读的是它；'' 跟随态无需写，
- *  tags 档天然生效）。写入经 toolModeInherit 登记，deliver 前 await 兜底
- *  ——首条消息不抢在继承写之前出门。Agent 不支持目标档（如无 infra 的
- *  程序化）时不写：跟随态兜底（该会话选了也不生效，防「假象继承」）。 */
+/** 挂载/会话切换：回读会话工具调用模式覆盖（conv-settings toolMode）填表单，
+ *  并把已存值记为基线。会话无显式键（含草稿位）= **表单初值取组合偏好**
+ *  （cr-1093：偏好只做初值，不落写——发送边界才写该会话）。Agent 不支持
+ *  目标档（如程序化无行）时不预置：跟随态兜底（防「假象继承」）。 */
 watch(toolModeConvKey, async (conversationId) => {
+  convBaseline.toolMode = '';
   if (!conversationId || !rpc) { toolMode.value = ''; return; }
+  const prefOf = (): '' | 'tc-base' | 'tc-programmatic' | 'tc-none' => {
+    const pref = loadComposePrefs()?.toolMode ?? '';
+    // Agent 无可选档：程序化对其惰性——不预置（跟随态兜底）
+    return pref === 'tc-programmatic' && !programmaticAvailable.value ? '' : pref;
+  };
+  // 草稿位（cr-1084）：无服务端读面（哨兵键存量脏值不回显）——表单 = 偏好
+  if (onDraft.value) {
+    const pref = prefOf();
+    toolMode.value = pref;
+    store.setConvToolMode(pref);
+    return;
+  }
   try {
-    // 草稿位（cr-1084）：暂存键即真相（哨兵键存量脏值不回显），偏好
-    // 回放同样写暂存——物化时搬到真实 sid。
-    if (onDraft.value) {
-      const stashed = convSettingStored('toolMode');
-      if (stashed === 'tc-base' || stashed === 'tc-programmatic' || stashed === 'tc-none') {
-        toolMode.value = stashed;
-        store.setConvToolMode(stashed);
-        return;
-      }
-      const pref0 = loadComposePrefs()?.toolMode;
-      if (pref0 === undefined || pref0 === '') { toolMode.value = ''; store.setConvToolMode(''); return; }
-      if (pref0 === 'tc-programmatic' && !programmaticAvailable.value) {
-        toolMode.value = '';
-        store.setConvToolMode('');
-        return;
-      }
-      toolMode.value = pref0;
-      store.setConvToolMode(pref0);
-      setConvSetting(conversationId, { toolMode: pref0 }).catch(() => undefined);
-      return;
-    }
     const r = await rpc.call<{ settings?: { toolMode?: string } }>('conv-settings/get', { conversationId });
     if (conversationId !== toolModeConvKey.value) return; // 快速连切：迟到响应不覆盖当前会话
     const stored = r.settings?.toolMode;
     if (stored === 'tc-base' || stored === 'tc-programmatic' || stored === 'tc-none') {
+      convBaseline.toolMode = stored;
       toolMode.value = stored;
       store.setConvToolMode(stored); // 会话切换回读也同步快照（预览面 watch）
       return;
     }
-    // 无显式键：回放偏好（缺记录 = 跟随态，不动存储）
-    const pref = loadComposePrefs()?.toolMode;
-    if (pref === undefined || pref === '') { toolMode.value = ''; store.setConvToolMode(''); return; }
-    if (pref === 'tc-programmatic' && !programmaticAvailable.value) {
-      toolMode.value = ''; // Agent 无 infra：程序化对其惰性——不继承（跟随态兜底）
-      store.setConvToolMode('');
-      return;
-    }
+    // 无显式键：表单初值 = 偏好（基线留空 → 发送边界写这条偏好）
+    const pref = prefOf();
     toolMode.value = pref;
     store.setConvToolMode(pref);
-    const writing = setConvSetting(conversationId, { toolMode: pref })
-      .catch((err: unknown) => {
-        console.warn('[ChatInput] 工具调用模式继承写失败:', (err as { message?: string }).message ?? String(err));
-      });
-    persistToolMode(conversationId, writing);
   } catch {
     toolMode.value = ''; // 行未装/面不可用 → 无覆盖语义（跟随态）
   }
@@ -550,53 +556,30 @@ function selectEffort(v: '' | 'low' | 'high' | 'max') {
 // 会话级预授权正路 = 实验性菜单「工具审批」approval 键）
 
 // ── 工具调用模式（2026-09-17 tc-* 标签轴统一重构）──
-// 与 ELEV 同族的 dd 下拉（跟随 Agent + 三值覆盖）；选择即写会话
-// conv-settings.toolMode（router 按「覆盖 ?? toolModeOf(agent)」收窄——
-// run 间隙生效，非 run 中途翻转）。覆盖键见 toolModeConvKey。
+// 与 ELEV 同族的 dd 下拉（跟随 Agent + 三值覆盖）；选择只改表单，发送边界
+// 写会话 conv-settings.toolMode（router 按「覆盖 ?? toolModeOf(agent)」收窄）。
+// cr-1093：消息边界生效——进行中的 run 不受干扰。覆盖键见 toolModeConvKey。
 
-/** 选择工具调用模式：即时生效——写会话 conv-settings（singles sid 与
- *  1v1 对键同走该 RPC，显式键 = 本会话权威态；'' = 删键回到跟随态）。 */
+/** 选择工具调用模式：**只改表单**（cr-1093 消息边界生效——发送时一次 patch
+ *  落盘，进行中的 run 不受干扰；'' = 删键回跟随态）。快照 bump 在写入成功后
+ *  由发送链做（预览/估算面重取）——表单值即未生效态，不提前改快照。 */
 function selectToolMode(v: '' | 'tc-base' | 'tc-programmatic' | 'tc-none') {
   // 菜单保持开——扁平选项列表可连续调整
   if (toolMode.value === v) return;
   if (v === 'tc-programmatic' && !programmaticAvailable.value) return; // 无标签禁选（惰性对齐）
-  const prev = toolMode.value;
   toolMode.value = v;
-  saveComposePrefs({ toolMode: v }); // 新会话跟随上次选择（挂载回读回放并落该会话）
-  const conversationId = toolModeConvKey.value;
-  // wire 值域：合法枚举原样；''/null = 删键（web-api set 面；草稿位暂存）
-  void setConvSetting(conversationId, { toolMode: v === '' ? null : v })
-    .then(() => {
-      // 写入成功 → bump 会话模式快照：system-prompt 预览（aux 侧栏常驻
-      // 面板）/ Token 估算面 watch 得知装配面已变，重取反映 SDK 投影块
-      // 注入/工具 schema 收窄（2026-09-18 预览失真修复）。
-      store.setConvToolMode(v);
-    })
-    .catch((err: any) => {
-      toastError('工具模式未保存：' + (err?.message ?? err));
-      if (toolMode.value === v) toolMode.value = prev; // 失败回滚
-    });
+  saveComposePrefs({ toolMode: v }); // 新会话表单初值来源
 }
 
 // ── 浏览器能力档（2026-09-26「实验性 → 浏览器」——会话键复用 toolModeConvKey：
 //    single = sid / 1v1 = pairKey，与后端 conv-settings 同口径）──
 
-/** 选择浏览器档位：即时生效——写会话 conv-settings.browserTier；
- *  '' = 删键回跟随态（Agent tags browser-tier 抉择组）。 */
+/** 选择浏览器档位：**只改表单**（cr-1093 消息边界生效；'' = 删键回跟随态
+ *  ——Agent tags browser-tier 抉择组）。快照 bump 由发送链在写入成功后做。 */
 function selectBrowserTier(v: '' | 'observe' | 'manipulate' | 'inject' | 'disabled') {
   if (browserTier.value === v) return;
-  const prev = browserTier.value;
   browserTier.value = v;
-  saveComposePrefs({ browserTier: v }); // 新会话跟随上次选择（挂载回放并落该会话）
-  const conversationId = toolModeConvKey.value;
-  void setConvSetting(conversationId, { browserTier: v === '' ? null : v })
-    .then(() => {
-      store.setConvBrowserTier(v); // bump 快照：browser 进/出工具面 → Token 估算固定开销重取
-    })
-    .catch((err: any) => {
-      toastError('浏览器档位未保存：' + (err?.message ?? err));
-      if (browserTier.value === v) browserTier.value = prev; // 失败回滚
-    });
+  saveComposePrefs({ browserTier: v }); // 新会话表单初值来源
 }
 
 /** Agent 的 browser 档（跟随态实际生效档显示——cr-953 结构化 levels.browser；
@@ -644,63 +627,48 @@ const extKeyValues = reactive<Record<string, string>>({});
 function extKeyOf(key: string): ExpKeyDef | undefined {
   return experimentalKeys.value.find(k => k.key === key);
 }
-/** 选择扩展键值：泛写 conv-settings（null = 删键回跟随态）；本地即时回显 */
+/** 选择扩展键值：**只改表单**（cr-1093 消息边界生效；'' = 删键回跟随态）。
+ *  registerKey 注册的新键经此泛写口自动接线，零改动。 */
 function selectExtKey(key: string, value: string) {
-  const prev = extKeyValues[key];
   extKeyValues[key] = value;
-  const conversationId = toolModeConvKey.value;
-  void setConvSetting(conversationId, { [key]: value || null })
-    .catch((err: any) => {
-      toastError(`实验设置未保存：${err?.message ?? err}`);
-      extKeyValues[key] = prev; // 失败回滚（键此前不存在时回 undefined = 视同未覆盖）
-    });
 }
 
-/** 挂载/会话切换：回读会话实验键（browserTier 内置 + 注册扩展键）+ 拉目录；
- *  browserTier 无显式键时回放偏好并落该会话（新会话继承上次选择——
- *  toolMode 同款继承语义；'' 偏好 = 跟随态不落盘）。 */
+/** 挂载/会话切换：回读会话实验键（browserTier 内置 + 注册扩展键）+ 拉目录填
+ *  表单，并把已存值记为基线。无显式键（含草稿位）= 表单初值取组合偏好
+ *  （cr-1093：偏好只做初值不落写；'' 偏好 = 跟随态）。 */
 watch(toolModeConvKey, async (conversationId) => {
   await loadExperimentalKeys(); // 先汇合目录——扩展键值回填依赖 experimentalKeys 就位
+  convBaseline.browserTier = '';
+  for (const k of experimentalKeys.value) if (k.key !== 'browserTier') convBaseline[k.key] = '';
   if (!conversationId || !rpc) { browserTier.value = ''; return; }
+  const applyPrefs = (): void => {
+    // 无显式键：表单初值 = 偏好（基线留空 → 发送边界写这条偏好）
+    const pref = loadComposePrefs()?.browserTier ?? '';
+    browserTier.value = pref;
+    store.setConvBrowserTier(pref);
+  };
+  // 草稿位（cr-1084）：无服务端读面（哨兵键存量脏值不回显）
+  if (onDraft.value) {
+    applyPrefs();
+    for (const k of experimentalKeys.value) if (k.key !== 'browserTier') extKeyValues[k.key] = '';
+    return;
+  }
   try {
-    // 草稿位（cr-1084）：暂存键即真相——无 RPC 读取面（哨兵键上可能有
-    // 存量脏值，不得回显），偏好回放路径同样写暂存（物化时搬运）。
-    if (onDraft.value) {
-      const stashed = convSettingStored('browserTier');
-      if (stashed !== undefined) {
-        browserTier.value = stashed as typeof browserTier.value;
-        if (stashed === 'observe' || stashed === 'manipulate' || stashed === 'inject' || stashed === 'disabled') {
-          store.setConvBrowserTier(stashed);
-        }
-      } else {
-        const pref = loadComposePrefs()?.browserTier ?? '';
-        browserTier.value = pref;
-        if (pref !== '') setConvSetting(conversationId, { browserTier: pref }).catch(() => undefined);
-      }
-      for (const k of experimentalKeys.value) {
-        if (k.key !== 'browserTier') extKeyValues[k.key] = convSettingStored(k.key) ?? '';
-      }
-      return;
-    }
     const r = await rpc.call<{ settings?: Record<string, string> }>('conv-settings/get', { conversationId });
     if (conversationId !== toolModeConvKey.value) return; // 快速连切：迟到响应不覆盖
     const stored = r.settings?.browserTier as typeof browserTier.value | undefined;
     if (stored !== undefined) {
+      convBaseline.browserTier = stored;
       browserTier.value = stored;
       store.setConvBrowserTier(stored); // 会话切换回读同步快照（同 toolMode 口径）
     } else {
-      // 无显式键：回放偏好（缺记录/'' = 跟随态，不动存储）
-      const pref = loadComposePrefs()?.browserTier ?? '';
-      browserTier.value = pref;
-      if (pref !== '') {
-        void setConvSetting(conversationId, { browserTier: pref })
-          .catch((err: unknown) => {
-            console.warn('[ChatInput] 浏览器档继承写失败:', (err as { message?: string }).message ?? String(err));
-          });
-      }
+      applyPrefs();
     }
     for (const k of experimentalKeys.value) {
-      if (k.key !== 'browserTier') extKeyValues[k.key] = r.settings?.[k.key] ?? '';
+      if (k.key === 'browserTier') continue;
+      const v = r.settings?.[k.key] ?? '';
+      extKeyValues[k.key] = v;
+      convBaseline[k.key] = v;
     }
   } catch {
     browserTier.value = ''; // 行未装/面不可用 → 跟随态
@@ -873,22 +841,34 @@ onMounted(() => {
 });
 onUnmounted(() => document.removeEventListener('click', onDocClick));
 
+/**
+ * 发送前置（cr-1093 消息边界生效）：草稿物化拿真实会话键 → 表单脏值一次
+ *  patch 落盘。返回 false = 物化失败（消息不出门，草稿保留）。续聊位同样
+ *  await——设置不得抢在消息之后生效（1v1 model 的 deliver 合并读盘同理）。
+ */
+async function prepareSend(): Promise<boolean> {
+  let conversationId = toolModeConvKey.value;
+  // 判据同 cr-1060：只在草稿位上派发（全局草稿态不牵连其他会话的发送）
+  if (props.single?.id === PENDING_SINGLE_ID && singlesBoard?.isPending()) {
+    let session: { id: string } | null = null;
+    try { session = await singlesBoard.dispatchDraft(); } catch { return false; }
+    conversationId = session?.id ?? conversationId;
+  }
+  await flushConvSettings(conversationId);
+  return true;
+}
+
 // ---- 发送消息（DSH 忙态语义）----
 // 运行中 Enter 发送 → 排队（lane next-turn，本轮结束后独立投递）；
 // 发送不再隐式打断在途 run——停止是停止按钮的唯一职责。
 async function send() {
   const text = promptFace.takeText().trim(); // 直读编辑器现势（cr-850：组合定稿未 emit 时 v-model 滞后，读旧值会丢字/遗留）
   if (!text && attachedFiles.value.length === 0) return;
-  // 草稿发送（延迟落盘，cr-894）：首条消息出门前把会话落到服务端（id
-  // 首次签发，失败重试同 id 幂等）。失败 = 消息不出门（草稿保留）——比
-  // 「发出去了但会话没建」更可恢复。判据 = 正站在草稿位上（cr-1060）：
-  // isPending 是全局单例草稿态（cr-848/894 裁决——未发送草稿跨切换保留），
-  // 用户切去别的会话后它仍为真；此前只看「single 形态 + 有草稿」会把
-  // 在其他会话里的发送误派发成新会话（上下文被 dispatchDraft 切走，
-  // 消息进了新会话而非所选会话）。
-  if (props.single?.id === PENDING_SINGLE_ID && singlesBoard?.isPending()) {
-    try { await singlesBoard.dispatchDraft(); } catch { return; }
-  }
+  // 发送前置（cr-894 草稿落盘 + cr-1093 会话键一次落盘）：失败 = 消息不出门
+  //（草稿保留）——比「发出去了但会话没建」更可恢复。草稿判据 = 正站在草稿位
+  // 上（cr-1060：isPending 是全局单例草稿态，用户切去别的会话后它仍为真，
+  // 只看「single 形态 + 有草稿」会把发送误派发成新会话）。
+  if (!(await prepareSend())) return;
 
   if (props.onSend) {
     props.onSend(text, attachedFiles.value);
@@ -911,11 +891,8 @@ async function send() {
 async function sendNow() {
   const text = promptFace.takeText().trim(); // 与 send 同款（cr-850）
   if (!text && attachedFiles.value.length === 0) return;
-  // 草稿发送（与 send 同款——草稿位的任何首条消息都先落会话；判据
-  // 同 cr-1060：只在草稿位上派发，全局草稿态不牵连其他会话的发送）
-  if (props.single?.id === PENDING_SINGLE_ID && singlesBoard?.isPending()) {
-    try { await singlesBoard.dispatchDraft(); } catch { return; }
-  }
+  // 发送前置（与 send 同款：草稿落盘 + 会话键一次落盘）
+  if (!(await prepareSend())) return;
 
   if (props.onSend) {
     props.onSend(text, attachedFiles.value);
@@ -1664,8 +1641,8 @@ function onThumbError(i: number) {
              工具模式 → 实验性）-->
 
         <!-- 工具调用模式（独立按钮）：与提权分立——程序化调用模式需要
-             用户先单独熟悉。单项菜单直开档位列表（无下钻）：选择即写
-             会话 conv-settings，菜单保持开可连续调整 -->
+             用户先单独熟悉。单项菜单直开档位列表（无下钻）：选择只改表单，
+             发送时写入会话 conv-settings，菜单保持开可连续调整 -->
         <div v-if="!isGroupCtx" class="ui-dd">
           <button
             type="button"
@@ -1700,7 +1677,7 @@ function onThumbError(i: number) {
 
         <!-- 实验性功能（两级菜单）：一级 = 实验项入口列表（内置「浏览器使用」
              + conv-settings 注册扩展键——如「ISSUE 提交」issueSubmit），二级 =
-             该项档位列表（选择即写会话，菜单保持开可连续调整）。
+             该项档位列表（选择只改表单、发送时落盘，菜单保持开可连续调整）。
              disabled 态警示色常显（与提权武装同款语言） -->
         <div v-if="!isGroupCtx" class="ui-dd">
           <button

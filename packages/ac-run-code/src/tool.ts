@@ -27,7 +27,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const requireShim = createRequire(import.meta.url);
 import type { Context } from '@agentchat/cordis';
 import type { ToolCall, ToolDefinition, ToolResult } from 'ac-tools';
-import { formDeniedBy, sessionCapsOf, toolAllowedFor } from 'ac-agents';
+import { formDeniedBy } from 'ac-agents';
 import { validateInvoke, lexicalRegionEnd } from 'ac-run-code-core';
 import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerDone, WorkerToMain, RunSummary, SubcallTrace } from './protocol.ts';
@@ -170,17 +170,12 @@ export function resolveEffectiveTools(
   agentId: string | undefined,
   conversationId: string | undefined,
 ): ToolDefinition[] {
-  // agents 为可选能力（ctx.get 非 strict）；sessionCapsOf 内部软依赖 agents/
-  // convSettings 面（缺面回退 base）——受限调用方纪律经软依赖合成，且含
-  // 会话授权注入（conv-settings grants——2026-09-26 可见性断层同款修复：
-  // 投影面与 router/tool-defs/list_tools 同口径，实验档授权进 SDK 投影块）
-  const caps = sessionCapsOf(ctx, agentId, conversationId);
-  // 投影源：能力面全量（授权真理）——不经 include/exclude 收窄，
-  // 模式入口工具（run_code 等，discover 在场者）排除（递归防护在投影
-  // 层：程序内再造程序无意义且套计费）；requiresInteraction 工具随
-  // 交互面终滤。discover 在场性 = 恒定入口身份（谓词不求值——tc-base
-  // 下 run_code 同样排除，防程序内自调）
-  return ctx.tools.list().filter((t) => t.discover === undefined && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, conversationId));
+  // 投影源：能力面全量（授权 = 行装载单闸——cr-953；cr-1092 grants 注入随轴
+  // 退役，会话授权不进投影面）——不经 include/exclude 收窄，模式入口工具
+  // （run_code 等，discover 在场者）排除（递归防护在投影层：程序内再造程序
+  // 无意义且套计费）；requiresInteraction 工具随交互面终滤。discover 在场性
+  // = 恒定入口身份（谓词不求值——tc-base 下 run_code 同样排除，防程序内自调）
+  return ctx.tools.list().filter((t) => t.discover === undefined && !formDeniedBy(ctx, t, conversationId));
 }
 
 /**

@@ -6,7 +6,7 @@ install_plugin 缺省约定位置），替换 `PLACEHOLDER-AGENTID` 为你的 Ag
 
 | 模板 | 用途 | 关键规约 |
 |---|---|---|
-| `tool-row/` | 注册工具 | `agentTool()` helper 注入 owner tag（默认私有）；输出 `<tool-output>` 包裹；description 禁指令式措辞 |
+| `tool-row/` | 注册工具 | 注册不挂 requiredTags（门禁已随 cr-953 退役）；输出 `<tool-output>` 包裹；description 禁指令式措辞 |
 | `provider-row/` | 注册 LLM provider | 复用 `ac-openai-completions` 纯库换 baseUrl；`<agentId>-<name>` 命名（openai/deepseek/glm 是保留字）；contracts 必填 |
 | `event-row/` | 订阅/拦截事件 | `agentFilter(request.agent)` per-Agent 自查；不 provide 新服务、不 emit `loop/*`；waterfall 观察必须 `next()` |
 
@@ -17,8 +17,8 @@ install_plugin 缺省约定位置），替换 `PLACEHOLDER-AGENTID` 为你的 Ag
   一致 → 幂等返回已装状态不重试装载。
 - **热重载**：Agent 侧没有——迭代 = 改 → 重装；watch 仅宿主 `plugin/load`
   RPC 的参数。
-- **共享**：工具默认私有（owner tag）；共享 = 他人显式在自己的 `tags`
-  写 `agent:<你的id>`（tags 单源——capabilities 覆盖层已删除）。
+- **共享**：工具默认私有（installed.yml owner 锚——安装器代写，非 owner
+  壳不装载）；共享 = owner 侧显式放行 + 对方行集点名。
   共享输出是跨 Agent 注入载荷——`<tool-output>` 包裹是模板强制项。
 - **生命周期**：owner Agent 删除后其已装插件成无主常驻（装载着、无人能
   调用）——README 如实呈现；卸载 = 代码回滚（运行时副作用不随之回滚），

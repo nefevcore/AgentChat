@@ -19,7 +19,6 @@ import { VIEWER_ID } from './viewer.ts';
 import { toToolDefs, chatPresence, pickAskQuestions, pickApproval, uid } from './chatOps.ts';
 import { directDialog, singleDialog, bucketKey, parseDialogId, splitAttachmentLines, pairPartnerOf, type DialogId } from './feed.ts';
 import { isImageRef } from './media.ts';
-import { settleToolMode } from './toolModeInherit.ts';
 import { agentInFlight } from './runStatus.ts';
 import type { FeedView } from './feed-core.ts';
 
@@ -122,15 +121,6 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
         steps: [], userMessages: [],
       });
     } catch { /* stats 失败静默（刷新恢复是尽力而为） */ }
-  }
-
-  /** ctx/target → 工具调用模式的会话键（与 ChatInput toolModeConvKey
-   *  同口径：single = sid；1v1 直答 = pairKey(viewer, agent)）。用于投递前
-   *  等待「新会话跟随上次选择」的继承写（toolModeInherit）落定。 */
-  function toolModeKeyOf(ctx: ChatContext | null, target: string): string | null {
-    if (ctx?.kind === 'single' && ctx.sessionId) return ctx.sessionId;
-    const agentId = ctx?.agentId ?? target;
-    return agentId ? bucketKey(VIEWER_ID.value, agentId) : null;
   }
 
   /** ctx → feed 分区键（pair = direct dialog；single = single dialog） */
@@ -413,9 +403,8 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   ): Promise<void> {
     const composed = composeContent(content, files);
     const attachments = imageAttachmentsOf(files);
-    // 工具调用模式「新会话跟随上次选择」：本会话的继承写（偏好 → conv-settings，
-    // ChatInput 挂载时发起）未落定时先等——首条消息不得抢在继承写之前出门
-    await settleToolMode(toolModeKeyOf(ctx, target));
+    //（cr-1093：会话键写入已前移到 ChatInput 发送链——deliver 前不再需要
+    // 等待「偏好继承写」落定，继承写机制整体退役）
     if (requestId) deliverTargets.set(requestId, target);
     void rpc.call('conversation/deliver', {
       agentId: target,
@@ -534,7 +523,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     armSendWatchdog(dialogId);
     if (!to && ctx?.kind !== 'single') roster().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
-    // 异步（继承写等待）——失败已在 deliver 内部收敛为红条反馈，不抛
+    // 异步——失败已在 deliver 内部收敛为红条反馈，不抛
     void deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode);
   }
 

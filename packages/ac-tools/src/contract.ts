@@ -21,8 +21,9 @@ export interface ToolDefinition {
   /**
    * 能力标签要求（cr-953 退役面：requiredTags 门禁随 AgentConfig.tags
    * 全链退役——授权 = 行装载单闸（AgentConfig.rows 行集引用，装了即可
-   * 见）。字段保留仅为兼容存量声明与测试桩，运行时零消费（toolAllowedFor
-   * 恒 true）；各工具包声明已删。新工具不挂本字段。
+   * 见）。字段保留仅为兼容存量声明与测试桩，运行时零消费（恒 true 过渡
+   * 函数 toolAllowedFor 已随 cr-1092 删除）；各工具包声明已删。新工具不
+   * 挂本字段。
    */
   requiredTags?: string[];
   /**

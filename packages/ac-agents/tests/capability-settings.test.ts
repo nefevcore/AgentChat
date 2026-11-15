@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import * as agentsRow from '../src/index';
 import * as configRow from 'ac-config';
-import { capabilitySetOf, toolAllowedFor } from '../src/index';
+import { capabilitySetOf } from '../src/index';
 
 const booted: { ctx: Context; fibers: Fiber[] }[] = [];
 const tmps: string[] = [];
@@ -61,7 +61,6 @@ describe('capabilitySetOf 行内档位 settings 合成（◐a cr-691）', () => 
     expect(c1.has('web')).toBe(true);
     expect(c1.has('observe')).toBe(true);
     expect(c1.has('manipulate')).toBe(false);
-    expect(toolAllowedFor({ requiredTags: ['web', 'observe'] }, c1)).toBe(true);
     const c3 = capabilitySetOf(ctx, 'b3');
     for (const t of ['web', 'observe', 'manipulate', 'inject']) expect(c3.has(t)).toBe(true);
   });

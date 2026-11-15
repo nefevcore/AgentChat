@@ -14,8 +14,9 @@
 //（requestId 幂等键收敛冗余，冗余但如实）；反序则漏通知。
 //
 // 本文件 = 纯 IO/纯函数（编排住 service.ts driveRun）；落点
-// meta/sessions/<sid>.prefix-snapshot.json（singles 元数据旁，cr-973 自
-// viewer 域迁出；cr-998 旧路径读窗退役——数据根已迁移归零）。
+// meta/prefix-snapshots/<sid>.json（cr-1100 自 meta/sessions/ 分居——与
+// singles 元数据同居时被宿主侧 listIds 通配扫描误收成幻影会话；旧位由
+// 宿主 singles 行装载时幂等搬空，此处只认新位）。
 // ============================================================
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
@@ -44,9 +45,9 @@ export function snapshotFileOf(dataRoot: string, sid: string): string {
   if (sid === '' || sid.includes('/') || sid.includes('\\') || sid.includes('..')) {
     throw new Error('会话 id "' + sid + '" 非法（非空，禁路径分隔 / ..）');
   }
-  // cr-973（cr-972 第一刀）：viewer 域停写——快照改住 singles 元数据旁
-  //（meta/sessions/<sid>.prefix-snapshot.json）
-  return path.join(dataRoot, 'meta', 'sessions', sid + '.prefix-snapshot.json');
+  // cr-1100 分居：快照独占目录（类型物理隔离——meta/sessions/ 通配扫描
+  // 词汇 = 裸 <sid>.json 会话元数据，不再容忍寄居文件）
+  return path.join(dataRoot, 'meta', 'prefix-snapshots', sid + '.json');
 }
 
 /** 读快照（缺席/损坏/形状非法 → null = 按 ① 重新物化，fail-safe） */

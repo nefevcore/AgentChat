@@ -248,6 +248,8 @@ run_code trace 时间线形态）。
 
 ### 5.7 实验性工具键（harnessTier，cr-277 补充裁决）
 
+> **已被取代（cr-1094）**：harnessTier 整键退役（壳内 registerKey 注册键在宿主侧键目录不可见〔双树裂痕〕+ grants 通路 cr-1092 删除后仅剩 disabled 拦截臂 —— 死键）。会话级禁用改由 Agent 行卸载表达；`run_harness` 工具本体保留。以下为历史裁决存档。
+
 run_harness 归入**实验性工具**：经 conv-settings 注册制实验键出现在
 输入框工具栏的「实验性」按钮菜单里，**出厂默认启用**。语义要点：
 

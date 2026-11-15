@@ -106,6 +106,7 @@ export type { AuthRegistryRowOptions } from './auth-registry-row.ts';
 // singles/* RPC 六方法 + singles/updated 帧广播；模型覆盖仍走 conv-settings）——
 import { makeSinglesHostRow } from './singles-row.ts';
 export { makeSinglesHostRow };
+export { migrateLegacyPrefixSnapshots } from './singles-row.ts';
 // —— 会话指针索引行（cr-973 / cr-972 第一刀）：SQLite WAL 纯缓存索引
 //（读面指纹 + subcall 定位 seek；行摘除 = 读面回落全扫投影，方案 §1.3）——
 import { makeSessionIndexRow } from 'ac-session-index';

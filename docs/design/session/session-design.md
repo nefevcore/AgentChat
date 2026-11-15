@@ -224,8 +224,8 @@ role='system'                        → system     （直通，不参与变换�
 │                                   summary.md       概要（compact 产物）
 │                                   history_N.jsonl  归档分段（N 递增）
 ├── agents/<agentId>/inbox/                           壳侧 durable 投递（next-step / next-turn 队列）
-├── meta/sessions/<sid>.json                          独立会话元数据（singles 行 owning；cr-973 自 viewer 树迁出）
-├── meta/sessions/<sid>.prefix-snapshot.json          singles system 前缀快照（cr-888；cr-973 迁 meta 层）
+├── meta/sessions/<sid>.json                          独立会话元数据（singles 行 owning；cr-973 自 viewer 树迁出；cr-1100 词汇锁——裸 <sid>.json 单一形态，会话级产物勿再寄居）
+├── meta/prefix-snapshots/<sid>.json                  singles system 前缀快照（cr-888；cr-1100 自 meta/sessions/ 分居——寄居文件被 listIds 通配误收成幻影会话）
 ├── meta/sessions/.singles-registry.json              singles 清单注册表（cr-869；cr-973 迁出）
 ├── viewer/sessions/                                  （cr-998 退役——纯投影存量树可整删，读面不再回看）
 ├── groups/<gid>/group.json                           群成员表（原子写）；**无群本体消息流**——读面 = 成员流合并（cr-576）
@@ -384,7 +384,7 @@ collab-tools `send_agent`（委托桶）、timer（自会话桶）、web-api（�
 > 现行实现：`ac-shell-conversation/src/prefix-snapshot.ts` + driveRun 对账接线。
 
 singles 是最自包含的形态（无对端 Agent、模型覆盖恒定 = 路由/缓存域恒定），是前缀绝对稳定的最佳试点位。
-落点 `meta/sessions/<sid>.prefix-snapshot.json`（ac-shell-conversation owning，cr-973 自 viewer 域迁出），快照 = `{ 求值后段数组, settingsFingerprint }`——存**段数组**而非拼好的文本，组装复用 `assembleSystemPrompt` 纯函数（cr-881 段注册制零改动）。四机制：
+落点 `meta/prefix-snapshots/<sid>.json`（ac-shell-conversation owning；cr-973 自 viewer 域迁出，cr-1100 自 meta/sessions/ 分居——寄居文件被宿主 listIds 通配误收成幻影会话），快照 = `{ 求值后段数组, settingsFingerprint }`——存**段数组**而非拼好的文本，组装复用 `assembleSystemPrompt` 纯函数（cr-881 段注册制零改动）。四机制：
 
 - **① 物化**（首 run）：全段求值落盘（段数组 + 指纹）；**② diff**（每 run 入口）：指纹对比（§3 键面：provider+model/生效工具名清单/toolMode/browserTier/issueSubmit/workspace/tier/elevation/PTC_SDK hash/技能名清单/扩展键），零缓存代价；
 - **③ 重算**（仅 provider/model 变化）：全量重组装落盘 + 指纹更新——**唯一快照重写通道，只在缓存域必死时动快照**（换缓存域 = 白纸，无代价）。「配置变了就重拍」被否——那会在缓存仍有效时打断前缀，与物化目的自相矛盾；

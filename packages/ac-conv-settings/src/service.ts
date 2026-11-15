@@ -40,12 +40,11 @@ function assertConversationId(conversationId: string): void {
 }
 
 /**
- * 键描述：值域 + UI 展示元数据 + 能力等效声明。enum = 值域枚举
- * （undefined = 任意非空字符串）；label/group/order 供前端目录驱动
- * 渲染；options 逐值展示词；**grants = 值→等效能力标签映射**（会话
- * 覆盖为该值时向调用方能力集注入这些标签——工具可见性单源
- * capabilitySetOf 的会话维度扩展，见 ac-agents sessionCapsOf）。删键/
- * 未覆盖 = 不注入（回落 Agent tags）。
+ * 键描述：纯 UI 展示元数据（cr-1092 grants 随轴退役——值→能力标签注入
+ * 通路整体删除，会话授权由消费方直读 effective；enum = UI 选项列表（泛写口
+ * 渲染数据源；不承担值域校验——cr-1091 落盘即真相，垃圾值由消费方
+ * 天然回落兜底）；label/group/order 供前端目录驱动渲染；options 逐值
+ * 展示词。
  * 作用域（cr-1083 conv-scope）：**全部键默认仅有人会话生效**——行为由
  * 读取面统一保证（effective：无人桶恒 {}），ConvSettingsKeyDef 不加
  * per-key 字段（全键统一语义；未来确需无人桶生效的键再加 opt-out）。
@@ -53,8 +52,6 @@ function assertConversationId(conversationId: string): void {
 export interface ConvSettingsKeyDef {
   key: string;
   enum?: string[];
-  /** 值域模式校验（cr-1049 开放词键——与 enum 互斥，pattern 赢） */
-  pattern?: RegExp;
   description?: string;
   /** UI 组（'experimental' = 实验性菜单渲染；缺省不出前端目录——纯消费面键） */
   group?: 'experimental';
@@ -62,8 +59,6 @@ export interface ConvSettingsKeyDef {
   order?: number;
   /** 值展示词表（enum 各值的 UI 文案；缺省直显枚举值） */
   options?: Record<string, string>;
-  /** 值→等效能力标签（会话授权注入能力集——tier 类键的可见性通路） */
-  grants?: Record<string, string[]>;
 }
 
 const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
@@ -74,7 +69,6 @@ const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
     // cr-1049 开放词：核心两档 + 扩展档（tc- 前缀任意——注册表校验在投影
     // 端兜底，未注册词回退常规面 + warn〔cr-1021〕，写入面不跨进程查表）
     key: 'toolMode',
-    pattern: /^tc-[a-z0-9-]+$/,
     description: '工具调用模式覆盖（tc-* 轴——核心 tc-base/tc-none + 扩展档开放词）',
   },
   {
@@ -85,11 +79,6 @@ const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
     label: '浏览器使用',
     order: 1,
     options: { observe: '只读浏览', manipulate: '交互操作', inject: 'JS 注入', disabled: '禁用浏览器' },
-    grants: {
-      observe: ['web', 'observe'],
-      manipulate: ['web', 'observe', 'manipulate'],
-      inject: ['web', 'observe', 'manipulate', 'inject'],
-    },
   },
   {
     // cr-1066 权限门：ask 建议的归宿键——值域 allow（放行）/ ask（弹审批卡，
@@ -139,9 +128,8 @@ export class ConvSettingsService extends Service {
 
   /**
    * 注册扩展键（生态行贡献会话覆盖键的正路——插件不能改 owning 包源码，
-   * 经注册面进目录；值域枚举校验与内置键同一管线）。注册即归属：注册方
-   * 卸载时键自动回收（此后新值不进；存量落盘值回读同校验也被清——
-   * 消费方拿到空覆盖即回落默认，宽松降级不炸）。
+   * 经注册面进目录）。注册即归属：注册方卸载时键自动回收（此后不再出现
+   * 在键目录/UI；已落盘值保留不清理——消费方天然回落兜底，cr-1091）。
    * 键冲突（含与内置键撞名）抛错——fail-loud 不静默覆盖。
    */
   registerKey(def: ConvSettingsKeyDef): void {
@@ -154,15 +142,6 @@ export class ConvSettingsService extends Service {
   /** 键目录快照（治理/UI 展示） */
   listKeys(): ConvSettingsKeyDef[] {
     return [...this.keys.values()];
-  }
-
-  /** 键域校验单源：合法枚举值 → true；无此键/非法值 → false */
-  private isValid(key: string, value: string): boolean {
-    const def = this.keys.get(key);
-    if (!def) return false;
-    if (def.pattern !== undefined) return def.pattern.test(value);
-    if (def.enum === undefined) return value !== '';
-    return def.enum.includes(value);
   }
 
   /** 设置文件：meta/conv-settings/<conversationId>.json（兼容窗旧位置回落） */
@@ -191,8 +170,9 @@ export class ConvSettingsService extends Service {
       // 由清理脚本物理删除）
       const out: Record<string, string> = {};
       for (const [k, v] of Object.entries(raw)) {
-        // 回读同校验：注册面回收后的存量值仍受值域把关（枚举变更 → 旧值静默清）
-        if (typeof v === 'string' && this.keys.has(k) && this.isValid(k, v)) out[k] = v;
+        // cr-1091 回读不校验键域：落盘即真相（字符串即透出——壳侧 Shim
+        // 同读法；垃圾值由消费方天然回落兜底）
+        if (typeof v === 'string') out[k] = v;
       }
       return out as unknown as ConvSettings;
     } catch {
@@ -225,16 +205,16 @@ export class ConvSettingsService extends Service {
 
   /**
    * 合并写（patch 键级：值覆盖、null = 删键；全空结果 = 删文件）。
-   * 键域校验单源（isValid——内置与注册键同一管线）：合法枚举值原样
-   * 写入，无此键/非法值 = 清除。emit conv-settings/updated（终态载荷
+   * 字符串值原样写入——键域校验已退役（cr-1091：落盘即真相，垃圾值
+   * 由消费方天然回落兜底）。emit conv-settings/updated（终态载荷
    * ——观察者见即所得）。
    */
   set(conversationId: string, patch: Record<string, string | null | undefined>): ConvSettings {
     assertConversationId(conversationId);
     const next = this.readSettings(conversationId) as unknown as Record<string, string>;
     for (const [key, value] of Object.entries(patch)) {
-      if (typeof value === 'string' && this.isValid(key, value)) next[key] = value;
-      else delete next[key]; // null/undefined/非法值/未注册键 = 清除
+      if (typeof value === 'string') next[key] = value;
+      else delete next[key]; // null/undefined = 清除
     }
     if (Object.keys(next).length > 0) this.writeSettings(conversationId, next);
     else {

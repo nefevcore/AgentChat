@@ -1,46 +1,72 @@
 // ============================================================
-// draft-conv-settings.test.ts —— cr-1084 草稿期会话键不写哨兵
+// draft-conv-settings.test.ts —— cr-1093 发送时写（消息边界生效）
 //
-// 主诉实锤链：新会话（草稿位，哨兵 __pending__）在实验性菜单选
-// 「工具审批=本会话自动放行」→ conv-settings/set 直接写哨兵键 →
-// 首条消息 dispatchDraft 签发真实 sid 物化，键留在哨兵上永不被 run
-// 读到（权限门 onAskOf 第一层 effective(sid) 落空 → 回落缺省 deny）。
+// cr-1084 的主诉（草稿期会话键不得写哨兵键）在本批以更强形态落定：
+// 草稿位与续聊位都不再「选择即写」——控件只改表单，写只发生一次，
+// 在发送边界（prepareSend → flushConvSettings 一次 patch 写真实会话键）。
 //
-// 修复形状（源断言——ChatInput 重组件无整挂先例，按 draft-single
-// src.toContain 同款锁定接线；搬运语义的组件级行为在
-// ac-client-ui-singles/tests/draft-single.test.ts）：
-//   · 五个会话键写口全走 setConvSetting 统一边界（草稿位 → board 暂存）；
-//   · 两个读侧 watch 草稿位分支：暂存值即真相，偏好回放也写暂存；
-//   · 直写 conv-settings/set 的调用面只剩 setConvSetting 本体一处。
+// 源断言（ChatInput 重组件无整挂先例，按 draft-single src.toContain 同款
+// 锁定接线；草稿物化语义在 ac-client-ui-singles/tests/draft-single.test.ts）：
+//   · conv-settings/set 直写面全前端只剩 flushConvSettings 一处；
+//   · 蒸发物不得回流（setConvSetting / convSettingStored / persistToolMode）；
+//   · 发送链两入口（send / sendNow）都经 prepareSend；
+//   · 控件只改表单（草稿暂存面 setConvOverride 不再被调用）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
-const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'client', 'ChatInput.vue'), 'utf-8');
+const here = dirname(fileURLToPath(import.meta.url));
+const src = readFileSync(join(here, '..', 'client', 'ChatInput.vue'), 'utf-8');
 
-describe('cr-1084 草稿期会话键分流（ChatInput 写口接线）', () => {
-  it('conv-settings/set 直写面只剩 setConvSetting 本体（五写口全收口）', () => {
+describe('cr-1093 发送时写（ChatInput 写时机接线）', () => {
+  it('conv-settings/set 直写面只剩 flushConvSettings 一处（全前端唯一写边界）', () => {
     const hits = src.match(/rpc\.call\('conv-settings\/set'/g) ?? [];
-    expect(hits).toHaveLength(1); // setConvSetting 内的常规分支——唯一合法直写点
+    expect(hits).toHaveLength(1);
   });
 
-  it('统一写口/读口/草稿判定三件在场', () => {
+  it('发送边界机制三件在场：基线 / 脏值 patch / 一次落盘', () => {
+    expect(src).toContain('const convBaseline = reactive<Record<string, string>>({});');
+    expect(src).toContain('function dirtyConvPatch(): Record<string, string | null> | null {');
+    expect(src).toContain('async function flushConvSettings(conversationId: string | null): Promise<void> {');
+    expect(src).toContain('async function prepareSend(): Promise<boolean> {');
+  });
+
+  it('蒸发物不回流：统一写口/暂存读口/偏好继承写登记', () => {
+    expect(src).not.toContain('setConvSetting(');
+    expect(src).not.toContain('convSettingStored(');
+    expect(src).not.toContain('persistToolMode(');
+    expect(src).not.toContain('setConvOverride(');
+  });
+
+  it('发送链两入口都经 prepareSend（草稿物化 + 键一次落盘，失败不出门）', () => {
+    const calls = src.match(/if \(!\(await prepareSend\(\)\)\) return;/g) ?? [];
+    expect(calls).toHaveLength(2); // send / sendNow
+  });
+
+  it('草稿位判定仍在（草稿位跳过服务端回读——哨兵脏值不回显）', () => {
     expect(src).toContain('const onDraft = computed(');
-    expect(src).toContain('function setConvSetting(');
-    expect(src).toContain('function convSettingStored(');
-    expect(src).toContain('if (onDraft.value) {'); // 写口草稿分流
+    const guards = src.match(/if \(onDraft\.value\) \{/g) ?? [];
+    expect(guards.length).toBeGreaterThanOrEqual(2); // toolMode watch + browserTier watch
   });
 
-  it('五个写口全经 setConvSetting（model / toolMode×2 / browserTier×2 / extKey 泛写）', () => {
-    const calls = src.match(/setConvSetting\(/g) ?? [];
-    // 定义 1 处 + 写口 6 处（selectModel 1v1、toolMode 继承、selectToolMode、
-    // browserTier 继承、selectBrowserTier、selectExtKey）+ 草稿读侧偏好回放 2 处
-    expect(calls.length).toBeGreaterThanOrEqual(9);
-  });
-
-  it('读侧草稿分支：toolMode/experimental 两 watch 均有暂存回显路径', () => {
-    expect(src.match(/convSettingStored\(/g)?.length).toBeGreaterThanOrEqual(4); // 定义 + 三消费（toolMode/browserTier/extKey 循环）
+  it('四个控件函数只改表单：逐个函数体内零 RPC 调用', () => {
+    const bodyOf = (name: string): string => {
+      const start = src.indexOf(`function ${name}(`);
+      expect(start).toBeGreaterThan(-1);
+      // 函数体到下一个顶层 `\n}` 为止（本文件的控件函数均无嵌套块超过该缩进）
+      const end = src.indexOf('\n}', start);
+      return src.slice(start, end);
+    };
+    for (const fn of ['selectToolMode', 'selectBrowserTier', 'selectExtKey']) {
+      const body = bodyOf(fn);
+      expect(body).not.toContain('rpc.call(');
+      expect(body).not.toContain('setConvSetting(');
+    }
+    // model：singles 分支仍写 session.json 域（防双源例外），1v1 分支表单化
+    const modelBody = bodyOf('selectModel');
+    expect(modelBody).toContain("updateSession(props.single.id, { model: value || null })");
+    expect(modelBody).not.toContain('conv-settings/set');
   });
 });

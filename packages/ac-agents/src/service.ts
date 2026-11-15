@@ -54,7 +54,7 @@ export function isFullAccessCall(call: { access?: unknown; elevation?: unknown }
  * 删除；合成 = {'base', 'agent:<id>'} ∪ levels 行内档位合成词（browser
  * 层级 / collab admin）∪ settings 行内档位回滚兼容线。dev-tools 键随行
  * 退役。无身份（宿主直调）= {'base'}。工具可见性门禁随 requiredTags
- * 退役——本函数仅剩 browser 分层门禁（web-tools 行内）与 UI 诊断面消费）。
+ * 退役——本函数仅剩 browser 分层门禁（web-tools 行内）与 UI 诊断面消费。
  */
 export function capabilitySetOf(
   ctx: Pick<Context, 'agents'>,
@@ -103,55 +103,6 @@ export function capabilitySetOf(
 
 function levelQuotaOk(level: string): boolean {
   return level === 'observe' || level === 'manipulate' || level === 'inject';
-}
-
-/**
- * 会话维度的有效能力集（capabilitySetOf + 会话覆盖授权注入）。
- * 2026-09-26 browserTier 可见性事故：会话实验档（conv-settings 注册键的
- * grants 声明）此前只作用于 web-tools 动作门禁——无层级的 Agent 在
- * 工具可见面就看不到 browser，会话授权到不了执行层。此包装在【可见性
- * 合成点】统一注入：settings 覆盖值 → 键定义 grants 标签并入 caps。
- * 受限调用方兼容：agents/convSettings 均经 ctx.get(name, false) 软取
- * （受限 ctx 上直接属性访问会抛 without-inject——run_code 等工具行
- * 场景）；面缺席 = 退化为 base 集（与 capabilitySetOf 等价或更窄）。
- * LLM 工具面的决定点（router execute / agents tool-defs / list_tools /
- * run_code 投影 / subagent 装配）统一换用本函数。
- */
-export function sessionCapsOf(
-  ctx: { get?: (name: string, strict?: boolean) => unknown },
-  agentId: string | undefined,
-  conversationId: string | undefined,
-): Set<string> {
-  const softGet = (name: string): unknown =>
-    typeof ctx.get === 'function' ? ctx.get(name, false) : undefined;
-  const agents = softGet('agents') as Context['agents'] | undefined;
-  const caps = agentId === undefined || !agents
-    ? new Set<string>(['base'])
-    : capabilitySetOf({ agents }, agentId);
-  if (conversationId === undefined) return caps;
-  const convSettings = softGet('convSettings') as
-    | { effective(conversationId: string): Record<string, string>; listKeys?: () => Array<{ key: string; grants?: Record<string, string[]> }> }
-    | undefined;
-  if (!convSettings || typeof convSettings.listKeys !== 'function') return caps;
-  // cr-1083 conv-scope 批2：grants 注入读 effective——无人桶残值（如
-  // browserTier=observe）不再注入能力标签（V3）
-  const settings = convSettings.effective(conversationId);
-  for (const def of convSettings.listKeys()) {
-    for (const tag of def.grants?.[settings[def.key]] ?? []) caps.add(tag);
-  }
-  return caps;
-}
-
-/**
- * 工具对能力集的可见性判定（cr-953：requiredTags 门禁退役——授权 =
- * 行装载单闸，工具面已由行集派生收口；本函数恒 true，仅保消费面
- * 零改动的过渡期形状。随消费面清零后一并删除）。
- */
-export function toolAllowedFor(
-  _def: { requiredTags?: string[] } | undefined,
-  _caps: Set<string>,
-): boolean {
-  return true;
 }
 
 /**
@@ -378,8 +329,8 @@ export function isModeToolFace(
  * 工具」的成员判定，不消费执行面语义——门控宽度 fail-safe（声明了
  * 没授权的工具顶多多教一段指引）。
  * cr-953：requiredTags 门禁退役——能力面 = 注册面（行装载单闸），
- * toolAllowedFor 恒 true，caps 仅用于 browser 分层门禁（web-tools
- * 行内）与会话 grants 注入，不再过滤工具可见性。
+ * 不再过滤工具可见性（cr-1092 grants 注入与 toolAllowedFor 恒 true
+ * 链随轴清零）。
  */
 export function widenToolsForGating(
   ctx: Pick<Context, 'get'>,

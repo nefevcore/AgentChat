@@ -163,8 +163,8 @@ describe('M8.1 第三批：依赖链行装配（jobs/shell-tools/harness-tools�
       expect(boot.ctx.get('jobs', false)).toBeDefined();
       const cs = boot.ctx.get('convSettings', false) as { listKeys(): Array<{ key: string }> };
       expect(cs).toBeDefined();
-      // harness-tools apply 真执行（registerKey 生效——依赖序经装配终检收敛）
-      expect(cs.listKeys().map((k) => k.key)).toContain('harnessTier');
+      // harness-tools apply 真执行证据 = 工具注册面（cr-1094 整键退役后不再注册
+      // 会话键，见下方 run_harness 断言；cs 垫片本身仍须在场）
       // 工具面：平台命令工具 + job 管理 + harness 委托
       const tools = boot.ctx.get('tools') as { list(): Array<{ name: string }> };
       const names = tools.list().map((t) => t.name);
@@ -198,8 +198,9 @@ describe('M8.1 第三批：依赖链行装配（jobs/shell-tools/harness-tools�
       await Promise.all([t, j]);
       await Promise.all([h, s, t, j, l, lp]);
       for (const f of [shims, h, s, j, t, l, lp]) expect(f.state).toBe(FiberStates.ACTIVE);
-      const csSvc = ctx.get('convSettings') as { listKeys(): Array<{ key: string }> };
-      expect(csSvc.listKeys().map((k) => k.key)).toContain('harnessTier');
+      // harness-tools apply 真执行证据 = 工具注册面（cr-1094：会话键注册已退役）
+      const toolsSvc = ctx.get('tools') as { list(): Array<{ name: string }> };
+      expect(toolsSvc.list().map((t) => t.name)).toContain('run_harness');
     } finally {
       for (const f of [...fibers].reverse()) {
         if (f.uid !== null) await f.dispose();

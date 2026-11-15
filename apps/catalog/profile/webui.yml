@@ -1,4 +1,4 @@
-# ac-base-version: 4
+# ac-base-version: 5
 # webui 进程基座源文档（cr-905 / cr-901 v2.1 批3）——生成物：事实源 = packages/ac-client-ui-* / ac-client-theme-*（ac.faces.web），
 # 由 scripts/gen-webui-base.mjs 生成，禁止手改（漂移由 ac-rowset-core
 # tests/webui-base.test.ts 锁定）。分层合成与前端侧求值见 docs/design/webui/ui-plugin-form.md。
@@ -91,6 +91,7 @@
   name: link:packages/ac-client-ui-settings
   seats:
     - seat: overlay
+    - seat: settings:section
 - id: shell
   name: link:packages/ac-client-ui-shell
   seats:

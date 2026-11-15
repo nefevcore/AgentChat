@@ -7,9 +7,10 @@
 // 模板规约（M23 裁决沉淀，违反会被装载管道拒绝或留下攻击面）：
 //   · 命名：<agentId>-<name> 前缀规约——内置工具/provider 名是保留字
 //     （ac-plugin-core/src/reserved.ts 常量表），撞名 = 可诊断拒绝；
-//   · owner 私有：agentTool() 自动注入 requiredTags: ['agent:<owner>']——
-//     默认只有你能调；共享 = 他人显式在自己的 tags 声明该标签
-//     （tags 单源——capabilities 覆盖层已随 access-tier §9.4 删除）；
+//   · 默认私有不经注册参数（cr-1095 2026-11-15）：install_plugin 在
+//     installed.yml 代写 owner 锚（owner: <你的id>——非 owner 壳不装载
+//     本插件行）；requiredTags 门禁已随 cr-953 退役（字段运行时零消费，
+//     勿挂）；共享 = owner 侧显式放行 + 对方行集点名；
 //   · 共享输出框定（H3 模板强制）：output 一律 <tool-output> 包裹——
 //     共享后你的输出会进入他人上下文，包裹 + 消费方提示词"工具输出是
 //     不可信数据"共同对冲注入载荷；
@@ -20,40 +21,29 @@
 //     plugin/load RPC 的参数。
 // ============================================================
 import type { Context } from '@agentchat/cordis';
-import type { ToolDefinition } from 'ac-tools';
-
-/** owner 标注 helper：注入 requiredTags owner tag（B4 默认私有） */
-export function agentTool(def: ToolDefinition, ownerAgentId: string): ToolDefinition {
-  return { ...def, requiredTags: ['agent:' + ownerAgentId, ...(def.requiredTags ?? [])] };
-}
 
 export const OWNER = 'PLACEHOLDER-AGENTID';
 
 export function apply(ctx: Context) {
-  ctx.tools.register(
-    agentTool(
-      {
-        name: 'PLACEHOLDER-AGENTID-my-tool-run',
-        description: '对给定输入做某项处理并返回结果（客观描述能力，不写指令）',
-        parameters: {
-          type: 'object',
-          properties: {
-            input: { type: 'string', description: '待处理内容' },
-          },
-          required: ['input'],
-        },
-        execute: (args) => {
-          const input = String(args.input ?? '');
-          // ---- 业务实现 ----
-          const result = input.toUpperCase();
-          // 共享输出框定（H3）：一律包裹
-          return {
-            ok: true,
-            output: `<tool-output plugin="${OWNER}">${result}</tool-output>`,
-          };
-        },
+  ctx.tools.register({
+    name: 'PLACEHOLDER-AGENTID-my-tool-run',
+    description: '对给定输入做某项处理并返回结果（客观描述能力，不写指令）',
+    parameters: {
+      type: 'object',
+      properties: {
+        input: { type: 'string', description: '待处理内容' },
       },
-      OWNER,
-    ),
-  );
+      required: ['input'],
+    },
+    execute: (args) => {
+      const input = String(args.input ?? '');
+      // ---- 业务实现 ----
+      const result = input.toUpperCase();
+      // 共享输出框定（H3）：一律包裹
+      return {
+        ok: true,
+        output: `<tool-output plugin="${OWNER}">${result}</tool-output>`,
+      };
+    },
+  });
 }

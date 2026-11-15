@@ -42,15 +42,17 @@ describe('ac-conv-settings 注册制扩展键（生态行贡献会话覆盖键�
     const next = ctx.convSettings.set('user~helper', { pluginMode: 'pm-a' });
     expect(next).toMatchObject({ pluginMode: 'pm-a' });
     expect(JSON.parse(fs.readFileSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'), 'utf-8'))).toMatchObject({ pluginMode: 'pm-a' });
-    // 非法枚举 → 清除
-    expect(ctx.convSettings.set('user~helper', { pluginMode: 'pm-x' })).toEqual({});
+    // cr-1091 键域校验退役：非法枚举值也原样落盘（落盘即真相——垃圾值由
+    // 消费方天然回落兜底）
+    expect(ctx.convSettings.set('user~helper', { pluginMode: 'pm-x' })).toEqual({ pluginMode: 'pm-x' });
     // null 删键
     ctx.convSettings.set('user~helper', { pluginMode: 'pm-b' });
     expect(ctx.convSettings.set('user~helper', { pluginMode: null })).toEqual({});
     // 撞名 fail-loud
     expect(() => ctx.convSettings.registerKey({ key: 'toolMode', enum: ['x'] })).toThrow(/已注册/);
-    // 未注册键静默清（RPC 泛透传后的兜底）
-    expect(ctx.convSettings.set('user~helper', { unknownKey: 'v' })).toEqual({});
+    // 未注册键字符串值同样落盘（wire 宽容——消费方直读不命中即回落）
+    expect(ctx.convSettings.set('user~helper', { unknownKey: 'v' })).toEqual({ unknownKey: 'v' });
+    ctx.convSettings.set('user~helper', { unknownKey: null });
     // 键目录
     expect(ctx.convSettings.listKeys().some((k) => k.key === 'pluginMode')).toBe(true);
   });
@@ -73,11 +75,11 @@ describe('ac-conv-settings 注册制扩展键（生态行贡献会话覆盖键�
     await pluginFiber;
     ctx.convSettings.set('user~helper', { pluginMode: 'pm-a' });
     expect(ctx.convSettings.get('user~helper')).toMatchObject({ pluginMode: 'pm-a' });
-    // 卸载生态行 → 键回收：新写入不进
+    // 卸载生态行 → 键回收：键目录不再含该键（UI/治理面消失）
     await pluginFiber.dispose();
-    expect(ctx.convSettings.set('user~helper', { pluginMode: 'pm-a' })).toEqual({});
-    // 存量落盘值宽松可读（消费方不炸；重 boot 后同样宽松）
-    expect(ctx.convSettings.get('user~helper')).toEqual({}); // 枚举回收后回读校验也清——见 readSettings 注释
+    expect(ctx.convSettings.listKeys().some((k) => k.key === 'pluginMode')).toBe(false);
+    // cr-1091 落盘即真相：已落盘值保留不清理——消费方不炸、天然回落兜底
+    expect(ctx.convSettings.get('user~helper')).toEqual({ pluginMode: 'pm-a' });
   });
 });
 
@@ -134,22 +136,25 @@ describe('ac-conv-settings', () => {
     ctx.convSettings.set('user~helper', { toolMode: 'tc-base' });
     expect(ctx.convSettings.get('user~helper').toolMode).toBe('tc-base');
     // 开放词（cr-1049）：tc- 前缀词合法（'tc-foo' 持久；注册表校验在投影端
-    // 兜底——未注册词回退常规面 + warn）；非 tc- 前缀/'false'/null → 删键
+    // 兜底——未注册词回退常规面 + warn）；'false'/null → 删键（cr-1091
+    // 起字符串值一律落盘，删键只剩 null 显式语义）
     next = ctx.convSettings.set('user~helper', { toolMode: 'tc-foo' });
     expect(next).toEqual({ toolMode: 'tc-foo' });
     next = ctx.convSettings.set('user~helper', { toolMode: 'false' as never });
-    expect(fs.existsSync(path.join(root, 'meta', 'conv-settings', 'user~helper.json'))).toBe(false);
+    expect(next).toEqual({ toolMode: 'false' });
+    ctx.convSettings.set('user~helper', { toolMode: null });
     // 与 model/access 共存（键级独立）
     ctx.convSettings.set('user~helper', { model: 'glm@glm-5.3', toolMode: 'tc-none' });
     expect(ctx.convSettings.get('user~helper')).toEqual({ model: 'glm@glm-5.3', toolMode: 'tc-none' });
-    // 盘上损坏值（toolMode: 'programmatic'——旧开关词不迁移，读侧丢弃）→ 宽容面
+    // 盘上损坏值（toolMode: 'programmatic'——旧开关词不迁移）：cr-1091
+    // 落盘即真相——原样透出，消费方（投影端）不命中即回落
     fs.writeFileSync(
       path.join(root, 'meta', 'conv-settings', 'bad.json'),
       JSON.stringify({ toolMode: 'programmatic' }),
       'utf-8',
     );
-    expect(ctx.convSettings.get('bad')).toEqual({});
-    // 盘上旧 programmatic 布尔键（存量不迁移）→ 读侧直接失效（不映射）
+    expect(ctx.convSettings.get('bad')).toEqual({ toolMode: 'programmatic' });
+    // 盘上非字符串值（布尔/数字）仍被类型闸滤除（文件损坏防护，非键域校验）
     fs.writeFileSync(
       path.join(root, 'meta', 'conv-settings', 'legacy.json'),
       JSON.stringify({ programmatic: true }),
@@ -158,19 +163,18 @@ describe('ac-conv-settings', () => {
     expect(ctx.convSettings.get('legacy')).toEqual({});
   });
 
-  it('access 键已退役（cr-1082）：写入即清、盘上 access/elevation 存量值读侧失效', async () => {
+  it('access 键已退役（cr-1082）：盘上存量值原样透出、无人消费（cr-1091 落盘即真相）', async () => {
     const root = tmpRoot();
     const ctx = await boot(root);
-    // 键不在目录——写入即清（未知键语义）
-    expect(ctx.convSettings.set('a~b', { access: 'full-access' as never })).toEqual({});
-    // 盘上存量值（access/elevation 旧形态）读侧静默失效（清理脚本物理删除）
+    // 盘上存量值（access/elevation 旧形态）原样透出——退役键零消费方，透出
+    // 即无效；物理删除由 cr-1082 清理脚本负责（键域校验已退役不再读侧清）
     fs.mkdirSync(path.join(root, 'meta', 'conv-settings'), { recursive: true });
     fs.writeFileSync(
       path.join(root, 'meta', 'conv-settings', 'legacy-elev.json'),
       JSON.stringify({ elevation: 'full-access', access: 'full-access' }),
       'utf-8',
     );
-    expect(ctx.convSettings.get('legacy-elev')).toEqual({});
+    expect(ctx.convSettings.get('legacy-elev')).toEqual({ elevation: 'full-access', access: 'full-access' });
   });
 
   it('迁居兼容窗：旧位置 <root>/conv-settings/<id>.json 可读；清除删双位置', async () => {
@@ -203,8 +207,9 @@ describe('ac-conv-settings', () => {
     expect(() => ctx.convSettings.get('a b')).toThrow(/非法/);
     expect(() => ctx.convSettings.get('')).toThrow(/非法/);
     expect(() => ctx.convSettings.set('../escape', { model: 'm' })).toThrow(/非法/);
-    // 未知键忽略（wire 宽容）
-    expect(ctx.convSettings.set('a~b', { effort: 'high' } as never)).toEqual({});
+    // cr-1091 未知键字符串值落盘（wire 宽容；删键只剩 null 显式语义）
+    expect(ctx.convSettings.set('a~b', { effort: 'high' } as never)).toEqual({ effort: 'high' });
+    ctx.convSettings.set('a~b', { effort: null });
   });
 
   // cr-1083 conv-scope 批1 V1：决策面读取 effective——无人桶恒 {}，

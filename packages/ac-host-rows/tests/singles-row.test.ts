@@ -7,7 +7,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { makeSinglesHostRow, HostInbox } from '../src/index.ts';
+import { makeSinglesHostRow, migrateLegacyPrefixSnapshots, HostInbox } from '../src/index.ts';
 import { writeAgentConfig } from 'ac-agents-core';
 import { makeTitleRequestEnvelope, type Envelope } from 'ac-envelope-core';
 
@@ -373,3 +373,81 @@ describe('singles/list 指纹复验走 sessionIndex 账面（cr-981）', () => {
     expect(out.singles.find((x) => x.id === 's1')!.lastActivity).toBe('2026-10-24T09:00:00.000Z');
   });
 });
+describe('cr-1100 快照分居：旧位搬空 + 通配不再误收', () => {
+  const snapDir = () => path.join(ROOT, 'meta', 'prefix-snapshots');
+  /** 旧位寄居快照直投（cr-973~cr-1100 间的历史落点形态） */
+  function seedLegacySnapshot(sid: string): void {
+    fs.mkdirSync(path.dirname(metaFile(sid)), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'meta', 'sessions', sid + '.prefix-snapshot.json'),
+      JSON.stringify({ version: 1, createdAt: '2026-11-14T00:00:00.000Z', sections: [], settingsFingerprint: {} }), 'utf-8');
+  }
+
+  it('装载 sweep：旧位 *.prefix-snapshot.json 搬至 meta/prefix-snapshots/<sid>.json，旧位归零', () => {
+    seedLegacySnapshot('01a1d4c2-7df9-7161-8fa3-b773f21f3e60');
+    boot(false);
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'sessions', '01a1d4c2-7df9-7161-8fa3-b773f21f3e60.prefix-snapshot.json'))).toBe(false);
+    expect(fs.existsSync(path.join(snapDir(), '01a1d4c2-7df9-7161-8fa3-b773f21f3e60.json'))).toBe(true);
+    expect(JSON.parse(fs.readFileSync(path.join(snapDir(), '01a1d4c2-7df9-7161-8fa3-b773f21f3e60.json'), 'utf-8'))).toMatchObject({ version: 1 });
+    // 新位在场时同名残留即清（壳侧早写新位 → 宿主 sweep 只清旧壳留物）
+    seedLegacySnapshot('01a1d4c2-7df9-7161-8fa3-b773f21f3e60');
+    boot(false);
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'sessions', '01a1d4c2-7df9-7161-8fa3-b773f21f3e60.prefix-snapshot.json'))).toBe(false);
+  });
+
+  it('新位在场 → 不搬迁，旧位残留清空（壳宿主换代窗口不回滚）', () => {
+    fs.mkdirSync(snapDir(), { recursive: true });
+    fs.writeFileSync(path.join(snapDir(), 'sid-new.json'), JSON.stringify({ version: 1 }), 'utf-8');
+    seedLegacySnapshot('sid-new');
+    boot(false);
+    expect(fs.readFileSync(path.join(snapDir(), 'sid-new.json'), 'utf-8')).toBe(JSON.stringify({ version: 1 }));
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'sessions', 'sid-new.prefix-snapshot.json'))).toBe(false);
+  });
+
+
+  it('单文件搬迁失败不中断整批（活壳持有旧文件——Windows 文件锁场景）', async () => {
+    seedLegacySnapshot('sid-lock-1');
+    seedLegacySnapshot('sid-lock-2');
+    seedLegacySnapshot('sid-lock-3');
+    // 注入失败面：首个文件 rename 抛 EPERM（模拟 Windows 文件锁占用）
+    let failed = false;
+    const realRename = fs.renameSync;
+    const fakeFs = {
+      readdirSync: fs.readdirSync.bind(fs),
+      mkdirSync: fs.mkdirSync.bind(fs),
+      existsSync: fs.existsSync.bind(fs),
+      rmSync: fs.rmSync.bind(fs),
+      renameSync: ((a: fs.PathLike, b: fs.PathLike) => {
+        if (!failed && String(a).includes('sid-lock-1')) { failed = true; throw Object.assign(new Error('EPERM'), { code: 'EPERM' }); }
+        return realRename(a, b);
+      }) as typeof fs.renameSync,
+    };
+    const res = migrateLegacyPrefixSnapshots(ROOT, fakeFs);
+    expect(failed).toBe(true); // 失败确实发生过
+    expect(res.moved).toBe(2); // 其余两个照常搬迁
+    expect(fs.existsSync(path.join(snapDir(), 'sid-lock-2.json'))).toBe(true);
+    expect(fs.existsSync(path.join(snapDir(), 'sid-lock-3.json'))).toBe(true);
+    // 失败者留守（下次装载重试）
+    expect(fs.existsSync(path.join(ROOT, 'meta', 'sessions', 'sid-lock-1.prefix-snapshot.json'))).toBe(true);
+    // 残留对 list 无害：词汇锁排除含点文件名，不产幻影会话
+    const h = boot(false);
+    const out = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string }> };
+    expect(out.singles.some((s) => s.id.endsWith('.prefix-snapshot'))).toBe(false);
+  });
+  it('sweep 幂等：二度 boot 旧位仍空（零枚举直通）', () => {
+    seedLegacySnapshot('sid-aa');
+    boot(false);
+    boot(false);
+    expect(fs.existsSync(path.join(snapDir(), 'sid-aa.json'))).toBe(true);
+    expect(fs.readdirSync(path.join(ROOT, 'meta', 'sessions')).some((n) => n.endsWith('.prefix-snapshot.json'))).toBe(false);
+  });
+
+  it('幻影不收：旧位快照在场（迁移前夜形态）→ 不登记 <sid>.prefix-snapshot 假会话', async () => {
+    seedLegacySnapshot('01a1b676-e2ac-7935-b201-594631bad288');
+    const h = boot(false);
+    const out = await h.handlers.get('singles/list')!({}) as { singles: Array<{ id: string }> };
+    expect(out.singles.some((s) => s.id.endsWith('.prefix-snapshot'))).toBe(false);
+    const reg = JSON.parse(fs.readFileSync(path.join(ROOT, 'meta', 'sessions', '.singles-registry.json'), 'utf-8')) as { entries: Record<string, unknown> };
+    expect(Object.keys(reg.entries).some((k) => k.endsWith('.prefix-snapshot'))).toBe(false);
+  });
+});
+

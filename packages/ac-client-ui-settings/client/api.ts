@@ -258,6 +258,16 @@ export async function saveAssembly(agentId: string, patch: AssemblyPatch, rpc: R
 
 // ── ③d 全局默认层（M24 A1：config settings 域单键读写） ──
 
+/**
+ * settings 域单键整写（cr-1098）：走 config/set 只动 settings 键——
+ * config/save 是白名单域全量 replace 语义（payload 缺的域删除），
+ * 部分 payload 调用会误删 llmProviders/searchProviders 兄弟域
+ * （cr-1097 GeneralSection 首发即踩）。携带完整 settings 对象。
+ */
+export function saveSettingsDomain(settings: Record<string, unknown>, rpc: Rpc = wireRpc): Promise<{ set?: boolean; key?: string }> {
+  return callGuarded('config/set', { key: 'settings', value: settings }, rpc);
+}
+
 /** 读全局默认层全量（config.get → settings） */
 export async function getGlobalSettings(rpc: Rpc = wireRpc): Promise<Record<string, any>> {
   const r = await rpc.call<{ config?: Record<string, any> }>('config/get');

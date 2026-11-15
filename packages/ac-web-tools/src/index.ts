@@ -23,7 +23,7 @@
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only，无运行时依赖）
 import { BrowserService, type BrowserRowOptions } from './browser.ts';
-import { sessionCapsOf } from 'ac-agents';
+import { capabilitySetOf } from 'ac-agents';
 import {
   PROVIDER_REGISTRY,
   type ProviderConfig,
@@ -342,15 +342,21 @@ export function apply(ctx: Context, options: WebToolsRowOptions = {}) {
     const need = actions.reduce((max, a) => Math.max(max, ACTION_TIER[a] ?? 0), 0);
     if (need <= 0) return next();
 
-    // 能力集单源（sessionCapsOf——grants 注入后 caps 天然含会话 tier 标签；
-    // 与 router/security/run-code 投影同源）：tier = max(caps 命中的层级标签)。
-    // 「无 tags Agent + 会话授权」与「Agent 自有 tags」在此合一，手工 Math.max
-    // 补偿退役——授权语义 = grants 并集，天然只升不降。
-    const caps = sessionCapsOf(ctx, call.agentId, call.conversationId);
-    let tier = 0;
-    if (caps.has('observe')) tier = 1;
-    if (caps.has('manipulate')) tier = 2;
-    if (caps.has('inject')) tier = 3;
+    // 层级单源直读（cr-1092 grants 退役）：tier = max(Agent levels.browser 档位
+    // 与会话 browserTier 覆盖——授权语义 = 并集只升不降，与 grants 注入前的
+    // sessionCapsOf 合成恒等）。Agent 侧经 capabilitySetOf 兼容 settings.browser
+    // 布尔回滚线（cr-906 X1）。
+    const agents = ctx.get('agents', false) as Context['agents'] | undefined;
+    const agentCaps = call.agentId !== undefined && agents
+      ? capabilitySetOf({ agents }, call.agentId)
+      : new Set<string>(['base']);
+    let agentTier = 0;
+    if (agentCaps.has('observe')) agentTier = 1;
+    if (agentCaps.has('manipulate')) agentTier = 2;
+    if (agentCaps.has('inject')) agentTier = 3;
+    const SESSION_TIER: Record<string, number> = { observe: 1, manipulate: 2, inject: 3 };
+    const sessionTierNum = sessionTier !== undefined ? (SESSION_TIER[sessionTier] ?? 0) : 0;
+    const tier = Math.max(agentTier, sessionTierNum);
     if (tier >= need) return next();
     return {
       ok: false as const,

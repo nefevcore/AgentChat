@@ -41,10 +41,9 @@ export function filterSpawnTools(tokens: string[], parentRowIds: Set<string>, sh
 }
 
 /**
- * 会话设置继承面（cr-953 结构化换轨——tags 退役；cr-1082 access 臂退役）：
- * 发起会话 conv-settings 覆盖值 → 子 config 结构化字段。新增设置键的
- * 继承面在此登记（映射与 conv-settings BUILTIN_KEYS 的 grants 档位轴
- * 同源维护）。access 不继承（轴退役——子档位 = 沙箱常量，full 经父的
+ * 会话设置继承面（cr-953 结构化换轨——tags 退役；cr-1082 access 臂退役；
+ * cr-1092 grants 轴退役）：发起会话 conv-settings 覆盖值 → 子 config
+ * 结构化字段。新增设置键的继承面在此登记。access 不继承（轴退役——子档位 = 沙箱常量，full 经父的
  * 门）。tc-* 不继承：交互形态非授权——子形态由装配结构化合成。
  * browserTier → levels.browser（取高者——父级更高时保父）。issueSubmit
  * 无结构化继承面（授权 = 行装载，无标签轴）。

@@ -9,9 +9,9 @@
 // 门禁面：
 //   · requiredTags [harness]（tag-registry 目录自动采集 + 手工声明双保险）
 //   · needPermission（真实子进程 + 外部模型计费——base 档审批）
-//   · 会话开关 harnessTier（conv-settings 实验性组，cr-277：缺省 enabled
-//     ——实验性=发现入口归属非能力开关；disabled = execute 自查拒绝，
-//     issueSubmit 同款口径）。
+//   · 会话开关已退役（cr-1094 整键退役——harnessTier 原为壳内 registerKey
+//     注册的键，宿主侧键目录不可见〔双树裂痕〕且 disabled 臂实为唯一活闸；
+//     会话级禁用改由 Agent 行卸载表达，run_harness 工具本体保留）。
 //   · 续接凭据链（cr-345 修复）：gateway 捕获 started 事件会话 id 回填
 //     terminal → run_harness 成功后 recordSession 持久化 → 同会话下次
 //     委托 resume=auto 自动续接（cr-279 承诺自此生效）
@@ -24,7 +24,6 @@ import type {} from 'ac-tools'; // ctx.tools 服务类型增强（type-only）
 import { runGateway, claudeCodeAdapter, codexAdapter, type HarnessRunResult } from 'ac-harness-core';
 import { sessionRunKeyOf, recordSession } from './sessions.ts';
 import type { ExtensionMeta } from 'ac-extension-core';
-import type { ConvSettingsKeyDef } from 'ac-conv-settings';
 
 export const name = 'ac-harness-tools';
 
@@ -49,24 +48,12 @@ export interface HarnessToolsRowOptions {
   gateways?: Partial<Record<'claude-code' | 'codex', { command: string; enabled?: boolean }>>;
 }
 
-/** 会话实验键注册（§5.7/D11）：harnessTier——grants 通路见 sessionCapsOf */
-const HARNESS_TIER_KEY: ConvSettingsKeyDef = {
-  key: 'harnessTier',
-  enum: ['enabled', 'disabled'],
-  description: '跟随 Agent tags（harness 标签）；缺省即启用——实验性是发现入口，非能力开关',
-  group: 'experimental',
-  label: 'Harness 委托',
-  order: 3,
-  options: { enabled: '本会话启用', disabled: '本会话禁用（防误委托/省订阅额度）' },
-  grants: { enabled: ['harness'] },
-};
-
 const DEFAULT_TIMEOUT_MS = 600000;
 const DEFAULT_MAX_CONCURRENT = 2;
 /** 过程事件摘要上限（notices 有界——防大 run 撑爆上下文） */
 const NOTICES_MAX = 20;
 
-export const inject = ['tools', 'convSettings'];
+export const inject = ['tools'];
 
 export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
   const maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
@@ -78,11 +65,6 @@ export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
       enabled: override?.enabled !== false,
     };
   };
-
-  // 会话实验键注册（注册即归属——本行卸载键自动回收，存量值回读同被清）。
-  // inject 声明 convSettings 硬依赖（loader 并发激活下行序 ≠ 激活序——软取会
-  // 永久漏注册，cr-282 根修）；bootTree 顺序 await 路径天然满足。
-  ctx.convSettings.registerKey(HARNESS_TIER_KEY);
 
   // 并发纪律（D4）：agent 维互斥（内存表）+ 全局上限；占线报忙不排队
   const busyAgents = new Set<string>();
@@ -109,14 +91,6 @@ export function apply(ctx: Context, options: HarnessToolsRowOptions = {}) {
     async execute(args, call) {
       if (options.enabled === false) {
         return { ok: false, error: 'run_harness 已被本行配置停用' };
-      }
-
-      // 会话开关（cr-277 §5.7）：disabled = 本会话禁用（配了 tags 的 Agent 同样被拦——
-      // caps 通路只做加法，减法在这里）；无键 = enabled 默认启用。读面
-      // effective（cr-1083 conv-scope 批1）：无人桶恒 {}——残值不再禁用
-      if (call.conversationId !== undefined
-        && ctx.convSettings.effective(call.conversationId).harnessTier === 'disabled') {
-        return { ok: false, error: 'run_harness 已被本会话禁用（输入框「实验性 → Harness 委托」）——如需使用请切换为本会话启用。' };
       }
 
       const gw = args.harness === 'codex' ? 'codex' : args.harness === 'claude-code' ? 'claude-code' : undefined;

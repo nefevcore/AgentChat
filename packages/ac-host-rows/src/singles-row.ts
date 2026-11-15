@@ -313,15 +313,53 @@ function viewOf(dataRoot: string, id: string, conv: ConvSettingsFace | undefined
   };
 }
 
+/** 旧落点前缀快照搬空（cr-1100 分居迁移：meta/sessions/*.prefix-snapshot.json
+ *  → meta/prefix-snapshots/<sid>.json；新位在场优先，同名残留即清）。
+ *
+ *  装载期调用一次，幂等归零——旧位清空后退化为一次目录枚举直通。
+ *  逐文件独立容错：迁移期活壳仍可能按旧路径写（Windows 文件锁挡
+ *  rename/rm），单文件失败不得中断整批——失败者留待下次装载重试；
+ *  其残留对 listIds 已无害（词汇锁排除含点文件名）。
+ *
+ *  fsApi 参数只为单测注入失败面（生产恒用 node:fs）。
+ *  返回 moved = 实际搬迁/清理成功的文件数。 */
+export function migrateLegacyPrefixSnapshots(
+  dataRoot: string,
+  fsApi: Pick<typeof fs, 'readdirSync' | 'mkdirSync' | 'existsSync' | 'renameSync' | 'rmSync'> = fs,
+): { moved: number } {
+  let names: string[] = [];
+  try { names = fsApi.readdirSync(metaSessionsDir(dataRoot)) as string[]; } catch { return { moved: 0 }; }
+  const legacy = names.filter((n) => n.endsWith('.prefix-snapshot.json'));
+  if (legacy.length === 0) return { moved: 0 };
+  const toDir = path.join(dataRoot, 'meta', 'prefix-snapshots');
+  try { fsApi.mkdirSync(toDir, { recursive: true }); } catch { return { moved: 0 }; }
+  let moved = 0;
+  for (const name of legacy) {
+    const sid = name.slice(0, -'.prefix-snapshot.json'.length);
+    const from = path.join(metaSessionsDir(dataRoot), name);
+    const to = path.join(toDir, sid + '.json');
+    try {
+      if (fsApi.existsSync(to)) fsApi.rmSync(from, { force: true });
+      else fsApi.renameSync(from, to);
+      moved += 1;
+    } catch { /* 单文件占用（活壳在写）——留待下次装载重试 */ }
+  }
+  return { moved };
+}
+
 /** 全部会话 id：meta/sessions（singles 身份源）∪ agent 域会话目录
  *  （消息先行、meta 未落的会话兜底——buildEntry 对无 meta 会话按账本
  *  派生标题/agentId；cr-998 viewer 存量目录并集窗退役，身份事实源
- *  改指 agent 域） */
+ *  改指 agent 域）。
+ *  词汇锁（cr-1100）：meta/sessions/ 只收裸 <sid>.json 会话元数据——
+ *  文件名含点即非会话 id（会话 id = uuid 形无点；曾因 prefix-snapshot
+ *  寄居本目录被通配误收成幻影「新会话」，快照已分居 meta/prefix-snapshots/）。
+ *  新的会话级产物勿再入本目录，独占目录或入 meta/ 平级子域。 */
 function listIds(dataRoot: string): string[] {
   const ids = new Set<string>();
   try {
     for (const e of fs.readdirSync(metaSessionsDir(dataRoot), { withFileTypes: true })) {
-      if (e.isFile() && e.name.endsWith('.json') && !e.name.startsWith('.')) ids.add(e.name.slice(0, -5));
+      if (e.isFile() && e.name.endsWith('.json') && !e.name.startsWith('.') && !e.name.slice(0, -5).includes('.')) ids.add(e.name.slice(0, -5));
     }
   } catch { /* 无元数据域 */ }
   try {
@@ -366,6 +404,8 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       const emit = (view: SingleView, kind: 'created' | 'updated' | 'archived' | 'removed'): void => {
         web.broadcast('singles/updated', { args: [view, kind] });
       };
+      // 旧落点快照搬空（cr-1100 分居一次性迁移，幂等归零）
+      migrateLegacyPrefixSnapshots(dataRoot);
       // 清单注册表（cr-869）：装载对账一次驻留，写点 upsert + 落盘；list 直吐
       const registry = loadRegistry(dataRoot, conv);
       /** 写点收口：emit 后同步注册表条目（真值已落盘，条目 = 回执视图 + 现指纹；

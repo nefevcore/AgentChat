@@ -16,7 +16,8 @@
 // 语义边界：
 //   · 记录的是「最后被用户选定的值」，不做会话级区分（全局一份）；
 //   · 回放值仅作初值——Agent/模型在新建会话时作为创建参数透传
-//     （服务端校验，失效静默回落），effort 直接设为初值；
+//     （服务端校验，失效静默回落），effort 直接设为初值；toolMode/
+//     browserTier 只填表单，发送边界随消息写入（cr-1093）；
 //   · effort '' 与「未记录」都合法记录值（''=明确选择的关闭态，
 //     回放时保持——非缺省值才覆写）。agentId/model
 //     同语义（2026-09-15 修复）：'' = 明确选回默认预设/默认模型——写回
@@ -43,11 +44,10 @@ export interface ComposePrefs {
   model?: string;
   /** 上次思考强度（''=思考关闭） */
   effort?: ComposeEffort;
-  /** 上次工具调用模式（''=跟随 Agent tags 档；2026-09-17 恢复：新会话
-   *  无显式键时回放并写入该会话——选择要落 conv-settings 才生效，见
-   *  toolModeInherit.ts） */
+  /** 上次工具调用模式（''=跟随 Agent tags 档；cr-1093 起只做新会话的
+   *  表单初值——发送边界才写 conv-settings，见 ChatInput.flushConvSettings） */
   toolMode?: ComposeToolMode;
-  /** 上次浏览器档（''=跟随；新会话挂载回放并落该会话 conv-settings） */
+  /** 上次浏览器档（''=跟随；cr-1093 起只做新会话表单初值） */
   browserTier?: ComposeBrowserTier;
 }
 

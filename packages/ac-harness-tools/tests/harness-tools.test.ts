@@ -83,23 +83,13 @@ describe('ac-harness-tools run_harness', () => {
     expect(r.output?.text).toContain('definitely-missing-cmd-xyz');
   });
 
-  it('harnessTier 实验键注册（conv-settings 同装时进目录；grants 含 harness）', async () => {
-    const ctx = await boot([[toolsRow, undefined], [convSettingsRow, {}], [harnessRow, {}]]);
-    const convSettings = ctx.get('convSettings') as any;
-    const keys = convSettings.listKeys();
-    const def = keys.find((k: any) => k.key === 'harnessTier');
-    expect(def).toBeDefined();
-    expect(def.group).toBe('experimental');
-    expect(def.grants).toEqual({ enabled: ['harness'] });
-  });
-
-  it('会话禁用（harnessTier=disabled）→ execute 自查拒绝', async () => {
-    const ctx = await boot([[toolsRow, undefined], [convSettingsRow, {}], [harnessRow, {}]]);
-    const convSettings = ctx.get('convSettings') as any;
-    convSettings.set('conv-1', { harnessTier: 'disabled' });
-    const r = await exec(ctx, { name: 'run_harness', args: { harness: 'claude-code', task: 'x' }, conversationId: 'conv-1' });
-    expect(r.ok).toBe(false);
-    expect(r.error).toContain('本会话禁用');
+  it('cr-1094 harnessTier 整键退役：行不注册会话键、不依赖 conv-settings', async () => {
+    // 只装 tools + harness 行（无 conv-settings）——注入依赖已无 convSettings
+    const ctx = await boot([[toolsRow, undefined], [harnessRow, {}]]);
+    expect(ctx.get('convSettings', false)).toBeUndefined();
+    // 行仍正常注册工具（工具本体保留）
+    const names = ctx.tools.list().map((t) => t.name);
+    expect(names).toContain('run_harness');
   });
 
   // agent 维互斥与看门狗的 exec 层用例住 core 的 gateway.test.ts（argv 可控：node -e 慢命令）；

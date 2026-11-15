@@ -33,7 +33,7 @@
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
-import { sessionCapsOf, displayNameOf, formDeniedBy, resolveToolNames, toolAllowedFor, widenToolsForGating } from 'ac-agents';
+import { displayNameOf, formDeniedBy, resolveToolNames, widenToolsForGating } from 'ac-agents';
 import { pairKey, GROUP_CONTRACT_TEXT } from 'ac-core-utils'; // 对桶键（cr-318 下沉）+ 群聊行为契约正典（M26——cr-712 复活）
 import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
@@ -541,13 +541,13 @@ export function apply(ctx: Context) {
     parameters: { type: 'object', properties: {} },
     async execute(args, call): Promise<ToolResult> {
       const self = call.agentId ? ctx.agents.get(call.agentId) : undefined;
-      // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：能力门禁
-      // （requiredTags 缺标签不可见）+ 模式入口工具排除（discover 轴——cr-1049：
-      // 不进常规面）+ 交互面（requiresInteraction——self 会话排除，
-      // formDeniedBy 单源）先过滤，再按 AgentConfig.tools 解析
-      const caps = sessionCapsOf(ctx, call.agentId, call.conversationId); // 会话授权注入（同 router 口径）
+      // 可见面与 router 信封同口径（2026-09-02 反馈 #1）：授权 = 行装载
+      // 单闸（cr-953 requiredTags 门禁退役；cr-1092 grants 注入随轴退役）+ 模式
+      // 入口工具排除（discover 轴——cr-1049：不进常规面）+ 交互面
+      // （requiresInteraction——self 会话排除，formDeniedBy 单源）先过滤，
+      // 再按 AgentConfig.tools 解析
       const all = ctx.tools.list().filter(
-        (t) => t.discover === undefined && toolAllowedFor(t, caps) && !formDeniedBy(ctx, t, call.conversationId),
+        (t) => t.discover === undefined && !formDeniedBy(ctx, t, call.conversationId),
       );
       // rows 词形归一（cr-953：resolveToolNames 单参——行集展开在垫片层）
       const effectiveNames = resolveToolNames(self?.rows);

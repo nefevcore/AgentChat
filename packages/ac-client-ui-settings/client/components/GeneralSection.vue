@@ -28,7 +28,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { getGlobalConfig, saveGlobalConfig } from '../api.ts';
+import { getGlobalConfig, saveSettingsDomain } from '../api.ts';
 
 const devMode = ref(false);
 const saving = ref(false);
@@ -38,7 +38,7 @@ const error = ref('');
 onMounted(async () => {
   try {
     const r = await getGlobalConfig();
-    devMode.value = r.config?.settings?.devMode === true;
+    devMode.value = r.config.settings?.devMode === true;
   } catch (e: any) {
     error.value = '读取失败: ' + (e?.message ?? String(e));
   }
@@ -50,11 +50,12 @@ async function onToggle(ev: Event) {
   saved.value = false;
   error.value = '';
   try {
-    // config/save 白名单域整体 replace 语义——settings 域已在白名单
-    //（CONFIG_KEY_PREFIXES），携原 settings 对象整写防覆盖兄弟键
+    // config/set 单键写（cr-1098）：只动 settings 键。config/save 是
+    // 白名单域全量 replace 语义（payload 缺的域删除）——部分 payload
+    // 会误删 llmProviders/searchProviders 兄弟域（cr-1097 首发即踩）。
     const cur = await getGlobalConfig();
-    const settings = { ...((cur.config?.settings as Record<string, unknown>) ?? {}), devMode: devMode.value };
-    await saveGlobalConfig({ settings });
+    const settings = { ...(cur.config.settings as Record<string, unknown>), devMode: devMode.value };
+    await saveSettingsDomain(settings);
     saved.value = true;
   } catch (e: any) {
     error.value = '保存失败: ' + (e?.message ?? String(e));

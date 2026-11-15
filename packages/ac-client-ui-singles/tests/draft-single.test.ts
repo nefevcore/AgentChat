@@ -115,54 +115,22 @@ describe('单例草稿态（cr-894）', () => {
     expect(activeSingleId.value).toBe(created.id); // 真值行接管
   });
 
-  it('cr-1084 草稿期会话键暂存 + 物化搬运：approval 等键搬到真实 sid，服务端零哨兵键', async () => {
+  it('cr-1093 草稿物化零 conv-settings 写：会话键归 ChatInput 发送链（暂存面已退役）', async () => {
     const { board } = makeBoard();
     board.startDraft({ agentId: 'alpha' });
-    // 草稿期写会话键（ChatInput setConvSetting 分流后的暂存面）
-    board.setConvOverride('approval', 'allow');
-    board.setConvOverride('browserTier', 'observe');
-    board.setConvOverride('toolMode', 'tc-programmatic');
-    expect(board.convOverrideValue('approval')).toBe('allow'); // 回显
-    // 删键：null = 移除（键级合并）
-    board.setConvOverride('browserTier', null);
-    expect(board.convOverrideValue('browserTier')).toBeUndefined();
-    expect(board.pending.value?.convOverrides).toEqual({ approval: 'allow', toolMode: 'tc-programmatic' });
-    // 物化：create 后暂存键搬到真实 sid（conv-settings/set 逐键，目标 = 签发 id）
     await board.dispatchDraft();
-    const created = rpcCalls.find(c => c.method === 'singles/create')!.params as Record<string, unknown>;
-    const writes = rpcCalls.filter(c => c.method === 'conv-settings/set');
-    expect(writes.map(w => (w.params as Record<string, unknown>).conversationId))
-      .toEqual([created.id, created.id]); // 全部写真实 sid，无一笔写哨兵
-    const patches = writes.map(w => (w.params as Record<string, unknown>).patch as Record<string, unknown>);
-    expect(patches).toContainEqual({ approval: 'allow' });
-    expect(patches).toContainEqual({ toolMode: 'tc-programmatic' });
-    expect(board.pending.value).toBeNull(); // 草稿退役（暂存随之清）
-  });
-
-  it('cr-1084 搬运失败不阻断发送：键 warn 丢弃，会话照常物化', async () => {
-    const { board } = makeBoard();
-    board.startDraft();
-    board.setConvOverride('approval', 'allow');
-    const orig = (board as unknown as { own: { rpc: { call: (m: string, p: unknown) => Promise<unknown> } } }).own.rpc;
-    const realCall = orig.call.bind(orig);
-    orig.call = async (m: string, p: unknown) => {
-      if (m === 'conv-settings/set') throw new Error('rpc down');
-      return realCall(m, p);
-    };
-    await expect(board.dispatchDraft()).resolves.toMatchObject({ }); // 不抛——发送继续
+    // 物化不再搬运会话键——写发生在 ChatInput.flushConvSettings（表单脏值一次 patch）
+    expect(rpcCalls.filter(c => c.method === 'conv-settings/set')).toHaveLength(0);
     expect(board.pending.value).toBeNull(); // 草稿照常退役
   });
 
-  it('cr-1084 留存往返：convOverrides 随草稿留存（localStorage），回读兼容存量无此字段', () => {
+  it('cr-1093 草稿留存形状不含 convOverrides；存量草稿带该字段读侧忽略', () => {
     const { board } = makeBoard();
     board.startDraft();
-    board.setConvOverride('approval', 'deny');
-    expect(loadPending()).toMatchObject({ convOverrides: { approval: 'deny' } }); // 留存形状
-    // 存量草稿（无 convOverrides/形状损坏）回读 = 无暂存面，不炸
-    storage.setItem('agentchat.pendingSingle', JSON.stringify({ agentId: 'beta' }));
-    expect(loadPending()?.convOverrides).toBeUndefined();
-    storage.setItem('agentchat.pendingSingle', JSON.stringify({ agentId: 'beta', convOverrides: { approval: 42 } }));
-    expect(loadPending()?.convOverrides).toBeUndefined(); // 非法值整体弃用
+    expect(loadPending()).not.toHaveProperty('convOverrides');
+    // 存量草稿（早期版本留存了暂存面）回读 = 忽略该字段，不炸
+    storage.setItem('agentchat.pendingSingle', JSON.stringify({ agentId: 'beta', convOverrides: { approval: 'deny' } }));
+    expect(loadPending()).not.toHaveProperty('convOverrides');
   });
 
   it('失败留存同 id 重试（幂等锚）：create 失败 → pendingId 不动 → 再发同 id', async () => {
@@ -259,16 +227,16 @@ describe('单例草稿态（cr-894）', () => {
   });
 
   it('cr-1060 草稿派发判据对拍：ChatInput 发送面只认哨兵位（props.single.id === 哨兵），不认全局草稿态——切离草稿位后发送不得派发新会话', async () => {
-    // 判据在 ChatInput.vue 发送面（send/sendNow）；此处静态对拍（与 cr-1058
-    // 同款手法）：断言两处判据都带哨兵 id 比较——只看 isPending() 的旧判据
-    // （props.single && isPending()）会在「草稿留存 + 切去其他会话」时把
-    // 别的会话的发送误派发成新会话。
+    // 判据在 ChatInput.vue 发送面（send/sendNow 共用的 prepareSend）；此处静态
+    // 对拍（与 cr-1058 同款手法）：断言判据带哨兵 id 比较——只看 isPending()
+    // 的旧判据（props.single && isPending()）会在「草稿留存 + 切去其他会话」时
+    // 把别的会话的发送误派发成新会话。
     const { readFileSync } = await import('node:fs');
     const { fileURLToPath } = await import('node:url');
     const src = readFileSync(fileURLToPath(new URL('../../ac-client-ui-conversation/client/ChatInput.vue', import.meta.url)), 'utf8');
-    // cr-1084：第三处 = onDraft 草稿位判定（conv-settings 写口分流，与发送
-    // 判据同谓词——只在哨兵位上分流，切离草稿位后别处的会话键写走真键）
-    expect((src.match(/props\.single\?\.id === PENDING_SINGLE_ID && singlesBoard\?\.isPending\(\)/g) ?? []).length).toBe(3);
+    // 两处（cr-1093 起）：prepareSend 的发送判据（send/sendNow 共用一处）
+    // + onDraft 草稿位判定（草稿位跳过服务端回读用）
+    expect((src.match(/props\.single\?\.id === PENDING_SINGLE_ID && singlesBoard\?\.isPending\(\)/g) ?? []).length).toBe(2);
     expect(src).not.toContain('props.single && singlesBoard?.isPending()');
   });
 
