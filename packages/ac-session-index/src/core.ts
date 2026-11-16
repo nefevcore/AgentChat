@@ -336,12 +336,27 @@ export class SessionIndex {
     return this.stmt('SELECT conv, SUM(size) AS size, MAX(mtimeMs) AS mtimeMs FROM files GROUP BY conv').all() as Array<{ conv: string; size: number; mtimeMs: number }>;
   }
 
-  /** 会话元数据聚合（cr-1138）：先 refreshConversation（惰性对账——聚合
-   *  新鲜度跟对账协议走），再 records 表 SQL 统计。会话源目录不存在 =
-   *  null；存在但零行 = 全零 meta（空会话是合法态）。 */
-  sessionMeta(dataRoot: string, convId: string): SessionMeta | null {
+  /**
+   * 会话元数据聚合（cr-1138）：先 refreshConversation（惰性对账——聚合
+   * 新鲜度跟对账协议走），再 records 表 SQL 统计。会话源目录不存在 =
+   *  null；存在但零行 = 全零 meta（空会话是合法态）。
+   *
+   * cr-1142：`refresh: false` = **只读聚合**（不建索引行）。给高频聚合面
+   *（runs/snapshot 60s 轮询 + 事件驱动，每拍对多个会话取元数据）用——
+   * refresh 会给未入账会话读全文件 + 写 records，冷启动（索引库重建/迁移）
+   * 时被高频面隐式触发即等价于全量预热，与 cr-1138「full 才是显式预热、
+   * 首次代价高」的裁决相悖。只读模式对未入账会话返回 null（调用方回落
+   * 既有读面），索引仍由显式读面（session/meta RPC、historyView）按需建立。
+   */
+  sessionMeta(dataRoot: string, convId: string, opts: { refresh?: boolean } = {}): SessionMeta | null {
     if (sessionDirs(dataRoot, convId).length === 0) return null;
-    this.refreshConversation(dataRoot, convId);
+    if (opts.refresh === false) {
+      // 未入账（records 无行）= 索引尚未建立 → null（区别于「空会话」的全零 meta）
+      const known = this.stmt('SELECT 1 AS hit FROM records WHERE conv = ? LIMIT 1').get(convId);
+      if (known === undefined) return null;
+    } else {
+      this.refreshConversation(dataRoot, convId);
+    }
     // 时标单源 = ts_num（v1 ISO timestamp / v2 数字 ts 归一——见 indexLine）；
     // ISO 输出用 strftime 还原（消费面可 Date.parse 直取）。
     const SPEECH = "role IN ('user', 'agent')";

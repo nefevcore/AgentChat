@@ -1036,18 +1036,34 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
         try {
           const rows = projectUserReplay(deps.dataRoot, c.cid);
           const last = rows.at(-1);
+          // cr-1142 roster 预览权威化：last 身份/时标改发言口径（sessionMeta
+          // SQL 单源）——replay 末行常是 run-end/step 等事件行（无 role，
+          // 真实数据实证），把它当「最后谁说了话」会漂移。索引在场即以
+          // sessionMeta 为准（发言末行）；缺席 = 旧形态回落（任意末行）。
+          // 正文与计数仍取 replay（SQL 不载正文——盘读照旧 memo 化）。
+          const meta = index !== undefined ? index.sessionMeta(c.cid, { refresh: false }) : null;
           e = {
             size: c.size,
             mtimeMs: c.mtimeMs,
             messageCount: rows.length,
             ...(last !== undefined
               ? {
-                last: {
-                  role: last.role === 'user' ? 'user' : 'assistant',
-                  text: last.content.slice(0, 120),
-                  ts: last.timestamp,
-                  ...(last.role !== 'user' ? { agent_id: last.agentId } : {}),
-                },
+                last: meta !== null && meta.lastRole !== null
+                  ? {
+                    // 入站用户行的账本原形 = role:'agent' + agent_id:'user'（投影层
+                    // 才归一 'user'）——viewer 归一与旧形态同判：lastAgent 为
+                    // viewer 端点即用户侧发言。
+                    role: meta.lastAgent === 'user' ? 'user' : 'assistant',
+                    text: last.content.slice(0, 120),
+                    ts: meta.lastSpeechAt ?? last.timestamp,
+                    ...(meta.lastAgent !== null && meta.lastAgent !== 'user' ? { agent_id: meta.lastAgent } : {}),
+                  }
+                  : {
+                    role: last.role === 'user' ? 'user' : 'assistant',
+                    text: last.content.slice(0, 120),
+                    ts: last.timestamp,
+                    ...(last.role !== 'user' ? { agent_id: last.agentId } : {}),
+                  },
               }
               : {}),
           };
@@ -1182,4 +1198,8 @@ interface SessionIndexStatsFace {
   catalog(): Array<{ conv: string; size: number; mtimeMs: number }>;
   /** 会话索引行全清（目录已消失） */
   drop(convId: string): void;
+  /** 会话元数据聚合（cr-1142 roster 预览权威化——发言口径末行身份/时标）。
+   *  只读模式：本面是高频聚合（60s 轮询 + 事件驱动），绝不隐式建索引
+   *  （cr-1138 裁决：全量预热是显式动作）——未入账会话返回 null 走回落。 */
+  sessionMeta(convId: string, opts: { refresh?: boolean }): { lastRole: string | null; lastAgent: string | null; lastSpeechAt: string | null; speech: number } | null;
 }

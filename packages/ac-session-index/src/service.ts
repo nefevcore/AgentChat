@@ -60,9 +60,11 @@ export class SessionIndexService extends Service {
     this.index.drop(convId);
   }
 
-  /** 会话元数据聚合（cr-1138）：records 表 SQL 统计，零盘读 */
-  sessionMeta(convId: string): SessionMeta | null {
-    return this.index.sessionMeta(this.dataRoot, convId);
+  /** 会话元数据聚合（cr-1138）：records 表 SQL 统计，零盘读。
+   *  opts.refresh=false = 只读聚合（cr-1142：高频面用——不建索引，未入账
+   *  会话返回 null；索引仍由 RPC/historyView 等显式读面按需建立） */
+  sessionMeta(convId: string, opts: { refresh?: boolean } = {}): SessionMeta | null {
+    return this.index.sessionMeta(this.dataRoot, convId, opts);
   }
 
   /** 日聚合（cr-1138）：单会话权威（带 refresh）/ 全局已索引子集

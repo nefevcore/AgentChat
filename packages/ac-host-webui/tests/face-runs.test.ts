@@ -369,6 +369,91 @@ describe('runs/snapshot（宿主聚合 + digest 短路）', () => {
   });
 });
 
+describe('runs/snapshot roster 预览权威化（cr-1142）', () => {
+  it('索引未入账：只读聚合返回 null → 回落 replay 末行，且高频面不隐式建索引', async () => {
+    const root = tmpRoot('roster-auth-cold');
+    // 账本形态：发言行之后还有 v2 事件行（run-end 晚于终稿——真实数据常态）
+    writeSession(root, 'a1', 'c1', [
+      { role: 'agent', agent_id: 'user', content: '问', message_id: 'm1', timestamp: '2026-11-16T00:00:00Z' },
+      { role: 'agent', agent_id: 'a1', content: '答', message_id: 'm2', run: 'r1', timestamp: '2026-11-16T00:00:01Z' },
+      { type: 'run-end', run: 'r1', finish: 'completed', ts: 1794800000000 },
+    ]);
+    // 假 sessionIndex：走真 SessionIndex（SQLite 真账面——不 mock SQL 语义）；
+    // sessionMeta 转发 opts（只读模式语义是被测面的一部分，不能被包装吞掉）。
+    const { SessionIndex } = await import('ac-session-index/src/core.ts');
+    const real = new SessionIndex(path.join(root, 'index', 'session-index.db'));
+    const idxCtx = { get: (key: string) => (key === 'sessionIndex' ? {
+      // 忠实代理：refreshStats 只入 stat 面（不建 records 行）——把它写成
+      // refreshConversation 会让「高频面不隐式建索引」的断言失去意义。
+      refreshStats: (cid: string) => real.refreshStats(root, cid),
+      catalog: () => real.catalog(),
+      drop: (cid: string) => real.drop(cid),
+      sessionMeta: (cid: string, opts: { refresh?: boolean }) => real.sessionMeta(root, cid, opts),
+    } : undefined) } as unknown as Context;
+    try {
+      const withIdx = collect();
+      registerOpsFace(withIdx.web, idxCtx, { dataRoot: root });
+      const snap = await withIdx.handlers.get('runs/snapshot')!({}) as Record<string, unknown>;
+      const c1 = (snap.conversations as Array<Record<string, unknown>>).find((c) => c.conversationId === 'c1')!;
+      // 回落 replay 末行（旧形态）——run-end 事件行不进 replay 投影，末行仍是终稿
+      expect(c1.last).toMatchObject({ role: 'assistant', agent_id: 'a1', text: '答' });
+      expect(c1.messageCount).toBe(2);
+      // 硬约束：高频聚合面绝不可触发索引建立（cr-1138：全量预热是显式动作）。
+      // 探针 = 只读 sessionMeta 仍返回 null（records 表无行）；files 表 stat 面
+      // 由 refreshStats 正常入账，不作建索引证据。
+      expect(real.sessionMeta(root, 'c1', { refresh: false })).toBeNull();
+    } finally {
+      real.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('索引已入账：last 身份/时标走发言口径（run-end 不占位 + viewer 归一）', async () => {
+    const root = tmpRoot('roster-auth-warm');
+    // 账本形态：发言行之后还有 v2 事件行（run-end 晚于终稿——真实数据常态）
+    writeSession(root, 'a1', 'c1', [
+      { role: 'agent', agent_id: 'user', content: '问', message_id: 'm1', timestamp: '2026-11-16T00:00:00Z' },
+      { role: 'agent', agent_id: 'a1', content: '答', message_id: 'm2', run: 'r1', timestamp: '2026-11-16T00:00:01Z' },
+      { type: 'run-end', run: 'r1', finish: 'completed', ts: 1794800000000 },
+    ]);
+    // 用户末发言形态：入站行账本原形 = role:'agent' + agent_id:'user'（归一在投影层）
+    writeSession(root, 'a2', 'c2', [
+      { role: 'agent', agent_id: 'a2', content: '早', message_id: 'n1', timestamp: '2026-11-16T01:00:00Z' },
+      { role: 'agent', agent_id: 'user', content: '收到', message_id: 'n2', timestamp: '2026-11-16T01:00:05Z' },
+    ]);
+    const { SessionIndex } = await import('ac-session-index/src/core.ts');
+    const real = new SessionIndex(path.join(root, 'index', 'session-index.db'));
+    const idxCtx = { get: (key: string) => (key === 'sessionIndex' ? {
+      refreshStats: (cid: string) => real.refreshStats(root, cid),
+      catalog: () => real.catalog(),
+      drop: (cid: string) => real.drop(cid),
+      sessionMeta: (cid: string, opts: { refresh?: boolean }) => real.sessionMeta(root, cid, opts),
+    } : undefined) } as unknown as Context;
+    try {
+      // 显式读面建索引（模拟 session/meta RPC / historyView 访问——预热归它们）
+      real.sessionMeta(root, 'c1');
+      real.sessionMeta(root, 'c2');
+      expect(real.catalog().length).toBe(2);
+
+      const warm = collect();
+      registerOpsFace(warm.web, idxCtx, { dataRoot: root });
+      const snap = await warm.handlers.get('runs/snapshot')!({}) as Record<string, unknown>;
+      const c1 = (snap.conversations as Array<Record<string, unknown>>).find((c) => c.conversationId === 'c1')!;
+      // 发言口径：末发言 = a1 的 '答'，时标取 SQL 归一形（.000Z）
+      expect(c1.last).toMatchObject({ role: 'assistant', agent_id: 'a1', text: '答', ts: '2026-11-16T00:00:01.000Z' });
+      // messageCount 仍是 replay 投影口径（正文面不换源——SQL 不载正文）
+      expect(c1.messageCount).toBe(2);
+      // viewer 归一：lastAgent === 'user' → role 'user'、无 agent_id
+      const c2 = (snap.conversations as Array<Record<string, unknown>>).find((c) => c.conversationId === 'c2')!;
+      expect(c2.last).toMatchObject({ role: 'user', text: '收到', ts: '2026-11-16T01:00:05.000Z' });
+      expect((c2.last as { agent_id?: string }).agent_id).toBeUndefined();
+    } finally {
+      real.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('runs/snapshot single-flight（cr-980 #1）', () => {
   it('并发调用共享同一趟（慢活跃集探测只发生一次），digest 各自对账', async () => {
     const root = tmpRoot('flight');
