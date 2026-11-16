@@ -1,6 +1,6 @@
 {
- "scannedHead": "8603e79db08246ae4a81a86d491cf9ff71839a10",
- "generatedAt": "2026-11-16T13:05:57.675Z",
+ "scannedHead": "9a0a6d8e226d5e2f2547275538ab845eb4f93ea8",
+ "generatedAt": "2026-11-16T13:09:05.812Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5112,6 +5112,11 @@
     "sha": "8603e79db08246ae4a81a86d491cf9ff71839a10",
     "date": "2026-11-16",
     "subject": "chore(cr): 投影重建(cr-1120 提交后 sync)"
+   },
+   {
+    "sha": "9a0a6d8e226d5e2f2547275538ab845eb4f93ea8",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 投影收尾(cr-1120 末笔提交入索引)"
    }
   ],
   "1121": [
