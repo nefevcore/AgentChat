@@ -255,8 +255,10 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
       registerShellFace(web, ctx, { dataRoot: rootDir, port: () => port });
       const history = await handlers.get('subagents/history')!({ id: 'kid1' }) as { records: Array<{ role: string; content: string }>; total: number };
       expect(history.total).toBe(2);
+      // cr-1132 起 fold 单源：子会话无 user 域——父行同为 assistant + agent_id
+      //（下游 toHistoryMessages/buildTurns 按 agent_id 分组，渲染不变）
       expect(history.records).toEqual([
-        { role: 'user', agent_id: 'parent1', content: '干活' },
+        { role: 'assistant', agent_id: 'parent1', content: '干活' },
         { role: 'assistant', agent_id: 'kid1', content: '收到' },
       ]);
       await handlers.get('subagents/stop')!({ id: 'kid1' });
@@ -378,11 +380,12 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     writeAgentPatchV3At(rootDir + '/agents/parent1/children/kid1', [], {}); // cr-1036 批3：v3
     fs.writeFileSync(sessDir + '/messages.jsonl', [
       JSON.stringify({ type: 'session-header', version: 1, participants: ['kid1', 'parent1'] }),
-      JSON.stringify({ role: 'agent', agent_id: 'parent1', content: '干活' }),
+      JSON.stringify({ role: 'agent', agent_id: 'parent1', content: '干活', message_id: 't1', timestamp: '2026-02-08T10:00:00Z' }),
     ].join('\n') + '\n', 'utf-8');
     fs.writeFileSync(sessDir + '/journal/partials.jsonl', [
-      JSON.stringify({ type: 'journal-step', run: 'run-9', step: 1, content: '先查证路径', ts: 1 }),
-      JSON.stringify({ type: 'journal-step', run: 'run-9', step: 2, content: '再读源码', ts: 2 }),
+      // ts 用真实 epoch（cr-1132 时间全序后 fake epoch 会漂移位次）
+      JSON.stringify({ type: 'journal-step', run: 'run-9', step: 1, content: '先查证路径', ts: Date.parse('2026-02-08T10:00:01Z') }),
+      JSON.stringify({ type: 'journal-step', run: 'run-9', step: 2, content: '再读源码', ts: Date.parse('2026-02-08T10:00:02Z') }),
     ].join('\n') + '\n', 'utf-8');
     try {
       const { web, handlers } = collect();
@@ -392,7 +395,7 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
         records: Array<{ role: string; content: string; run?: string; partial?: boolean; steps?: Array<{ content: string }> }>;
       };
       expect(out.total).toBe(2); // 任务行 + 在途 run 投影行
-      expect(out.records[0]).toMatchObject({ role: 'user', content: '干活' });
+      expect(out.records[0]).toMatchObject({ role: 'assistant', agent_id: 'parent1', content: '干活' }); // cr-1132：子会话无 user 域
       const inFlight = out.records[1]!;
       expect(inFlight).toMatchObject({ role: 'assistant', run: 'run-9', content: '', partial: true });
       expect(inFlight.steps?.map((s) => s.content)).toEqual(['先查证路径', '再读源码']);

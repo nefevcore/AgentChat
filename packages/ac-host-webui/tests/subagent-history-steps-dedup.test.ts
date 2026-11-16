@@ -50,7 +50,8 @@ describe('subagents/history steps 按 run 单锚（step 重复回归）', () => 
       expect(inj).toMatchObject({ content: '注入' });
       // 终稿行仍在（无 steps 重复挂载）
       expect(out.records.find((r) => r.content === '终稿')).toMatchObject({ role: 'assistant', run: 'run-1' });
-      expect(out.total).toBe(4); // 任务行 + steps 行 + 注入卡 + 终稿行
+      // cr-1132 起 fold 单源（主投影语义）：steps 并入终稿行（一非二）
+      expect(out.total).toBe(3); // 任务行 + 注入卡 + 终稿行(带 steps)
     } finally {
       fs.rmSync(rootDir, { recursive: true, force: true });
     }

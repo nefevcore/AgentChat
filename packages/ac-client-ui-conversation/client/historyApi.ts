@@ -53,6 +53,8 @@ export interface PSessionRecord {
   /** 注入结构化载荷（cr-765 #4 问答卡：context 注入行专用——Q/A 数据面；
    *  旧行缺席 → UI 回落纯文本正文） */
   payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' };
+  /** 挂靠锚（cr-1132：投影层派生——时间线上最近 agent 发言行 message_id） */
+  anchor?: string;
 }
 
 interface PSessionStep {
@@ -266,6 +268,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       ...(hasDataPlane ? { contextContent: r.content } : {}),
       ...(hasDataPlane && r.payload !== undefined ? { payload: r.payload } : {}),
       ...(typeof r.bytes === 'number' ? { injectBytes: r.bytes } : {}),
+      ...(r.anchor !== undefined ? { anchor: r.anchor } : {}),
       // cr-1112:kind 开放 string 后 as never 宽化退役——存储 source 决策词原样透传
       ...(r.source !== undefined ? { source: { summary: r.label ?? '', ...(typeof r.source === 'string' ? { kind: r.source } : {}) } } : {}),
     });

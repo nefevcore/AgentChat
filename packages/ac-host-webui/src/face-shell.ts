@@ -20,7 +20,7 @@ import { pairKey } from 'ac-core-utils';
 import { goalSnapshotOf } from 'ac-goal';
 import { todoListOf } from 'ac-todo';
 import { ReadOnlyJsonlDurableInteractionStore } from 'ac-durable-interaction';
-import { readJournal, readLedger, readSubcalls, stepsOfRun, stepsOfLedger } from 'ac-ledger';
+import { foldSession, foldViewRecords, readSubcalls } from 'ac-ledger';
 import type { Context } from '@agentchat/cordis';
 
 interface WebFace {
@@ -403,93 +403,23 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
     const latest = convs
       .map((c) => ({ c, m: (() => { try { return fs.statSync(path.join(root, 'sessions', c)).mtimeMs; } catch { return 0; } })() }))
       .sort((a, b) => b.m - a.m)[0]?.c;
-    // 子壳账本是 agent 域文件（不是 user 投影账本）——直接读 messages.jsonl；
-    // 行形状对齐 session/history（role/agent_id/content/timestamp/run + steps）。
-    // 在途 run 的内容只住 journal/partials.jsonl（收束才物化进账本，cr-697）——
-    // cr-725 起按 run 键投影 journal 步行（steps + partial），运行中点开子会话
-    // 不再只见到任务行。口径与 web-api session/history 的活投影同构。
-    const all: Array<Record<string, unknown>> = [];
+    // 子壳账本是 agent 域文件（不是 user 投影账本）。cr-1132 起切 fold 单源
+    //（foldSession + foldViewRecords——与主投影 session/history 完全同源）：
+    // 判据复制（inject 行 / context 直落 / steps 单锚 / 盲区配平）清零，时间
+    // 全序 + anchor 派生随主投影自动获得。子会话目录无 viewer 域，viewer 归
+    // 一不适用。行形状对齐 session/history（role/agent_id/content/timestamp/
+    // run + steps + anchor）。
+    let all: Array<Record<string, unknown>> = [];
     if (convs.length > 0) {
       const dir = path.join(root, 'sessions', latest);
-      const rows = readLedger(dir).rows;
-      const lines = readJournal(dir);
-      const subcalls = readSubcalls(dir);
-      const linkedRuns = new Set<string>();
-      // steps 按 run 单锚挂载（重复 step 修复）：stepsOfLedger/stepsOfRun 返回
-      // **整 run 全量** steps，而收束 run 在账本是多行形态（段行×N + 注入行
-      // + 终稿行——settlement 物化产物）——逐行挂载会把全量步行重复投 N 遍
-      //（前端 = 每个 step 渲染 N 次）。改为：段行折叠、首段位置作锚挂一次；
-      // 注入行投 context 注入卡（对齐主投影 assembleSessionView 的
-      // injectRowsOf 语义——注入正文进卡片而非 assistant 气泡）；终稿行仅
-      // 在 run 尚无锚时挂载（纯终稿 run 无段行，保持原路径）。settleOrphan
-      // 物化的无终稿 run 由首段行作锚，不再依赖下方盲区循环。
-      const steppedRuns = new Set<string>();
-      for (const r of rows) {
-        if (r.run !== undefined && r.run !== '') linkedRuns.add(r.run);
-        if (r.source === 'segment') {
-          if (steppedRuns.has(String(r.run ?? ''))) continue;
-          const p = stepsOfLedger(rows, r.run ?? '', subcalls) ?? stepsOfRun(lines, r.run ?? '');
-          if (p === null) continue;
-          steppedRuns.add(r.run ?? '');
-          all.push({ role: 'assistant', agent_id: id, content: '', run: r.run, steps: p.steps, ...(p.partial ? { partial: true } : {}) });
-          continue;
-        }
-        if (r.source === 'inject') {
-          all.push({
-            role: 'context',
-            content: r.content,
-            source: typeof r.injectSource === 'string' && r.injectSource !== '' ? r.injectSource : 'inject',
-            ...(r.label !== undefined ? { label: r.label } : {}),
-            ...(r.payload !== undefined ? { payload: r.payload } : {}),
-            bytes: r.content.length, // cr-1110:bytes 派生——与主投影 foldViewRecords 对齐
-            message_id: r.message_id,
-            timestamp: r.timestamp,
-            ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}),
-          });
-          continue;
-        }
-        // cr-959：context 直落行（memory/skill 等——source 非 event/error 机制词）
-        // 与主投影 assembleSessionView 同判据投注入卡（此前只认 inject 行——
-        // memory-snapshot/delta 直落行在子会话视图整类缺席）。
-        if (r.role === 'context' && r.source !== undefined && r.source !== 'event' && r.source !== 'error') {
-          all.push({
-            role: 'context',
-            content: r.content,
-            source: r.source,
-            label: r.label ?? r.source, // label 缺席回落 source 词
-            ...(r.payload !== undefined ? { payload: r.payload } : {}),
-            bytes: r.content.length, // cr-1110:bytes 派生——与主投影对齐
-            message_id: r.message_id,
-            timestamp: r.timestamp,
-            ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}),
-          });
-          continue;
-        }
-        const projected = steppedRuns.has(String(r.run ?? '')) ? null
-          : r.role === 'agent' && r.agent_id === id && r.run !== undefined && r.run !== ''
-            ? stepsOfLedger(rows, r.run, subcalls) ?? stepsOfRun(lines, r.run)
-            : null;
-        if (projected !== null) steppedRuns.add(r.run ?? '');
-        all.push({
-          role: r.agent_id === id ? 'assistant' : 'user',
-          ...(r.agent_id !== '' ? { agent_id: r.agent_id } : {}),
-          content: r.content,
-          timestamp: r.timestamp,
-          ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}),
-          ...(projected !== null ? { steps: projected.steps, ...(projected.partial ? { partial: true } : {}) } : {}),
-        });
-      }
-      // journal 步行盲区（在途 run / 收束即清前的存量）：账本无对应行的一律投出
-      const candidates = new Set<string>();
-      for (const l of lines) {
-        if (l.run !== '' && (l.type === 'journal-step' || l.type === 'journal-inject')) candidates.add(l.run);
-      }
-      for (const run of candidates) {
-        if (linkedRuns.has(run)) continue;
-        const p = stepsOfLedger(rows, run, subcalls) ?? stepsOfRun(lines, run);
-        if (p === null) continue;
-        all.push({ role: 'assistant', agent_id: id, content: '', run, steps: p.steps, ...(p.partial ? { partial: true } : {}) });
-      }
+      // subcall 档案直读子会话目录（fold 回落键 sessionDir 按 agents/<id>/
+      // sessions 解析——children 嵌套域路径不适用，钩子短路之）
+      let subcallCache: ReturnType<typeof readSubcalls> | undefined;
+      const subcallsOf = (): ReturnType<typeof readSubcalls> => {
+        if (subcallCache === undefined) subcallCache = readSubcalls(dir);
+        return subcallCache;
+      };
+      all = foldViewRecords(foldSession(deps.dataRoot, latest, [dir]), deps.dataRoot, latest, { subcallsOf }) as unknown as Array<Record<string, unknown>>;
     }
     const limit = typeof p.limit === 'number' && p.limit > 0 ? Math.floor(p.limit) : undefined;
     const offset = typeof p.offset === 'number' && p.offset >= 0 ? Math.floor(p.offset) : 0;

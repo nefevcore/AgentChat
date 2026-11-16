@@ -65,6 +65,9 @@ export interface UserReplayRow {
   role: 'user' | 'peer';
   agentId: string;
   content: string;
+  /** 行锚（cr-1132：peer 行透出——主投影 message_id / 注入卡 anchor 目标；
+   *  归一化层保证恒 string，空串 = 无锚） */
+  messageId?: string;
   run?: string;
   /** run 墙钟耗时（毫秒，cr-772——终稿行 runMs 透传；历史链栏耗时锚） */
   runMs?: number;

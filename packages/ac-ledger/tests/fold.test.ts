@@ -127,7 +127,7 @@ describe('fold 单源（cr-974 §2.5 性质化）', () => {
       { type: 'step/tool-call', run: 'run-1', step: 0, stepId: 'run-1:0', toolCallId: 'tc1', name: 'run_code', arguments: '{}', ts: 3, seq: 4 },
       { type: 'step/tool-call-result', run: 'run-1', toolCallId: 'tc1', result: { ok: true }, ts: 4, seq: 5 },
       { type: 'step/tool-call-result', run: 'run-1', toolCallId: 'tc1#2', result: { ok: true, output: 'sub' }, subcall: true, name: 'read', arguments: '{}', ts: 4, seq: 5 },
-      { type: 'inject', run: 'run-1', content: '插一句', requestId: 'steer-1', injectionId: 'inj-1', ts: 5, seq: 6 },
+      { type: 'inject', run: 'run-1', content: '插一句', requestId: 'steer-1', injectionId: 'inj-1', ts: Date.parse('2026-11-09T10:00:11.000Z'), seq: 6 }, // cr-1132:ts 换真实 epoch——投影时间全序后 fake epoch 会漂移位次
       { type: 'step/content', run: 'run-1', step: 1, stepId: 'run-1:1', text: '答一', ts: 6, seq: 7 },
       { type: 'message', role: 'agent', agent_id: AGENT, content: '答一', message_id: 'a1', requestId: 'a1', run: 'run-1', runMs: 1500, timestamp: '2026-11-09T10:00:30.000Z', seq: 8 },
       { type: 'run-end', run: 'run-1', finish: 'completed', ts: 7, seq: 9 },
@@ -309,6 +309,171 @@ describe('渲染契约切片 A（cr-1109）', () => {
     // 注入卡归口行(run 键归口)
     const card = view.find((r) => r.role === 'context' && r.content === '插一句');
     expect(card?.bytes).toBe('插一句'.length);
+  });
+});
+
+describe('run 归口注入卡残留回落（cr-1134——run 有 end 无终稿行时卡不得缺席）', () => {
+  it('带 run 键的 context 行:run 无终稿行时按直落卡投出（不再永久缺席）', () => {
+    const conv = 'conv-orphan-inj';
+    const dir = sessionDir(ROOT, AGENT, conv);
+    fs.mkdirSync(path.join(dir, 'journal'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '问', agent_id: 'user', requestId: 'q', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+      // 带 run 键的 memory-delta 注入行；该 run 只有 settled（无终稿行）
+      { role: 'context', source: 'memory-delta', content: '（记忆时间线 delta）', label: '记忆注入', agent_id: AGENT, run: 'run-dead', message_id: 'ctx-dead', timestamp: '2026-11-09T10:00:05.000Z', seq: 2 },
+      { role: 'agent', content: '答', agent_id: AGENT, requestId: 'a', run: 'run-ok', message_id: 'a', timestamp: '2026-11-09T10:00:10.000Z', seq: 3 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, 'journal', 'partials.jsonl'), [
+      { type: 'journal-settled', run: 'run-dead', finish: 'ok', seq: 4 },
+      { type: 'journal-settled', run: 'run-ok', finish: 'ok', seq: 5 },
+    ].map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
+    const view = foldViewRecords(foldSession(ROOT, conv), ROOT, conv);
+    // 注入卡在场（回落直落卡），归属与数据面完整
+    const card = view.find((r) => r.message_id === 'ctx-dead');
+    expect(card).toBeDefined();
+    expect(card).toMatchObject({ role: 'context', source: 'memory-delta', label: '记忆注入', agent_id: AGENT });
+    expect(card?.bytes).toBe('（记忆时间线 delta）'.length);
+  });
+});
+
+describe('viewer 镜像域读面归一（cr-1133——agent 发言不得投为 user 轮）', () => {
+  /** viewer 镜像域夹具：agents/user 域镜像 journal（migrated 伪 run + 空终稿行）+ agent 域正主 */
+  function seedMirror(conv: string, opts: { migratedJournal?: boolean; emptyFinal?: boolean }): void {
+    // agent 域：正主 run 终稿
+    const agentDir = sessionDir(ROOT, AGENT, conv);
+    fs.mkdirSync(path.join(agentDir, 'journal'), { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '问', agent_id: 'user', requestId: 'q', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+      { role: 'agent', content: '答', agent_id: AGENT, requestId: 'a', run: 'run-real', message_id: 'a', timestamp: '2026-11-09T10:00:10.000Z', seq: 2 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    // viewer 镜像域（agents/user）：镜像 speech + journal 伪 run
+    const mirrorDir = sessionDir(ROOT, 'user', conv);
+    fs.mkdirSync(path.join(mirrorDir, 'journal'), { recursive: true });
+    const mirrorRows: Array<Record<string, unknown>> = [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '问', agent_id: 'user', message_id: 'mq', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+      { role: 'agent', content: '答', agent_id: AGENT, run: 'run-real', message_id: 'ma', timestamp: '2026-11-09T10:00:10.000Z', seq: 2 },
+    ];
+    if (opts.emptyFinal === true) {
+      // 空终稿行（content=''）：run 键在但终稿层滤——曾致 viewerRuns 漏锚
+      mirrorRows.push({ role: 'agent', content: '', agent_id: AGENT, run: 'run-empty-final', message_id: 'mef', timestamp: '2026-11-09T10:01:00.000Z', seq: 3 });
+    }
+    fs.writeFileSync(path.join(mirrorDir, 'messages.jsonl'), mirrorRows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    if (opts.migratedJournal === true) {
+      // 迁移伪 run：journal-step 无对应终稿行（曾以 domain='user' 盲区重投）
+      fs.writeFileSync(path.join(mirrorDir, 'journal', 'partials.jsonl'), [
+        { type: 'journal-step', run: 'migrated-msg-x', step: 1, content: '迁移的 agent 发言' },
+        { type: 'journal-settled', run: 'migrated-msg-x', finish: 'ok' },
+        ...(opts.emptyFinal === true ? [
+          { type: 'journal-step', run: 'run-empty-final', step: 1, content: '空终稿 run 的步' },
+          { type: 'journal-settled', run: 'run-empty-final', finish: 'ok' },
+        ] : []),
+      ].map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
+    }
+  }
+
+  it('migrated 伪 run 不盲区重投:viewer 镜像域 journal 无账本锚的 run 不产出', () => {
+    seedMirror(AGENT + '~user', { migratedJournal: true });
+    const view = foldViewRecords(foldSession(ROOT, AGENT + '~user'), ROOT, AGENT + '~user');
+    // 伪 run（无账本行锚 + viewer 端点域）不投任何行——正文已由真实消息行承载
+    expect(view.some((r) => r.run === 'migrated-msg-x')).toBe(false);
+    // 镜像 speech 行照常进终稿层（正文事实不丢；镜像行被 run/message 键去重——
+    // 真实镜像数据 requestId 双写，夹具裸 id 双投是伪差不算泄漏）
+    expect(view.some((r) => r.content === '答' && r.role === 'assistant' && r.agent_id === AGENT)).toBe(true);
+    expect(view.some((r) => r.role === 'assistant' && r.agent_id === 'user')).toBe(false); // 核心断言：无 user 域 assistant 行
+  });
+
+  it('空终稿行的 run:盲区重投时归属取账本行 agentId(不再误投为 user 轮)', () => {
+    seedMirror('beta~user', { migratedJournal: true, emptyFinal: true });
+    const view = foldViewRecords(foldSession(ROOT, 'beta~user'), ROOT, 'beta~user');
+    // run-empty-final 有账本行锚(空终稿 agent_id=AGENT)→ 盲区重投但归属=AGENT
+    const blind = view.find((r) => r.run === 'run-empty-final' && Array.isArray(r.steps));
+    expect(blind?.agent_id).toBe(AGENT); // 归属正源=账本行,非镜像域 domain
+    expect(view.some((r) => r.role === 'assistant' && r.agent_id === 'user')).toBe(false);
+  });
+
+  it('singles 会话（无 ~ 键）不受影响:viewer 判定缺席时盲区照常（真实 agent run）', () => {
+    const dir = sessionDir(ROOT, AGENT, 'singlesid');
+    fs.mkdirSync(path.join(dir, 'journal'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '任务', agent_id: 'user', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, 'journal', 'partials.jsonl'), [
+      { type: 'journal-step', run: 'run-live', step: 1, content: '在途步', ts: Date.parse('2026-11-09T10:00:05Z') },
+    ].map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
+    const view = foldViewRecords(foldSession(ROOT, 'singlesid'), ROOT, 'singlesid');
+    expect(view.some((r) => r.run === 'run-live' && r.agent_id === AGENT)).toBe(true);
+  });
+});
+
+describe('注入卡挂靠契约（cr-1132——ViewRow 时间全序 + 投影层锚定）', () => {
+  /** cr-1132 夹具：无 run 锚直落卡（viewer 域恒值归属）+ agent 发言行 */
+  function seedAnchored(conv: string, viewerDomain: boolean): void {
+    const domain = viewerDomain ? 'user' : AGENT;
+    const dir = sessionDir(ROOT, domain, conv);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '问', agent_id: 'user', requestId: 'q', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+      // 直落 context 行（无 run 锚——cr-1106 兜底/存量 memory-snapshot 形态）
+      { role: 'context', source: 'memory-snapshot', content: '记忆注入体', agent_id: 'user', message_id: 'ctx-1', timestamp: '2026-11-09T10:00:01.000Z', seq: 2 },
+      { role: 'agent', content: '答', agent_id: AGENT, requestId: 'a', run: 'run-x', message_id: 'a', timestamp: '2026-11-09T10:00:10.000Z', seq: 3 },
+      { role: 'agent', content: '问二', agent_id: 'user', requestId: 'q2', message_id: 'q2', timestamp: '2026-11-09T10:01:00.000Z', seq: 4 },
+      { role: 'agent', content: '答二', agent_id: AGENT, requestId: 'a2', run: 'run-y', message_id: 'a2', timestamp: '2026-11-09T10:01:10.000Z', seq: 5 },
+      // 尾部直落卡（其后无 agent 发言行——前向回落锚）
+      { role: 'context', source: 'memory-delta', content: '尾部记忆', agent_id: AGENT, message_id: 'ctx-2', timestamp: '2026-11-09T10:02:00.000Z', seq: 6 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+  }
+
+  it('时间全序:尾段行并入 slot 归并,投影输出按 ts 全序(分页窗口 = 时间窗)', () => {
+    seedAnchored('conv-anch-1', false);
+    const view = foldViewRecords(foldSession(ROOT, 'conv-anch-1'), ROOT, 'conv-anch-1');
+    // 直落卡按 ts 落位(不再堆尾):ctx-1 在问/答之间,ctx-2 在答二之后
+    const at = (mid: string) => view.findIndex((r) => r.message_id === mid);
+    expect(at('q')).toBeLessThan(at('ctx-1'));
+    expect(at('ctx-1')).toBeLessThan(at('a'));
+    expect(at('a2')).toBeLessThan(at('ctx-2'));
+    // 全序断言(无 ts 守尾行按哨兵参与)
+    const key = (r: { timestamp?: string }) => { const t = String(r.timestamp ?? ''); return t === '' ? '\uffff' : t; };
+    for (let i = 1; i < view.length; i++) expect(key(view[i - 1]!) <= key(view[i]!)).toBe(true);
+  });
+
+  it('anchor 派生:后续直落卡锚向最近后续 agent 发言行,尾部卡前向回落', () => {
+    seedAnchored('conv-anch-2', false);
+    const view = foldViewRecords(foldSession(ROOT, 'conv-anch-2'), ROOT, 'conv-anch-2');
+    const ctx1 = view.find((r) => r.message_id === 'ctx-1');
+    const ctx2 = view.find((r) => r.message_id === 'ctx-2');
+    expect(ctx1?.anchor).toBe('a'); // 最近后续 agent 发言行
+    expect(ctx2?.anchor).toBe('a2'); // 前向回落(其后无 agent 行)
+    // 发言行携带 message_id(锚目标可见)
+    expect(view.find((r) => r.content === '答' && r.role === 'assistant')?.message_id).toBe('a');
+  });
+
+  it('viewer 域恒值归属归一:v1 存量 user 归属行投出无归属(落盘不动)', () => {
+    seedAnchored('conv-anch-3', true);
+    // 落盘仍在(agent_id='user' 恒值——读侧归一不改盘)
+    const raw = fs.readFileSync(path.join(sessionDir(ROOT, 'user', 'conv-anch-3'), 'messages.jsonl'), 'utf-8');
+    expect(raw.includes('"memory-snapshot"')).toBe(true);
+    expect(raw.includes('"agent_id":"user"')).toBe(true);
+    const view = foldViewRecords(foldSession(ROOT, 'conv-anch-3'), ROOT, 'conv-anch-3');
+    const ctx = view.find((r) => r.message_id === 'ctx-1');
+    expect(ctx?.agent_id).toBeUndefined(); // 归一为无归属
+    expect(ctx?.anchor).toBe('a');
+  });
+
+  it('全会话无 agent 发言行 → 无锚(前端降级卡是正确语义)', () => {
+    const dir = sessionDir(ROOT, 'user', 'conv-anch-4');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '问', agent_id: 'user', requestId: 'q', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+      { role: 'context', source: 'memory-snapshot', content: '无锚记忆', agent_id: 'user', message_id: 'ctx-9', timestamp: '2026-11-09T10:00:01.000Z', seq: 2 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const view = foldViewRecords(foldSession(ROOT, 'conv-anch-4'), ROOT, 'conv-anch-4');
+    expect(view.find((r) => r.message_id === 'ctx-9')?.anchor).toBeUndefined();
   });
 });
 

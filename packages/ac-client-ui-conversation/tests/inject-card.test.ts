@@ -173,6 +173,55 @@ describe('真实管线回归：pairMessageToChatMessage 透传', () => {
   });
 });
 
+describe('锚挂靠（cr-1132——投影层锚定，启发式坍缩）', () => {
+  /** 历史路径消息（historyMsgToChatMessage 产物形态——persistedMsgId/anchor 在场） */
+  const histMsg = (o: Partial<import('ac-client-ui-conversation/client/types.ts').ChatMessage> & { id: string; role: string; timestamp: number }): any => ({
+    agent_id: 'a', ...o,
+  });
+
+  it('锚目标在窗口内（卡后）→ 挂目标轮头（afterStep=0）', () => {
+    const turns = buildTurns([
+      histMsg({ id: 'u1', role: 'user', content: '问', agent_id: VIEWER_ID.value, persistedMsgId: 'u1', timestamp: 1000 }),
+      { id: 'c1', role: 'event', content: '记忆注入', agent_id: 'system', timestamp: 1100, contextContent: '体', source: { kind: 'memory-snapshot' }, anchor: 'a1' } as never,
+      histMsg({ id: 'a1s0', role: 'agent', content: '', thinking: '想', agent_id: 'a', persistedMsgId: 'a1', timestamp: 2000, toolCalls: [] }),
+    ]);
+    expect(turns.filter((t) => t.agent_id === 'a').length).toBe(1);
+    const owner = turns.find((t) => t.agent_id === 'a')!;
+    expect(owner.injects?.length).toBe(1);
+    expect(owner.injects?.[0].afterStep).toBe(0);
+    expect(turns.find((t) => t.agent_id === 'system')).toBeUndefined(); // 不降级
+  });
+
+  it('前向回落锚（卡在目标后）→ 挂最近 agent 轮尾', () => {
+    const turns = buildTurns([
+      histMsg({ id: 'a1s0', role: 'agent', content: '答', agent_id: 'a', persistedMsgId: 'a1', timestamp: 1000, toolCalls: [] }),
+      { id: 'c1', role: 'event', content: '尾部记忆', agent_id: 'system', timestamp: 1100, contextContent: '体', source: { kind: 'memory-snapshot' }, anchor: 'a1' } as never,
+    ]);
+    const owner = turns.find((t) => t.agent_id === 'a')!;
+    expect(owner.injects?.length).toBe(1);
+    expect(owner.injects?.[0].afterStep).toBe(1); // 轮尾（1 步后）
+  });
+
+  it('锚目标被窗口边界切掉 → 剥锚走位置启发（挂窗口内下一 agent 轮头）', () => {
+    const turns = buildTurns([
+      { id: 'c1', role: 'event', content: '陈旧卡', agent_id: 'system', timestamp: 1100, contextContent: '体', source: { kind: 'memory-snapshot' }, anchor: 'gone' } as never,
+      histMsg({ id: 's1', role: 'agent', content: '', thinking: '想', agent_id: 'a', persistedMsgId: 'a9', timestamp: 2000, toolCalls: [] }),
+    ]);
+    const owner = turns.find((t) => t.agent_id === 'a')!;
+    expect(owner.injects?.length).toBe(1);
+    expect(owner.injects?.[0].afterStep).toBe(0);
+    expect(owner.injects?.[0].anchor).toBeUndefined(); // 剥锚
+  });
+
+  it('窗口内无任何 agent 轮 → 降级 system 空轮（正确语义）', () => {
+    const turns = buildTurns([
+      { id: 'c1', role: 'event', content: '无轮卡', agent_id: 'system', timestamp: 1100, contextContent: '体', source: { kind: 'memory-snapshot' }, anchor: 'gone' } as never,
+    ]);
+    const deg = turns.find((t) => t.agent_id === 'system' && (t.injects?.length ?? 0) > 0);
+    expect(deg).toBeDefined();
+  });
+});
+
 describe('渲染契约切片 A（cr-1109：注册声明优先）', () => {
   it('已注册专用卡的词 → 无数据面也卡片化(声明压倒启发式);未注册裸 event 维持分隔符', () => {
     const off = registerInjectCardView('ac-test:notice', { template: '<div/>' } as never);

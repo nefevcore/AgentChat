@@ -224,6 +224,7 @@ function toInjectCard(m: ChatMessage): InjectCard {
     ...(m.agent_id ? { agent_id: m.agent_id } : {}),
     ...(m.payload !== undefined ? { payload: m.payload } : {}),
     ...(m.injectBytes !== undefined ? { bytes: m.injectBytes } : {}),
+    ...(m.anchor !== undefined ? { anchor: m.anchor } : {}),
     ts: m.timestamp,
     key: `inj-${m.id}`,
   };
@@ -368,6 +369,31 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
   // 暂存注入卡（cur 为空 / viewer 轮在场时挂下一 agent 轮头部；
   // 收尾仍积压 = 无 agent 轮 → 由 useTurnDisplayItems 降级独立卡）
   const pendingInjects: InjectCard[] = [];
+  // cr-1132 锚挂靠（投影层锚定，启发式坍缩）：投影为无 run 锚直落卡派生了
+  // anchor（时间线上最近 agent 发言行 message_id，全会话视野——群聊/跨轮
+  // 交错下精确）。窗口内目标在场 → 精确挂（目标在卡后挂其轮头、在卡前挂
+  // 最近 agent 轮尾）；目标被分页边界切掉 → 剥锚走位置启发（挂窗口内下一
+  // agent 轮头）。降级 system 空轮仅服务「窗口内无任何 agent 轮」场景。
+  const anchorTargets = new Set<string>();
+  for (const m of msgs) {
+    if (m.role === 'agent' && m.agent_id !== undefined && m.agent_id !== VIEWER_ID.value && m.persistedMsgId) anchorTargets.add(m.persistedMsgId);
+  }
+  const seenAgentIds = new Set<string>();
+  const deferredAnchored: InjectCard[] = [];
+  const mountAnchoredTail = (card: InjectCard): void => {
+    if (cur && cur.agent_id !== VIEWER_ID.value && cur.turns.length) {
+      curInjects.push({ ...card, afterStep: cur.turns.length });
+      return;
+    }
+    for (let j = allTurns.length - 1; j >= 0; j--) {
+      const t = allTurns[j]!;
+      if (t.agent_id !== 'system' && t.agent_id !== VIEWER_ID.value && t.steps.length) {
+        t.injects = [...(t.injects ?? []), { ...card, afterStep: t.steps.length }];
+        return;
+      }
+    }
+    pendingInjects.push(card); // 窗口内无 agent 轮——收尾降级
+  };
 
   for (let k = 0; k < msgs.length; k++) {
     const msg = msgs[k];
@@ -379,12 +405,21 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
     // 落盘序；此前走 event 分隔符通道会把同一 run 拆成两个「思考过程」
     // 轮——折叠态割裂的根因）。cur 为空 / viewer 轮 → 暂存挂下一轮头部。
     if (isEventMsg && isInjectEvent(msg)) {
-      // cur 在场（注入时刻有进行中/已收束的 agent 轮）→ 原位挂入：
-      // afterStep = 已积步数（消息序 = ts 序——历史路径 toHistoryMessages
-      // 已稳定排序；直播路径 append 尾部即当前轮），挂靠时刻即落盘位。
-      // 归属匹配（cr-765 #6）：注入行自带 agent_id 时只挂同归属轮——
-      // 群聊/多 agent 会话里「cur 是谁」≠「注入给谁」。
-      const card = toInjectCard(msg);
+      const card0 = toInjectCard(msg);
+      // cr-1132：锚有效性——窗口内目标在场才精确挂，被分页边界切掉剥锚走启发
+      const card = card0.anchor !== undefined && !anchorTargets.has(card0.anchor) ? { ...card0, anchor: undefined } : card0;
+      if (card.anchor !== undefined) {
+        // 目标已过（前向回落锚）→ 挂最近 agent 轮尾；目标在后 → 延迟到目标轮头
+        if (seenAgentIds.has(card.anchor)) mountAnchoredTail(card);
+        else deferredAnchored.push(card);
+        continue;
+      }
+      // 无锚卡（直播帧 / 旧后端行）：位置启发——cur 在场（注入时刻有进行
+      // 中/已收束的 agent 轮）→ 原位挂入：afterStep = 已积步数（消息序 =
+      // ts 序——历史路径 toHistoryMessages 已稳定排序；直播路径 append
+      // 尾部即当前轮），挂靠时刻即落盘位。归属匹配（cr-765 #6）：注入行
+      // 自带 agent_id 时只挂同归属轮——群聊/多 agent 会话里「cur 是谁」≠
+      // 「注入给谁」。
       const curOwner = cur && cur.agent_id !== VIEWER_ID.value ? cur : null;
       // 归属可挂：无归属标记（agent_id 缺席）或 'system'（直播行恒系值——
       // showEventNotice 写死，不代表归属）或与轮主同归——只拦真归属异轮
@@ -468,6 +503,22 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
         }
       }
       afterSolo = solo;
+      // cr-1132：锚目标登记 + 延迟锚卡落位（目标轮头）——agent 发言行处。
+      // 锚目标 = 该消息所在轮：afterStep = 落位时刻已积步数（目标在卡后
+      // → 卡挂其轮头即 0 步处；同轮后续消息累积时此值即轮内位次）。
+      if (msg.persistedMsgId) seenAgentIds.add(msg.persistedMsgId);
+      const anchorOwner: { agent_id: string; turns: FeedAgentMsg[] } | null = cur !== null && cur.agent_id !== VIEWER_ID.value ? cur : null;
+      if (msg.persistedMsgId !== undefined && anchorOwner !== null) {
+        const pid = msg.persistedMsgId;
+        const hits = deferredAnchored.filter((c) => c.anchor === pid);
+        if (hits.length) {
+          const rest = deferredAnchored.filter((c) => c.anchor !== pid);
+          deferredAnchored.length = 0;
+          deferredAnchored.push(...rest);
+          const step = anchorOwner.turns.length;
+          curInjects = [...curInjects, ...hits.map((c) => ({ ...c, afterStep: step }))];
+        }
+      }
       cur.turns.push({
         thinking: msg.reasoning_content || msg.thinking || '',
         label: (msg as any).label || '',
@@ -516,6 +567,11 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
   // thinking token 未到时（空占位被跳过），末尾轮仍是用户轮——不得悬置
   // 用户消息的 final（否则用户气泡误走 assistant 分支）
   flush(streaming && !!cur && cur.agent_id !== VIEWER_ID.value);
+  // 残留延迟锚卡（锚目标晚于窗口尾 → 目标轮不在窗口内）：走窗口内最近
+  // agent 轮尾挂（mountAnchoredTail 语义——此时刻 cur 已 flush，直接扫
+  // allTurns）。cur 置空（flush 已收束闭包态——下段尾挂分支只看 allTurns）。
+  cur = null;
+  for (const card of deferredAnchored) mountAnchoredTail(card);
   // 无轮可挂的注入卡处置（cr-765 #6）：尾挂优先——最后一条在场是
   // agent 轮时挂其尾部（afterStep = steps.length，链尾注入不再降级成
   // 独立卡割裂读序：run 收束后的 after-run 兜底落账、收束后记忆写入

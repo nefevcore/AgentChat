@@ -361,7 +361,7 @@ export function createFeedCore(
   function estimateDialogBytes(d: DialogFeed): number {
     let n = 0;
     for (const m of d.rawMessages) {
-      n += m.content?.length ?? 0;
+      n += m.content.length;
       n += (m as { thinking?: string }).thinking?.length ?? 0;
       n += (m as { reasoning_content?: string }).reasoning_content?.length ?? 0;
     }
@@ -1963,6 +1963,8 @@ export function createFeedCore(
       source: m.source,
       // 注入行透传（2026-09-26 注入卡）：展开体数据源（toHistoryMessages 携带）
       ...(m.contextContent !== undefined ? { contextContent: m.contextContent } : {}),
+      // 挂靠锚透传（cr-1132）：投影层派生的时间线锚——buildTurns 据此挂轮
+      ...(typeof m.anchor === 'string' && m.anchor ? { anchor: m.anchor } : {}),
       // 注入结构化载荷（问答卡 outcome 判据）：历史链丢失会让回执卡退化成
       // pending「向用户提问」——发起卡与回执卡同标题的根因，随行透传
       ...(m.payload !== undefined ? { payload: m.payload } : {}),
@@ -2334,7 +2336,7 @@ export function createFeedCore(
             // 参数流式全程（数十秒）占位卡只有裸 spinner——粗提取已生成部分
             // 同步进 prep 条目与占位行，程序卡边生成边可见。终值由 delta-end
             // 的全量 arguments 覆盖。
-            if (acc && acc.name === 'run_code') {
+            if (acc.name === 'run_code') {
               const draft = extractPartialJsonString(acc.buf, 'code');
               if (draft !== undefined) {
                 const msgs2 = dialogs.value[keys.dialogId]?.rawMessages;

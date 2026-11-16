@@ -52,6 +52,9 @@ export interface InjectCard {
   payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' };
   /** 注入体字节数（cr-765 #5：直播行载入态 meta——content 缺席窗口期显示「载入中 · N KB」） */
   bytes?: number;
+  /** 挂靠锚（cr-1132：投影层派生——时间线上最近 agent 发言行 message_id；
+   *  窗口内按锚精确挂轮，锚被窗口边界切掉时挂下一 agent 轮头） */
+  anchor?: string;
   ts?: number;
   afterStep?: number;
   key: string;
@@ -150,6 +153,12 @@ export interface ChatMessage {
    * 「载入中 · N KB」，不再「点击无反应」。
    */
   injectBytes?: number;
+  /**
+   * 挂靠锚（cr-1132：context 注入行专用——投影层派生的时间线锚，
+   * 指向最近 agent 发言行 message_id）。buildTurns 据此挂轮，不再窗口
+   * 局部猜测归属。
+   */
+  anchor?: string;
   /**
    * 思考相位起点（epoch ms；直播首个 reasoning 片到达时驻留消息——与
    * StreamState.reasoningStartAt 同源）：「思考中 · Xs」实时计时与收束

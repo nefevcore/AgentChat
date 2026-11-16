@@ -1,7 +1,7 @@
 # 渲染契约(render-contract)——第三阶段分析稿
 
 > 性质:设计分析稿(待裁决项见 §六)——UI 如何从落盘事实取数投影,与回放契约彻底分面。
-> 状态:**已实施完毕**(cr-1109 切片 A:bytes 派生+注册声明优先+数据面透传+skill 文案退役;cr-1110 切片 B:ViewRow 类型化+恒等化判据修正+face-shell 对齐;cr-1111 切片 C:resume 收编(none 机制词集)+直播行 agent_id 真值;cr-1112 切片 D:MessageSourceKind 开放化+as never ×2 退役)· 前序:replay-contract.md(cr-1101~1108)。
+> 状态:**已实施完毕**(cr-1109 切片 A:bytes 派生+注册声明优先+数据面透传+skill 文案退役;cr-1110 切片 B:ViewRow 类型化+恒等化判据修正+face-shell 对齐;cr-1111 切片 C:resume 收编(none 机制词集)+直播行 agent_id 真值;cr-1112 切片 D:MessageSourceKind 开放化+as never ×2 退役;cr-1132 注入卡挂靠:ViewRow 时间全序+投影层 anchor 锚定+viewer 域归属归一+buildTurns 坍缩+face-shell 收编单源——见 inject-card-anchoring-plan.md)· 前序:replay-contract.md(cr-1101~1108)。
 > 读者:动 foldViewRecords / web-api / historyApi / feed 的人。
 
 ## 一、现状事实(2026-11-15 复核)
@@ -94,7 +94,7 @@ A→B 顺序依赖;C/D 可与 A 并行。
 
 1. 带数据面的 event 行(如 singles 设置变更通知,label:'会话设置变更')从「event 分隔符」升为 inject-card——**待裁决 §六-2**;
 2. 无 run 锚的直落 context 行(cr-1106 兜底产物)从尾段直落行归入 inject-card 通道;
-3. v1 存量 skill context 行(无 run 键)从「尾段直落 context 行」变为 inject-card(带 label 数据面)。
+3. v1 存量 skill context 行(无 run 键)从「尾段直落 context 行」变为 inject-card(带 label 数据面)——cr-1132 起这些行随时间全序自然落位、携带投影层 anchor,前端按锚挂轮(inject-card-anchoring-plan.md 已实施);
 
 ## 六、待裁决
 

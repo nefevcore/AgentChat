@@ -42,6 +42,9 @@ export interface ViewRow {
   message_id?: string;
   requestId?: string;
   timestamp?: string;
+  /** 挂靠锚（cr-1132：无 run 锚 context 行携带——时间线上最近后续 agent
+   *  发言行 message_id；投影层全会话视野派生，前端据此挂轮不猜） */
+  anchor?: string;
 }
 import * as fs from 'node:fs';
 import * as path from 'node:path';

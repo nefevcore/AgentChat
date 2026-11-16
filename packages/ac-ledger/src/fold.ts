@@ -221,21 +221,25 @@ export function foldUserReplay(fold: SessionFold): UserReplayRow[] {
   for (const r of fold.speech) {
     if (r.agentId !== 'user') continue;
     if (r.requestId !== undefined && r.requestId.startsWith('restarted-')) continue;
-    if (seen.has(r.requestId ?? r.messageId)) continue;
+    // cr-1132:去重键缺席(手写夹具/极端存量的 undefined/空串)不互吞——
+    // 此前 seen.add(缺值) 会把后续全部无 id 行互吞
+    if (r.messageId && seen.has(r.requestId ?? r.messageId)) continue;
     if (r.requestId !== undefined) seen.add(r.requestId);
-    seen.add(r.messageId);
+    if (r.messageId) seen.add(r.messageId);
     out.push({ role: 'user', agentId: 'user', content: r.content, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ord: out.length });
   }
   for (const r of fold.speech) {
     if (r.agentId === 'user') continue; // user 行与机制通知行（restarted-* 已滤）
     if (r.content.trim() === '') continue;
-    if (seen.has(r.requestId ?? r.messageId)) continue;
+    if (r.messageId && seen.has(r.requestId ?? r.messageId)) continue;
     const run = r.run ?? r.sourceRun;
     if (run !== undefined && runsWithFinal.has(run)) continue;
     if (r.requestId !== undefined) seen.add(r.requestId);
-    seen.add(r.messageId);
+    if (r.messageId) seen.add(r.messageId);
     if (run !== undefined) runsWithFinal.add(run);
-    out.push({ role: 'peer', agentId: r.agentId, content: r.content, ...(run !== undefined ? { run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ord: out.length });
+    // cr-1132:messageId 透出——主投影发言行升格携带 message_id(anchor 派生
+    // 的锚目标;前端按 persistedMsgId 对锚,分支/删除按钮随锚亮起为正向收编)
+    out.push({ role: 'peer', agentId: r.agentId, content: r.content, ...(run !== undefined ? { run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ord: out.length });
   }
   // 排序事实键 = 时间戳（cr-716；稳定：同刻 user 先于 peer——收集序）
   return out
@@ -273,6 +277,10 @@ function liteRow(r: ViewRow): ViewRow {
 }
 
 export function foldViewRecords(fold: SessionFold, dataRoot: string, conversationId: string, opts: FoldViewOptions = {}): ViewRow[] {
+  // cr-1133:viewer 端点域判定——对桶键 <agent>~<viewer> 中 'user' 端点的域目录
+  //（agents/user）是存量镜像域：speech 镜像行进终稿层（正文事实），但 run 事实
+  //（journal）是镜像/迁移产物，webui 视图不重投（正主在 agent 域或已过时）。
+  const viewerEndpoint = conversationId.includes('~') && conversationId.split('~').includes('user') ? 'user' : null;
   // subcall 档案取值：索引钩子优先（D-1——按 run 定位 seek）；回落惰性全读
   const subcallCache = new Map<string, JournalToolResult[]>();
   const subcallsFor = (domain: string, run: string): JournalToolResult[] => {
@@ -350,6 +358,13 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
   // 终稿层主投影
   const all: ViewRow[] = [];
   const viewerRuns = new Set<string>();
+  // cr-1133:run → 账本行归属（盲区行 agent_id 正源——镜像域 run 事实的 domain
+  // 是镜像端点不是发言者；同 run 的账本 speech 行 agentId 才是真实归属）
+  const speechAgentOfRun = new Map<string, string>();
+  for (const s of fold.speech) {
+    const r0 = s.run ?? s.sourceRun;
+    if (r0 !== undefined && !speechAgentOfRun.has(r0) && s.agentId !== viewerEndpoint) speechAgentOfRun.set(r0, s.agentId);
+  }
   for (const r of replay) {
     const projected = r.role === 'peer' && r.run !== undefined ? stepsFor(r.agentId, r.run) : null;
     if (r.run !== undefined) {
@@ -361,6 +376,8 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       agent_id: r.role === 'peer' ? r.agentId : undefined,
       content: r.content,
       timestamp: r.timestamp,
+      // cr-1132:发言行 message_id 升格携带——anchor 锚目标(注入卡挂靠)
+      ...(r.messageId ? { message_id: r.messageId } : {}),
       ...(r.run !== undefined ? { run: r.run } : {}),
       ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
       ...(r.seq !== undefined ? { seq: r.seq } : {}),
@@ -377,7 +394,7 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
     if (p === null || !p.partial) continue;
     all.push(...(injectRowsOf.get(run0.runId) ?? []));
     for (const s of p.steps) {
-      all.push({ role: 'assistant', agent_id: run0.agentId, content: '', run: run0.runId, steps: [s], partial: true });
+      all.push({ role: 'assistant', agent_id: run0.agentId, content: '', run: run0.runId, steps: [s], partial: true, ...(typeof s.ts === 'number' && s.ts > 0 ? { timestamp: new Date(s.ts).toISOString() } : {}) });
     }
   }
   // 盲区投影（cr-628/698）+ 配平（D-3：未闭合 run 投 partial——不回写）
@@ -385,40 +402,64 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
   for (const [run, rf] of fold.runs) {
     const hasFacts = rf.events.length > 0 || rf.aggregated !== undefined;
     if (!hasFacts || viewerRuns.has(run) || runningIds.has(run)) continue;
+    // cr-1133:盲区行归属 = 同 run 账本行的真实 agentId（优先）——镜像域
+    //（agents/user）journal 的 run 事实曾以 rf.domain='user' 投出 assistant 行，
+    // 前端按 viewer 渲染成 user 气泡（neko~user「谢谢喵」/admin~user「明白了——」
+    // 串台实锤）。账本 speech 行的 agentId 是发言归属正源；缺席回落 rf.domain。
+    // migrated 伪 run（无任何账本行锚 + 住 viewer 端点域）不投——迁移工具把
+    // 历史消息造成的伪 run，正文已由真实消息行承载，重投即串台。
+    if (viewerEndpoint !== null && rf.domain === viewerEndpoint && !speechAgentOfRun.has(run)) continue;
+    const ledgerOwner = speechAgentOfRun.get(run) ?? rf.domain;
     const p = foldStepsOf(rf, subcallsFor(rf.domain, run));
     if (p === null) continue;
     all.push(...(injectRowsOf.get(run) ?? []));
+    // 末事实 ts（foldLlmReplay 孤儿 slot 同源）——时间全序位次锚
+    let lastTs = 0;
+    for (const ev of rf.events) {
+      if (ev.kind === 'tool-call-result') continue;
+      if ((ev.ts ?? 0) > lastTs) lastTs = ev.ts ?? 0;
+    }
+    if (rf.aggregated !== undefined) for (const s of rf.aggregated) if ((s.ts ?? 0) > lastTs) lastTs = s.ts ?? 0;
     all.push({
       role: 'assistant',
-      agent_id: rf.domain,
+      agent_id: ledgerOwner,
       content: '',
       run,
       steps: p.steps,
       ...(p.partial ? { partial: true } : {}),
+      ...(lastTs > 0 ? { timestamp: new Date(lastTs).toISOString() } : {}),
     });
   }
-  // 尾段行族：error 红条 / 直落 context / 机制 event 分隔符（位次不敏感——前端按 ts 排序）
+  // 尾段行族（cr-1132 时间全序契约）：error 红条 / 直落 context / 机制
+  // event 分隔符并入主时间线 slot 归并（ts 主序 + 收集序 tiebreak）——
+  // 分页窗口 = 时间窗（web-api slice 不改自动变对）。锚定派生也在全序
+  // 时间线上完成（后述）。
+  const errRows: ViewRow[] = [];
   for (const c of fold.contexts) {
     if (c.source === 'error') {
-      all.push({
+      errRows.push({
         role: 'error', agent_id: c.agentId, content: c.content, message_id: c.messageId,
         timestamp: c.timestamp, run: c.run, ...(c.seq !== undefined ? { seq: c.seq } : {}),
       });
     }
   }
+  const dropRows: ViewRow[] = [];
   for (const c of fold.contexts) {
     if (c.source === 'event' || c.source === 'error' || c.run !== undefined) continue;
-    all.push({
+    dropRows.push({
       role: 'context', content: c.content,
       label: c.label ?? c.source, source: c.source,
-      message_id: c.messageId, timestamp: c.timestamp, agent_id: c.agentId,
+      message_id: c.messageId, timestamp: c.timestamp,
+      // cr-1132:viewer 域（agents/user）恒值归属归一为无归属——v1 存量
+      // 直落行的 agent_id='user' 是落账恒值不承载归属语义,前端曾当真实
+      // 归属参与挂轮判定(实锤失败链)。落盘不动,读侧归一。
+      ...(c.domain === 'user' ? {} : { agent_id: c.agentId }),
       bytes: c.content.length, // cr-1109:bytes 投影派生
       ...(c.seq !== undefined ? { seq: c.seq } : {}),
     });
   }
   // 机制通知行（cr-946）：event 分隔符——现行 context+event 行与 cr-946 前
-  // 存量落形（speech 行 agent_id='user' + restarted-*）按时间线归并（位次
-  // 不敏感——前端按 timestamp 排序，此处归并保对拍恒等）
+  // 存量落形（speech 行 agent_id='user' + restarted-*）
   const eventRows: ViewRow[] = [];
   for (const r of fold.speech) {
     if (r.agentId === 'user' && r.requestId !== undefined && r.requestId.startsWith('restarted-')) {
@@ -438,14 +479,63 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       });
     }
   }
-  eventRows.sort((a, b) => {
-    const sa = Number(a.seq ?? 0);
-    const sb = Number(b.seq ?? 0);
-    if (sa !== sb && sa !== 0 && sb !== 0) return sa - sb; // 文件序（v1 对拍口径）
-    return String(a.timestamp) < String(b.timestamp) ? -1 : 1;
-  });
-  all.push(...eventRows);
-  return opts.view === 'lite' ? all.map(liteRow) : all;
+  const tailContextRows: ViewRow[] = [];
+  // cr-1134:run 归口注入卡残留回落——带 run 键的 context 行进归口桶后，只在
+  // 「该 run 的主投影行」出现时随行投出；run 有 run-end 却无终稿行（机制 run /
+  // 死窗口）时桶内容永不可见（memory-delta 等注入卡整类缺席的根因）。
+  // 已消费 run = 终稿层 run ∪ 活投影 run ∪ 盲区投出的 run；其余桶按直落卡投出。
+  const consumedRuns = new Set<string>(viewerRuns);
+  for (const r of runningHere) consumedRuns.add(r.runId);
+  for (const [run, rf] of fold.runs) {
+    const hasFacts = rf.events.length > 0 || rf.aggregated !== undefined;
+    if (hasFacts && viewerEndpoint !== null && rf.domain === viewerEndpoint && !speechAgentOfRun.has(run)) consumedRuns.add(run);
+  }
+  for (const [run, rows] of injectRowsOf) {
+    if (consumedRuns.has(run)) continue;
+    for (const row of rows) tailContextRows.push(row);
+  }
+  // —— 时间全序归并（foldLlmReplay 同款稳定语义——输入序 tiebreak）——
+  // 主投影（终稿层 + run 归口注入 + 活投影 + 盲区）与尾段三族一体按 ts
+  // 稳定排序：同刻保持输入序（主投影行先于尾段行；错误行晚于收束、
+  // event 行按文件序）。无 ts 行（极端存量）守尾不参与乱序。
+  const sortKey = (r: ViewRow): string => {
+    const t = String(r.timestamp ?? '');
+    return t === '' ? '\uffff' : t;
+  };
+  const merged = [...all, ...errRows, ...dropRows, ...eventRows, ...tailContextRows]
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => {
+      const ka = sortKey(a.r);
+      const kb = sortKey(b.r);
+      return ka !== kb ? (ka < kb ? -1 : 1) : a.i - b.i;
+    })
+    .map((e) => e.r);
+  // —— anchor 派生（cr-1132：无 run 锚直落卡的时间线锚定——投影层全会话
+  // 视野完成，前端不再窗口局部猜测）——
+  // 锚 = 时间线上最近后续 agent 发言行 message_id（无后续则前向最近 agent
+  // 行；全会话无 agent 发言行 → 无锚，前端降级卡）。发言行投影升格携带
+  // message_id（增量字段，不迁数据）。v1 存量 viewer 域恒值归属（agent_id
+  // ='user' 的直落行）归一为无归属——落盘不动，读侧归一。
+  let next: string | undefined;
+  for (let i = merged.length - 1; i >= 0; i--) {
+    const r = merged[i];
+    if (r.role === 'assistant' && r.message_id) {
+      next = r.message_id;
+      continue;
+    }
+    if (r.role === 'context' && r.run === undefined && next !== undefined) r.anchor = next;
+  }
+  // 前向回落：尾部直落卡（其后无任何 agent 发言行）锚向前向最近 agent 行
+  let prev: string | undefined;
+  for (let i = 0; i < merged.length; i++) {
+    const r = merged[i];
+    if (r.role === 'assistant' && r.message_id) {
+      prev = r.message_id;
+      continue;
+    }
+    if (r.role === 'context' && r.run === undefined && r.anchor === undefined && prev !== undefined) r.anchor = prev;
+  }
+  return opts.view === 'lite' ? merged.map(liteRow) : merged;
 }
 
 // —— 投影三：LLM 回放（historyMessagesFor 语义——轨迹展开 + injected 判重） ——

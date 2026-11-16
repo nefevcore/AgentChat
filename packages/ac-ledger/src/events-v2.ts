@@ -43,6 +43,8 @@ export interface SpeechEvent {
 export interface ContextEvent {
   kind: 'context';
   agentId: string;
+  /** 归属域（cr-1132：viewer 域恒值归属归一判据——落账域目录，读侧单源） */
+  domain?: string;
   source: string;
   content: string;
   label?: string;
@@ -232,7 +234,7 @@ export function readDomainFacts(dir: string, domain: string): DomainFacts {
     }
     // v1 role 判别行
     if (r.role === 'context') {
-      out.contexts.push({ kind: 'context', agentId: r.agent_id, source: r.source ?? '', content: r.content, ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ...(r.run !== undefined ? { run: r.run } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), messageId: r.message_id, timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}) });
+      out.contexts.push({ kind: 'context', agentId: r.agent_id, domain, source: r.source ?? '', content: r.content, ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ...(r.run !== undefined ? { run: r.run } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), messageId: r.message_id, timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}) });
       continue;
     }
     // v1 发言行（role 判别仅 agent/context 两值——context 已分流）
@@ -254,7 +256,7 @@ export function readDomainFacts(dir: string, domain: string): DomainFacts {
       f.aggOrder = [...(f.aggOrder ?? []), { type: 'inject', ev }];
       continue;
     }
-    if (r.message_id.startsWith('seg-')) continue; // cr-640 存量文本段行（无 source 标记）——过滤防双计
+    if (String(r.message_id).startsWith('seg-')) continue; // cr-640 存量文本段行（无 source 标记）——过滤防双计；String 容忍异常缺 id 行（手写夹具/极端存量）
     out.speech.push({ kind: 'speech', role: 'agent', agentId: r.agent_id, domain, content: r.content, messageId: r.message_id, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(typeof r.source === 'string' && r.source.startsWith('run:') ? { sourceRun: r.source.slice(4) } : {}) });
   }
   // v1 journal 行（v2 会话恒空）
@@ -279,7 +281,7 @@ export function readDomainFacts(dir: string, domain: string): DomainFacts {
 function placeEvent(facts: DomainFacts, ev: SessionEvent): void {
   switch (ev.kind) {
     case 'speech': facts.speech.push({ ...ev, domain: facts.domain }); return;
-    case 'context': facts.contexts.push(ev); return;
+    case 'context': facts.contexts.push({ ...ev, domain: facts.domain }); return;
     case 'reasoning': case 'content': case 'tool-call': case 'tool-call-result': case 'inject': {
       const f = runOf(facts.runs, ev.run);
       f.events.push(ev);
