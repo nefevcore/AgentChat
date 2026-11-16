@@ -173,6 +173,16 @@
       "path": "packages/ac-ledger"
     },
     {
+      "id": "archive",
+      "tree": "shell",
+      "zone": "skeleton",
+      "description": "归档编排（阈值检测/整理 run/归档重建全链壳内——D11 全壳内裁决；cr-1118 回归骨架必装面：cr-1033 误降能力行后无人装配，全系统归档失效）",
+      "requires": [
+        "ledger"
+      ],
+      "path": "packages/ac-shell-rows"
+    },
+    {
       "id": "conversation",
       "tree": "shell",
       "zone": "skeleton",
@@ -260,18 +270,6 @@
       "zone": "skeleton",
       "description": "后台任务基座（worker 壳子进程设施）——平台设施裁级行（menu-assembly §三）",
       "path": "packages/ac-jobs"
-    },
-    {
-      "id": "archive",
-      "tree": "shell",
-      "zone": "capability",
-      "description": "归档编排（阈值检测/整理 run/归档重建全链壳内——D11 全壳内裁决；timer archive-all 改批量唤醒信）",
-      "requires": [
-        "ledger",
-        "conversation",
-        "agent-loop"
-      ],
-      "path": "packages/ac-shell-rows"
     },
     {
       "id": "artifacts",

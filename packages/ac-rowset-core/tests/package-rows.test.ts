@@ -15,11 +15,11 @@ const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const byId = (rows: Array<{ id: string }>) => [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
 describe('cr-1033 包自述能力行聚合', () => {
-  it('聚合面：27 行覆盖全部能力行（id 全集锚定）', () => {
+  it('聚合面：26 行覆盖全部能力行（id 全集锚定——cr-1118 archive 归基座）', () => {
     const aggregated = byId(aggregatePackageRows(REPO_ROOT));
-    expect(aggregated).toHaveLength(27);
+    expect(aggregated).toHaveLength(26);
     expect(aggregated.map((r) => r.id)).toEqual([
-      'archive', 'artifacts', 'ask-questions', 'auto-title', 'bench', 'browser', 'collab-tools',
+      'artifacts', 'ask-questions', 'auto-title', 'bench', 'browser', 'collab-tools',
       'datetime', 'fs-search', 'fs-tools', 'goal', 'harness-tools', 'issue-tools', 'math', 'mcp',
       'memory', 'plugin-dev', 'restart', 'run-code', 'sap-adt', 'session-query', 'shell-tools',
       'skill', 'str-replace-editor', 'subagent', 'todo', 'web-tools',
@@ -29,7 +29,7 @@ describe('cr-1033 包自述能力行聚合', () => {
   it('name 派生单源：link: + 包目录（多行包同 name）', () => {
     const rows = aggregatePackageRows(REPO_ROOT);
     const shellRowsPkg = rows.filter((r) => r.name === 'link:packages/ac-shell-rows');
-    expect(shellRowsPkg.map((r) => r.id).sort()).toEqual(['archive', 'auto-title', 'plugin-dev', 'restart', 'session-query']);
+    expect(shellRowsPkg.map((r) => r.id).sort()).toEqual(['auto-title', 'plugin-dev', 'restart', 'session-query']); // cr-1118：archive 归基座骨架
     expect(rows.filter((r) => r.name === 'link:packages/ac-web-tools').map((r) => r.id).sort()).toEqual(['browser', 'web-tools']);
   });
 

@@ -14,15 +14,6 @@
   "ac": {
     "rows": [
       {
-        "id": "archive",
-        "description": "归档编排（阈值检测/整理 run/归档重建全链壳内——D11 全壳内裁决；timer archive-all 改批量唤醒信）",
-        "requires": [
-          "ledger",
-          "conversation",
-          "agent-loop"
-        ]
-      },
-      {
         "id": "session-query",
         "description": "会话查询（只搜自己：本 agent 账本只读回放——D10 收敛，cr-544）",
         "requires": [

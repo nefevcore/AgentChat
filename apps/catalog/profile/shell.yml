@@ -1,4 +1,4 @@
-# ac-base-version: 6
+# ac-base-version: 7
 # shell 进程基座源文档（cr-902 / cr-1022 批2 双区化 / cr-1033 B3 能力
 # 定义归包后单区化）：本档只承载骨架区——会话循环结构性前提 + 平台设施
 #（恒装面，投影 zone=skeleton）。能力定义事实源 = 各能力包 package.json
@@ -17,6 +17,11 @@
 - id: ledger
   name: link:packages/ac-ledger
   description: 账本：messages.jsonl + journal + inbox 消费 + settlement + usage 自报
+- id: archive
+  name: link:packages/ac-shell-rows
+  description: 归档编排（阈值检测/整理 run/归档重建全链壳内——D11 全壳内裁决；cr-1118 回归骨架必装面：cr-1033 误降能力行后无人装配，全系统归档失效）
+  requires:
+    - ledger
 - id: conversation
   name: link:packages/ac-shell-conversation
   description: 会话状态机：串行化门 + inbox 双队列 + budget + user 端点桩 + 全量 loop 驱动（M8.2）
