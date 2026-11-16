@@ -1,6 +1,9 @@
 // ============================================================
-// ac-client-ui-remote/tests/remote-row.test.ts —— 前端行宿主半边验收
-//（照 settings-row.test 形态：boot graph 声明〔domain 阶段〕+ 卸载级联）
+// ac-client-ui-remote/tests/*-row.test.ts —— 前端行宿主半边验收
+//（cr-1117 零功能化：declareClient 声明注册表随旧链退役，图成员 =
+//  行存在性；本面锁「装载/卸载零副作用 + extension 自述形状」）
+//
+// node 环境（jsdom 的 URL 垫片与 node:url 不兼容）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { Context, type Fiber } from '@agentchat/cordis';
@@ -11,28 +14,16 @@ async function loadRow(ctx: Context): Promise<Fiber> {
   return plug(row, undefined);
 }
 
-describe('P1 · ac-client-ui-remote 宿主半边（boot graph 声明〔domain〕）', () => {
-  it('行装载 → boot graph 含 ui-remote 条目（phase=domain，entry 为绝对路径）', async () => {
+describe('P1 · ac-client-ui-remote 宿主半边（零功能行——cr-1117）', () => {
+  it('行装载/卸载零副作用（apply 空实现，无宿主面注册）', async () => {
     const ctx = new Context();
-    const { WebUiService } = await import('ac-webui/src/service.ts');
-    new WebUiService(ctx);
     const fiber = await loadRow(ctx);
-    const graph = ctx.webui.listBootGraph();
-    expect(graph.map((g) => g.name)).toContain('ui-remote');
-    const def = graph.find((g) => g.name === 'ui-remote')!;
-    expect(def.platform).toBe('web');
-    expect(def.phase).toBe('domain');
-    expect(def.entry).toMatch(/ac-client-ui-remote[\\/]client[\\/]index\.ts$/);
     await fiber.dispose();
   });
 
-  it('可摘除性：行卸载 → 声明级联回收 → boot graph 收缩', async () => {
-    const ctx = new Context();
-    const { WebUiService } = await import('ac-webui/src/service.ts');
-    new WebUiService(ctx);
-    const fiber = await loadRow(ctx);
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).toContain('ui-remote');
-    await fiber.dispose();
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).not.toContain('ui-remote');
+  it('extension 自述形状（extension-catalog 聚合面契约）', () => {
+    expect(row.extension.name).toBe(row.extension.name.trim());
+    expect(row.extension.label.length).toBeGreaterThan(0);
+    expect(row.extension.automatic).toBe(true);
   });
 });

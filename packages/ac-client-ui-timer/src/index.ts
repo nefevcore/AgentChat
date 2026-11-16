@@ -1,17 +1,14 @@
 // ============================================================
-// ac-client-ui-timer —— timer 域前端行（M28 P1 §4.1 原案）
+// ac-client-ui-timer/src/index.ts —— 前端行宿主半边（webui-v3 零功能形态）
 //
-// 视图资产行：TimerPane（Agent 定时任务编辑，含编辑弹窗）+ aux
-// 聚合面板（TimersPanel——A3 起唯一全局任务入口）。数据面
-//（timer/entries 读写）住本行 timerApi（M29 P1-3c 归域）。
+// 图成员资格 = 行存在性（webui 基座文档 link: 装载锚——cr-1117 起
+// declareClient 声明注册表随旧链退役）；client 半边经 wire 装载，
+// 席位贡献/服务面全在 client/。extension 自述保留（extension-catalog
+// 聚合消费——插件目录 label 数据源）。
 // ============================================================
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-client-ui-timer';
-
-export const inject = ['webui'];
 
 import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
@@ -21,12 +18,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export function apply(ctx: Context) {
-  const off = ctx.webui.declareClient({
-    name: 'ui-timer',
-    entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-    platform: 'web',
-    phase: 'domain',
-  });
-  ctx.effect(() => off);
+export function apply(_ctx: Context) {
+  // 零功能行：装载即图成员（wire +1 行），无宿主面副作用
 }

@@ -1,16 +1,14 @@
 // ============================================================
-// ac-client-ui-fs —— 工具卡前端行（M28 P2 §2.2 镜像表：ac-fs-tools + ac-str-replace-editor；read/edit 双卡——write 走 Label 直达预览，cr-465）
+// ac-client-ui-fs/src/index.ts —— 前端行宿主半边（webui-v3 零功能形态）
 //
-// 卡片经 tool-card:result-view 席位贡献；行卸载 → def 消失 → resolve
-// 回落默认文本渲染。与后端行经 RPC 契约面解耦，双向可独立摘除。
+// 图成员资格 = 行存在性（webui 基座文档 link: 装载锚——cr-1117 起
+// declareClient 声明注册表随旧链退役）；client 半边经 wire 装载，
+// 席位贡献/服务面全在 client/。extension 自述保留（extension-catalog
+// 聚合消费——插件目录 label 数据源）。
 // ============================================================
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-client-ui-fs';
-
-export const inject = ['webui'];
 
 import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
@@ -20,12 +18,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export function apply(ctx: Context) {
-  const off = ctx.webui.declareClient({
-    name: 'ui-fs',
-    entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-    platform: 'web',
-    phase: 'domain',
-  });
-  ctx.effect(() => off);
+export function apply(_ctx: Context) {
+  // 零功能行：装载即图成员（wire +1 行），无宿主面副作用
 }

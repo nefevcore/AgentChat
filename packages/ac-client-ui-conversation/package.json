@@ -62,7 +62,6 @@
   "devDependencies": {
     "ac-extension-core": "workspace:*",
     "jsdom": "^25.0.0",
-    "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },
   "keywords": [

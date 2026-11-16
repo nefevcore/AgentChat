@@ -46,7 +46,6 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
-    "ac-webui": "workspace:*",
     "pinia": "^2.1.7",
     "vitest": "^4.1.10"
   },

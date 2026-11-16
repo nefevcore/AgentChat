@@ -1,22 +1,14 @@
 // ============================================================
-// ac-client-ui-usage —— usage 域前端行（M28 P1 §4.1 原案）
+// ac-client-ui-usage/src/index.ts —— 前端行宿主半边（webui-v3 零功能形态）
 //
-// 前端行全族 ac-client-ui-*：包名即身份——本行与 ac-usage 后端行完全
-// 解耦（唯一联系 = usage/tokens RPC 契约面；双向可独立摘除）。宿主
-// apply 极薄——仅向 ac-webui 声明 boot graph 条目。
-//
-// 可摘除性（双向语义）：
-//   · 卸本行 → aux 选区与 overlay 意图宿主消失（rail 图标随选区注册
-//     回收；uiStore.openTokenUsage 意图无消费者，静默）；
-//   · 卸后端行（ac-usage）→ 本行照常装载，RPC 失败 → 面板空态降级。
+// 图成员资格 = 行存在性（webui 基座文档 link: 装载锚——cr-1117 起
+// declareClient 声明注册表随旧链退役）；client 半边经 wire 装载，
+// 席位贡献/服务面全在 client/。extension 自述保留（extension-catalog
+// 聚合消费——插件目录 label 数据源）。
 // ============================================================
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-client-ui-usage';
-
-export const inject = ['webui'];
 
 import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
@@ -26,14 +18,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export function apply(ctx: Context) {
-  // boot graph 声明（注册即归属：disposer 经 ctx.effect 挂本行 fiber——
-  // 卸载即声明级联回收）
-  const off = ctx.webui.declareClient({
-    name: 'ui-usage',
-    entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-    platform: 'web',
-    phase: 'domain',
-  });
-  ctx.effect(() => off);
+export function apply(_ctx: Context) {
+  // 零功能行：装载即图成员（wire +1 行），无宿主面副作用
 }

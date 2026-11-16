@@ -1,21 +1,14 @@
 // ============================================================
-// ac-client-ui-desktop-storage —— 桌面壳「存储管理」前端行
-//（数据根可配置 P2，2026-09-16 裁决）
+// ac-client-ui-desktop-storage/src/index.ts —— 前端行宿主半边（webui-v3 零功能形态）
 //
-// 后端半边仅是 boot graph 声明（declareClient——webui 按图装载 client
-// 模块）；实际数据面全在壳层桥（127.0.0.1:<p+1..p+4>/desktop-bridge/），
-// 前端自探活，非桌面形态（无桥）节自动隐藏。
-// 卸本行 → 设置面板「存储管理」节与左树叶同步消失（D19 整枝退场）。
-// 测试域：包内 tests 锁席位贡献形态；壳层桥/更新面的回归住 desktop/tests
-//（cr-481 归位——被测面是 desktop/main.mjs 壳域，非本包源码）。
+// 图成员资格 = 行存在性（webui 基座文档 link: 装载锚——cr-1117 起
+// declareClient 声明注册表随旧链退役）；client 半边经 wire 装载，
+// 席位贡献/服务面全在 client/。extension 自述保留（extension-catalog
+// 聚合消费——插件目录 label 数据源）。
 // ============================================================
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-client-ui-desktop-storage';
-
-export const inject = ['webui'];
 
 import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
@@ -25,12 +18,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export function apply(ctx: Context) {
-  const off = ctx.webui.declareClient({
-    name: 'ui-desktop-storage',
-    entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-    platform: 'web',
-    phase: 'domain',
-  });
-  ctx.effect(() => off);
+export function apply(_ctx: Context) {
+  // 零功能行：装载即图成员（wire +1 行），无宿主面副作用
 }

@@ -17,11 +17,8 @@ async function loadRow(ctx: Context): Promise<Fiber> {
 }
 
 async function boot() {
-  const ctx = new Context();
   // JobsService 构造零副作用（注册中心形态——producer 不在场即空表）
-  const { WebUiService } = await import('ac-webui/src/service.ts');
-  new WebUiService(ctx);
-  return ctx;
+  return new Context();
 }
 
 /** 装载后端行（ac-jobs 无硬 inject——直挂 JobsService；跨包深路径仅供测试） */
@@ -31,50 +28,36 @@ async function loadBackendRow(ctx: Context): Promise<Fiber> {
   return plug(backend, undefined);
 }
 
-describe('M27.1 · ac-client-ui-jobs 宿主半边（boot graph 声明）', () => {
-  it('行装载 → boot graph 含 ui-jobs 条目（entry 为绝对路径）', async () => {
-    const ctx = await boot();
+describe('M27.1 · ac-client-ui-jobs 宿主半边（零功能行——cr-1117：装载/卸载零副作用 + extension 形状）', () => {
+  it('行装载/卸载零副作用（apply 空实现，无宿主面注册）', async () => {
+    const ctx = new Context();
     const fiber = await loadRow(ctx);
-    const graph = ctx.webui.listBootGraph();
-    expect(graph.map((g) => g.name)).toContain('ui-jobs');
-    const def = graph.find((g) => g.name === 'ui-jobs')!;
-    expect(def.platform).toBe('web');
-    expect(def.entry).toMatch(/ac-client-ui-jobs[\\/]client[\\/]index\.ts$/);
     await fiber.dispose();
   });
 
-  it('可摘除性（D19）：行卸载 → 声明级联回收 → boot graph 收缩 + 变更帧', async () => {
-    const ctx = await boot();
-    const changed: string[] = [];
-    const off = ctx.on('webui/boot-graph-changed', (name) => changed.push(name));
-    const fiber = await loadRow(ctx);
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).toContain('ui-jobs');
-    await fiber.dispose();
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).not.toContain('ui-jobs');
-    expect(changed.filter((n) => n === 'ui-jobs').length).toBeGreaterThanOrEqual(2);
-    off();
+  it('extension 自述形状（extension-catalog 聚合面契约）', () => {
+    expect(uiJobsRow.extension.name).toBe(uiJobsRow.extension.name.trim());
+    expect(uiJobsRow.extension.label.length).toBeGreaterThan(0);
+    expect(uiJobsRow.extension.automatic).toBe(true);
   });
 });
 
 describe('M27.1 · 双向摘除（UI 行 ⇄ 后端行独立可摘）', () => {
-  it('卸 UI 行 → boot graph 收缩，后端行照常在场（ctx.jobs 服务可调）', async () => {
+  it('卸 UI 行 → 后端行照常在场（ctx.jobs 服务可调）', async () => {
     const ctx = await boot();
     const backendFiber = await loadBackendRow(ctx);
     const uiFiber = await loadRow(ctx);
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).toContain('ui-jobs');
     await uiFiber.dispose(); // 摘 UI 行
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).not.toContain('ui-jobs');
     expect(ctx.get('jobs')).toBeDefined(); // 后端能力不受牵连（RPC 可调）
     await backendFiber.dispose();
   });
 
-  it('卸后端行 → UI 行照常在场（boot graph 不收缩——RPC 失败空态归前端三态语义）', async () => {
+  it('卸后端行 → UI 行照常可装载（RPC 失败空态归前端三态语义）', async () => {
     const ctx = await boot();
     const backendFiber = await loadBackendRow(ctx);
     const uiFiber = await loadRow(ctx);
     await backendFiber.dispose(); // 摘后端行
     expect(ctx.get('jobs', false)).toBeUndefined(); // 后端能力同灭
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).toContain('ui-jobs'); // UI 行不动
-    await uiFiber.dispose();
+    await uiFiber.dispose(); // UI 行装载/卸载不受牵连
   });
 });

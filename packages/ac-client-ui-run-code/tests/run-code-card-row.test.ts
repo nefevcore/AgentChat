@@ -12,24 +12,17 @@ async function loadRow(ctx: Context): Promise<Fiber> {
   return plug(row, undefined);
 }
 
-describe('M28 P2 · ac-client-ui-run-code 宿主半边（boot graph 声明）', () => {
-  it('行装载 → boot graph 含 ui-run-code（phase=domain，entry 绝对路径）；卸载 → 级联回收 + 变更帧', async () => {
+describe('M28 P2 · ac-client-ui-run-code 宿主半边（零功能行——cr-1117：装载/卸载零副作用 + extension 形状）', () => {
+  it('行装载/卸载零副作用（apply 空实现，无宿主面注册）', async () => {
     const ctx = new Context();
-    const { WebUiService } = await import('ac-webui/src/service.ts');
-    new WebUiService(ctx);
-    const changed: string[] = [];
-    const off = ctx.on('webui/boot-graph-changed', (name) => changed.push(name));
     const fiber = await loadRow(ctx);
-    const graph = ctx.webui.listBootGraph();
-    expect(graph.map((g) => g.name)).toContain('ui-run-code');
-    const def = graph.find((g) => g.name === 'ui-run-code')!;
-    expect(def.platform).toBe('web');
-    expect(def.phase).toBe('domain');
-    expect(def.entry).toMatch(/ac-client-ui-run-code[\\/]client[\\/]index\.ts$/);
     await fiber.dispose();
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).not.toContain('ui-run-code');
-    expect(changed.filter((n) => n === 'ui-run-code').length).toBeGreaterThanOrEqual(2);
-    off();
+  });
+
+  it('extension 自述形状（extension-catalog 聚合面契约）', () => {
+    expect(row.extension.name).toBe(row.extension.name.trim());
+    expect(row.extension.label.length).toBeGreaterThan(0);
+    expect(row.extension.automatic).toBe(true);
   });
 });
 

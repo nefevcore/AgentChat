@@ -6,7 +6,7 @@
 > **事实源**（本文一切数字取自下列四源；与源码冲突时以源码为准）：
 > （cr-920 注记：通道清单事实源已迁 packages/ac-client-ui-*/package.json `ac.faces.web`，`apps/ui/channel/` 已退役——下文 channel 口径为历史时点记录。）
 > 1. **行集** = `apps/catalog/row-catalog.json`（**65 行**〔宿主 25 + 壳 40〕，**无 ui 行**——ui 域行 cr-701 已撤；cr-1008 复核：`apps/ui/channel/` 已退役，通道清单事实源 = `packages/ac-client-ui-*/package.json` 的 `ac.faces.web`，webui 基座源文档 `apps/catalog/profile/webui.yml` 31 行；校验门 `apps/ui/tests/seats-gate.test.ts` 与 `apps/ui/tests/channels-domain.test.ts`）；
-> 2. **装载面** = `packages/ac-client-ui-*/client/index.ts` 的 `slots.declare / register / inject` 调用面；各行包 `src/index.ts` 的 `ctx.webui.declareClient(...)` 声明在现役装配下不再是装载来源（待处置，见 §1.3 疑点）；
+> 2. **装载面** = `packages/ac-client-ui-*/client/index.ts` 的 `slots.declare / register / inject` 调用面；各行包 `src/index.ts` 已零功能化（cr-1117：declareClient 声明注册表随旧链退役，图成员 = 行存在性，extension 自述保留）；
 > 3. **边界账本** = `scripts/dep-cycles.yml`（R6/R7 白名单，只减不增；**当前边表 0 条**）+ `scripts/check-deps.mjs`（守卫；相位表 = 各行包 `package.json` 的 `agentchat.client.phase`——锚点待修，见 §3.4 疑点）；
 > 4. **装载链路**（**cr-923 webui-v3 已重造，本节为 2026-10-27 时点记录；现行口径以 webui-v3.md 为准**）= 宿主 `apps/ui/src/webui-row.ts`（`GET /api/ui/boot-graph`：`assembleBootGraph` 扫 `<dataRoot>/plugins/` 的 manifest 单源）+ 浏览器 `apps/ui/client/boot.ts`；通道产物 = `apps/ui/scripts/build-channel.mjs`（`pnpm build:channels`）。现行 v3：webui 行（`apps/ui/src/webui-row-v3.ts`）产 wire 投影（活 fiber 集），前端 `boot-v3` 按 wire 装载。
 >
@@ -15,7 +15,7 @@
 > **过程档案（已归档，勿当现状读）**：`../archive/webui/webui-slot-tree.md`（v1 调研树 + ~230 建议名词表）、`../archive/webui/webui-component-tree.md`（前端组件树）、`../archive/webui/webui-plugin-ownership.md`（薄层归属地图 v2 / DSH 对照）——其有效结论已压缩为本文附录 A/B/C 并按源码校正。
 > **另档**：`webui-mobile-render-perf-plan.md`（cr-258 立项的待实施计划，独立保留）；`../archive/webui/m30-slot-semantics-refinement-plan.md`（M30 席位语义收口实录 = 席位语义裁决原文，已归档）；`../archive/platform/first-run-onboarding-plan.md`（首启向导实施记录，已归档）。
 
-> ⚠️ 疑点（2026-10-27 审查）：插件库 / 工具面板 UI 文案仍以「cordis.yml 出厂组合 × cordis.patch.yml」为行集事实源（见 `packages/ac-client-ui-plugin-registry/client/PluginLibraryPane.vue`），而根 `cordis.yml` 现为空 profile（`[]`）、行集单源是 `apps/catalog/row-catalog.json`——是文案待改还是 yml 将恢复为行表，本文不预判。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
+> ✅ 已销账（cr-1116）：插件库 / 工具面板文案已对齐现行装配模型（cordis.yml × cordis.patch.yml 措辞全面退役，改「出厂装配 × 行偏好 host-rows.json、恒冷生效」口径；停用/急救数据面自退役的 plugin/patch-* 重接 rows/list|set|reset）。原疑点（2026-10-27 审查）见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
 
 ---
 
@@ -85,9 +85,9 @@ boot graph 内按 **phase → 行 id 字典序**装载：**ui-conversation → u
 
 - **基建三包**（纯库 / 运行时，不占行、不可摘除）：`ac-client-slots`（SlotCore 纯核 + SlotStoreAxis）、`ac-client-runtime`（ClientContext / SlotRegistry / clientRuntime）、`@agentchat/webui-kit`（设计原语：46 文件 / 36 个 `.vue`，2026-10-27 复核）。
 - **webui 本体** = `apps/ui`（包名 `ac-ui-app`）：`src/` 服务半边（`webui-row.ts` / `webui-graph.ts` + `assets/` + `shims/`）+ `client/`（`boot-v3.ts` / `isolated-host-v3.ts`（isolated 档 srcdoc 宿主，cr-934）/ `module-system.ts` / `seeds-v3.ts` / `main.ts` / `rpc-host.ts` / `rpc-wire.ts`）+ `themes/`。装配序列第④步 = `client/boot-v3.ts` 的 wire 装载（webui-v3 cutover）；旧 `isolated.ts` / `isolated-runtime.ts` / `isolatedView.ts` / `ui-plugin-iframe.html` 已随 cr-934 物理删除。
-- **相关不占行包**：`ac-webui`（`ctx.webui` 面：extensions 清单 + 声明注册表；**现役 boot graph 与 `/ui-plugin/` 静态路由由 `apps/ui/src/webui-row.ts` 提供**，职责重叠待裁）、`ac-webui-extensions`（第三方 UI 声明词汇表纯数据包；行已退役，见裁决链）。
+- **相关不占行包**：~~`ac-webui`~~（**cr-1117 物理退役**——`ctx.webui` 声明注册表消费端点随旧链 cr-933/934 删除，包零装配零 importer）、`ac-webui-extensions`（第三方 UI 声明词汇表纯数据包；LEGACY_SLOT_CATALOG 单源锚点在役——settings/slotCatalog 深路径 + ac-plugin-core 安装校验双消费，行已退役，见裁决链）。
 
-> ⚠️ 疑点（2026-10-27 审查）：31 个 `packages/ac-client-ui-*/src/index.ts` 仍写 `ctx.webui.declareClient(...)`，而现役 `/api/ui/boot-graph` 由 `apps/ui/src/webui-row.ts` 扫 `pluginsDir` manifest 产出、`ac-webui` 行不在 row-catalog——声明半边在当前装配下无消费者（清理还是恢复待裁，本文不预判）。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
+> ✅ 已销账（cr-1117）：32 个 `packages/ac-client-ui-*/src/index.ts` 已零功能化（declareClient 死面清除，extension 自述保留——plugin/extension-catalog 活消费）；宿主半边测试改写为「装载/卸载零副作用 + extension 形状锁」。原疑点（2026-10-27 审查）见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
 
 ---
 
@@ -308,7 +308,7 @@ tool-card:result-view 〔k:list·elect·pub——非 DOM 席位：精确名 → 
 
 **纪律**：白名单**只减不增**（新增边不在册 = 红；边已消化而条目未删 = 红）；每消化一环即删条目，清零即除役白名单机制本身。R6 自 2026-09-11 扩权为 `.ts` / `.vue` 同权重（消 .vue 媒介盲区）。
 
-> ⚠️ 疑点（2026-10-27 审查）：`scripts/check-deps.mjs` 的 `SRC` 仍锚 `ROOT/src`，而仓库根已无 `src/`（cr-703）——`findAllPackages()` 空扫，R1–R7 零输入恒绿；同时 `dep-cycles.yml` 的 `edges:` 之后已无条目。故本节 20 边与 §3.3 的 `✓R6` / `✓R7` 标记当前无法复核（守卫待修还是白名单已清零，本文不预判）。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
+> ✅ 已销账（2026-11-16 复核）：`scripts/check-deps.mjs` 锚已修正（当前扫全工作区——`pnpm check:deps` 实跑 R1-R7 有输入且报白名单余 0 条），`dep-cycles.yml` 白名单确已清零。原文疑点（2026-10-27 审查，SRC 空扫恒绿）不复存在。
 
 ---
 

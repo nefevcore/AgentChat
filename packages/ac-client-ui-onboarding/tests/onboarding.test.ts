@@ -69,33 +69,16 @@ describe('跳过确认判定（§3.4/D5）', () => {
   });
 });
 
-describe('宿主半边（boot graph 声明）', () => {
-  async function loadRow(ctx: Context): Promise<Fiber> {
-    const plug = ctx.plugin as unknown as (p: unknown, c?: unknown) => Promise<Fiber> & Fiber;
-    return plug(onboardingRow, undefined);
-  }
-
-  async function boot() {
-    const ctx = new Context();
-    const { WebUiService } = await import('ac-webui/src/service.ts');
-    new WebUiService(ctx);
-    return ctx;
-  }
-
-  it('行装载 → boot graph 含 ui-onboarding 条目', async () => {
-    const ctx = await boot();
-    await loadRow(ctx);
-    const graph = ctx.webui.listBootGraph();
-    const entry = graph.find((g) => g.name === 'ui-onboarding');
-    expect(entry).toBeTruthy();
-    expect(entry!.platform).toBe('web');
-    expect(entry!.phase).toBe('domain');
+describe('M28 P1 · ac-client-ui-onboarding 宿主半边（零功能行——cr-1117：装载/卸载零副作用 + extension 形状）', () => {
+  it('行装载/卸载零副作用（apply 空实现，无宿主面注册）', async () => {
+    const plug = new Context().plugin as unknown as (p: unknown, c?: unknown) => Promise<Fiber> & Fiber;
+    const fiber = await plug(onboardingRow, undefined);
+    await fiber.dispose();
   });
 
-  it('行卸载 → 声明级联回收（可摘除性证据）', async () => {
-    const ctx = await boot();
-    const fiber = await loadRow(ctx);
-    await fiber.dispose();
-    expect(ctx.webui.listBootGraph().some((g) => g.name === 'ui-onboarding')).toBe(false);
+  it('extension 自述形状（extension-catalog 聚合面契约）', () => {
+    expect(onboardingRow.extension.name).toBe(onboardingRow.extension.name.trim());
+    expect(onboardingRow.extension.label.length).toBeGreaterThan(0);
+    expect(onboardingRow.extension.automatic).toBe(true);
   });
 });

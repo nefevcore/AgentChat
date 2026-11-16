@@ -1,25 +1,14 @@
 // ============================================================
-// ac-client-ui-onboarding —— 首启向导前端行
-//（first-run-onboarding-plan，cr-298）
+// ac-client-ui-onboarding/src/index.ts —— 前端行宿主半边（webui-v3 零功能形态）
 //
-// 五步覆盖层向导：用户设置 / 模型设置 / 搜索设置 / Agent 设置 /
-// 界面导览。首启（localStorage 无标记）boot 就绪后自动弹；走完或
-// 跳过即写标记；重播经活动栏「更多」菜单（activity-bar:more-menu
-// 数据席位，批 4）。表单复用既有数据面（跨包 import 先例：
-// ActivityBar import systemApi / useAgentSettings import settings
-// api——D2 裁决放行）。
-//
-// 可摘除性：卸本行 → overlay 席位与菜单项随 fiber 回收，首启不再
-// 弹；被复用行零改动。反向：ui-llm-pool/ui-search-pool 缺席 → 对应
-// 步骤降级为静态说明 + 深链按钮，不得崩（席位/RPC 失败静默降级）。
+// 图成员资格 = 行存在性（webui 基座文档 link: 装载锚——cr-1117 起
+// declareClient 声明注册表随旧链退役）；client 半边经 wire 装载，
+// 席位贡献/服务面全在 client/。extension 自述保留（extension-catalog
+// 聚合消费——插件目录 label 数据源）。
 // ============================================================
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-client-ui-onboarding';
-
-export const inject = ['webui'];
 
 import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
@@ -29,13 +18,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export function apply(ctx: Context) {
-  // boot graph 声明（注册即归属：disposer 经 ctx.effect 挂本行 fiber）
-  const off = ctx.webui.declareClient({
-    name: 'ui-onboarding',
-    entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-    platform: 'web',
-    phase: 'domain',
-  });
-  ctx.effect(() => off);
+export function apply(_ctx: Context) {
+  // 零功能行：装载即图成员（wire +1 行），无宿主面副作用
 }

@@ -39,7 +39,6 @@
     "@agentchat/cordis": "workspace:*",
     "@types/qrcode": "^1.5.6",
     "ac-extension-core": "workspace:*",
-    "ac-webui": "workspace:*",
     "vitest": "^4.1.10"
   },
   "files": [

@@ -1,18 +1,14 @@
 // ============================================================
-// ac-client-ui-run-nodes —— 会话节点前端行（cr-230）
+// ac-client-ui-run-nodes/src/index.ts —— 前端行宿主半边（webui-v3 零功能形态）
 //
-// run 骨架面板：当前会话每 run 的用户消息为节点（时间 + 摘要 +
-// 运行中指示），点击 = 主区定位到该消息（uiStore.revealMsg 意图。
-// 纯前端行：数据源 = ctx.sessions feed（conversation 基础件投影），
-// 无后端行——行缺席时面板消失、无任何宿主残缺。
+// 图成员资格 = 行存在性（webui 基座文档 link: 装载锚——cr-1117 起
+// declareClient 声明注册表随旧链退役）；client 半边经 wire 装载，
+// 席位贡献/服务面全在 client/。extension 自述保留（extension-catalog
+// 聚合消费——插件目录 label 数据源）。
 // ============================================================
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-client-ui-run-nodes';
-
-export const inject = ['webui'];
 
 import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
@@ -22,12 +18,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export function apply(ctx: Context) {
-  const off = ctx.webui.declareClient({
-    name: 'ui-run-nodes',
-    entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-    platform: 'web',
-    phase: 'domain',
-  });
-  ctx.effect(() => off);
+export function apply(_ctx: Context) {
+  // 零功能行：装载即图成员（wire +1 行），无宿主面副作用
 }

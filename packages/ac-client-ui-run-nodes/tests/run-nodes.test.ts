@@ -57,10 +57,7 @@ describe('cr-230 · runNodesOf（turns → run 节点）', () => {
 });
 
 async function boot() {
-  const ctx = new Context();
-  const { WebUiService } = await import('ac-webui/src/service.ts');
-  new WebUiService(ctx);
-  return ctx;
+  return new Context();
 }
 
 async function loadRow(ctx: Context): Promise<Fiber> {
@@ -68,16 +65,16 @@ async function loadRow(ctx: Context): Promise<Fiber> {
   return plug(uiRunNodesRow, undefined);
 }
 
-describe('cr-230 · ac-client-ui-run-nodes 宿主半边（boot graph 声明）', () => {
-  it('行装载 → boot graph 含 ui-run-nodes 条目；卸载 → 级联回收', async () => {
-    const ctx = await boot();
+describe('cr-230 · ac-client-ui-run-nodes 宿主半边（零功能行——cr-1117：装载/卸载零副作用 + extension 形状）', () => {
+  it('行装载/卸载零副作用（apply 空实现，无宿主面注册）', async () => {
+    const ctx = new Context();
     const fiber = await loadRow(ctx);
-    const graph = ctx.webui.listBootGraph();
-    expect(graph.map((g) => g.name)).toContain('ui-run-nodes');
-    const def = graph.find((g) => g.name === 'ui-run-nodes')!;
-    expect(def.platform).toBe('web');
-    expect(def.entry).toMatch(/ac-client-ui-run-nodes[\\/]client[\\/]index\.ts$/);
     await fiber.dispose();
-    expect(ctx.webui.listBootGraph().map((g) => g.name)).not.toContain('ui-run-nodes');
+  });
+
+  it('extension 自述形状（extension-catalog 聚合面契约）', () => {
+    expect(uiRunNodesRow.extension.name).toBe(uiRunNodesRow.extension.name.trim());
+    expect(uiRunNodesRow.extension.label.length).toBeGreaterThan(0);
+    expect(uiRunNodesRow.extension.automatic).toBe(true);
   });
 });

@@ -69,7 +69,7 @@ webui-kit / ac-client-runtime / ac-client-slots 不属表面（全模块共享�
 
 > **修订注记（2026-10-27 复核；cr-696 / cr-701 / cr-703 单轨布局之后）**：表面本体已落为 `apps/ui`（包名 `ac-ui-app`）——`src/` 服务半边（`webui-row.ts` / `isolated.ts` / `isolated-runtime.ts`）+ `client/` 前端半边（`boot.ts` / `main.ts` / `rpc-host` / `rpc-wire` / `shared-modules` + 骨架 3 件 in-bundle）+ `channel/`（29 通道）+ `themes/`；`src/webui/` 随 cr-703 消灭、`ac-webui-extensions` 转纯库（未消融）、骨架为 **3** 件（非六包）、模块资产走 29 通道。`ac-webui` 行仍存且**不在 row-catalog**、现役装配不引用——职责收窄 / 待并（见下方疑点）。三树对称改写为：**`apps/ui`（ac-ui-app）之于 ui 树 = `apps/host` 之于宿主树 = `apps/shell` 之于壳树**。
 
-> ⚠️ 疑点（2026-10-27 审查）：`packages/ac-webui` 仍带 `agentchat.plugin: true` 却无人装配、且不在 row-catalog；row-catalog 的 `webui` 行 path 指向 `apps/ui`。是「文档旧、代码已另案」还是「cr-476 单包化未收口」，本文不预判。见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
+> ✅ 已销账（cr-1117）：`packages/ac-webui` 已物理退役——其 `ctx.webui` 声明注册表消费端点随 webui-v3 cutover（cr-933/934）删除，包零装配零 importer，判「cr-476 单包化未收口」成立并收口。webui 表面本体 = `apps/ui`（ac-ui-app）。原疑点（2026-10-27 审查）见 Note 归档根 docs-review-2026-10-27/findings-C-ui.md
 
 # 5. 自定义阶梯与版本切换
 

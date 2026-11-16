@@ -1,19 +1,14 @@
 // ============================================================
-// ac-client-ui-plugin-registry —— plugin-registry 域前端行
-//（M28 P2 §5.2 settings 退化：插件库四件随域成行）
+// ac-client-ui-plugin-registry/src/index.ts —— 前端行宿主半边（webui-v3 零功能形态）
 //
-// 插件库大件 UI：目录/配置/市场三页签 + 暂存人审 + 扩展配置弹窗 +
-// Agent 插件配置三视图（ExtToolsPane 供 AgentPane 跨包消费）。
-// 经 settings:section 选举席贡献（pluginLibrary 节）；数据经
-// settings 共享 store + plugin 域 RPC 契约面。卸本行 → 插件库节消失。
+// 图成员资格 = 行存在性（webui 基座文档 link: 装载锚——cr-1117 起
+// declareClient 声明注册表随旧链退役）；client 半边经 wire 装载，
+// 席位贡献/服务面全在 client/。extension 自述保留（extension-catalog
+// 聚合消费——插件目录 label 数据源）。
 // ============================================================
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-client-ui-plugin-registry';
-
-export const inject = ['webui'];
 
 import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
@@ -23,12 +18,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export function apply(ctx: Context) {
-  const off = ctx.webui.declareClient({
-    name: 'ui-plugin-registry',
-    entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-    platform: 'web',
-    phase: 'domain',
-  });
-  ctx.effect(() => off);
+export function apply(_ctx: Context) {
+  // 零功能行：装载即图成员（wire +1 行），无宿主面副作用
 }

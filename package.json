@@ -156,7 +156,6 @@
     "ac-web-search-core": "workspace:*",
     "ac-web-server": "workspace:*",
     "ac-web-tools": "workspace:*",
-    "ac-webui": "workspace:*",
     "ac-webui-extensions": "workspace:*",
     "ac-workspace": "workspace:*",
     "ac-ws-bridge": "workspace:*",

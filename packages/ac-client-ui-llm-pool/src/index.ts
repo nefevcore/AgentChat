@@ -1,21 +1,14 @@
 // ============================================================
-// ac-client-ui-llm-pool —— llm-pool 域前端行（M28 P2 §5.2；
-// 2026-09-11 行拆分：搜索引擎节拆往 ac-client-ui-search-pool——本行
-// 收窄为 llm 连接池单节，严格镜像 ac-llm-pool 后端行）
+// ac-client-ui-llm-pool/src/index.ts —— 前端行宿主半边（webui-v3 零功能形态）
 //
-// Provider 连接池管理 UI：PoolManager（llm 连接）+ 池更新编排
-// Host（settings:section 选举席贡献——settings 壳按 selectedNode ×
-// meta.section 选举渲染）。数据经 settings 共享 store（useSettings
-// ——保存编排归 settings 壳）。
-// 卸本行 → 模型管理节与左树叶同步消失（D19 整枝退场）。
+// 图成员资格 = 行存在性（webui 基座文档 link: 装载锚——cr-1117 起
+// declareClient 声明注册表随旧链退役）；client 半边经 wire 装载，
+// 席位贡献/服务面全在 client/。extension 自述保留（extension-catalog
+// 聚合消费——插件目录 label 数据源）。
 // ============================================================
-import { fileURLToPath } from 'node:url';
-import { resolve } from 'node:path';
 import type { Context } from '@agentchat/cordis';
 
 export const name = 'ac-client-ui-llm-pool';
-
-export const inject = ['webui'];
 
 import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
@@ -25,12 +18,6 @@ export const extension: ExtensionMeta = {
   automatic: true,
 };
 
-export function apply(ctx: Context) {
-  const off = ctx.webui.declareClient({
-    name: 'ui-llm-pool',
-    entry: resolve(fileURLToPath(new URL('../client/index.ts', import.meta.url))),
-    platform: 'web',
-    phase: 'domain',
-  });
-  ctx.effect(() => off);
+export function apply(_ctx: Context) {
+  // 零功能行：装载即图成员（wire +1 行），无宿主面副作用
 }
