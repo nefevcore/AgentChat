@@ -23,7 +23,7 @@
 | 域 | 收什么 | 代表档（批后落位） |
 |---|---|---|
 | assembly/ | 装配、行集、进程模型、数据根分层 | menu-assembly.md、host-shell-row-manifest.md、host-shell-decisions.md、data-root-layers.md、migration-chain-completeness.md、config-upgrade.md（agent-assembly.md 已被 menu-assembly.md 取代） |
-| session/ | 会话状态机、运行生命周期、信封投递、子 Agent、权限模型 | session-design.md、run-status-state-machine.md、permission-gate-plan.md、permission-gate-handoff.md、conv-scope-plan.md、access-retirement-plan.md、subagent-recovery-matrix.md、conv-settings-conventions.md（会话键契约） |
+| session/ | 会话状态机、运行生命周期、信封投递、子 Agent、权限模型 | session-design.md、run-status-state-machine.md、permission-gate-plan.md、permission-gate-handoff.md、conv-scope-plan.md、access-retirement-plan.md、subagent-recovery-matrix.md、conv-settings-conventions.md（会话键契约）、unread-authority-plan.md（未读权威源——cr-1145 未实施） |
 | webui/ | WebUI 装载模型、行/席、控件标准、UI 计划 | webui-v3.md、ui-rows-and-slots.md、webui-standard-controls.md |
 | plugin/ | 插件体系规范与开发范式 | **plugin-architecture.md（现行规范，cr-1006）**、auth-registry-data-format.md |
 | llm/ | 模型协议、连接池、提供商接入 | llm-pool-hardening-cr99.md |
