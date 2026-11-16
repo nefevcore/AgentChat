@@ -1,6 +1,6 @@
 {
- "scannedHead": "9c89a56b71c32a7952a1b99a442d2e703ab10f28",
- "generatedAt": "2026-11-16T03:28:21.803Z",
+ "scannedHead": "6cde79ae3c67ff674ea6919553605e7e8ab2cca0",
+ "generatedAt": "2026-11-16T06:36:50.584Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5040,6 +5040,11 @@
     "sha": "1f7cea8f37b895cac46ba37a7f845cec047f1d62",
     "date": "2026-11-15",
     "subject": "feat(tools): cr-1114 工具源统一批1+2——host-face boot 静态承诺面(spec 下沉 core+段拆承诺/补位)+prepare 缝对账重建(emit tools/source-changed)+rowTools 活查询化(listWithOwner+fiberNames 桥,boot 反查退役审计面)+前缀快照正文域漂移升③重算(diff 句退役)+ToolSource 契约与两源实现+MCP 发现缓存(meta/mcp-discovery def-hash 键)与发现对账(redetect)——修 timer 三面失明"
+   },
+   {
+    "sha": "462b59e3f03815794f13d010c9792f4454f21eba",
+    "date": "2026-11-16",
+    "subject": "feat(mcp): cr-1122 listChanged 通知接线——ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK 内建 ClientOptions.listChanged 面接入，能力门控+300ms debounce 由 SDK 承担，autoRefresh=false 重发现归对账链）+ ac-mcp 建连订阅触发 redetect 复用 cr-1114 对账全链（diff/发现缓存/tools/source-changed）；顺带修 prepareRun 静默吞错（.then(next,next) 改 warn+放行）；真实数据根配置 deepwiki 公开服务器 + per-agent 授权，运行时验证通过"
    }
   ],
   "1115": [
@@ -5092,6 +5097,18 @@
     "sha": "9c89a56b71c32a7952a1b99a442d2e703ab10f28",
     "date": "2026-11-16",
     "subject": "feat(assembly): cr-1121 host-face 宿主契约真动态化——注册面聚合取代写死清单（HostFaceRegistry 注册即归属 + timer-face/profile-face 贡献行 + 宿主写契约缓存驱动壳 boot 静态面；core 承诺常量与 tools.ts 退役，timers 条目 invalidate 退役，TERMINOLOGY/GUIDELINES_COLLAB 补位段退役归本地 owner）"
+   }
+  ],
+  "1122": [
+   {
+    "sha": "6cde79ae3c67ff674ea6919553605e7e8ab2cca0",
+    "date": "2026-11-16",
+    "subject": "chore(cr): cr-1122 台账与详情登记"
+   },
+   {
+    "sha": "462b59e3f03815794f13d010c9792f4454f21eba",
+    "date": "2026-11-16",
+    "subject": "feat(mcp): cr-1122 listChanged 通知接线——ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK 内建 ClientOptions.listChanged 面接入，能力门控+300ms debounce 由 SDK 承担，autoRefresh=false 重发现归对账链）+ ac-mcp 建连订阅触发 redetect 复用 cr-1114 对账全链（diff/发现缓存/tools/source-changed）；顺带修 prepareRun 静默吞错（.then(next,next) 改 warn+放行）；真实数据根配置 deepwiki 公开服务器 + per-agent 授权，运行时验证通过"
    }
   ]
  }
