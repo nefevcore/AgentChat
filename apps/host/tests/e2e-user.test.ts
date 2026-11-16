@@ -191,3 +191,36 @@ describe('会话新行通知（cr-870/973：onAppend 回调——宿主装配点
     }
   });
 });
+
+describe('独立私信直播帧（cr-1144：onStandalone——send_agent(to:user) 非回信信封）', () => {
+  it('非回信信封 → 出帧（message_id = requestId 幂等锚）；回信信封（payload.run）跳过', async () => {
+    seedConfig('alpha');
+    const po = new PostOffice({ dataRoot: ROOT });
+    await po.listen();
+    const frames: Array<{ agentId: string; text: string; requestId: string; uuid: string }> = [];
+    const user = new UserStub(po, ROOT, undefined, (agentId, text, requestId, uuid) => {
+      frames.push({ agentId, text, requestId, uuid });
+    });
+    user.start();
+    try {
+      const conv = 'alpha~user';
+      // 独立私信（send_agent(to:'user') 的跨壳信封形态：payload 无 run）
+      await po.dispatch(makeEnvelope({
+        uuid: conv, requestId: 'sa-1', sender: 'alpha', to: 'user',
+        payload: { text: '定时汇报：今日事项已完成' },
+      }));
+      expect(frames).toEqual([
+        { agentId: 'alpha', text: '定时汇报：今日事项已完成', requestId: 'sa-1', uuid: conv },
+      ]);
+      // 回信信封（postReply 形态：payload.run 在场）→ 不出帧（run/settled 已计）
+      await po.dispatch(makeEnvelope({
+        uuid: conv, requestId: 'reply-x', sender: 'alpha', to: 'user',
+        payload: { text: '终稿', run: 'run-x' },
+      }));
+      expect(frames).toHaveLength(1);
+    } finally {
+      user.stop();
+      await po.close();
+    }
+  });
+});

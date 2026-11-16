@@ -34,11 +34,21 @@ export class UserStub {
   /** 会话新行通知（cr-870/973：宿主装配点连 ctx.emit——语义 = 该会话
    *  agent 域有新事实，singles 注册表条目宜标 stale） */
   private readonly onAppend?: (uuid: string) => void;
+  /** 独立私信直播帧（cr-1144）：send_agent(to:'user') 的非回信信封 →
+   *  router/message-received 前端帧出口（装配点注入 webServer.broadcast）。
+   *  缺席 = 无直播面（CLI/纯测试形态）。 */
+  private readonly onStandalone?: (agentId: string, text: string, requestId: string, uuid: string) => void;
 
-  constructor(po: PostOffice, dataRoot: string, onAppend?: (uuid: string) => void) {
+  constructor(
+    po: PostOffice,
+    dataRoot: string,
+    onAppend?: (uuid: string) => void,
+    onStandalone?: (agentId: string, text: string, requestId: string, uuid: string) => void,
+  ) {
     this.po = po;
     this.dataRoot = dataRoot;
     this.onAppend = onAppend;
+    this.onStandalone = onStandalone;
   }
 
   /** 起桩：user 端点注册进邮局 local 通道 */
@@ -76,9 +86,22 @@ export class UserStub {
   }
 
   /** 收信面（agent 终稿/通知到达 user 端点）：cr-973 起纯通知——agent 域
-   *  行已 durable（壳落账先于回信），viewer 派生器退役，通知缓存面失效。 */
+   *  行已 durable（壳落账先于回信），viewer 派生器退役，通知缓存面失效。
+   *  独立私信直播（cr-1144）：非回信信封（send_agent(to:'user')——定时
+   *  自会话 run 等场景产物）此前零前端帧，刷新前不可见且不计未读——
+   *  分流发 router/message-received 帧（前端既有 case 直消费，message_id
+   *  = requestId 幂等锚）。回信信封（payload.run 在场）跳过：run/settled
+   *  已计，再发即双计。 */
   private async receive(env: Envelope): Promise<{ ack: string; fresh: boolean }> {
     this.onAppend?.(env.uuid);
+    if (this.onStandalone !== undefined && env.kind === 'message') {
+      const payload = env.payload as { text?: unknown; run?: unknown } | null;
+      if (payload !== null && typeof payload === 'object'
+        && typeof payload.text === 'string' && payload.text !== ''
+        && payload.run === undefined) {
+        this.onStandalone(env.sender, payload.text, env.requestId, env.uuid);
+      }
+    }
     return { ack: env.requestId, fresh: true };
   }
 }

@@ -76,15 +76,15 @@ describe('cr-1139 · message 私信增量 message_id 锚', () => {
   });
 });
 
-describe('cr-1139 · context-injected injectionId 锚', () => {
-  it('同 injectionId 重投幂等；缺席退化', async () => {
+describe('cr-1144 · 机制注入行不计未读（未读单源 = run/settled + 私信）', () => {
+  it('context-injected（任意 source）→ 不增未读（此前与 run/settled 叠加致每轮两倍）', async () => {
     const feed = await makeFeed();
     feed.ingestFrame('session/context-injected', ['alpha~user', 'alpha', { source: 'skill', label: '注入', injectionId: 'inj-1' }]);
-    feed.ingestFrame('session/context-injected', ['alpha~user', 'alpha', { source: 'skill', label: '注入', injectionId: 'inj-1' }]);
+    feed.ingestFrame('session/context-injected', ['alpha~user', 'alpha', { source: 'memory-delta', label: '长期记忆增量注入' }]);
+    expect(feed.getDialog(directDialog('alpha'))!.unread).toBe(0);
+    // 同轮 run 收束计 1——「一轮回复 = 1 个未读」
+    feed.ingestFrame('run/settled', [{ agent: 'alpha', conversationId: 'alpha~user', run: 'r1', finish: 'stop' }]);
     expect(feed.getDialog(directDialog('alpha'))!.unread).toBe(1);
-    feed.ingestFrame('session/context-injected', ['alpha~user', 'alpha', { source: 'skill', label: '无锚' }]);
-    feed.ingestFrame('session/context-injected', ['alpha~user', 'alpha', { source: 'skill', label: '无锚' }]);
-    expect(feed.getDialog(directDialog('alpha'))!.unread).toBe(3);
   });
 });
 

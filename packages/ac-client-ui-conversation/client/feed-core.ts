@@ -2248,8 +2248,11 @@ export function createFeedCore(
     });
     touch(dialogId, 'system', content, Date.now());
     bump(dialogId);
+    // 未读单源（cr-1144）：机制注入行（memory/skill/resume/ask 答案等）一律
+    // 不计未读——它们是一轮回复的附属分隔行，终稿的收束帧已计；此前逐帧
+    // +1 与 run/settled 叠加致「每轮恰好两倍」未读。roster 活动刷新保留
+    // （列表预览仍反映会话动静）。
     if (isViewerDialog(dialogId) && dialogId !== activeDialogId.value) {
-      bumpUnread(dialogId, anchor !== undefined ? dialogId + '#i:' + anchor : undefined);
       roster().bumpAgentById(agentKeyOf(dialogId), 'assistant', content);
     }
   }
