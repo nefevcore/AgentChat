@@ -1,6 +1,6 @@
 {
- "scannedHead": "6cde79ae3c67ff674ea6919553605e7e8ab2cca0",
- "generatedAt": "2026-11-16T06:36:50.584Z",
+ "scannedHead": "235038ce34712b455f08a267f0349e951195b6b1",
+ "generatedAt": "2026-11-16T09:25:58.526Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5109,6 +5109,32 @@
     "sha": "462b59e3f03815794f13d010c9792f4454f21eba",
     "date": "2026-11-16",
     "subject": "feat(mcp): cr-1122 listChanged 通知接线——ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK 内建 ClientOptions.listChanged 面接入，能力门控+300ms debounce 由 SDK 承担，autoRefresh=false 重发现归对账链）+ ac-mcp 建连订阅触发 redetect 复用 cr-1114 对账全链（diff/发现缓存/tools/source-changed）；顺带修 prepareRun 静默吞错（.then(next,next) 改 warn+放行）；真实数据根配置 deepwiki 公开服务器 + per-agent 授权，运行时验证通过"
+   },
+   {
+    "sha": "2568f8e1439a0f12289d705c9a37d7b166e573e3",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 投影重建(cr-1122 提交后 sync)"
+   }
+  ],
+  "1123": [
+   {
+    "sha": "235038ce34712b455f08a267f0349e951195b6b1",
+    "date": "2026-11-16",
+    "subject": "feat(platform): 壳协议离 stdio 迁移（方案 E）——监护信令全量迁出 stdout/stdin cr-1130 →cr-1123（批 1-5：cr-1125/1126/1127/1128/1129/1130）：节拍=锁+boot-progress 文件、心跳=锁 mtime+peek 双源、控制面=manage 通道、runbeat 壳侧直写、spawn stdio 收敛、规格 D 节重写、计划归档"
+   }
+  ],
+  "1125": [
+   {
+    "sha": "235038ce34712b455f08a267f0349e951195b6b1",
+    "date": "2026-11-16",
+    "subject": "feat(platform): 壳协议离 stdio 迁移（方案 E）——监护信令全量迁出 stdout/stdin cr-1130 →cr-1123（批 1-5：cr-1125/1126/1127/1128/1129/1130）：节拍=锁+boot-progress 文件、心跳=锁 mtime+peek 双源、控制面=manage 通道、runbeat 壳侧直写、spawn stdio 收敛、规格 D 节重写、计划归档"
+   }
+  ],
+  "1130": [
+   {
+    "sha": "235038ce34712b455f08a267f0349e951195b6b1",
+    "date": "2026-11-16",
+    "subject": "feat(platform): 壳协议离 stdio 迁移（方案 E）——监护信令全量迁出 stdout/stdin cr-1130 →cr-1123（批 1-5：cr-1125/1126/1127/1128/1129/1130）：节拍=锁+boot-progress 文件、心跳=锁 mtime+peek 双源、控制面=manage 通道、runbeat 壳侧直写、spawn stdio 收敛、规格 D 节重写、计划归档"
    }
   ]
  }

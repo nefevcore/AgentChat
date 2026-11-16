@@ -1141,4 +1141,12 @@
 - 【cr-1120 2026-11-16 会话列表污染修复：singles 域会话键词汇锁（uuid 形）——listIds 把 agent~agent 对桶键/sub_ 子Agent键/subcalls 无差别并入清单（注册表 1220 条中 118 条脏），前端 knownSingles 被 track 污染后 routeDialog 把对桶帧误路由进 single 分区：未分组树挂出幻影行、unread 命中幻影分区不可清除】
 - 【cr-1121 2026-11-16 host-face 宿主契约真动态化：注册面聚合取代写死清单（core 承诺常量退役，boot 面 = 宿主写契约缓存，timer/profile 面拆贡献行）】
 - 【cr-1122 2026-11-16 MCP listChanged 通知接线：ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK ClientOptions.listChanged 面接入，autoRefresh=false——重发现由对账链主导）+ ac-mcp 建连订阅→redetect 全链对账 + 真实数据根配置公开 MCP 服务器验证】
+- 【cr-1123 2026-11-16 协议离 stdio（方案 E）：监护信令全量迁锁文件+ipc，stdout 专线退役——实施计划】
+- 【cr-1124 2026-11-16 壳协议离 stdio 批1：宿主探测面（boot-progress 纯库 + adopt 锁/probeIpc 并存判据，SHELL_PROTO_OFF_STDIO 门控）+ 计划文档缺口钉补 →cr-1123 #platform】
+- 【cr-1125 2026-11-16 壳协议离 stdio 批1：宿主探测面（boot-progress 纯库 + adopt 锁/probeIpc 并存判据，SHELL_PROTO_OFF_STDIO 门控）+ 计划文档缺口钉补 →cr-1123 #platform】
+- 【cr-1126 2026-11-16 壳协议离 stdio 批2：壳侧双写期（boot 节拍写 boot-progress + 锁 mtime touch 心跳 + 装载失败/指纹入文件）→cr-1123 #platform】
+- 【cr-1127 2026-11-16 壳协议离 stdio 批3：runbeat 壳侧直写 + 宿主 runbeat sink 退役 →cr-1123 #platform】
+- 【cr-1128 2026-11-16 壳协议离 stdio 批3b：控制面切 manage 通道（orchestrate adopt 面 + 子壳 service）→cr-1123 #platform】
+- 【cr-1129 2026-11-16 壳协议离 stdio 批4：信号退役（emitBootSignal 全删 + stdin 帧循环拆除 + 判据切换探测面唯一 + 锁 mtime 心跳喂入 + e2e 改写 + 门控退役）→cr-1123 #platform】
+- 【cr-1130 2026-11-16 壳协议离 stdio 批5：协议规格 D 节改稿 + spawn stdio 收敛 + README 同步 + 计划归档 →cr-1123 #platform】
 
