@@ -1155,4 +1155,10 @@
 - 【cr-1134 2026-11-16 user 域正主回迁:agents/user 会话数据迁回对端 agent 域后清理(迁移前后投影对拍保内容零丢失)】
 - 【cr-1135 2026-11-16 TokenGauge 上下文占用收束/续聊跳变根修：API 锚点校准比率（盘读估算×lastRunPrompt/tokenCount）+ run 收束重取信号】
 - 【cr-1136 2026-11-16 cr check 守门懒 sync 落盘副作用根除：内存态校验不写盘（投影落盘走显式 sync）】
+- 【cr-1137 2026-11-16 unread 徽章错位根因修：routeDialog 兜底分支词法闸——presence 未就绪窗口内 uuid/sub 形会话帧不再误落 direct 对桶（cr-1120 词法即身份的帧路由对称收口）】
+- 【cr-1138 2026-11-16 session-index 聚合读面：sessionMeta/sessionByDay SQL 聚合（零盘读）+ web-api session/meta RPC——diving 精确化/activity 窗口/健康仪表板与 unread 读位锚的共同原语】
+- 【cr-1139 2026-11-16 unread 读位换血（cr-1137 根因后续）：增量锚定幂等化——run/message/inject 增量绑唯一锚防重投超计 + 快照 {n,ts} 读写合并 + storage 事件多 tab 收敛】
+- 【cr-1140 2026-11-16 已收束无 ts 孤儿 run 盲区投出致 live agent 侧幻影(迁移 journal 步无 ts→守尾+无锚双投,与 foldLlmReplay 孤儿 slot 同判据收口)】
+- 【cr-1141 2026-11-16 unread 后续一裁决：router/message-received 帧无发射点（ac-router 退役遗留词汇）——message_id 补帧方案作废，unread 幂等锚改归 run/settled runId 锚 + 落账行重拉（既有现状即终态） #unread →cr-1139 --status doing】
+- 【cr-1142 2026-11-16 roster 预览权威化（sessionMeta lastRole/lastAgent）+ singles 摘要改道 session-index 聚合面（computeLedgerSummary 盘读转 SQL）——两处重复实现走散的架构收敛 #session-index #unread →cr-1138 --status doing】
 

@@ -1,6 +1,6 @@
 {
- "scannedHead": "e406b8c7547223c464166b54e6670fb16de9d20d",
- "generatedAt": "2026-11-16T13:14:57.644Z",
+ "scannedHead": "095eb84aca3655a99cb8e0d1d0001fc2fb39e9ef",
+ "generatedAt": "2026-11-16T15:28:55.291Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5207,6 +5207,63 @@
     "sha": "e406b8c7547223c464166b54e6670fb16de9d20d",
     "date": "2026-11-16",
     "subject": "fix(cr): cr-1136 check 守门零写副作用（内存态懒校验，投影落盘走显式 sync）"
+   },
+   {
+    "sha": "47bf2c2d0c0c56c1184aa9d42b260f0d6fe70572",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 台账攒批——cr-1136 登记/状态/投影"
+   }
+  ],
+  "1137": [
+   {
+    "sha": "095eb84aca3655a99cb8e0d1d0001fc2fb39e9ef",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 台账攒批——cr-1137~1142 登记 + cr-1141 裁决详档"
+   },
+   {
+    "sha": "8fb629ba8de7aa10f5b9917e595d07032bff2774",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1137/1138/1139 unread 徽章错位三级修复 + session-index 聚合读面"
+   }
+  ],
+  "1138": [
+   {
+    "sha": "6b52cbf1267dec72b108a1859292972a9c466b7a",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1142 roster 预览权威化（发言口径）+ 高频面只读聚合约束"
+   },
+   {
+    "sha": "8fb629ba8de7aa10f5b9917e595d07032bff2774",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1137/1138/1139 unread 徽章错位三级修复 + session-index 聚合读面"
+   }
+  ],
+  "1139": [
+   {
+    "sha": "8fb629ba8de7aa10f5b9917e595d07032bff2774",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1137/1138/1139 unread 徽章错位三级修复 + session-index 聚合读面"
+   }
+  ],
+  "1140": [
+   {
+    "sha": "095eb84aca3655a99cb8e0d1d0001fc2fb39e9ef",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 台账攒批——cr-1137~1142 登记 + cr-1141 裁决详档"
+   }
+  ],
+  "1141": [
+   {
+    "sha": "095eb84aca3655a99cb8e0d1d0001fc2fb39e9ef",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 台账攒批——cr-1137~1142 登记 + cr-1141 裁决详档"
+   }
+  ],
+  "1142": [
+   {
+    "sha": "6b52cbf1267dec72b108a1859292972a9c466b7a",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1142 roster 预览权威化（发言口径）+ 高频面只读聚合约束"
    }
   ]
  }
