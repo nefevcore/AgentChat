@@ -207,7 +207,9 @@ describe('8.5a 宿主 web 面接线', () => {
   it('会话覆盖面：conv-settings 写读 + deliver 合并 + singles/update 同源', async () => {
     host = await bootHostWeb({ dataRoot: ROOT });
     const { ws } = await connect(host.port);
-    const conv = 'alpha~user';
+    // cr-1120：会话键用真实 uuid 形（旧 alpha~user 对桶键依赖 listIds 无差别
+    // 并集被误收进 singles 清单——词汇锁后 1v1 直答键不是 single）
+    const conv = '01999aaa-bbbb-7ccc-8ddd-0123456789ab';
 
     // ① conv-settings 写读往返（宿主行原生键域校验）+ 盘上单源
     const set = await rpc<{ settings: Record<string, string> }>(ws, 'conv-settings/set', {
@@ -229,8 +231,11 @@ describe('8.5a 宿主 web 面接线', () => {
     const keys = await rpc<{ keys: Array<{ key: string; group?: string }> }>(ws, 'conv-settings/keys', {});
     expect(keys.keys.map((k) => k.key).sort()).toEqual(['approval', 'browserTier', 'issueSubmit']);
 
-    // ② deliver 合并点：1v1 直答不传 conversationId/model → 按 pairKey 读存盘覆盖
-    const delivered = await rpc<{ uuid: string }>(ws, 'conversation/deliver', { agentId: 'alpha', message: '带覆盖一问' });
+    // ② deliver 合并点：1v1 直答不传 conversationId/model → 按 pairKey 读存盘覆盖。
+    // 会话键显式传 uuid 形（cr-1120 词汇锁：对桶键 alpha~user 不是 singles——
+    // 旧 e2e 靠 listIds 无差别并集把它误收进 singles 清单，update 才走得通）
+    const convUuid = '01999aaa-bbbb-7ccc-8ddd-0123456789ab';
+    const delivered = await rpc<{ uuid: string }>(ws, 'conversation/deliver', { agentId: 'alpha', message: '带覆盖一问', conversationId: convUuid });
     // cr-973：deliver 只投递——入站行按壳侧形态落 agent 域（会话据此在
     // singles 面可见；viewer 物化退役后账本在场 = 会话在场）
     const dw = new LedgerWriter(sessionDir(ROOT, 'alpha', delivered.uuid), { participants: ['alpha', 'user'], kind: 'user' });

@@ -89,9 +89,22 @@ function metaSessionsDir(dataRoot: string): string {
 
 
 
-function assertId(id: string): void {
-  if (id === '' || id.includes('/') || id.includes('\\') || id.includes('..')) {
-    throw new Error('会话 id "' + id + '" 非法（非空，禁路径分隔 / ..）');
+// singles 会话键词汇锁（cr-1120）：uuid 形（v4/v7 兼容）。签发源恒此形——
+// 服务端 issueConversationId（uuidv7）与前端 issueLocalConversationId
+//（同构）。agents 域 sessions/ 还住对桶键 'a~b'（agent⇄agent / 群成员
+// 流 gid~member）与子 Agent 键 'sub_*'（run_code 编排会话）——无差别
+// 并集曾把它们误收进用户会话清单（未分组幻影行 + 帧路由串台：
+// knownSingles 污染后对桶/子Agent 帧误路由 single 分区，unread 命中
+// 幻影行不可清除）。uuid 形词法即身份：非此形的 agents 域目录不是
+// singles，meta/sessions 里的非 uuid 残留（title-request 历史误写）
+// 同样不收。
+function isSingleSessionId(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
+function assertSingleId(id: string): void {
+  if (!isSingleSessionId(id)) {
+    throw new Error('会话 id "' + id + '" 非法（须 uuid 形独立会话键）');
   }
 }
 
@@ -352,14 +365,17 @@ export function migrateLegacyPrefixSnapshots(
  *  派生标题/agentId；cr-998 viewer 存量目录并集窗退役，身份事实源
  *  改指 agent 域）。
  *  词汇锁（cr-1100）：meta/sessions/ 只收裸 <sid>.json 会话元数据——
- *  文件名含点即非会话 id（会话 id = uuid 形无点；曾因 prefix-snapshot
- *  寄居本目录被通配误收成幻影「新会话」，快照已分居 meta/prefix-snapshots/）。
- *  新的会话级产物勿再入本目录，独占目录或入 meta/ 平级子域。 */
+ *  文件名含点即非会话 id；新的会话级产物勿再入本目录，独占目录或入
+ *  meta/ 平级子域。
+ *  词汇锁（cr-1120）：id 必须 uuid 形（isSingleSessionId）——agents 域
+ *  sessions/ 还住对桶键 'a~b'（agent⇄agent / 群成员流 gid~member）与
+ *  子 Agent 键 'sub_*'，meta 层也有 title-request 历史误写残留；无差别
+ *  并集会把它们收进用户会话清单（未分组幻影行 + 帧路由串台）。 */
 function listIds(dataRoot: string): string[] {
   const ids = new Set<string>();
   try {
     for (const e of fs.readdirSync(metaSessionsDir(dataRoot), { withFileTypes: true })) {
-      if (e.isFile() && e.name.endsWith('.json') && !e.name.startsWith('.') && !e.name.slice(0, -5).includes('.')) ids.add(e.name.slice(0, -5));
+      if (e.isFile() && e.name.endsWith('.json') && !e.name.startsWith('.') && !e.name.slice(0, -5).includes('.') && isSingleSessionId(e.name.slice(0, -5))) ids.add(e.name.slice(0, -5));
     }
   } catch { /* 无元数据域 */ }
   try {
@@ -367,7 +383,7 @@ function listIds(dataRoot: string): string[] {
       if (!a.isDirectory()) continue;
       try {
         for (const e of fs.readdirSync(path.join(dataRoot, 'agents', a.name, 'sessions'), { withFileTypes: true })) {
-          if (e.isDirectory()) ids.add(e.name);
+          if (e.isDirectory() && isSingleSessionId(e.name)) ids.add(e.name);
         }
       } catch { /* 该 agent 无 sessions */ }
     }
@@ -449,7 +465,11 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
           const issues = validateTitleRequestPayload(payload);
           if (issues.length > 0) throw new Error('标题请求非法：' + issues.join('；'));
           const id = String(payload.conversationId);
-          assertId(id);
+          // cr-1120：受理前按词汇锁拒绝非 singles 会话键（对桶/子Agent 键
+          // 的 auto-title 上报不落 meta/sessions——历史误写即本次未分组
+          // 幻影行的来源之一）；非法键 fail-loud（信封面协议错误，可重投面
+          // 可见）。
+          assertSingleId(id);
           const title = String(payload.title).trim().slice(0, TITLE_MAX_LEN);
           if (title === '') return;
           const before = viewOf(dataRoot, id, conv());
@@ -531,7 +551,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         // 签发的 id 创建，消息流与 session.json 落同一目录）：已有目录
         //（meta 或账本任一在场）= 幂等返回现状视图，不重复落盘。
         const requested = optStr(p.id);
-        if (requested !== undefined) assertId(requested);
+        if (requested !== undefined) assertSingleId(requested);
         const id = requested ?? issueConversationId();
         if (requested !== undefined) {
           const existing = viewOf(dataRoot, id, conv());
@@ -560,7 +580,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       web.registerRpc('singles/update', (params) => {
         const p = obj(params);
         const id = reqStr(p, 'id');
-        assertId(id);
+        assertSingleId(id);
         const before = viewOf(dataRoot, id, conv());
         if (before === null) throw new Error('会话不存在：' + id);
         const now = new Date().toISOString();
@@ -613,7 +633,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       web.registerRpc('singles/fork', (params) => {
         const p = obj(params);
         const id = reqStr(p, 'id');
-        assertId(id);
+        assertSingleId(id);
         const from = viewOf(dataRoot, id, conv());
         if (from === null) throw new Error('会话不存在：' + id);
         const nextId = issueConversationId();
@@ -652,7 +672,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
 
       web.registerRpc('singles/archive', (params) => {
         const id = reqStr(obj(params), 'id');
-        assertId(id);
+        assertSingleId(id);
         const before = viewOf(dataRoot, id, conv());
         if (before === null) throw new Error('会话不存在：' + id);
         const meta: SingleMeta = {
@@ -675,7 +695,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       // 硬删：会话账本（user 投影 + 各 agent 域）+ 元数据 + 模型覆盖，一并清
       web.registerRpc('singles/delete', (params) => {
         const id = reqStr(obj(params), 'id');
-        assertId(id);
+        assertSingleId(id);
         const before = viewOf(dataRoot, id, conv());
         for (const dir of conversationDirs(dataRoot, id)) {
           fs.rmSync(dir, { recursive: true, force: true });

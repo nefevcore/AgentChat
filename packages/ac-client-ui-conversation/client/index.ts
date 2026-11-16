@@ -98,6 +98,10 @@ declare module 'ac-client-slots' {
   }
 }
 
+/** singles 会话键词汇锁（cr-1120，与服务端 isSingleSessionId 同形）：uuid v4/v7。
+ *  签发源 = 服务端 issueConversationId（uuidv7）/ 前端 issueLocalConversationId。 */
+const SINGLE_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 interface ConversationClientOptions {
   /** 预留（对齐 cordis Service 构造签名形态） */
 }
@@ -135,10 +139,14 @@ export class ConversationService extends Service {
     for (const id of ids) chatPresence.knownGroups.add(id);
   }
 
-  /** singles 域：登记/摘除单个会话 presence（list/create/update 登记、delete 摘除） */
+  /** singles 域：登记/摘除单个会话 presence（list/create/update 登记、delete 摘除）。
+   *  cr-1120：只收 uuid 形键——knownSingles 是 routeDialog 的第一优先级
+   *  路由表，混入对桶键 'a~b'/子Agent 键 'sub_*' 会把对桶帧误路由进
+   *  single 分区（unread 命中幻影分区不可清除）。服务端已按同谓词收口，
+   *  此处为帧面第二道闸（幂等，双保险）。 */
   trackKnownSingle(id: string, removed = false): void {
     if (removed) chatPresence.knownSingles.delete(id);
-    else chatPresence.knownSingles.add(id);
+    else if (SINGLE_SESSION_ID_RE.test(id)) chatPresence.knownSingles.add(id);
   }
 
   /** singles 域：single 分区未读对账（孤儿清除——会话已删/归档后未读

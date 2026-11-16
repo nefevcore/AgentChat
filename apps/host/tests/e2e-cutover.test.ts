@@ -67,8 +67,8 @@ function seedLegacy(): void {
     fs.writeFileSync(path.join(dir, 'messages.jsonl'), lines.join('\n') + '\n');
   };
   // majority 归属需要 alpha 行占多数（majorityAgentId 无 exclude——user 行同计入）
-  mk('s-one', [['user', '问一'], ['assistant', '答一'], ['assistant', '补充'], ['user', '追问'], ['assistant', '终答']]);
-  mk('s-two', [['user', '单问'], ['assistant', '单答'], ['assistant', '再答']]);
+  mk('01999aaa-0000-7000-8000-000000000001', [['user', '问一'], ['assistant', '答一'], ['assistant', '补充'], ['user', '追问'], ['assistant', '终答']]);
+  mk('01999aaa-0000-7000-8000-000000000002', [['user', '单问'], ['assistant', '单答'], ['assistant', '再答']]);
 }
 
 /** cr-1022 批3 → cr-1036 批3：importRoot 产物已是 v3 形态（ac-import 写面
@@ -128,7 +128,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     seedLegacy();
     const report = await importRoot(legacyRoot, targetRoot, path.join(tmp, 'staging'), { agentsTree: true });
     // 会话恒等门：importSession 内联校验失败即 throw——到达这里 = 全过
-    expect(report.results.map((r) => r.uuid).sort()).toEqual(['s-one', 's-two']);
+    expect(report.results.map((r) => r.uuid).sort()).toEqual(['01999aaa-0000-7000-8000-000000000001', '01999aaa-0000-7000-8000-000000000002']);
     expect(report.skipped).toEqual([]);
     // agents 树：config 换轨 + entries 归拢 + 身份文件
     expect(report.agentsTreeResults).toEqual([{ agentId: 'alpha', configConverted: true, entriesMoved: 1, identityFilesCopied: 1 }]);
@@ -143,10 +143,10 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     expect(fs.existsSync(path.join(targetRoot, 'agents/alpha/entries/todo.json'))).toBe(true);
     // cr-973：viewer 物化退役（userProjection 选项删除）——终稿层 =
     // agent 域账本读时投影；两 singles 会话各自可投影出全量行
-    expect(projectUserReplay(targetRoot, 's-one').map((r) => [r.role, r.content])).toEqual([
+    expect(projectUserReplay(targetRoot, '01999aaa-0000-7000-8000-000000000001').map((r) => [r.role, r.content])).toEqual([
       ['user', '问一'], ['peer', '答一'], ['peer', '补充'], ['user', '追问'], ['peer', '终答'],
     ]);
-    expect(projectUserReplay(targetRoot, 's-two')).toHaveLength(3);
+    expect(projectUserReplay(targetRoot, '01999aaa-0000-7000-8000-000000000002')).toHaveLength(3);
   });
 
   it('宿主 boot 读新账本回放对齐（agents/list + singles/list + session/history）', async () => {
@@ -156,7 +156,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     // cr-973：viewer 物化退役——singles 身份元数据（引用/覆盖配置，非消息
     // 派生物）由 importRoot 自 legacy singles/<sid>/session.json 迁
     // meta/sessions/<sid>.json（清单身份源；消息流与回放走 agent 域读时投影）
-    for (const sid of ['s-one', 's-two']) {
+    for (const sid of ['01999aaa-0000-7000-8000-000000000001', '01999aaa-0000-7000-8000-000000000002']) {
       const migrated = JSON.parse(fs.readFileSync(path.join(targetRoot, 'meta', 'sessions', sid + '.json'), 'utf-8')) as { id: string; agentId: string };
       const legacy = JSON.parse(fs.readFileSync(path.join(legacyRoot, 'singles', sid, 'session.json'), 'utf-8')) as { id: string; agentId: string };
       expect(migrated.id).toBe(legacy.id);
@@ -172,11 +172,11 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
 
     // ② singles/list：身份元数据（meta/sessions）+ agent 域账本可见
     const singles = await rpc<{ singles: Array<{ id: string; agentId: string; title?: string }> }>(ws, 'singles/list', {});
-    expect(singles.singles.map((s) => s.id).sort()).toEqual(['s-one', 's-two']);
+    expect(singles.singles.map((s) => s.id).sort()).toEqual(['01999aaa-0000-7000-8000-000000000001', '01999aaa-0000-7000-8000-000000000002']);
 
     // ③ session/history：user 视角回放 == agent 侧账本终稿（条数 + 内容恒等）
-    const history = await rpc<{ records: Array<{ role: string; content: string }>; total: number }>(ws, 'session/history', { conversationId: 's-one' });
-    const agentRows = readLedger(path.join(targetRoot, 'agents', 'alpha', 'sessions', 's-one')).rows
+    const history = await rpc<{ records: Array<{ role: string; content: string }>; total: number }>(ws, 'session/history', { conversationId: '01999aaa-0000-7000-8000-000000000001' });
+    const agentRows = readLedger(path.join(targetRoot, 'agents', 'alpha', 'sessions', '01999aaa-0000-7000-8000-000000000001')).rows
       .filter((r) => r.role === 'agent');
     expect(history.total).toBe(agentRows.length);
     expect(history.records.map((r) => r.content)).toEqual(agentRows.map((r) => r.content));
@@ -186,12 +186,12 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
     // cr-973：deliver 只投递——入站行按壳侧形态落 agent 域（fixture；同键
     // 壳侧重落被投影去重）
     const outcome = await rpc<{ kind: string; uuid: string }>(ws, 'conversation/deliver', {
-      agentId: 'alpha', message: '导入后新问', conversationId: 's-one', requestId: 'rq-c1',
+      agentId: 'alpha', message: '导入后新问', conversationId: '01999aaa-0000-7000-8000-000000000001', requestId: 'rq-c1',
     });
-    expect(outcome.uuid).toBe('s-one');
-    const lw = new LedgerWriter(sessionDir(targetRoot, 'alpha', 's-one'), { participants: ['alpha', 'user'], kind: 'user' });
-    await lw.deliver({ role: 'agent', content: '导入后新问', agent_id: 'user', requestId: 'rq-c1', uuid: 's-one' });
-    const after = await rpc<{ total: number }>(ws, 'session/history', { conversationId: 's-one' });
+    expect(outcome.uuid).toBe('01999aaa-0000-7000-8000-000000000001');
+    const lw = new LedgerWriter(sessionDir(targetRoot, 'alpha', '01999aaa-0000-7000-8000-000000000001'), { participants: ['alpha', 'user'], kind: 'user' });
+    await lw.deliver({ role: 'agent', content: '导入后新问', agent_id: 'user', requestId: 'rq-c1', uuid: '01999aaa-0000-7000-8000-000000000001' });
+    const after = await rpc<{ total: number }>(ws, 'session/history', { conversationId: '01999aaa-0000-7000-8000-000000000001' });
     expect(after.total).toBe(agentRows.length + 1);
 
     ws.close();
