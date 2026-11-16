@@ -1161,4 +1161,7 @@
 - 【cr-1140 2026-11-16 已收束无 ts 孤儿 run 盲区投出致 live agent 侧幻影(迁移 journal 步无 ts→守尾+无锚双投,与 foldLlmReplay 孤儿 slot 同判据收口)】
 - 【cr-1141 2026-11-16 unread 后续一裁决：router/message-received 帧无发射点（ac-router 退役遗留词汇）——message_id 补帧方案作废，unread 幂等锚改归 run/settled runId 锚 + 落账行重拉（既有现状即终态） #unread →cr-1139 --status doing】
 - 【cr-1142 2026-11-16 roster 预览权威化（sessionMeta lastRole/lastAgent）+ singles 摘要改道 session-index 聚合面（computeLedgerSummary 盘读转 SQL）——两处重复实现走散的架构收敛 #session-index #unread →cr-1138 --status doing】
+- 【cr-1143 2026-11-17 live 会话 todo/goal dock 卡不刷新：刷新帧族迁 cr-976 新帧（tool/result · run/settled）补漏 + ledger 工具结果行 name 恒落】
+- 【cr-1144 2026-11-17 未读计数收口：机制注入行不再计未读（一轮回复=1，修双倍）+ send_agent(to:user) 独立私信 user 桩直播帧（修定时自会话私信零反馈）】
+- 【cr-1145 2026-11-17 未读服务端权威源实施计划（cr-1144 遗留缺口的终态设计——读位持久化 + 对账归一）】
 
