@@ -4,7 +4,9 @@
 //  出厂贡献 order 20——direct/single 形态的 Token 仪表：头部占用 gauge
 //  (26px) + 点击详情弹层（四段堆叠条 + KV 走势，cr-231）。数据面：
 //  fetchSessionTokens（agents rosterApi）+ chatStore 固定开销估算 +
-//  session/kv-timeline；归档入口随弹层底部。）
+//  session/kv-timeline；归档入口随弹层底部。cr-1135：盘读态经锚点
+//  校准比率（lastRunPrompt/tokenCount，idle 采样）吸收估算系统偏差，
+//  收束/续聊切换点连续。）
 // ============================================================
 
 <script setup lang="ts">
@@ -46,6 +48,26 @@ interface SessionTokens {
 }
 const sessionTokens = ref<SessionTokens | null>(null);
 
+// ── 锚点校准比率（cr-1135 收束/续聊跳变根修）──
+// 根因：displayTotal 在「run 中 = API 真实 prompt」与「收束后 = 回放估算
+// +固定开销」两套异构口径间硬切换，估算器系统偏差（系数/chat 模板/
+// 未取实值开销）在切换帧整体显现为跳变。修法（DSH token-meter 同思路
+// 的乘法形式）：idle 采样拍上锚点 P=cache.lastRunPrompt（最近一次 API
+// prompt，含系统提示/工具定义/模板全部真实开销）与盘读估算 E=tokenCount
+// 同拍配对，比率 r=P/E 吸收全部系统偏差；盘读态显示 E×r——切换点按
+// 构造连续（E×r=P），后续增长沿校准估算器走。归档使 E 骤缩而 P 停留
+// 旧值（r 失真）——归档即清除，回落无锚点口径直到下次 run 重校准。
+// 采样只在 idle 拍（turnInProgress=false）：run 中 fetch 的 P 仍是上一
+// run 的（计量桶 run 收束才更新），配对失真。钳制 [0.5,4] 防病态对。
+const anchorRatio = ref<number | null>(null);
+function sampleAnchorRatio(st: SessionTokens): void {
+  if (chatStore.turnInProgress) return;
+  const p = st.cache?.lastRunPrompt ?? 0;
+  if (p > 0 && st.tokenCount > 0) {
+    anchorRatio.value = Math.min(4, Math.max(0.5, p / st.tokenCount));
+  }
+}
+
 async function fetchTokenBaseline(clearFirst = false) {
   // single：会话键 = sid、承载 Agent = data.agentId（元数据 agentId 空 =
   //   默认预设——不补全则后端以 sid 为 viewer 估算，占用严重偏低）；
@@ -83,6 +105,8 @@ async function fetchTokenBaseline(clearFirst = false) {
         : {}),
     };
   } catch { /* 失败保留旧值，不闪烁 */ }
+  // idle 拍采样锚点（cr-1135；见 anchorRatio 注释）——基于同拍数据
+  if (sessionTokens.value) sampleAnchorRatio(sessionTokens.value);
 }
 let tokenFetchSeq = 0;
 
@@ -96,15 +120,22 @@ const tokenPanelOpen = ref(false);
 // （loop/after-step——工具步先于工具执行，长工具运行中即重取；此前挂
 // after-run 要等整轮收束）/ 历史拉尽（估算口径补全）/ 归档完成（compact
 // 重写会话——无 run 结束）
-watch(() => props.data.agentId, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
-watch(() => props.data.single?.id, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; });
+watch(() => props.data.agentId, () => { anchorRatio.value = null; fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
+watch(() => props.data.single?.id, () => { anchorRatio.value = null; fetchTokenBaseline(true); tokenPanelOpen.value = false; });
 watch(() => chatStore.lastStepEndAt, () => {
   fetchTokenBaseline();
   // 实时占用（cr-761）：run 进行中也拉 KV 步流——最新步 prompt 驱动占用环
   if (tokenPanelOpen.value || chatStore.turnInProgress) fetchKv();
 });
 watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
-watch(() => chatStore.sessionArchivedAt, () => { fetchTokenBaseline(); });
+// run 收束（cr-1135）：fresh 锚点对的采样拍——usage 自报信经邮局异步入账，
+// 收束帧先行；双拍重取（即时 + 800ms 迟到补采）跨过信封竞态
+watch(() => chatStore.lastRunSettledAt, () => {
+  fetchTokenBaseline();
+  setTimeout(() => { fetchTokenBaseline(); }, 800);
+});
+// 归档（cr-1135）：P 停留旧值而 E 骤缩——比率失真，清除回落无锚点口径
+watch(() => chatStore.sessionArchivedAt, () => { anchorRatio.value = null; fetchTokenBaseline(); });
 // 会话模式/浏览器档快照变化（ChatInput 写口 bump——run 间隙生效）→ 装配面
 /** 重拉固定开销构成（系统提示/工具定义——打开面板/装配面变化时：人格/
  *  记忆/生效工具集都可能变化）；群形态带 gid（记忆桶/群共享记忆按 gid
@@ -163,16 +194,30 @@ const livePrompt = computed(() => {
   }
   return undefined;
 });
-/** 展示用总占用：实时态优先（真实值），否则盘读估算 + 固定开销 */
+/** 展示用总占用（cr-1135）：实时态优先（真实值）；盘读态有锚点按校准
+ * 估算（E×r——r 已吸收系统提示/工具定义/模板全部固定偏差，不再叠加
+ * 估算值防双计）；无锚点回落旧口径（净估算 + 固定开销实值/0） */
 const displayTotal = computed(() => {
   const st = sessionTokens.value;
   if (!st) return 0;
   if (livePrompt.value !== undefined) return livePrompt.value;
+  if (anchorRatio.value !== null) return Math.round(st.tokenCount * anchorRatio.value);
   return st.tokenCount + systemPromptTokens.value + toolDefsTokens.value;
 });
+/** 会话上下文段（四段条/aria 共源）：总量减固定开销估算（clamp ≥0）——
+ * 有锚点/实时态时总量已含真实固定开销，差值即上下文净量；无锚点回落
+ * 盘读净估算（与旧口径恒等） */
+const contextTokens = computed(() => {
+  const st = sessionTokens.value;
+  if (!st) return 0;
+  if (livePrompt.value !== undefined || anchorRatio.value !== null) {
+    return Math.max(0, displayTotal.value - systemPromptTokens.value - toolDefsTokens.value);
+  }
+  return st.tokenCount;
+});
 
-/** 占用比例（含固定开销）：分子 = 会话净占用 + 系统提示/工具定义实值
- *  估算（未取 = 0）；分母 = maxContextTokens。status 阈值档与后端
+/** 占用比例：分子 = displayTotal（cr-1135 三档：实时值 / 锚点校准值 /
+ *  净估算+固定开销）；分母 = maxContextTokens。status 阈值档与后端
  *  session/tokens 的档位判定（<75/<90）同款（cr-122 三档收敛）。 */
 const usageWithOverhead = computed(() => {
   const st = sessionTokens.value;
@@ -193,16 +238,13 @@ const usageWithOverhead = computed(() => {
 const stackSegments = computed(() => {
   const st = sessionTokens.value;
   if (!st) return [];
-  // 实时态（cr-761）：prompt 已含固定开销——context 段 = 总量减固定开销
-  // （clamp ≥0），余量 = 上限减总量；与头行同一 displayTotal 口径。
-  const contextTokens = livePrompt.value !== undefined
-    ? Math.max(0, displayTotal.value - systemPromptTokens.value - toolDefsTokens.value)
-    : st.tokenCount;
+  // cr-1135：context 段与头行同 displayTotal 口径（contextTokens computed
+  // 共源——实时/锚点态减固定开销估算，无锚点回落净估算）。
   const rest = Math.max(0, st.maxContextTokens - displayTotal.value);
   return [
     { key: 'tooldefs', label: '工具定义', tokens: toolDefsTokens.value, color: '#ecc59a' },
     { key: 'sysprompt', label: '系统提示词', tokens: systemPromptTokens.value, color: '#c9a7ec' },
-    { key: 'context', label: '会话上下文', tokens: contextTokens, color: '#8fb8e6' },
+    { key: 'context', label: '会话上下文', tokens: contextTokens.value, color: '#8fb8e6' },
     { key: 'rest', label: '余量', tokens: rest, color: '' },
   ];
 });
@@ -324,7 +366,7 @@ const applicable = computed(() =>
     @click.stop="toggleTokenPanel()"
   >
     <!-- 环形进度条：占用率在环中心，语义色随状态（低→临界）
-         （占用比例含系统提示/工具定义固定开销——值取后实值并入，未取 = 0） -->
+         （占用比例分子 = displayTotal 三档口径；cr-1135 锚点校准值已含固定开销） -->
     <!-- title 挂触发区（环）而非含弹层的根节点（cr-239：弹层内悬停会弹原生 title 与 kit Tooltip 同屏双显）；读屏语义由根节点 aria-label 承担 -->
     <RingProgress
       class="gauge-ring"
@@ -343,12 +385,12 @@ const applicable = computed(() =>
         <div class="token-panel__bar-row">
           <div class="token-bar-topline">
             <span class="token-bar-pct">上下文占用 <strong>{{ Math.round(usageWithOverhead.pct) }}%</strong></span>
-            <span class="token-bar-limit">{{ livePrompt !== undefined ? '' : '~' }}{{ fmtTokenCount(displayTotal) }} / {{ fmtTokenCount(sessionTokens!.maxContextTokens) }}</span>
+            <span class="token-bar-limit">{{ livePrompt !== undefined || anchorRatio !== null ? '' : '~' }}{{ fmtTokenCount(displayTotal) }} / {{ fmtTokenCount(sessionTokens!.maxContextTokens) }}</span>
           </div>
           <div
             class="token-stack"
             role="img"
-            :aria-label="`上下文占用 ${Math.round(usageWithOverhead.pct)}%（会话上下文 ${fmtTokenCount(sessionTokens!.tokenCount)} + 系统提示词 ~${fmtTokenCount(systemPromptTokens)} + 工具定义 ~${fmtTokenCount(toolDefsTokens)} / 上限 ${fmtTokenCount(sessionTokens!.maxContextTokens)}）`"
+            :aria-label="`上下文占用 ${Math.round(usageWithOverhead.pct)}%（会话上下文 ${fmtTokenCount(contextTokens)} + 系统提示词 ~${fmtTokenCount(systemPromptTokens)} + 工具定义 ~${fmtTokenCount(toolDefsTokens)} / 上限 ${fmtTokenCount(sessionTokens!.maxContextTokens)}）`"
           >
             <div
               v-for="(seg, i) in stackSegments"

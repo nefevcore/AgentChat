@@ -186,6 +186,12 @@ export function createFeedCore(
    */
   const lastStepEndAt = ref(0);
   /**
+   * 活跃会话最近一次 run 收束时刻（run/settled——cr-1135）：token 仪表
+   * 锚点采样的重取信号。usage 自报信（lastRunPrompt 更新）经邮局异步
+   * 到达宿主聚合面——收束帧先到、计量桶后落，消费方需双拍重取。
+   */
+  const lastRunSettledAt = ref(0);
+  /**
    * 归档整理 run 进行中的对话（2026-09-04 认知缺口修复）：机制 run 流式
    * 隐藏（不扰民）但边界帧对隐藏 run 也广播（ws-bridge：run-started /
    * after-run 恒转发）——据此维护"正在整理"集合。archivePending（活跃
@@ -2587,6 +2593,8 @@ export function createFeedCore(
         }
         const active = isForActiveAgent(keys);
         onChatEnd(keys.dialogId, { content: finish === 'stop' ? String(p?.text ?? '') : '' }, active);
+        // cr-1135：收束信号（活跃会话）——token 仪表锚点采样重取驱动
+        if (active) lastRunSettledAt.value = Date.now();
         // run 收束后台唤回（cr-291）：独立会话/直答的长任务在后台跑完——
         // 页面隐藏且不在该会话时弹系统通知（错误/中断已有红条反馈，只在
         // 正常完成时唤回；正在看的会话直播已可见，不打扰）。「正看该会话」
@@ -2813,7 +2821,7 @@ export function createFeedCore(
     dialogs, activeDialogId, activeDialog, activeAgentId, activeGroupId, activeSingleId,
     authoritativeRuns, settleDeadDialog,
     setActiveGroup, clearActiveGroup, setActiveSingle, clearActiveSingle,
-    turnInProgress, lastStepEndAt, archivePending,
+    turnInProgress, lastStepEndAt, lastRunSettledAt, archivePending,
     getUnreadCount, loadingHistory, hasMoreHistory,
     getDialog, getRaw, getTurns,
     // 原语

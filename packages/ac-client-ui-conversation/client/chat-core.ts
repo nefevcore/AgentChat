@@ -143,7 +143,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   // ══ 视图状态（委托 feed，storeToRefs 保持响应式引用）══
   const {
     activeDialogId, turnInProgress,
-    loadingHistory, hasMoreHistory, lastStepEndAt, archivePending,
+    loadingHistory, hasMoreHistory, lastStepEndAt, lastRunSettledAt, archivePending,
   } = toRefs(feed);
 
   // ══ 复制反馈 ══
@@ -1017,7 +1017,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   return {
     // 视图状态
     contextBusy,
-    turnInProgress, loadingHistory, hasMoreHistory, lastStepEndAt, archivePending,
+    turnInProgress, loadingHistory, hasMoreHistory, lastStepEndAt, lastRunSettledAt, archivePending,
     // 未读：进入会话时清除；获取指定 Agent 未读数
     clearUnread: (agentId: string) => feed.clearUnread(directDialog(agentId)),
     getUnreadCount: feed.getUnreadCount,
