@@ -3,7 +3,10 @@
 //
 // src agent-mcp 的 mcp.ts 平移重构（零 cordis 依赖；协议实现住纯库、
 // 注册中心/装配住 ac-mcp 行——"协议实现/重算法 → 纯库包"）：
-//   · McpConnection       连接抽象（connect/listTools/callTool/close）
+//   · McpConnection       连接抽象（connect/listTools/callTool/close +
+//     可选 onToolsListChanged 通知订阅——cr-1122 接 notifications/tools/
+//     list_changed，SDK ClientOptions.listChanged 面承载：能力门控 +
+//     300ms debounce 内建，autoRefresh=false 重发现由消费方对账链主导）
 //   · createSdkConnection 官方 SDK 包装（HTTP[StreamableHTTP] /
 //     stdio 双传输；SDK 动态 import——依赖显式声明于 package.json）
 //   · insecure 服务器（自签名证书）：per-server undici Agent 关闭
@@ -61,6 +64,13 @@ export interface McpConnection {
   listTools(): Promise<McpToolDef[]>;
   callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult>;
   close(): void;
+  /**
+   * 订阅服务器工具面变更通知（notifications/tools/list_changed；服务器
+   * 须广播 listChanged 能力，未广播则静默无通知）。返回退订器；不支持
+   * 通知的连接实现可缺省（消费方可选链调用）。单订阅者模型：后设覆盖
+   * 先设；订阅跨重连保持（重连重建连接后仍转发至当前 handler）。
+   */
+  onToolsListChanged?(handler: () => void): () => void;
 }
 
 // ============================================================
@@ -102,7 +112,7 @@ export function pickToolName(server: string, toolName: string, taken: Set<string
 
 /** 官方 SDK 面（loaders 注入点；any——SDK 类型不进纯库契约） */
 export interface McpSdk {
-  Client: new (options: unknown) => SdkClientLike;
+  Client: new (options: unknown, clientOptions?: unknown) => SdkClientLike;
   StreamableHTTPClientTransport: new (url: URL, options?: unknown) => unknown;
   StdioClientTransport: new (options: unknown) => unknown;
 }
@@ -160,6 +170,8 @@ export class SdkConnection implements McpConnection {
   private client: SdkClientLike | null = null;
   private transport: unknown = null;
   private insecureAgent: { close(): void } | null = null;
+  /** 工具面变更 handler（单订阅者；构造闭包转发——订阅跨重连保持） */
+  private toolsListChangedHandler: (() => void) | null = null;
   private _connected = false;
   /** 在飞建连（并发 connect 单飞：重入共享同一建连——双建连 = 先建者泄漏） */
   private connecting: Promise<void> | null = null;
@@ -190,7 +202,12 @@ export class SdkConnection implements McpConnection {
   private async doConnect(): Promise<void> {
     try {
       const { Client } = await this.loadSdk();
-      this.client = new Client({ name: 'AgentChat', version: '1.0.0' });
+      // cr-1122：listChanged 通知面（SDK 在 initialize 后按服务器能力门控装配
+      // handler，内建 300ms debounce；autoRefresh=false——SDK 只报事件不刷表，
+      // 重发现由消费方对账链主导）
+      this.client = new Client({ name: 'AgentChat', version: '1.0.0' }, {
+        listChanged: { tools: { autoRefresh: false, onChanged: () => this.toolsListChangedHandler?.() } },
+      });
 
       const url = this.config.url || (isHttpTransport(this.config) ? this.config.command : undefined);
       if (url) await this.connectHttp(url);
@@ -283,6 +300,14 @@ export class SdkConnection implements McpConnection {
     } catch (err: unknown) {
       throw new Error(`MCP 工具 "${name}" 调用失败: ${describeError(err)}`);
     }
+  }
+
+  /** 订阅工具面变更通知（单订阅者：后设覆盖；退订器只回收自己的订阅） */
+  onToolsListChanged(handler: () => void): () => void {
+    this.toolsListChangedHandler = handler;
+    return () => {
+      if (this.toolsListChangedHandler === handler) this.toolsListChangedHandler = null;
+    };
   }
 
   close(): void {

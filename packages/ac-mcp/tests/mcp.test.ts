@@ -506,6 +506,136 @@ describe('ac-mcp per-Agent 覆盖（settingsOf 合成：差异层 file 指向自
 });
 
 // ============================================================
+// cr-1122：listChanged 通知接线（连接抽象 onToolsListChanged → redetect）
+// ============================================================
+describe('cr-1122：listChanged 通知驱动重发现', () => {
+  afterEach(() => {
+    delete process.env.AGENTCHAT_DATA_ROOT;
+  });
+
+  /** 可广播 listChanged 的假服务器（通知 = 模拟服务器侧工具面变化） */
+  function notifyServer(name: string, get: () => McpToolDef[]) {
+    let handler: (() => void) | null = null;
+    let unwatched = 0;
+    const state = { connected: false, closed: 0, connectCount: 0, calls: [] as Array<{ toolName: string; args: Record<string, unknown> }>, unwatched };
+    const connection: McpConnection & { notify(): void } = {
+      serverName: name,
+      get connected() { return state.connected; },
+      async connect() { state.connectCount += 1; state.connected = true; },
+      async listTools() { return get(); },
+      async callTool(toolName: string, args: Record<string, unknown>) { state.calls.push({ toolName, args }); return { text: name + ':' + toolName }; },
+      close() { state.connected = false; state.closed += 1; },
+      onToolsListChanged(h: () => void) {
+        handler = h;
+        return () => { if (handler === h) handler = null; unwatched += 1; state.unwatched = unwatched; };
+      },
+      notify() { handler?.(); },
+    };
+    return { state, connection, def: { name, clientFactory: () => connection } };
+  }
+  /** 轮询等待条件成立（redetect 为通知触发异步——终态断言用） */
+  async function until(cond: () => boolean, ms = 3000): Promise<void> {
+    const start = Date.now();
+    while (!cond()) {
+      if (Date.now() - start > ms) throw new Error('等待超时');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+
+  it('通知 → redetect 对账全链：增/删工具、缓存更新、source-changed 事件；连接复用不重建', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-mcp-notify-'));
+    process.env.AGENTCHAT_DATA_ROOT = root;
+    let tools: McpToolDef[] = [ECHO];
+    const fake = notifyServer('srv', () => tools);
+    const ctx = new Context();
+    await boot(ctx, baseRows());
+    const mcpFiber = ctx.plugin(mcpRow, { servers: [fake.def] });
+    await mcpFiber;
+    const diffs: Array<{ source: string; added: string[]; removed: string[]; changed: string[] }> = [];
+    ctx.on('tools/source-changed', (d) => diffs.push(d as never));
+
+    await ctx.agentLoop.run({ model: 'mock-1', messages: USER });
+    expect(ctx.tools.has('echo')).toBe(true);
+
+    // 服务器侧变化 + 广播 → 不经 run 即对账（新工具入册）
+    tools = [ECHO, { name: 'newone', description: '通知新增', inputSchema: { type: 'object' } }];
+    fake.connection.notify();
+    await until(() => ctx.tools.has('newone'));
+    expect(fake.state.connectCount).toBe(1); // 通知不重建连——复用在飞连接
+
+    // 删除 + 缓存真值化
+    tools = [{ name: 'newone', description: '通知新增', inputSchema: { type: 'object' } }];
+    fake.connection.notify();
+    await until(() => !ctx.tools.has('echo'));
+    const cacheDir = path.join(root, 'meta', 'mcp-discovery');
+    const cached = JSON.parse(fs.readFileSync(path.join(cacheDir, fs.readdirSync(cacheDir)[0]!), 'utf-8')) as { tools: Array<{ name: string }> };
+    expect(cached.tools.map((t) => t.name)).toEqual(['newone']); // 缓存随通知对账更新
+    expect(diffs.some((d) => d.source === 'mcp:srv' && d.added.includes('newone'))).toBe(true);
+    expect(diffs.some((d) => d.removed.includes('echo'))).toBe(true);
+    await mcpFiber.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('teardown 退订：removeServer 后通知静默（不再触发对账）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-mcp-notify2-'));
+    process.env.AGENTCHAT_DATA_ROOT = root;
+    let tools: McpToolDef[] = [ECHO];
+    const fake = notifyServer('srv', () => tools);
+    const ctx = new Context();
+    await boot(ctx, baseRows());
+    const mcpFiber = ctx.plugin(mcpRow, { servers: [fake.def] });
+    await mcpFiber;
+    await ctx.agentLoop.run({ model: 'mock-1', messages: USER });
+    expect(fake.state.unwatched).toBe(0);
+
+    ctx.mcp.removeServer('srv');
+    expect(fake.state.unwatched).toBe(1); // teardown 已退订
+    fake.connection.notify(); // 连接已关——通知无处可去（handler 已回收）
+    tools = [];
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(fake.state.unwatched).toBe(1); // 无重订阅（服务器已移除）
+    await mcpFiber.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it('run 前准备失败不 veto run（cr-1122：此前静默吞错——留痕 + 放行）', async () => {
+    const fake = fakeServer('srv', [ECHO]);
+    const ctx = new Context();
+    await boot(ctx, [...baseRows(), agentsRow]);
+    const mcpFiber = ctx.plugin(mcpRow, { servers: [fake.def] });
+    await mcpFiber;
+    ctx.agents.register({ id: 'boom', model: 'mock-1' });
+    const agents = ctx.agents as unknown as { settingsOf: () => unknown };
+    const original = agents.settingsOf;
+    // settingsOf 抛错 → scopeForAgent 抛 → prepareRun reject
+    agents.settingsOf = () => {
+      throw new Error('settings 读失败');
+    };
+    const before = captured.length;
+    await ctx.agentLoop.run({ agent: 'boom', model: 'mock-1', messages: USER });
+    expect(captured.length).toBe(before + 1); // run 照常执行（失败放行，不 veto）
+    agents.settingsOf = original;
+    await mcpFiber.dispose();
+  });
+
+  it('不支持通知的连接（无 onToolsListChanged）照常工作——可选面零影响', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-mcp-notify3-'));
+    process.env.AGENTCHAT_DATA_ROOT = root;
+    const plain = fakeServer('plain', [ECHO]);
+    const ctx = new Context();
+    await boot(ctx, baseRows());
+    const mcpFiber = ctx.plugin(mcpRow, { servers: [plain.def] });
+    await mcpFiber;
+    await ctx.agentLoop.run({ model: 'mock-1', messages: USER });
+    expect(ctx.tools.has('echo')).toBe(true);
+    await ctx.mcp.redetect(); // 手动重发现不受影响
+    expect(ctx.tools.has('echo')).toBe(true);
+    await mcpFiber.dispose();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+});
+
+// ============================================================
 // cr-1114 批2：MCP 发现缓存（改动 11/12/13）
 //
 // ① 冷启动首 run 发现 → 缓存落盘 meta/mcp-discovery/<def-hash>.json

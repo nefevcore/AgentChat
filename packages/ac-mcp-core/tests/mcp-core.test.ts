@@ -189,6 +189,49 @@ describe('SdkConnection（注入假 loader）', () => {
     expect(conn.connected).toBe(false);
   });
 
+  it('listChanged 通知面（cr-1122）：构造透传 listChanged.tools（autoRefresh=false）→ 通知到达 handler；退订即静默', async () => {
+    let clientOptions: { listChanged?: { tools?: { autoRefresh?: boolean; onChanged: (...a: unknown[]) => void } } } | undefined;
+    const sdk: McpSdk = {
+      Client: class {
+        constructor(_o: unknown, opts?: unknown) { clientOptions = opts as typeof clientOptions; }
+        async connect() {}
+        async close() {}
+        async listTools() { return { tools: [] }; }
+        async callTool() { return {}; }
+      } as unknown as McpSdk['Client'],
+      StreamableHTTPClientTransport: class {},
+      StdioClientTransport: class {},
+    };
+    const conn = new SdkConnection({ name: 's', url: 'https://x' }, { loadSdk: async () => sdk });
+    await conn.connect();
+    const toolsCfg = clientOptions?.listChanged?.tools;
+    expect(toolsCfg?.autoRefresh).toBe(false); // SDK 只报事件不刷表——重发现由消费方主导
+    expect(typeof toolsCfg?.onChanged).toBe('function');
+
+    const fired: unknown[][] = [];
+    const unwatch = conn.onToolsListChanged(() => fired.push(['hit']));
+    toolsCfg!.onChanged(new Error('x'), null); // SDK 签名 (error, tools)——包装面不关心参数
+    expect(fired).toHaveLength(1);
+    unwatch();
+    toolsCfg!.onChanged(null, null);
+    expect(fired).toHaveLength(1); // 退订后静默
+    conn.close();
+  });
+
+  it('单订阅者模型：后设覆盖先设；旧退订器不误清当前订阅', async () => {
+    const { sdk } = fakeSdk();
+    const conn = new SdkConnection({ name: 's', url: 'https://x' }, { loadSdk: async () => sdk });
+    await conn.connect();
+    const hits: string[] = [];
+    const un1 = conn.onToolsListChanged(() => hits.push('a'));
+    const un2 = conn.onToolsListChanged(() => hits.push('b'));
+    un1(); // 旧退订器只回收自己的订阅——b 仍活
+    conn['toolsListChangedHandler']?.();
+    expect(hits).toEqual(['b']);
+    un2();
+    conn.close();
+  });
+
   it('tools 能力不支持 → 空清单（非错误）', async () => {
     const noTools: McpSdk = {
       Client: class {

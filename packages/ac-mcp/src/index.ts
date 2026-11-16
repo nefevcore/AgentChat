@@ -91,6 +91,8 @@ interface ServerEntry {
   syncing: Promise<void> | null;
   /** 惰性建连单飞（承诺面工具首调用 / 并发 run 共用——重入会双建连泄漏） */
   connecting: Promise<McpConnection> | null;
+  /** listChanged 订阅退订器（cr-1122；teardown/重订阅时回收） */
+  unwatch?: () => void;
 }
 
 export class McpService extends Service {
@@ -117,7 +119,15 @@ export class McpService extends Service {
 
     // 懒建连 + per-Agent 暴露面收敛（首个 run 前完成发现与注册，此后复用）；
     // sync 前先对账（boot 期吸收 settings.mcp 现值——config/changed 错过更早写入）
-    this.ctx.on('loop/before-run', (call, next) => this.prepareRun(call.request).then(() => next(), () => next()), { description: 'MCP 懒建连 + 工具发现注册 + per-Agent 暴露面收敛' });
+    // 失败放行但留痕（cr-1122：此前 `.then(() => next(), () => next())` 静默吞错——
+    // MCP 准备失败会完全没有日志，与 fail-loud 纪律相悖）
+    this.ctx.on('loop/before-run', (call, next) => this.prepareRun(call.request).then(
+      () => next(),
+      (err: unknown) => {
+        this.ctx.logger.warn(`[mcp] run 前准备失败（放行，本 run 无 MCP 工具）: ${err instanceof Error ? err.message : String(err)}`);
+        return next();
+      },
+    ), { description: 'MCP 懒建连 + 工具发现注册 + per-Agent 暴露面收敛' });
     // 配置热更：settings.mcp 变更 → 对账（撤/挂/热替换；config/set 热通路）
     this.ctx.on('config/changed', () => this.reconcile(), { description: 'MCP 服务器清单热更对账（settings.mcp 全局层）' });
     this.reconcile();
@@ -330,11 +340,30 @@ export class McpService extends Service {
       const conn = entry.connection ?? factory(entry.def);
       entry.connection = conn;
       if (!conn.connected) await conn.connect();
+      this.watchListChanged(entry, conn); // cr-1122：通知驱动重发现
       return conn;
     })().finally(() => {
       entry.connecting = null;
     });
     return entry.connecting;
+  }
+
+  /**
+   * 工具面变更通知 → redetect（cr-1122：服务器广播 notifications/tools/
+   * list_changed 时对账链自动重跑——diff/发现缓存/tools/source-changed 事件
+   * 全链复用）。不支持通知的连接（无 onToolsListChanged / 假实现）跳过；
+   * 重订阅幂等（旧退订先回收——连接对象跨重连复用时不叠订）。
+   */
+  private watchListChanged(entry: ServerEntry, conn: McpConnection): void {
+    if (typeof conn.onToolsListChanged !== 'function') return;
+    entry.unwatch?.();
+    const unwatch = conn.onToolsListChanged(() => {
+      this.ctx.logger.info(`[mcp] 服务器 "${entry.def.name}" 广播工具面变更（listChanged）——重发现对账`);
+      void this.redetect().catch((err: unknown) => {
+        this.ctx.logger.warn(`[mcp] 服务器 "${entry.def.name}" listChanged 重发现失败: ${String(err)}`);
+      });
+    });
+    entry.unwatch = unwatch;
   }
 
   /**
@@ -404,6 +433,8 @@ export class McpService extends Service {
       this.toolServers.delete(finalName);
     }
     entry.tools.clear();
+    entry.unwatch?.();
+    entry.unwatch = undefined;
     entry.connection?.close();
     entry.connection = null;
     entry.synced = false;
@@ -443,7 +474,12 @@ export class McpService extends Service {
     const config = this.ctx.get('config', false) as
       | { get<T>(key: string): T | undefined }
       | undefined;
-    if (!config) return;
+    if (!config) {
+      // 构造期 config 可能尚未就位（fiber 无构造期就位保证）——后续 sync 的
+      // reconcile 会补；此处留痕便于区分「时序未到」与「真的没注册」（cr-1122）
+      this.ctx.logger.debug('[mcp] reconcile 跳过：config 服务未就位（下次 sync 重试）');
+      return;
+    }
     const layer = config.get<Record<string, unknown>>('settings.mcp');
     if (layer !== undefined && (typeof layer !== 'object' || Array.isArray(layer))) {
       this.ctx.logger.warn('[mcp] settings.mcp 形状非法（保持现状）');
@@ -621,7 +657,7 @@ import type {} from 'ac-config'; // config/changed 事件目录类型增强（�
 export const extension: ExtensionMeta = {
   name: 'mcp',
   label: 'MCP 工具发现',
-  description: '首 run 懒建连 + tools/list 发现注册；服务器清单 = 清单文件（settings.mcp.file，缺省数据根 mcp.json）分层合成——Agent 差异层指向自己的清单即覆盖；暴露面按生效清单收敛（非 MCP 工具不动）',
+  description: '首 run 懒建连 + tools/list 发现注册；服务器清单 = 清单文件（settings.mcp.file，缺省数据根 mcp.json）分层合成——Agent 差异层指向自己的清单即覆盖；暴露面按生效清单收敛（非 MCP 工具不动）；listChanged 通知驱动自动重发现（对账 + 事件面）',
   automatic: true,
   fields: [
     { name: 'file', type: 'file', default: 'mcp.json', description: 'MCP 服务器清单文件（JSON：{ "servers": [...] } 或裸数组；条目 name 必填，url 或 command+args 二选一，可选 headers/env/enabled/connectTimeoutMs/insecure/transport）。相对路径锚定数据根；文件存在即整体替换行基线，改动下一 run 热生效；Agent 差异层指向自己的清单文件即覆盖（可含池外服务器，run 时动态加载建连）' },

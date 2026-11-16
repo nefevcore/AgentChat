@@ -97,7 +97,10 @@
   （实证：ac-mcp 用例②——boot 后未跑 run 即 has，connectCount=0）
 - ☑ 壳 boot 不因 MCP 服务器进程可达性阻塞（npx 慢服务器不拖启动——懒建连不变）。
 - ☑ host-face invalidate 与 MCP listChanged 在 tools/source-changed 事件面同构（消费方无 per-source 分支）。
-  （MCP 侧重发现入口 = McpService.redetect()，listChanged 通知将来的接线点）
+  （MCP 侧重发现入口 = McpService.redetect()；cr-1122 已完成 listChanged 接线——
+  `ac-mcp-core` 的 `McpConnection.onToolsListChanged` 接 SDK 内建 `ClientOptions.listChanged`
+  面（能力门控 + 300ms debounce 由 SDK 承担，`autoRefresh:false` 重发现归对账链），
+  `ac-mcp` 建连订阅后触发 redetect——服务器侧工具面变化无需等下一 run）
 
 ## 四、显式取舍与风险边界
 
