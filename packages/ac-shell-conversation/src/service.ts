@@ -309,7 +309,15 @@ export class ConversationService extends Service {
     // inbox durable 形态）行缺席 = 上下文单源断链（run 拿不到当前消息）。
     // 盘面按 requestId 查重（inject 行/注入台账同键——cr-713 steer 记录），
     // 缺席才补写（在场 = 幂等短路，同旧语义）。
-    if (plan.action !== 'steer' && (opts.recovered !== true || !ledger.hasInboundRow(uuid, env.requestId))) {
+    // cr-1119：机制行 busy 排队同样不收信落账——机制行 = 轮边界（cr-946），
+    // 收信即落会把行插进原 run 收束前的步块（restart_host 通知实测：context
+    // 行抢跑原 run 终稿 9s，链跑开的续跑轮排在后）。排队信改消费点落账
+    //（链跑/drainQueuedTurn → deliverQueuedMechRow），文件序 = 真实轮序；
+    // 壳死于排队窗口 → 恢复面 recovered 重投走 run 路径，由上方补行门收敛。
+    // 用户排队行维持到达序落账（链跑交接测试锚定：historyFor 复读当前消息）。
+    const mechQueued = plan.action === 'queue' && (env.payload as { mechanism?: unknown } | null)?.mechanism === true;
+    if (plan.action !== 'steer' && !mechQueued
+      && (opts.recovered !== true || !ledger.hasInboundRow(uuid, env.requestId))) {
       await ledger.deliverRow(uuid, [this.agentId, env.sender], this.ledgerKindOf(env), this.inboundRowOf(env, text));
     }
     // 完成回执收束（cr-711 子 Agent / cr-712 跨壳委托同款）：对桶只落账
@@ -727,6 +735,8 @@ export class ConversationService extends Service {
             nextEnv = candidate;
             env = nextEnv;
             runId = 'run-' + env.requestId;
+            // cr-1119：机制排队行消费点落账（排队期未落——receiveEnvelope）
+            await this.deliverQueuedMechRow(uuid, env);
           }
         }
         if (nextEnv === null) break;
@@ -819,6 +829,8 @@ export class ConversationService extends Service {
     const env = this.takeFromInbox(uuid, next.requestId);
     this.emitQueueChanged(uuid); // 队列缩减点（唤醒消费 / 死信出队）
     if (env === null) return;
+    // cr-1119：机制排队行消费点落账（同链跑消费点）
+    await this.deliverQueuedMechRow(uuid, env);
     await this.driveRun(uuid, env, { action: 'run', budgetAfter: 0 });
   }
 
@@ -1212,6 +1224,15 @@ export class ConversationService extends Service {
     return mechanism
       ? { role: 'context', source: 'event', content: text, agent_id: this.agentId, requestId: env.requestId, uuid: env.uuid }
       : { role: 'agent', content: text, agent_id: env.sender, requestId: env.requestId, uuid: env.uuid };
+  }
+
+  /** 机制排队行消费点落账（cr-1119）：busy 排队的机制信在 receiveEnvelope
+   *  不落账（防 context 行抢跑原 run 步块），消费点（链跑/drainQueuedTurn）
+   *  按 requestId 判重补落——文件序 = 真实轮序；非机制信零动作。 */
+  private async deliverQueuedMechRow(uuid: string, env: Envelope): Promise<void> {
+    if ((env.payload as { mechanism?: unknown } | null)?.mechanism !== true) return;
+    if (this.ctx.ledger.hasInboundRow(uuid, env.requestId)) return;
+    await this.ctx.ledger.deliverRow(uuid, [this.agentId, env.sender], this.ledgerKindOf(env), this.inboundRowOf(env, this.textOf(env)));
   }
 
   /** steer 寻址（主线 runAddress 词汇：conversationId ≠ agent → `<uuid>~<agent>`） */

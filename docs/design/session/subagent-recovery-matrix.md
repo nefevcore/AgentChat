@@ -27,7 +27,7 @@ askNotified、convOf、机器队列、activeRuns、recentSettled。
 |---|---|---|---|---|---|
 | R1 | recoverOrphanRuns | ac-ledger | 子壳/壳 boot | run 中途死：journal 有步行无 settled（读侧恒「在途」） | defer 集（inbox 在途信的 run 让给 R2）；幂等（已 settled 不动）。**已随 cr-974 退役（D-3 读方配平：未闭合 run 由 fold 投影层合成 interrupted，零回写）** |
 | R1' | settleOrphan | ac-ledger | 同上 | 同上的物理面：段行物化 + interrupted 收口 | 同上。**已随 cr-974 退役（同 R1）** |
-| R2 | recoverPendingInbox | ac-shell-conversation | 壳 boot | 已落账未消费：inbox durable 里的信（排队/steer 落空/安全重启回队） | requestId 落账幂等；续跑分支按 resumeStateFor 准入 |
+| R2 | recoverPendingInbox | ac-shell-conversation | 壳 boot | 已受理未消费：inbox durable 里的信（排队/steer 落空/安全重启回队）。机制排队信 cr-1119 起排队期不落账（消费点落）——恢复重投走 run 路径由补行门收敛，判据不变 | requestId 落账幂等；续跑分支按 resumeStateFor 准入 |
 | R3 | reconcileUndelivered | ac-shell-conversation | 壳 boot（兜在 R2 后） | 只落账未执行：deliverRow 后、plan 队列/inbox 落盘前死 | 行龄门（只收 boot 前的行）；replyTo=user 防自激；盘面查重 |
 | R4 | replayAnsweredInteractions | ac-shell-conversation | 壳 boot | answered 落盘但无人消费（作答时 run 已死 + 壳换代） | answerNotice 正文精确比对（inject 行在场 = 已消费） |
 | R5 | reconcilePendingAsks（subagent 行） | ac-shell-subagent | 父壳 boot + 500ms 重试（60s 上限） | 换代后 watcher/askNotified/convOf 蒸发：pending ask 无推送 | ask-notice-<id> requestId 幂等；archived 跳过 |

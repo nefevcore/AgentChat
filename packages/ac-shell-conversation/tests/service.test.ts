@@ -1758,6 +1758,48 @@ describe('cr-946 机制通知信封（壳重启「已重启」续跑通知）', 
     }
   }, 15_000);
 
+  // cr-1119：busy 排队的机制行不收信落账——收信即落会把 context 行插进
+  // 占门 run 收束前的步块（restart_host 通知 seq 抢跑现场）。消费点（链跑
+  // takeFromInbox）才落账 → 行序 = 真实轮序（原 run 终稿在前）。
+  it('cr-1119：busy 排队的机制行不抢跑——落账晚于占门 run 终稿（消费点真序）', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { fibers, conv } = await bootTree('alpha', undefined, gate);
+    try {
+      // 首 run 占门（慢 mock 挂起）
+      const first = conv.receiveEnvelope(msg('conv-m', 'm1', '占门问'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 80));
+      expect(conv.isBusy()).toBe(true);
+      // busy + next-turn 机制信 → 排队，不落账（修复点：修复前收信即落）
+      const q = await conv.receiveEnvelope(makeEnvelope({
+        uuid: 'conv-m', requestId: 'notify-1', sender: 'user', to: 'alpha', kind: 'message', budget: 1,
+        payload: { text: '宿主已重启完成（restart_host 已兑现）', mechanism: true, lane: 'next-turn' },
+      }), { fresh: true });
+      expect(q).toBe('queued');
+      expect(readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-m')).rows
+        .filter((r) => r.requestId === 'notify-1')).toHaveLength(0);
+      // 放行 → 占门 run 收束 → 链跑消费机制信（独立续跑轮）
+      release();
+      await first;
+      for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(conv.isBusy()).toBe(false);
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-m'));
+      // 机制行在场、形态不变（context+event），且晚于占门 run 终稿
+      const note = rows.find((r) => r.requestId === 'notify-1');
+      expect(note).toMatchObject({ role: 'context', source: 'event', content: '宿主已重启完成（restart_host 已兑现）' });
+      const noteIdx = rows.indexOf(note!);
+      const replyIdx = rows.findIndex((r) => r.role === 'agent' && r.run === 'run-m1');
+      expect(replyIdx).toBeGreaterThan(-1);
+      expect(noteIdx).toBeGreaterThan(replyIdx);
+      // 链跑续跑轮终稿照常
+      expect(rows.some((r) => r.run === 'run-notify-1' && r.role === 'agent')).toBe(true);
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
   it('常规信不受影响：仍按发言行落账（role=agent、归属 sender）', async () => {
     seedAgent('alpha');
     const { fibers, conv } = await bootTree('alpha');
