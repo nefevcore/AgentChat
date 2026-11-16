@@ -16,7 +16,6 @@
 // 状态文件 <dataRoot>/timer/state.json（临时文件+rename 原子写，同主线）。
 // ============================================================
 import * as fs from 'node:fs';
-import { currentHostFace } from 'ac-host-face';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
@@ -343,7 +342,9 @@ export class HostTimersService extends Service {
     this.saveState();
     for (const entry of enabled) this.arm(owner, entry);
     // cr-886：条目变更 → 宿主能力面失效通知（在连壳重拉契约——timer 代理面刷新）
-    currentHostFace()?.invalidate();
+    // cr-1121：invalidate 入口退役——注册面契约恒基线（timer 工具 schema 不随
+    // 条目变更），壳侧 list 读恒现值，无需失效广播（currentHostFace 移交
+    // hostFaceRegistry.sync 承载——贡献登记时才广播）。
   }
 
   /** 手动触发（测试/诊断；不记账） */

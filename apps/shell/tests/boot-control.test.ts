@@ -58,6 +58,14 @@ describe('M8.3 boot 控制帧面', () => {
 
   it('preview：system-prompt 干跑（config.system 直过）+ assembly-tools 目录', async () => {
     seed('kilo', { rows: { include: ['math'] }, settings: { persona: { text: '我是 kilo' } } });
+    // cr-1121：壳 boot 静态面 = 宿主写契约缓存（无宿主进程的测试形态直投）
+    fs.mkdirSync(path.join(ROOT, 'meta'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'meta', 'host-face-contract.json'), JSON.stringify({
+      version: 1,
+      tools: [{ name: 'timer', description: 'd', parameters: { type: 'object' } }, { name: 'update_agent_profile', description: 'd', parameters: { type: 'object' } }],
+      sections: [{ name: 'GUIDELINES_TIMER', text: 't', promise: true, gate: { toolsAny: ['timer'] } }],
+      facts: [],
+    }), 'utf-8');
     const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'kilo', catalogFile: CATALOG, mockProvider: true },
@@ -67,9 +75,9 @@ describe('M8.3 boot 控制帧面', () => {
       const sys = await boot.control({ ctrl: 'preview', what: 'system-prompt' }) as { systemPrompt: string };
       expect(sys.systemPrompt).toContain('我是 kilo');
       const asm = await boot.control({ ctrl: 'preview', what: 'assembly-tools' }) as { tools: Array<{ name: string }>; enabled: string[] };
-      // cr-1114 批1：骨架行（host-face-client）承诺面工具不再被 include 白名单滤除
-      //（cr-1007「已知行 id 而 rowTools 无键 = 滤除」正是 timer 三面失明根因——活查询
-      // 化后骨架行工具恒可见）。点名行 math 照旧在面。
+      // cr-1114 批1：骨架行（host-face-client）静态面工具不再被 include 白名单
+      // 滤除（cr-1007 滤除语义退役——cr-1121 起数据源 = 宿主写契约缓存）。
+      // 点名行 math 照旧在面。
       expect(asm.enabled).toContain('math');
       expect(asm.enabled).toContain('timer');
       expect(asm.enabled).toContain('update_agent_profile');

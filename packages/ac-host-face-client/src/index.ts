@@ -1,19 +1,22 @@
 // ============================================================
-// ac-host-face-client —— 宿主能力面壳侧行（cr-886 → cr-1114 批1）
+// ac-host-face-client —— 宿主能力面壳侧行（cr-886 → cr-1114 → cr-1121）
 //
-// 承诺面模式（cr-1114）：boot 同步段（apply——行自身 fiber 域）注册静态
-// 承诺面代理工具与远程段——spec 直取 core 下沉常量（零 I/O、零 ipc），
-// execute 内惰性连接（宿主缺席 = 调用时报可读错误，boot 不被阻塞）。
-// 注册即归属——随行卸载自动回收，无 boot 期异步链（cr-886 的 fiber 挂死
-// 教训是 then 回调脱域，同步注册无此问题）。
-// prepare 缝职责收窄为「对账重建」：discover 契约与在册承诺面 diff——
-// 恒等时零操作；schema/段漂移或 invalidate 后重建对应面。
+// boot 静态面 = 宿主写契约缓存（meta/host-face-contract.json——cr-1121
+// 真动态化换源：宿主 discover 处理器现算聚合契约并原子落盘，本行 boot
+// 同步段读缓存注册代理工具与 promise 段——不再依赖 core 常量〔已随注册
+// 面聚合退役〕，新增宿主能力对新拉壳首 run 前可见）。缓存缺席/损坏 =
+// 静态面空（冷启动盲窗如实出现），prepare 缝对账照常收敛——对账语义
+// 与 cr-1114 相同。execute 内惰性连接（宿主缺席 = 调用时报可读错误，
+// boot 不被阻塞）；注册即归属——随行卸载自动回收，无 boot 期异步链
+// （cr-886 的 fiber 挂死教训是 then 回调脱域，同步注册无此问题）。
+// prepare 缝职责保持「对账重建」：discover 契约与在册面 diff——恒等时
+// 零操作；schema/段漂移或 invalidate 后重建对应面。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { socketPathFor } from 'ac-envelope-core';
-import { HostFaceClient, HOST_FACE_TOOLS, HOST_FACE_PROMISE_SECTIONS, type HostFaceContract, type HostFaceSectionSpec } from 'ac-host-face-core';
+import { HostFaceClient, type HostFaceContract, type HostFaceSectionSpec, type HostFaceToolSpec } from 'ac-host-face-core';
 import type { ToolSource, ToolSourceFace } from 'ac-tools';
 import { SECTION_ORDER, validateSectionOrder } from 'ac-agent-loop';
 import { widenToolsForGating } from 'ac-agents';
@@ -24,13 +27,25 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'host-face-client',
   label: '宿主能力面（壳侧）',
-  description: 'boot 静态承诺面代理工具（timer/update_agent_profile）+ 远程段 + singles/group Shim；prepare 缝对账重建（schema 漂移/invalidate）；宿主缺席时调用报可读错误',
+  description: 'boot 静态面 = 宿主写契约缓存（cr-1121 真动态：代理工具 + promise 段）+ singles/group Shim；prepare 缝对账重建（schema 漂移/invalidate）；宿主缺席时调用报可读错误',
   automatic: true,
 };
 
 export interface HostFaceClientRowOptions {
   dataRoot: string;
 };
+
+/** 契约缓存读面（宿主写 meta/host-face-contract.json——cr-1121 boot 静态面数据源；缺席/损坏 = null） */
+export function readContractCache(dataRoot: string): HostFaceContract | null {
+  try {
+    const raw: unknown = JSON.parse(fs.readFileSync(path.join(dataRoot, 'meta', 'host-face-contract.json'), 'utf-8'));
+    if (raw === null || typeof raw !== 'object') return null;
+    const v = raw as { version?: unknown; tools?: unknown; sections?: unknown };
+    return v.version === 1 && Array.isArray(v.tools) && Array.isArray(v.sections) ? v as HostFaceContract : null;
+  } catch {
+    return null;
+  }
+}
 
 /** singles 判定 Shim（ctx.get('singles') 消费口——数据根直读 .singles-registry.json） */
 class SinglesShim extends Service {
@@ -123,21 +138,24 @@ function sectionSpecEquals(a: HostFaceSectionSpec, b: HostFaceSectionSpec): bool
 }
 
 /**
- * ToolSource 契约实现（cr-1114 批2 改动 10）：host-face 的声明面收口。
- * bootFace = core 下沉常量（零 I/O）；discover = ipc 拉宿主契约
- * （宿主缺席 reject，调用方降级为上态面）。行的 apply 内部走同一常量/
- * 同一 client 实例——本导出是契约面的官方入口（诊断/审计/对账消费），
- * 不引入第二套注册路径。
+ * ToolSource 契约实现（cr-1114 批2 改动 10；cr-1121 换源）：host-face 的
+ * 声明面收口。bootFace = 宿主写契约缓存投影（零 ipc）；discover = ipc
+ * 拉宿主注册面聚合契约（宿主缺席 reject，调用方降级为上态面）。行的
+ * apply 内部走同一缓存/同一 client 实例——本导出是契约面的官方入口
+ * （诊断/审计/对账消费），不引入第二套注册路径。
  */
 export function hostFaceToolSource(dataRoot: string): ToolSource & { close(): void } {
   const client = new HostFaceClient();
   return {
     source: 'host-face',
-    bootFace: (): ToolSourceFace[] => HOST_FACE_TOOLS.map((s) => ({
-      name: s.name,
-      description: s.description,
-      parameters: s.parameters,
-    })),
+    bootFace: (): ToolSourceFace[] => {
+      const cached = readContractCache(dataRoot);
+      return cached === null ? [] : cached.tools.map((s) => ({
+        name: s.name,
+        description: s.description,
+        parameters: s.parameters,
+      }));
+    },
     discover: async (): Promise<ToolSourceFace[]> => {
       await client.connect(socketPathFor(dataRoot, 'host-face'));
       const contract = await client.discover();
@@ -161,7 +179,7 @@ export function makeHostFaceClientRow(options: HostFaceClientRowOptions): Plugin
       if (ctx.get('singles', false) === undefined) new SinglesShim(ctx, options.dataRoot);
       if (ctx.get('group', false) === undefined) new GroupShim(ctx, options.dataRoot);
       let disposers: Array<() => void> = [];
-      // 在册工具 spec（对账基准面）——随 registerTool 维护（boot 静态承诺面起底）
+      // 在册工具 spec（对账基准面）——随 registerTool 维护（boot 静态面起底）
       let liveToolSpecs: Array<{ name: string; description: string; parameters: Record<string, unknown> }> = [];
       // 在册段 spec（对账基准面）——boot 注册壳内无 owner 段
       let liveSectionSpecs: HostFaceSectionSpec[] = [];
@@ -212,17 +230,25 @@ export function makeHostFaceClientRow(options: HostFaceClientRowOptions): Plugin
         }
       };
 
-      // —— 静态承诺面（cr-1114 批1）：boot 同步注册——spec 直取 core 常量。
-      for (const spec of HOST_FACE_TOOLS) registerTool(spec);
-      // 段承诺面只含壳内恒无本地 owner 的段（GUIDELINES_TIMER）——本地 owner 段
-      //（TERMINOLOGY/GUIDELINES_COLLAB——collab-tools）不进 boot 面：骨架行先装
-      // 先占位会饿死本地 owner 的 fail-loud 注册（实测事故：collab-tools 装配抛
-      // 段名已注册 → 整壳 boot 失败）。本地 owner 段的对账补位在 applyReconcile 承载
-      //（行集不含 collab-tools 时 catch 静默跳过 = 兜底语义保持）。
-      for (const spec of HOST_FACE_PROMISE_SECTIONS) registerSection(spec);
+      // —— boot 静态面（cr-1114 批1 承诺面 → cr-1121 换缓存源）：宿主写契约
+      // 缓存缺席（宿主从未起过）= 静态面空——冷启动盲窗如实，prepare 缝对账
+      // 收敛（与 MCP 无缓存同款取舍）。
+      const cached = readContractCache(options.dataRoot);
+      if (cached !== null) {
+        for (const spec of cached.tools) registerTool(spec);
+        // 段静态面只收 promise 段（恒真静态文本——宿主贡献行自报标记）；
+        // 本地 owner 段（TERMINOLOGY/GUIDELINES_COLLAB——collab-tools）不进
+        // boot 面：骨架行先装先占位会饿死本地 owner 的 fail-loud 注册
+        // （实测事故：collab-tools 装配抛段名已注册 → 整壳 boot 失败）。
+        // 非 promise 段的对账补位在 applyReconcile 承载（行集不含
+        // collab-tools 时 catch 静默跳过 = 兜底语义保持）。
+        for (const spec of cached.sections) {
+          if (spec.promise === true) registerSection(spec);
+        }
+      }
 
       // —— 对账重建（prepare 缝——run() 入口第一拍）：discover 拉取契约与在册
-      // 承诺面 diff——恒等零操作；漂移（schema 变/invalidate/重连）重建对应面。
+      // 静态面 diff——恒等零操作；漂移（schema 变/invalidate/重连）重建对应面。
       let pending: Promise<void> | null = null;
       let hostSeen = false; // 从未见宿主 → 每 run 重试首连（connect ENOENT 开销极小）；
                               // 见过之后掉线 = 保持上态，重连成功走 onInvalidate 排队对账
@@ -295,7 +321,7 @@ export function makeHostFaceClientRow(options: HostFaceClientRowOptions): Plugin
           })
           .catch((err) => {
             if (!hostSeen) {
-              ctx.logger.info('[host-face-client] 宿主能力面缺席（静态承诺面在册，调用时按需连接）: ' + String(err instanceof Error ? err.message : err));
+              ctx.logger.info('[host-face-client] 宿主能力面缺席（静态面在册，调用时按需连接）: ' + String(err instanceof Error ? err.message : err));
             } else {
               ctx.logger.warn('[host-face-client] discover 失败，代理面保持上态: ' + String(err instanceof Error ? err.message : err));
             }
@@ -309,7 +335,7 @@ export function makeHostFaceClientRow(options: HostFaceClientRowOptions): Plugin
 
       // cr-944 P2b：prepare 缝——run() 入口第一拍。首 run 触发首连对账（发现
       // 集与承诺面恒等时零操作）；invalidate 后重拉。宿主离线时 prepare 抛错由
-      // agentLoop 放行（软降级）——静态承诺面已在册，工具调用时按需连接。
+      // agentLoop 放行（软降级）——静态面已在册，工具调用时按需连接。
       ctx.agentLoop.registerSectionPrepare(async () => {
         if (reconcileQueued || !hostSeen) await reconcile();
       }, 'ac-host-face-client');

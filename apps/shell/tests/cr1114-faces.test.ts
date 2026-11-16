@@ -1,11 +1,12 @@
 // ============================================================
-// cr1114-faces.test.ts —— cr-1114 批1 三面验收（计划 §2.4 新增用例 ①②）
+// cr1114-faces.test.ts —— cr-1114 批1 三面验收（cr-1121 换契约缓存源）
 //
 // 目的态：白名单/程序化会话首 run 即见 timer 与 update_agent_profile——
 //   ① tc-base 会话工具面（llmToolFace 单源 → toolDefs）含二者
 //   ② singles + tc-programmatic 会话**首 run** 物化的前缀快照即含
 //      GUIDELINES_TIMER 段与 PTC_SDK 中的 timer 声明（非 run 2 收敛）
-// 真壳 boot（bootShell——骨架行全量，含 host-face-client 承诺面）。
+// 真壳 boot（bootShell——骨架行全量；静态面 = 宿主写契约缓存，本测试
+// 种真宿主同款缓存——timer-face/profile-face 贡献并集）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -47,6 +48,34 @@ function seedAgent(id: string, rows?: string[]): void {
   writeAgentPatchV3At(dir, defs, fingerprints);
 }
 
+/**
+ * 契约缓存直投（真宿主 = host-face 行 discover 处理器落盘的注册面聚合
+ * 契约；cr-1121 起壳侧 boot 静态面数据源——timer-face + profile-face
+ * 贡献并集同款，GUIDELINES_TIMER 带 promise 标记）。
+ */
+function seedContractCache(): void {
+  fs.mkdirSync(path.join(ROOT, 'meta'), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'meta', 'host-face-contract.json'), JSON.stringify({
+    version: 1,
+    tools: [{
+      name: 'timer',
+      description: '管理定时任务：set 安排一条提醒/延时任务（到点以新消息唤醒你并携带 hint）、list 查看自己的条目、cancel 按 id 取消。会话维度：在哪个会话设置就回哪个会话；时间串支持 HH:mm（每天）/ YYYY-MM-DDTHH:mm（一次）/ 周日 12:00 每周 / 间隔（30m、1h）。',
+      parameters: { type: 'object', properties: { action: { type: 'string', enum: ['set', 'list', 'cancel'] } }, required: ['action'] },
+    }, {
+      name: 'update_agent_profile',
+      description: '更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENTS.md。',
+      parameters: { type: 'object', properties: { fields: { type: 'object' } }, required: ['fields'] },
+    }],
+    sections: [{
+      name: 'GUIDELINES_TIMER',
+      text: '主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。',
+      promise: true,
+      gate: { toolsAny: ['timer'] },
+    }],
+    facts: ['singles', 'group'],
+  }), 'utf-8');
+}
+
 /** singles 注册表直投（SinglesShim 读面——meta/sessions/） */
 function seedSingles(sid: string): void {
   const dir = path.join(ROOT, 'meta', 'sessions');
@@ -69,6 +98,7 @@ describe('cr-1114 批1 三面验收（宿主能力面承诺面）', () => {
   it('① 白名单 Agent：tc-base 会话工具面含 timer 与 update_agent_profile（boot 即在册，无需首 run）', async () => {
     // 行集点名 host-face-client（骨架行恒装；此处显式点名 = 白名单消费形态）
     seedAgent('timerable', ['fs-tools', 'host-face-client']);
+    seedContractCache(); // 宿主写契约缓存在数据根（真宿主 discover 落盘同款）
     const shell = await boot('timerable');
     try {
       const conv = shell.ctx.get('conversation', false) as { toolDefs(conversationId?: string): { names: string[] } } | undefined;
@@ -83,6 +113,7 @@ describe('cr-1114 批1 三面验收（宿主能力面承诺面）', () => {
 
   it('② singles tc-programmatic 会话：首 run 快照即含 GUIDELINES_TIMER 段与 PTC_SDK timer 声明', async () => {
     seedAgent('timerable', ['run-code', 'host-face-client']);
+    seedContractCache();
     const sid = 'sid-cr1114-prog';
     seedSingles(sid);
     seedConvSettings(sid, { toolMode: 'tc-programmatic' });

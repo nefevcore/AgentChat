@@ -41,7 +41,7 @@
 判例五则（锁 / 指纹 / 授权投影 / 群拓扑 / Agent 在场性）与原理：裁决簿
 〈行资格判例〉。tag 机制解体判例（七职能归位）：裁决簿〈tag 机制解体〉。
 
-# R1. 宿主树（**25 行** = 基座 3 + 核心新增 3 + 身份编辑面 3 + 数据服务 6 + 传输/web 4 + 插件治理 3 + 远程 1 + host-face 2；cr-701 B4 撤 25 ui 域行——通道装载面恒在 webui 行 boot graph；2026-11-11 cr-1008 复核实测 `apps/catalog/profile/host.yml` 25 条）
+# R1. 宿主树（**27 行** = 基座 3 + 核心新增 3 + 身份编辑面 3 + 数据服务 6 + 传输/web 4 + 插件治理 3 + 远程 1 + host-face 4〔端点 + 贡献行 ×2 + timers 面宿主服务〕；cr-1121 host-face 真动态化 +2 贡献行〔timer-face/profile-face〕；cr-701 B4 撤 25 ui 域行——通道装载面恒在 webui 行 boot graph）
 
 | 组 | 行 | 包 | 角色 | 来源 |
 |---|---|---|---|---|
@@ -66,6 +66,7 @@
 | 插件治理 | plugin-registry | ac-host-rows（plugin-registry-row.ts）+ ac-plugin-core | 装载裁决 + 熔断闸门 + 动态插件行集条目注入（install = 授权动作 → 壳行集，第三方代码零宿主驻留）+ 宿主行集偏好急救 RPC（写偏好文件，恒冷生效——〈patch 机制退役〉）+ client 半边 manifest 注入（〈插件 client 通道〉）；**preview 侧落地（cr-543，2026-10-19）= ac-host-rows/plugin-registry-row.ts（PluginRegistryHostService：staging 人审复用 ac-plugin-core 纯库 → 批准物化 `<dataRoot>/plugin-rows.json` 插件行集条目 → 壳 boot 合并派生化 → 壳内动态装载；熔断 fail-closed 剔除行集条目 + `rows/*` 急救 RPC 恒冷生效 + `plugin/updated` 变更帧；本行不 import 任何插件代码）** | 改造（吸收 patch-rpc + plugin-gates；patch 热通道与 patch-rpc 形态退役） |
 | 插件治理 | plugin-market / event-policy | ac-plugin-market / ac-event-policy | 市场 + 事件策略（全局治理门）；**plugin-market preview 侧落地（cr-543）= 零改动导入（inject ['webServer','pluginRegistry']——市场安装流= staging 人审入口，装载裁决归 plugin-registry 行）** | 沿用 |
 | 远程 | remote-link | ac-remote-link | 远程链路 | 沿用 |
+| host-face | host-face / timer-face / profile-face | ac-host-face | **宿主能力面（cr-886 → cr-1121 真动态化）**：host-face = ipc 契约端点 + `hostFaceRegistry` 贡献注册面（契约 = 注册面聚合，宿主写契约缓存 `meta/host-face-contract.json` 供壳 boot 静态面）；timer-face = timer 工具 + GUIDELINES_TIMER 段贡献行（timers 行缺席 = 调用报未装配）；profile-face = update_agent_profile 档案写口贡献行——设计档 host-face-dynamic-contract.md | **新增**（cr-1121——写死清单退役） |
 | ui | ~~ui 域行 ×25~~（cr-701 B4 撤除） | ac-client-ui-* | 域卡片行曾以 catalog 声明行 + boot graph 双面存在；cr-696 通道包物理迁 preview 后声明面成旧装配口径残留，cr-701 撤除（装载面恒在 webui 行 boot graph——apps/ui/channel/ 25 通道包 + channelImports 深路径外部化不变，生成器 --check 对账不变）；**通道包↔域卡片对账改为通道包词表快照（channels-domain.test）** | 已撤（cr-701） |
 
 # R2. 壳树（**40 行** = 基座 2 + 账本会话 3 + 模型编排 3 + 装配链 3 + 任务追踪 2 + 工具面 16 + 域服务 8 + 评测 1 + 新增 2；2026-11-11 cr-1008 复核实测 `apps/catalog/profile/shell.yml` 40 条）

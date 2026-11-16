@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "宿主能力面行（cr-886）：ipc host-face 端点——facts（singles/group 数据根直读）+ 远程工具（timer/update_agent_profile，双闸）+ 远程段（五段）；invalidate 推送",
+  "description": "宿主能力面（cr-886 → cr-1121）：ipc host-face 端点 + 贡献注册面（契约 = 聚合，宿主写契约缓存）+ 内置贡献行 timer-face / profile-face",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

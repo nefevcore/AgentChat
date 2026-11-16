@@ -42,6 +42,16 @@ function seedAgent(agentId: string, extra: Record<string, unknown> = {}): void {
   } as AgentConfig);
 }
 
+/** 契约缓存直投（真宿主 = host-face 行 discover 落盘的注册面聚合契约——cr-1121 壳 boot 静态面数据源） */
+function seedHostFaceCache(): void {
+  fs.mkdirSync(path.join(ROOT, 'meta'), { recursive: true });
+  fs.writeFileSync(path.join(ROOT, 'meta', 'host-face-contract.json'), JSON.stringify({
+    version: 1,
+    tools: [{ name: 'timer', description: 'd', parameters: { type: 'object' } }, { name: 'update_agent_profile', description: 'd', parameters: { type: 'object' } }],
+    sections: [{ name: 'GUIDELINES_TIMER', text: 't', promise: true, gate: { toolsAny: ['timer'] } }],
+    facts: [],
+  }), 'utf-8');
+}
 /** 拉起父壳（真进程）并取 control 面（stdin 控制帧 + stdout TSV 回执） */
 function startParent(agentId: string) {
   return new Promise<{ control: (frame: Record<string, unknown>) => Promise<unknown>; shutdown: () => Promise<void> }>((resolve, reject) => {
@@ -141,6 +151,7 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
   // 与真实 run 的 llmToolFace 单源），经子壳 transportHint socket manage 帧直读。
   it('子壳 LLM 工具面非空：tc-programmatic 会话 spawn 不再蒸发工具', async () => {
     seedAgent('coder', { rows: ['run-code', 'fs-tools', 'web-tools', 'subagent'], toolMode: 'tc-programmatic' });
+    seedHostFaceCache(); // cr-1121：壳 boot 静态面 = 宿主写契约缓存（无宿主进程的测试形态直投）
     // 发起会话覆盖（宿主直调形态的键——control 帧带 conversationId 即可命中）
     fs.mkdirSync(path.join(ROOT, 'conv-settings'), { recursive: true });
     fs.writeFileSync(path.join(ROOT, 'conv-settings', 'user~coder.json'),

@@ -153,16 +153,22 @@ import { makePluginRegistryRow, PluginRegistryHostService } from './plugin-regis
 export { makePluginRegistryRow, PluginRegistryHostService };
 export type { PluginRegistryHostRowOptions, PluginRowsView, HostRowsView, InstalledView } from './plugin-registry-row.ts';
 
-// —— 宿主能力面行（cr-886）：ipc 契约端点（timer/update_agent_profile 远程
-//    工具 + 远程段 + facts 声明 + invalidate 广播）——
-import { makeHostFaceRow } from 'ac-host-face';
-export type { HostFaceRowOptions } from 'ac-host-face';
+// —— 宿主能力面行（cr-886）：ipc 契约端点——cr-1121 真动态化：契约 = 注册面
+//    聚合（贡献行 timer-face / profile-face 向 hostFaceRegistry 自报），
+//    host-face 行不再持有工具清单 ——
+import { makeHostFaceRow, makeTimerFaceRow, makeProfileFaceRow } from 'ac-host-face';
+export type { HostFaceRowOptions, HostFaceContribution } from 'ac-host-face';
+export { makeTimerFaceRow, makeProfileFaceRow };
 
 /** 行 id → options 形工厂（宿主 boot 按 rowOptionsFor 产物分流装配） */
 export const HOST_ROW_FACTORIES: Record<string, ((options: never) => Plugin) | undefined> = {
   usage: makeUsageHostRow as unknown as (options: never) => Plugin,
   timers: makeTimersHostRow as unknown as (options: never) => Plugin,
   'host-face': makeHostFaceRow as unknown as (options: never) => Plugin,
+  // cr-1121 真动态化贡献行：boot 面对齐（timer-face 先于 timers 装配——executor
+  // use-time 软取 timers，注册面无激活序依赖）
+  'timer-face': () => makeTimerFaceRow(),
+  'profile-face': makeProfileFaceRow as unknown as (options: never) => Plugin,
   agents: makeAgentsHostRow as unknown as (options: never) => Plugin,
   'plugin-registry': makePluginRegistryRow as unknown as (options: never) => Plugin,
   'auth-registry': makeAuthRegistryRow as unknown as (options: never) => Plugin,
@@ -194,8 +200,10 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     backup: backupOptions,
     'ws-bridge': wsBridgeOptions,
     'remote-link': { root: opts.dataRoot },
-    // 宿主能力面（cr-886）：数据根锚定（ipc 端点 + agents 树执行面）
+    // 宿主能力面（cr-886）：数据根锚定（ipc 端点 + 契约缓存落点）
     'host-face': { dataRoot: opts.dataRoot },
+    // 档案写口贡献行（cr-1121）：数据根锚定（agents 树读改写）
+    'profile-face': { dataRoot: opts.dataRoot },
   };
   // usage 行（cr-538 宿主自有形态）：UsageHostRowOptions = 数据根 + 收信扇出面
   if (opts.inbox !== undefined) {

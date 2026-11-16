@@ -40,7 +40,7 @@ interface WebRpcFace {
 }
 
 describe('宿主 boot（单树装配面）', () => {
-  it('偏好缺省全装：全部宿主行就位对账（24 全集，cr-701 B4 后无 ui 分流行）', async () => {
+  it('偏好缺省全装：全部宿主行就位对账（26 全集——cr-1121 增 timer-face/profile-face 贡献行，cr-701 B4 后无 ui 分流行）', async () => {
     // 24 = cr-701 撤 25 ui 域行后的 cordis 全集 + cr-973 session-index 行
     //（指针索引行——宿主单写者）：web 表面 4 行（web-server/
     // webui/web-api + post-office 编排件）+ guardian / preset-builtin 为编排
@@ -54,8 +54,8 @@ describe('宿主 boot（单树装配面）', () => {
       catalogFile: CATALOG,
     });
     const expected = ['agent-admin', 'agents', 'auth-registry', 'backup', 'config', 'conv-settings', 'event-policy', 'group', 'guardian',
-      'host-face', 'logger-console', 'post-office', 'plugin-market', 'plugin-registry', 'preset-builtin',
-      'remote-link', 'session-index', 'singles', 'timer', 'timers', 'usage',
+      'host-face', 'logger-console', 'post-office', 'plugin-market', 'plugin-registry', 'preset-builtin', 'profile-face',
+      'remote-link', 'session-index', 'singles', 'timer', 'timer-face', 'timers', 'usage',
       'ws-bridge', 'web-server', 'webui', 'web-api',
     ];
     // 派生集即全集（cr-701：ui 域行已撤——通道装载面恒在 webui 行 boot graph）
@@ -73,6 +73,13 @@ describe('宿主 boot（单树装配面）', () => {
     expect(facts.pid).toBe(process.pid);
     expect(facts.port).toBe(host.web.port);
     expect(Number.isNaN(Date.parse(facts.bootAt))).toBe(false);
+    // cr-1121 真动态化：契约 = 注册面聚合——贡献行（timer-face/profile-face）
+    // boot 即注册，契约缓存落盘（壳侧 boot 静态面数据源）
+    const contract = JSON.parse(fs.readFileSync(path.join(dataRoot, 'meta', 'host-face-contract.json'), 'utf-8')) as {
+      tools: Array<{ name: string }>;
+    };
+    expect(contract.tools.map((t) => t.name).sort()).toEqual(['timer', 'update_agent_profile']);
+
     // 回归锁：webServer 消费者在单树形态下必须真激活（双 ctx 形态恒 PENDING）
     const names = host.fibers.map((fiber) => fiber.name);
     for (const name of ['ac-ws-bridge', 'ac-remote-link', 'ac-host-rows/agent-admin']) {
@@ -253,7 +260,7 @@ describe('宿主 boot（单树装配面）', () => {
     fs.rmSync(dataRoot, { recursive: true, force: true });
     const h = await bootHost({ dataRoot, catalogFile: CATALOG, preferences: [{ id: 'backup', disabled: true }] });
     expect(h.rowIds).not.toContain('backup');
-    expect(h.rowIds.length).toBe(24); // 25 - disabled backup（cr-886 host-face + cr-973 session-index）
+    expect(h.rowIds.length).toBe(26); // 27 - disabled backup（cr-1121 贡献行 +2 后全集 27）
     await h.close();
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });

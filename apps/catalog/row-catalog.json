@@ -58,7 +58,19 @@
     {
       "id": "host-face",
       "tree": "host",
-      "description": "宿主能力面（ipc 契约：timer/update_agent_profile 远程工具 + 远程段 + facts）",
+      "description": "宿主能力面（ipc 契约端点 + 贡献注册面聚合 + 契约缓存；cr-1121 真动态化）",
+      "path": "packages/ac-host-face"
+    },
+    {
+      "id": "timer-face",
+      "tree": "host",
+      "description": "能力面贡献行：timer 远程工具 + GUIDELINES_TIMER 段（timers 行缺席 = 调用报未装配）",
+      "path": "packages/ac-host-face"
+    },
+    {
+      "id": "profile-face",
+      "tree": "host",
+      "description": "能力面贡献行：update_agent_profile 档案写口（agents 树读改写，与编辑面同源）",
       "path": "packages/ac-host-face"
     },
     {

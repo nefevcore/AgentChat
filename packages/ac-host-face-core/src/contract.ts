@@ -1,8 +1,11 @@
 // ============================================================
-// ac-host-face-core/src/contract.ts —— 宿主能力面契约词汇（cr-886）
+// ac-host-face-core/src/contract.ts —— 宿主能力面契约词汇（cr-886 → cr-1121）
 //
 // 宿主声明能力（facts/tools/sections），壳 boot 时 discover 按契约装配
 // 本地代理（MCP 同构：宿主 = server，壳 = client）。
+// cr-1121 真动态化：宿主侧契约 = HostFaceRegistry 注册面聚合（贡献行在
+// 宿主 apply 内自报 tools/sections/executor——host-face 不再持有工具清单；
+// 本包只存协议词汇，承诺面常量已退役，boot 面 = 宿主写契约缓存）。
 //
 // 帧协议复用 ac-envelope-core ipc（长度前缀 JSON），端点 = socketPathFor
 // (dataRoot, 'host-face')。帧分四类（kind 判别）：
@@ -32,6 +35,13 @@ export interface HostFaceSectionSpec {
   order?: number;
   /** 静态文本（段主体）；门控逻辑以 gate 声明式表达 */
   text: string;
+  /**
+   * 承诺面段（cr-1121）：恒真静态文本标记——可安全进壳 boot 静态面
+   * （宿主写契约缓存只收 promise 段）。非 promise 段（可能与壳内本地段
+   * 撞名的补位段，如 TERMINOLOGY）仅经 discover 活拉——boot 占位会饿死
+   * 本地 owner 的 fail-loud 注册（cr-1114 实测事故语义保持）。
+   */
+  promise?: boolean;
   /** 声明式门控（AND 语义；缺省 = 恒注入） */
   gate?: {
     /** 全部在场才注入（widenToolsForGating 展开面判定——壳侧执行） */
@@ -42,6 +52,17 @@ export interface HostFaceSectionSpec {
     notSingle?: boolean;
   };
 }
+
+/**
+ * 远程工具执行器（宿主侧贡献行注册形状，cr-1121）：registry 按 tool 名
+ * 路由到贡献行 executor（ctx 用 unknown——core 零 cordis 依赖，宿主行
+ * 装配时窄化为 cordis Context；身份透传供宿主闸复查）。
+ */
+export type HostToolExecutor = (
+  ctx: unknown,
+  args: Record<string, unknown>,
+  identity: { agentId?: string; conversationId?: string },
+) => { ok: boolean; result?: unknown; error?: string };
 
 /** 宿主能力契约（discover 响应载荷） */
 export interface HostFaceContract {

@@ -1,18 +1,18 @@
 // ============================================================
-// ac-host-face/tests/host-face.test.ts —— 宿主能力面端到端（cr-886）
+// ac-host-face/tests/host-face.test.ts —— 宿主能力面端到端（cr-886 → cr-1121）
 //
-// 真 ipc loopback：宿主行（listenIpcConns）× HostFaceClient——discover/
-// execute（timer 双闸+update_agent_profile）/invalidate 广播。
+// 真 ipc loopback：宿主行（listenIpcConns + HostFaceRegistry）× 贡献行
+//（timer-face/profile-face）× HostFaceClient——discover 聚合契约 /
+// execute 贡献行路由 / 注册面变更 invalidate 广播 + 契约缓存落盘。
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
-import * as toolsRow from 'ac-tools';
 import { HostFaceClient } from 'ac-host-face-core';
 import { readAgentConfig, writeAgentConfig } from 'ac-agents-core';
-import { makeHostFaceRow, currentHostFace } from '../src/index.ts';
+import { makeHostFaceRow, makeTimerFaceRow, makeProfileFaceRow, currentHostFace, contractCachePath } from '../src/index.ts';
 
 const tmps: string[] = [];
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
@@ -34,12 +34,16 @@ afterEach(async () => {
 async function bootFace(dataRoot: string) {
   const ctx = new Context();
   const fibers: Fiber[] = [];
-  const f1 = ctx.plugin(toolsRow as any, undefined);
-  await f1;
-  fibers.push(f1);
-  const f2 = ctx.plugin(makeHostFaceRow({ dataRoot }) as any, undefined);
-  await f2;
-  fibers.push(f2);
+  const rows = [
+    makeHostFaceRow({ dataRoot }),
+    makeTimerFaceRow(),
+    makeProfileFaceRow({ dataRoot }),
+  ];
+  for (const row of rows) {
+    const f = ctx.plugin(row as any, undefined);
+    await f;
+    fibers.push(f);
+  }
   booted.push({ ctx, fibers });
   // listen 在 fiber.effect 内异步起——轮询等端点就绪（上限 2s）
   const probe = new HostFaceClient();
@@ -56,8 +60,8 @@ async function bootFace(dataRoot: string) {
   throw new Error('host-face 端点 2s 内未就绪');
 }
 
-describe('宿主能力面（cr-886）', () => {
-  it('discover → 契约完整（tools/sections/facts）', async () => {
+describe('宿主能力面注册面（cr-1121）', () => {
+  it('discover → 聚合契约（tools/sections/facts = 贡献行并集）+ 缓存落盘', async () => {
     const root = tmpRoot();
     await bootFace(root);
     const client = new HostFaceClient();
@@ -67,10 +71,13 @@ describe('宿主能力面（cr-886）', () => {
     expect(contract.tools.map((t) => t.name).sort()).toEqual(['timer', 'update_agent_profile']);
     expect(contract.sections.map((s) => s.name)).toContain('GUIDELINES_TIMER');
     expect(contract.facts).toEqual(['singles', 'group']);
+    // 契约缓存（宿主写——壳侧 boot 静态面数据源）
+    const cached = JSON.parse(fs.readFileSync(contractCachePath(root), 'utf-8')) as typeof contract;
+    expect(cached.tools.map((t) => t.name).sort()).toEqual(['timer', 'update_agent_profile']);
     client.close();
   });
 
-  it('execute update_agent_profile：改自己落盘（agents-core 归一形态）；改他人非 admin 拒绝', async () => {
+  it('execute update_agent_profile：改自己落盘；改他人非 admin 拒绝（贡献行路由 + 宿主闸）', async () => {
     const root = tmpRoot();
     writeAgentConfig(root, { id: 'a1', model: 'm' }); // cr-1036 批3：v3 写口
     writeAgentConfig(root, { id: 'a2', model: 'm' });
@@ -87,7 +94,18 @@ describe('宿主能力面（cr-886）', () => {
     client.close();
   });
 
-  it('invalidate：timers 变更 → 在连壳收到失效帧', async () => {
+  it('execute timer：timers 服务缺席 → 可读错误（贡献行 use-time 软取）', async () => {
+    const root = tmpRoot();
+    await bootFace(root); // 未装 timers 行
+    const client = new HostFaceClient();
+    await client.connect(pipeOf(root));
+    const r = await client.execute('timer', { action: 'list' }, { agentId: 'a1' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('timers 服务未装配');
+    client.close();
+  });
+
+  it('注册面变更 → invalidate 广播 + 缓存收敛（摘贡献行 = 该面从契约消失）', async () => {
     const root = tmpRoot();
     const { ctx } = await bootFace(root);
     const client = new HostFaceClient();
@@ -95,11 +113,35 @@ describe('宿主能力面（cr-886）', () => {
     client.onInvalidate = () => { invalidated = true; };
     await client.connect(pipeOf(root));
     await client.ping();
-    // 经宿主 ctx 直接触发（timers 行 save 尾挂的就是 currentHostFace().invalidate()）
-    currentHostFace()?.invalidate();
+    expect(invalidated).toBe(false);
+    // 动态贡献：注册即归属（fiber effect 回收）——契约与缓存随注册面收敛
+    const f = ctx.plugin({
+      name: 'probe-contrib',
+      inject: ['hostFaceRegistry'],
+      apply(c: Context) {
+        c.get('hostFaceRegistry')!.contribute(c, 'probe', {
+          tools: [{ name: 'probe-tool', description: 'd', parameters: { type: 'object' } }],
+          sections: [],
+          executor: () => ({ ok: true, result: { via: 'probe' } }),
+        });
+      },
+    } as any, undefined);
+    await f;
     await new Promise((r) => setTimeout(r, 100));
     expect(invalidated).toBe(true);
-    void ctx;
+    const c1 = await client.discover();
+    expect(c1.tools.map((t) => t.name)).toContain('probe-tool');
+    expect((await client.execute('probe-tool', {}, { agentId: 'x' })).result).toEqual({ via: 'probe' });
+    // 摘贡献行 = 契约面消失 + invalidate 再广播 + 缓存收敛
+    invalidated = false;
+    if (f.uid !== null) await f.dispose();
+    await new Promise((r) => setTimeout(r, 100));
+    expect(invalidated).toBe(true);
+    expect(currentHostFace()!.contributors()).not.toContain('probe');
+    const c2 = await client.discover();
+    expect(c2.tools.map((t) => t.name)).not.toContain('probe-tool');
+    const cached = JSON.parse(fs.readFileSync(contractCachePath(root), 'utf-8')) as { tools: Array<{ name: string }> };
+    expect(cached.tools.map((t) => t.name)).not.toContain('probe-tool');
     client.close();
   });
 });

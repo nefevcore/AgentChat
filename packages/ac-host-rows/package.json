@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-host-face": "workspace:*",
     "@agentchat/cordis-logger": "workspace:*",
     "@agentchat/cordis-timer": "workspace:*",
     "ac-config": "workspace:*",
@@ -39,7 +40,6 @@
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
-    "ac-host-face": "workspace:*",
     "ac-host-app": "workspace:*",
     "vitest": "^4.1.10"
   }

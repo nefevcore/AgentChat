@@ -1,4 +1,4 @@
-# ac-base-version: 3
+# ac-base-version: 4
 # host 进程基座源文档（cr-902 / cr-1022 批2 行词汇瘦身）——行→包映射单一事实源。
 # 顶层 = cordis-plugin-loader 官方方言条目数组（host 单区——骨架/能力分区
 # 立法只辖 shell，menu-assembly §2.1）；tree 字段由所在文档隐含（id 仅基座
@@ -34,7 +34,13 @@
   description: webui 写侧 RPC 编排（agent CRUD 六方法——装配预览/装配视图面归 8.9）
 - id: host-face
   name: link:packages/ac-host-face
-  description: 宿主能力面（ipc 契约：timer/update_agent_profile 远程工具 + 远程段 + facts）
+  description: 宿主能力面（ipc 契约端点 + 贡献注册面聚合 + 契约缓存；cr-1121 真动态化）
+- id: timer-face
+  name: link:packages/ac-host-face
+  description: 能力面贡献行：timer 远程工具 + GUIDELINES_TIMER 段（timers 行缺席 = 调用报未装配）
+- id: profile-face
+  name: link:packages/ac-host-face
+  description: 能力面贡献行：update_agent_profile 档案写口（agents 树读改写，与编辑面同源）
 - id: timers
   name: link:packages/ac-host-rows
   description: 定时唤醒（唤醒 = 投递信）
