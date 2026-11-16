@@ -1,6 +1,6 @@
 {
- "scannedHead": "31d1f72ba24e62a247a47c6972b04a72c4a24664",
- "generatedAt": "2026-11-16T12:25:16.870Z",
+ "scannedHead": "cd1ebf614ff841b2284c3939682f1d1b527b5f7b",
+ "generatedAt": "2026-11-16T12:25:17.261Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5147,6 +5147,11 @@
     "sha": "31d1f72ba24e62a247a47c6972b04a72c4a24664",
     "date": "2026-11-16",
     "subject": "fix(session): cr-1132/1133/1134 注入卡挂靠结构修复 + viewer 镜像域归一 + user 域正主回迁 →cr-1131"
+   },
+   {
+    "sha": "cd1ebf614ff841b2284c3939682f1d1b527b5f7b",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 台账攒批——cr-1131~1134 登记/状态/提交投影"
    }
   ],
   "1132": [
