@@ -1154,4 +1154,5 @@
 - 【cr-1133 2026-11-16 viewer 存量镜像域读面归一:agents/user 域 speech/盲区 run 误投为 user 发言(migrated-msg 伪 run + 空终稿行致 viewerRuns 漏锚)】
 - 【cr-1134 2026-11-16 user 域正主回迁:agents/user 会话数据迁回对端 agent 域后清理(迁移前后投影对拍保内容零丢失)】
 - 【cr-1135 2026-11-16 TokenGauge 上下文占用收束/续聊跳变根修：API 锚点校准比率（盘读估算×lastRunPrompt/tokenCount）+ run 收束重取信号】
+- 【cr-1136 2026-11-16 cr check 守门懒 sync 落盘副作用根除：内存态校验不写盘（投影落盘走显式 sync）】
 

@@ -1,6 +1,6 @@
 {
- "scannedHead": "9a0a6d8e226d5e2f2547275538ab845eb4f93ea8",
- "generatedAt": "2026-11-16T13:09:05.812Z",
+ "scannedHead": "e406b8c7547223c464166b54e6670fb16de9d20d",
+ "generatedAt": "2026-11-16T13:14:57.644Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5200,6 +5200,13 @@
     "sha": "1fe6d8395bb9485b5b83fd046303945187f17f30",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1135 登记/状态 + cr-1120 提交投影"
+   }
+  ],
+  "1136": [
+   {
+    "sha": "e406b8c7547223c464166b54e6670fb16de9d20d",
+    "date": "2026-11-16",
+    "subject": "fix(cr): cr-1136 check 守门零写副作用（内存态懒校验，投影落盘走显式 sync）"
    }
   ]
  }
