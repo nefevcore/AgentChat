@@ -1,6 +1,6 @@
 {
- "scannedHead": "cd1ebf614ff841b2284c3939682f1d1b527b5f7b",
- "generatedAt": "2026-11-16T12:25:17.261Z",
+ "scannedHead": "d74f609a9c3901992de969265a900200b05b499d",
+ "generatedAt": "2026-11-16T13:05:20.881Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5097,6 +5097,13 @@
     "subject": "fix(session): cr-1119 机制通知 busy 排队行改消费点落账——context 行不再抢跑原 run 收束（restart_host 通知 seq 错位）"
    }
   ],
+  "1120": [
+   {
+    "sha": "d74f609a9c3901992de969265a900200b05b499d",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1120 singles 会话键词汇锁（uuid 形）——对桶/sub_ 键不入清单（未分组幻影行 + unread 串台根修）"
+   }
+  ],
   "1121": [
    {
     "sha": "9c89a56b71c32a7952a1b99a442d2e703ab10f28",
@@ -5159,6 +5166,20 @@
     "sha": "31d1f72ba24e62a247a47c6972b04a72c4a24664",
     "date": "2026-11-16",
     "subject": "fix(session): cr-1132/1133/1134 注入卡挂靠结构修复 + viewer 镜像域归一 + user 域正主回迁 →cr-1131"
+   }
+  ],
+  "1134": [
+   {
+    "sha": "8077da8f4228cf0adc937bfabef95dbbf9ffae5a",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 投影重建(cr-1134 提交后 sync)"
+   }
+  ],
+  "1135": [
+   {
+    "sha": "ed5d1750757b83fc7dfc00c4d7746246a6e01a0b",
+    "date": "2026-11-16",
+    "subject": "fix(conversation): cr-1135 上下文占用仪表收束/续聊跳变根修（锚点校准比率）"
    }
   ]
  }

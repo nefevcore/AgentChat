@@ -1153,4 +1153,5 @@
 - 【cr-1132 2026-11-16 注入卡挂靠结构修复:ViewRow 时间全序 + 投影层锚定(foldViewRecords 尾段 slot 归并 + anchor 派生 + viewer 域归属归一 + buildTurns 坍缩 + face-shell 收编)】
 - 【cr-1133 2026-11-16 viewer 存量镜像域读面归一:agents/user 域 speech/盲区 run 误投为 user 发言(migrated-msg 伪 run + 空终稿行致 viewerRuns 漏锚)】
 - 【cr-1134 2026-11-16 user 域正主回迁:agents/user 会话数据迁回对端 agent 域后清理(迁移前后投影对拍保内容零丢失)】
+- 【cr-1135 2026-11-16 TokenGauge 上下文占用收束/续聊跳变根修：API 锚点校准比率（盘读估算×lastRunPrompt/tokenCount）+ run 收束重取信号】
 
