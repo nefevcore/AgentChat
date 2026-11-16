@@ -1138,4 +1138,7 @@
 - 【cr-1117 2026-11-16 declareClient 死面退役批：32 前端行包宿主半边零功能化（v3 下图成员=行存在性、ctx.webui 声明注册表零消费且服务提供方 ac-webui 零装配）+ ac-webui 包物理退役 + 各包 ac-webui 依赖声明清理 + 宿主半边 boot-graph 断言测试改写；extension 自述保留（plugin/extension-catalog 活消费）；ac-webui-extensions 保留（slotCatalog 单源锚点活消费）】
 - 【cr-1118 2026-11-16 archive 行回归 shell 骨架必装面（cr-1033 误降能力行）+ news~news 手动归档恢复】
 - 【cr-1119 2026-11-16 机制通知 busy 排队收信即落账致 context 行抢跑原 run 收束（restart_host 通知 seq 错位+通知轮不识自己）：机制排队行改消费点落账】
+- 【cr-1120 2026-11-16 会话列表污染修复：singles 域会话键词汇锁（uuid 形）——listIds 把 agent~agent 对桶键/sub_ 子Agent键/subcalls 无差别并入清单（注册表 1220 条中 118 条脏），前端 knownSingles 被 track 污染后 routeDialog 把对桶帧误路由进 single 分区：未分组树挂出幻影行、unread 命中幻影分区不可清除】
+- 【cr-1121 2026-11-16 host-face 宿主契约真动态化：注册面聚合取代写死清单（core 承诺常量退役，boot 面 = 宿主写契约缓存，timer/profile 面拆贡献行）】
+- 【cr-1122 2026-11-16 MCP listChanged 通知接线：ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK ClientOptions.listChanged 面接入，autoRefresh=false——重发现由对账链主导）+ ac-mcp 建连订阅→redetect 全链对账 + 真实数据根配置公开 MCP 服务器验证】
 

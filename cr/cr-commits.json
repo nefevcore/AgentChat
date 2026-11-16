@@ -1,6 +1,6 @@
 {
- "scannedHead": "b70f5eada1456e345ee2f629ea5597c9b4240b38",
- "generatedAt": "2026-11-16T01:29:57.479Z",
+ "scannedHead": "9c89a56b71c32a7952a1b99a442d2e703ab10f28",
+ "generatedAt": "2026-11-16T03:28:21.803Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5059,6 +5059,11 @@
     "sha": "c4e2703087fcf59415eab4e3776a6f9bd6ade616",
     "date": "2026-11-16",
     "subject": "fix(webui): cr-1116 插件目录页数据面重接 rows/list|set|reset + 装配文案对齐现行模型（删 minimal 死按钮）"
+   },
+   {
+    "sha": "87eac396ecf936530a46209ab811227a71dd101b",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 投影重建(cr-1116~1119 提交后 sync)"
    }
   ],
   "1117": [
@@ -5080,6 +5085,13 @@
     "sha": "429a18f1e026972609315694319ba7519dbd201c",
     "date": "2026-11-16",
     "subject": "fix(session): cr-1119 机制通知 busy 排队行改消费点落账——context 行不再抢跑原 run 收束（restart_host 通知 seq 错位）"
+   }
+  ],
+  "1121": [
+   {
+    "sha": "9c89a56b71c32a7952a1b99a442d2e703ab10f28",
+    "date": "2026-11-16",
+    "subject": "feat(assembly): cr-1121 host-face 宿主契约真动态化——注册面聚合取代写死清单（HostFaceRegistry 注册即归属 + timer-face/profile-face 贡献行 + 宿主写契约缓存驱动壳 boot 静态面；core 承诺常量与 tools.ts 退役，timers 条目 invalidate 退役，TERMINOLOGY/GUIDELINES_COLLAB 补位段退役归本地 owner）"
    }
   ]
  }
