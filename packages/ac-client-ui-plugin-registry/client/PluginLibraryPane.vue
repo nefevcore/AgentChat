@@ -1,11 +1,11 @@
 <script setup lang="ts">
 // ============================================================
 // PluginLibraryPane.vue —— 插件库（三页签信息架构：启停两层分家）
-//   「插件目录」—— patch 装配层专页（强制停用）：
-//     yml 装配行清单（catalog ∪ rows ∪ patch 兜底）+ 每行行尾开关
-//     （写 cordis.patch.yml：停用 = loader 卸载整行，热通道立即生效）
-//     + 批量还原（最小可运行集 / 出厂装配）+ 急救（目录 RPC 阵亡时
-//     cordis.patch.yml 兜底行照常可开关——行偏好通道独立存活）
+//   「插件目录」—— 行偏好层专页（强制停用）：
+//     宿主装配行清单（rows/list 全集 × 偏好合成）+ 每行行尾开关
+//     （写 host-rows.json 行偏好：恒冷生效，重启宿主后装载）
+//     + 批量还原（出厂装配）+ 急救（目录 RPC 阵亡时行偏好通道
+//     独立存活——rows/* 与目录面分属两行）
 //   「插件配置」—— 原「目录」：左导航（插件 / 工具 / 事件 三视图）+
 //     右面板（独立滚动——2026-08-30 起滚动收口在右侧清单区）：
 //     - 插件视图：内置组卡片（点击弹配置弹窗）+ 右侧软停用开关
@@ -21,7 +21,7 @@ import { ref, computed, watch } from 'vue';
 import type {
   PluginInfo, PluginPermissionsView, StagingRecord,
   ExtensionEntry, AgentToolInfo, DevPluginInfo,
-  EventChainEntry, EventDescriptionEntry, PluginPatchEntry, AssemblyRowInfo,
+  EventChainEntry, EventDescriptionEntry, AssemblyRowInfo,
 } from 'ac-client-ui-settings/client/types.ts';
 // 插件域数据面（M29 P1-3a 归域——rpc 必传）；治理面（get/setEventPolicy）
 // 与全局默认层（get/setGlobalSetting）留守 settings api（domain→base 合法）
@@ -80,19 +80,19 @@ function flash(msg: string) {
   toastOk(msg);
 }
 
-// ── 行偏好层 cordis.patch.yml（「插件目录」页签：强制停用开关；锚点 = yml 裸行 entryId） ──
-const patches = ref<PluginPatchEntry[]>([]);
-const patchFile = ref('');
-const patchWarnings = ref<string[]>([]);
+// ── 行集偏好层 host-rows.json（「插件目录」页签：强制停用开关；锚点 = 行 id） ──
+const rowPrefs = ref<api.RowPrefEntry[]>([]);
+const prefFile = ref('');
+const prefWarnings = ref<string[]>([]);
 async function loadPatches(): Promise<void> {
   if (!rpc) return;
   try {
-    const r = await api.getPatchList(rpc!);
-    patches.value = r.patches;
-    patchFile.value = r.file;
-    patchWarnings.value = r.warnings;
+    const r = await api.getRowPrefs(rpc!);
+    rowPrefs.value = r.rows;
+    prefFile.value = r.file;
+    prefWarnings.value = r.warnings;
   } catch {
-    /* fail-soft：无 patch 面 → 停用开关按缺省（全部启用）呈现 */
+    /* fail-soft：无 rows 面 → 停用开关按缺省（全部启用）呈现 */
   }
 }
 /** 行（包名 → yml 裸 id）解析：plugin/rows（已装载行）∪ plugin/catalog
@@ -108,16 +108,16 @@ const entryIdOf = computed(() => {
   }
   return (pkgName: string): string | undefined => byName.get(pkgName);
 });
-/** 按裸行 id 查强制停用态（「插件目录」行开关锚点；patch 条目 id 兜底行同键） */
+/** 按行 id 查强制停用态（「插件目录」行开关锚点） */
 function patchDisabledById(id: string | undefined): boolean {
   if (!id) return false;
-  return patches.value.find((p) => p.id === id)?.disabled === true;
+  return rowPrefs.value.find((p) => p.id === id)?.disabled === true;
 }
 /** 按包名查强制停用态（「插件配置」卡片置灰/徽章用） */
 function patchDisabled(pkgName: string): boolean {
   const id = entryIdOf.value(pkgName);
   const key = id ?? pkgName;
-  const entry = patches.value.find((p) => p.id === key || p.id === pkgName);
+  const entry = rowPrefs.value.find((p) => p.id === key || p.id === pkgName);
   return entry?.disabled === true;
 }
 /** 反依赖图（M25 P3：停用承重行级联警告；目录页承重徽章 + 停用确认共用） */
@@ -147,7 +147,7 @@ interface DirectoryRow {
   label?: string;
   version?: string;
   description?: string;
-  /** 在当前组合（cordis.yml × 偏好） */
+  /** 在当前装配清单（出厂装配 × 行偏好） */
   assembled: boolean;
   /** patch 兜底行（目录/装配清单未覆盖——急救形态） */
   fallback: boolean;
@@ -169,7 +169,7 @@ const directoryRows = computed<DirectoryRow[]>(() => {
     if (byKey.has(key)) continue;
     byKey.set(key, { key, entryId: r.entryId, pkgName: r.name, version: r.version, description: r.description, assembled: true, fallback: false, dependents: [] });
   }
-  for (const p of patches.value) {
+  for (const p of rowPrefs.value) {
     if (byKey.has(p.id)) continue;
     byKey.set(p.id, { key: p.id, entryId: p.id, pkgName: p.id, assembled: false, fallback: true, dependents: [] });
   }
@@ -183,7 +183,7 @@ const directoryRows = computed<DirectoryRow[]>(() => {
 const dirQuery = ref('');
 const dirOnlyOff = ref(false);
 const dirFiltered = computed(() => dirQuery.value.trim() !== '' || dirOnlyOff.value);
-/** 停用/异常口径：强制停用（patch）∪ 未装配（不在 cordis.yml）∪ 目录外兜底行 */
+/** 停用/异常口径：强制停用（行偏好）∪ 未装配（不在当前装配清单）∪ 目录外兜底行 */
 const visibleDirectoryRows = computed(() =>
   directoryRows.value.filter((row) => {
     if (dirOnlyOff.value && !(patchDisabledById(row.entryId ?? row.key) || !row.assembled || row.fallback)) return false;
@@ -198,8 +198,8 @@ watch(tab, (t) => {
   if (t === 'config') void loadGlobalSettings();
 }, { immediate: true });
 watch(view, () => { if (tab.value === 'config') void loadPatches(); }, { immediate: true });
-/** 强制停用开关（「插件目录」行尾）：写 cordis.patch.yml {id, disabled}——
- *  停用 = loader 卸载整行（热通道立即生效）；与「插件配置」软停用分层 */
+/** 强制停用开关（「插件目录」行尾）：写 host-rows.json {id, disabled}——
+ *  恒冷生效（重启宿主后该行不再装载）；与「插件配置」软停用分层 */
 async function toggleRowPatch(row: DirectoryRow, on: boolean): Promise<void> {
   const id = row.entryId;
   if (!id) {
@@ -231,12 +231,12 @@ async function toggleRowPatch(row: DirectoryRow, on: boolean): Promise<void> {
             ? `停用保护行 ${name}？`
             : `停用 ${name}？`,
         message: killsRpcFace
-          ? `级联断链 ${cascades.length} 个注入方（${cascades.join('、')}），其中包含 ac-web-api——确认后本设置界面的后端 RPC 大部分下线（目录清单消失）。恢复路径：「插件目录」页签对该行重新开启（热恢复，行偏好通道独立存活），或编辑数据根下 cordis.patch.yml 删除 id 为 "${id}" 的条目后重启进程。`
+          ? `级联断链 ${cascades.length} 个注入方（${cascades.join('、')}），其中包含 ac-web-api——重启后本设置界面的后端 RPC 大部分下线（目录清单消失）。恢复路径：「插件目录」页签对该行重新开启后重启宿主（行偏好通道独立存活），或编辑数据根下 host-rows.json 删除 id 为 "${id}" 的条目后重启。`
           : isProtected
             ? `${name} 是保护行（安全防线）。停用后全部 Agent 失去对应防线；级联断链：${cascades.length > 0 ? cascades.join('、') : '（无下游注入方）'}。自担风险。`
-            : `该行为承重行——停用将级联断链 ${cascades.length} 个注入方：${cascades.join('、')}。（声明式 inject 依赖；ctx.get 软依赖不在图内。）`,
+            : `该行为承重行——停用将级联断链 ${cascades.length} 个注入方：${cascades.join('、')}。（声明式 inject 依赖；ctx.get 软依赖不在图内。停用重启宿主后生效。）`,
         confirmLabel: killsRpcFace
-          ? '停用（后端面将大幅下线，自担风险）'
+          ? '停用（重启后后端面将大幅下线，自担风险）'
           : isProtected
             ? '停用保护行（自担风险）'
             : '停用（级联断链）',
@@ -248,18 +248,10 @@ async function toggleRowPatch(row: DirectoryRow, on: boolean): Promise<void> {
   busyName.value = row.key;
   error.value = '';
   try {
-    const result = await api.setPluginPatch(id, !on, rpc!);
-    patches.value = result.patches;
+    const result = await api.setRowPref(id, !on, rpc!);
+    rowPrefs.value = result.rows;
     // 提示文案按用户视角写清两件事：做了什么（装配/停用哪个行）+ 何时生效
-    if (result.state === 'hot') {
-      flash(on
-        ? `已装配「${name}」——立即生效，重启后保持`
-        : `已停用「${name}」——立即生效，重启后保持停用`);
-    } else if (result.state === 'no-include-row') {
-      flash(`已记录${on ? '装配' : '停用'}「${name}」——当前进程非配置驱动启动，重启后生效`);
-    } else {
-      flash(`已记录${on ? '装配' : '停用'}「${name}」——重启后生效`);
-    }
+    flash(`已记录${on ? '装配' : '停用'}「${name}」——重启宿主后生效`);
     emit('refresh');
   } catch (e: any) {
     error.value = `写入行偏好失败: ${e.message}`;
@@ -675,32 +667,25 @@ async function applyGov(): Promise<void> {
   }
 }
 
-const resetBusy = ref<'minimal' | 'factory' | ''>('');
+const resetBusy = ref<'factory' | ''>('');
 
-/** 批量还原：factory（清空停用=出厂全量）/ minimal（只保留最小可运行集） */
-async function resetPatchMode(mode: 'factory' | 'minimal'): Promise<void> {
-  const counts = mode === 'minimal'
-    ? `${props.catalogBuiltin.length} 行中非核心的将全部停用`
-    : `${patches.value.filter((p) => p.disabled).length} 条停用条目将全部清除`;
+/** 批量还原：清空全部停用条目 → 出厂全量装配（恒冷生效——重启宿主后装载） */
+async function resetPatchMode(mode: 'factory'): Promise<void> {
+  const counts = `${rowPrefs.value.filter((p) => p.disabled).length} 条停用条目将全部清除`;
   const ok = await confirmRef.value?.ask({
-    title: mode === 'minimal' ? '还原到最小可运行集？' : '还原出厂装配？',
-    message: mode === 'minimal'
-      ? `${counts}——保留会话链（llm/loop/router/conversation/session）+ 设置界面 RPC 面 + 急救通道 + 安全行 + 一个 provider（裸聊天）。最小集不含 persona/system-prompt/memory/技能/工具行，聊天为裸循环——仅作诊断基线，之后请按需重新启用或还原出厂。`
-      : `${counts}——回到出厂 cordis.yml 全量装配（所有行装载），一键解困。`,
-    confirmLabel: mode === 'minimal' ? '还原到最小集' : '还原出厂',
+    title: '还原出厂装配？',
+    message: `${counts}——回到出厂全量装配（所有行装载），重启宿主后生效，一键解困。`,
+    confirmLabel: '还原出厂',
     danger: true,
   });
   if (!ok) return;
   resetBusy.value = mode;
   error.value = '';
   try {
-    const result = await api.resetPluginPatches(mode, rpc!);
-    patches.value = result.patches;
-    if (result.state === 'hot') {
-      flash(mode === 'minimal' ? '已还原到最小可运行集——立即生效，重启后保持' : '已还原出厂装配——立即生效');
-    } else {
-      flash(mode === 'minimal' ? '最小集已写入偏好文件——重启进程后生效' : '出厂装配已写入——重启进程后生效');
-    }
+    const result = await api.resetRowPrefs(rpc!);
+    rowPrefs.value = result.rows;
+    prefFile.value = result.file;
+    flash('出厂装配已写入——重启宿主后生效');
     emit('refresh');
   } catch (e: any) {
     error.value = `还原失败: ${e.message}`;
@@ -788,27 +773,24 @@ const configViewTabs = computed<Array<{ id: string; label: string }>>(() => [
 
     <!-- ══════ 页签 1：插件目录（patch 装配层专页——强制停用 / 急救 / 还原） ══════ -->
     <div v-if="tab === 'directory'" class="pl-list pl-market">
-      <div class="pl-zone-title" :title="patchFile || '行偏好文件：数据根下 cordis.patch.yml'">
-        装配行（{{ visibleDirectoryRows.length }}<template v-if="dirFiltered"> / {{ directoryRows.length }}</template>）—— cordis.yml 出厂组合 × cordis.patch.yml 强制停用<template v-if="patchFile">；文件 {{ patchFile }}</template>
+      <div class="pl-zone-title" :title="prefFile || '行偏好文件：数据根下 host-rows.json'">
+        装配行（{{ visibleDirectoryRows.length }}<template v-if="dirFiltered"> / {{ directoryRows.length }}</template>）—— 出厂装配 × 行偏好强制停用（重启宿主后生效）<template v-if="prefFile">；文件 {{ prefFile }}</template>
       </div>
       <!-- 筛选栏（搜索 + 只看停用/未装配——清单长时快速定位行；kit SearchInput/Checkbox——cr-171） -->
       <div class="pl-filter-bar">
         <SearchInput v-model="dirQuery" class="pl-search" placeholder="搜索装配行（包名 / 名称 / 描述）" />
         <Checkbox v-model="dirOnlyOff" class="pl-check" title="只显示强制停用 / 未装配 / 目录外兜底行——快速定位异常行">只看停用/未装配</Checkbox>
       </div>
-      <div v-if="patchWarnings.length" class="pl-warn">cordis.patch.yml 告警：{{ patchWarnings.join('；') }}</div>
-      <!-- 目录 RPC 阵亡兜底：清单自动并入 patch 兜底行（急救开关仍可用——
+      <div v-if="prefWarnings.length" class="pl-warn">行偏好告警：{{ prefWarnings.join('；') }}</div>
+      <!-- 目录 RPC 阵亡兜底：清单自动并入偏好兜底行（急救开关仍可用——
            行偏好通道独立存活，不随目录面死） -->
       <div v-if="catalogError" class="pl-warn">
-        插件目录 RPC 面不可用（{{ catalogError }}）——以下清单自动并入 cordis.patch.yml 兜底条目（"目录外"行，急救开关照常可用）。手工恢复：编辑数据根下 cordis.patch.yml 删除停用条目后重启进程。
+        插件目录 RPC 面不可用（{{ catalogError }}）——以下清单自动并入行偏好兜底条目（"目录外"行，急救开关照常可用）。手工恢复：编辑数据根下 host-rows.json 删除停用条目后重启宿主。
       </div>
 
-      <!-- 批量还原：最小可运行集 / 出厂装配（急救通道随行偏好层独立存活） -->
+      <!-- 批量还原：出厂装配（急救通道随行偏好层独立存活） -->
       <div class="pl-reset-row">
-        <Button variant="ghost" size="sm" :disabled="resetBusy !== ''" :title="'停用全部非核心行，保留会话链+RPC面+急救+安全行+一个 provider——诊断基线'" @click="resetPatchMode('minimal')">
-          {{ resetBusy === 'minimal' ? '还原中…' : '还原到最小可运行集' }}
-        </Button>
-        <Button variant="ghost" size="sm" :disabled="resetBusy !== ''" title="清空全部停用条目，回到出厂 cordis.yml 全量装配" @click="resetPatchMode('factory')">
+        <Button variant="ghost" size="sm" :disabled="resetBusy !== ''" title="清空全部停用条目，回到出厂全量装配——重启宿主后生效" @click="resetPatchMode('factory')">
           {{ resetBusy === 'factory' ? '还原中…' : '还原出厂装配' }}
         </Button>
       </div>
@@ -822,8 +804,8 @@ const configViewTabs = computed<Array<{ id: string; label: string }>>(() => [
             <span class="plugin-name">{{ row.label ?? row.pkgName }}</span>
             <span v-if="row.label && row.label !== row.pkgName" class="plugin-alias" :title="`装配行包名：${row.pkgName}`">{{ row.pkgName }}</span>
             <span v-if="row.version" class="plugin-version">v{{ row.version }}</span>
-            <span v-if="patchDisabledById(row.entryId ?? row.key)" class="ui-badge dim" title="cordis.patch.yml 已停用——当前进程该行已卸载/不再装载">强制停用</span>
-            <span v-else-if="!row.assembled" class="ui-badge dim" title="不在当前组合（cordis.yml）——装配 = 编辑 yml">未装配</span>
+            <span v-if="patchDisabledById(row.entryId ?? row.key)" class="ui-badge dim" title="行偏好已停用——重启宿主后该行不再装载">强制停用</span>
+            <span v-else-if="!row.assembled" class="ui-badge dim" title="不在当前装配清单——恢复 = 「插件目录」页签行偏好开关">未装配</span>
             <span v-if="row.fallback" class="ui-badge info" title="条目 id 未命中目录/装配清单（目录 RPC 阵亡或陈旧条目）——急救开关仍可用">目录外</span>
             <span v-if="row.dependents.length" class="ui-badge warn" :title="`承重行——停用将级联断链注入方：${row.dependents.join('、')}`">承重·{{ row.dependents.length }}</span>
           </div>
@@ -834,8 +816,8 @@ const configViewTabs = computed<Array<{ id: string; label: string }>>(() => [
             v-if="row.entryId"
             class="ui-switch"
             :title="patchDisabledById(row.entryId)
-              ? '强制停用开关（当前停用）：开启 = 立即装载该行（清除 cordis.patch.yml 停用条目）'
-              : '强制停用开关（当前装载）：关闭 = 立即卸载该行（写入 cordis.patch.yml，重启后保持停用）'"
+              ? '强制停用开关（当前停用）：开启 = 记录装配（清除 host-rows.json 停用条目），重启宿主后装载'
+              : '强制停用开关（当前装载）：关闭 = 记录停用（写入 host-rows.json），重启宿主后不再装载'"
           >
             <input
               type="checkbox"
@@ -845,13 +827,13 @@ const configViewTabs = computed<Array<{ id: string; label: string }>>(() => [
             />
             <span class="ui-switch-track"><span class="ui-switch-dot" /></span>
           </label>
-          <span v-else class="plugin-hint">未装配——编辑 cordis.yml</span>
+          <span v-else class="plugin-hint">不在装配树——无行偏好开关</span>
         </div>
       </div>
       <div v-if="directoryRows.length === 0" class="pl-empty">无装配行信息（目录与行偏好清单均空）</div>
       <div v-else-if="visibleDirectoryRows.length === 0" class="pl-empty">无命中的装配行——清除搜索或取消「只看停用/未装配」查看全部 {{ directoryRows.length }} 行</div>
       <div class="pl-anno">
-        强制停用 = 行级装配开关：关闭立即卸载整行并写入 cordis.patch.yml（重启保持停用）；"承重"徽章 = 停用将级联断链的注入方。
+        强制停用 = 行级装配开关：关闭写入 host-rows.json 偏好（重启宿主后不再装载）；"承重"徽章 = 停用将级联断链的注入方。
         软停用（跳过行为、行仍装载、Agent 可覆盖）在「插件配置」页签——两者分层不混淆。
       </div>
     </div>
@@ -893,8 +875,8 @@ const configViewTabs = computed<Array<{ id: string; label: string }>>(() => [
                 <span v-if="b.label && b.label !== b.row.name" class="plugin-alias" :title="`装配行包名：${b.row.name}`">{{ b.row.name }}</span>
                 <span v-if="b.row.version" class="plugin-version">v{{ b.row.version }}</span>
                 <span v-if="hasParams(b)" class="ui-badge info" title="带参数面（点击卡片配置）"><Icon name="settings" :size="10" />可配置</span>
-                <span v-if="patchDisabled(b.row.name)" class="ui-badge dim" title="cordis.patch.yml 已强制停用（行不装载）——软停用开关无意义；恢复入口在「插件目录」页签">强制停用</span>
-                <span v-else-if="!b.row.assembled" class="ui-badge dim" title="不在当前组合（cordis.yml）——装配 = 编辑 yml">未装配</span>
+                <span v-if="patchDisabled(b.row.name)" class="ui-badge dim" title="行偏好已强制停用（重启宿主后不再装载）——软停用开关无意义；恢复入口在「插件目录」页签">强制停用</span>
+                <span v-else-if="!b.row.assembled" class="ui-badge dim" title="不在当前装配清单——恢复 = 「插件目录」页签行偏好开关">未装配</span>
               </div>
               <div class="plugin-desc">{{ b.row.description ?? '（行包无描述）' }}</div>
             </div>
@@ -903,7 +885,7 @@ const configViewTabs = computed<Array<{ id: string; label: string }>>(() => [
                 v-if="softGateOf(b)"
                 class="ui-switch"
                 :title="patchDisabled(b.row.name)
-                  ? '行已被强制停用（cordis.patch.yml）——先在「插件目录」页签恢复装载'
+                  ? '行已被强制停用（host-rows.json 行偏好）——先在「插件目录」页签恢复装配并重启宿主'
                   : softDisabled(b)
                     ? '软停用开关（当前停用）：开启 = 恢复该插件行为（行本就装载，立即生效）'
                     : '软停用开关（当前启用）：关闭 = 跳过该插件行为（行仍装载；写 settings 全局默认层，Agent 差异层可覆盖）'"

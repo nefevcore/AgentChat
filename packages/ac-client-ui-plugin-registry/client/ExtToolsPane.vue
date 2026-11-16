@@ -130,7 +130,7 @@ function pluginBadge(p: PluginInfo): { text: string; cls: string; title: string 
   if (p.source === 'installed') {
     return { text: '已装载', cls: 'installed', title: '安装态在 registry.json，boot 扫描装载；卸载在插件库' };
   }
-  return { text: '装载即生效', cls: 'builtin', title: 'cordis.yml 装配行：进程级启停 = 编辑行组合并重启，UI 不重复表达' };
+  return { text: '装载即生效', cls: 'builtin', title: '装配行：进程级启停 = 「插件目录」页签行偏好（重启宿主生效），UI 不重复表达' };
 }
 /** 动态装载区 = session/installed 源（builtin 装配行即扩展目录与工具，不在此重复） */
 const dynamicPlugins = computed(() =>

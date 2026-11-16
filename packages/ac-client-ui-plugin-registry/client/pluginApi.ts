@@ -20,7 +20,6 @@ import type {
   StagingFileContent,
   EventChainEntry,
   EventDescriptionEntry,
-  PluginPatchEntry,
 } from 'ac-client-ui-settings/client/types.ts';
 import { highRiskOf } from 'ac-client-ui-settings/client/slotCatalog.ts';
 
@@ -28,7 +27,7 @@ type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<
 
 // ── 插件/工具目录（plugin/rows + extension-catalog + loaded + installed
 //    + tools/list 五源合成；M22 P2：扩展目录归后端）。行组合制：内置能力
-//    全是 cordis.yml 装配行（不经 pluginRegistry）。按名去重：
+//    全是装配行（不经 pluginRegistry）。按名去重：
 //    · 同名 loaded + installed → 合并为一条 source 'installed'（installed 信息优先）
 //    · rows 与动态插件撞名 → 动态插件信息优先，rows 只补缺 ──
 export async function getCatalog(rpc: Rpc): Promise<PluginCatalog> {
@@ -60,7 +59,7 @@ export async function getCatalog(rpc: Rpc): Promise<PluginCatalog> {
     if (r.origin === 'internal' || r.origin === 'dynamic') continue;
     const description = typeof r.description === 'string' && r.description
       ? r.description
-      : 'cordis.yml 装配行（行组合制内置能力）';
+      : '装配行（行组合制内置能力）';
     byName.set(name, {
       name,
       label: name,
@@ -369,55 +368,41 @@ export async function getDepGraph(
   return { rows: r.rows ?? [], ...(r.note ? { note: r.note } : {}) };
 }
 
-// ── ⑦ 行偏好层 cordis.patch.yml（M23 P3-lite：plugin/patch-list / patch-set） ──
+// ── ⑦ 行集偏好层（rows/list | rows/set | rows/reset——cr-1116 重接：
+//    plugin/patch-* 后端 cr-485 起恒 throw；偏好文件 = host-rows.json，
+//    恒冷生效（无热通道，重启宿主后装载）） ──
 
-/** 行偏好清单（只读；fail-soft warnings 透出给前端呈现） */
-export async function getPatchList(rpc: Rpc): Promise<{ patches: PluginPatchEntry[]; file: string; warnings: string[] }> {
-  const r = await rpc.call<{ patches?: PluginPatchEntry[]; file?: string; warnings?: string[] }>('plugin/patch-list');
+/** 行集偏好视图行（rows/list 的 rows 条目——host 行全集 × 偏好合成） */
+export interface RowPrefEntry {
+  id: string;
+  disabled: boolean;
+  description?: string;
+}
+
+/** 行集偏好清单（只读；warnings = 派生告警透出给前端呈现） */
+export async function getRowPrefs(rpc: Rpc): Promise<{ rows: RowPrefEntry[]; file: string; warnings: string[] }> {
+  const r = await rpc.call<{ rows?: RowPrefEntry[]; file?: string; warnings?: string[] }>('rows/list');
   return {
-    patches: Array.isArray(r.patches) ? r.patches : [],
+    rows: Array.isArray(r.rows) ? r.rows : [],
     file: typeof r.file === 'string' ? r.file : '',
     warnings: Array.isArray(r.warnings) ? r.warnings : [],
   };
 }
 
-/**
- * 写一条行偏好 {id, disabled}（upsert；原子写）。
- * 三态返回（F12/M5）：'written'（带 restartRequired: true，重启生效）/
- * 'no-include-row'（偏好文件已写但进程无 include 行，无消费者）；
- * 'hot' 为保留字（include 热通道后置 P7，首期恒不返回）。
- */
-export async function setPluginPatch(
+/** 写一条行偏好（upsert 原子写；disabled=false = 删条目）。恒冷生效——重启宿主后装载。 */
+export async function setRowPref(
   id: string,
   disabled: boolean,
   rpc: Rpc,
-): Promise<{ state: 'hot' | 'written' | 'no-include-row'; restartRequired?: boolean; patches: PluginPatchEntry[] }> {
-  const r = await rpc.call<{ state?: string; restartRequired?: boolean; patches?: PluginPatchEntry[] }>('plugin/patch-set', { id, disabled });
-  const state = r.state === 'hot' || r.state === 'no-include-row' ? r.state : 'written';
-  return {
-    state,
-    ...(r.restartRequired === true ? { restartRequired: true } : {}),
-    patches: Array.isArray(r.patches) ? r.patches : [],
-  };
+): Promise<{ rows: RowPrefEntry[]; file: string }> {
+  const r = await rpc.call<{ rows?: RowPrefEntry[]; file?: string }>('rows/set', { id, disabled });
+  return { rows: Array.isArray(r.rows) ? r.rows : [], file: typeof r.file === 'string' ? r.file : '' };
 }
 
-/**
- * 还原行偏好层（批量，2026-08-30）：
- *   · 'factory' —— 清空全部停用条目 → 出厂 cordis.yml 全量装配；
- *   · 'minimal' —— 最小核心集（会话链 + RPC 面 + 急救 + 安全行）以外的
- *     在册行全部停用 → 安全模式基线。
- */
-export async function resetPluginPatches(
-  mode: 'factory' | 'minimal',
-  rpc: Rpc,
-): Promise<{ state: 'hot' | 'written' | 'no-include-row'; restartRequired?: boolean; patches: PluginPatchEntry[] }> {
-  const r = await rpc.call<{ state?: string; restartRequired?: boolean; patches?: PluginPatchEntry[] }>('plugin/patch-reset', { mode });
-  const state = r.state === 'hot' || r.state === 'no-include-row' ? r.state : 'written';
-  return {
-    state,
-    ...(r.restartRequired === true ? { restartRequired: true } : {}),
-    patches: Array.isArray(r.patches) ? r.patches : [],
-  };
+/** 清空偏好文件（恢复出厂全量装配；恒冷生效——重启宿主后装载） */
+export async function resetRowPrefs(rpc: Rpc): Promise<{ rows: RowPrefEntry[]; file: string }> {
+  const r = await rpc.call<{ rows?: RowPrefEntry[]; file?: string }>('rows/reset');
+  return { rows: Array.isArray(r.rows) ? r.rows : [], file: typeof r.file === 'string' ? r.file : '' };
 }
 
 // ── ⑧ 事件执行链（M23 P4：events/listeners 静态读出） ──

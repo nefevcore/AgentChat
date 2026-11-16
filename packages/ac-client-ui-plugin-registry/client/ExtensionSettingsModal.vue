@@ -9,7 +9,7 @@
 // 启停不在此弹窗（2026-09-03 双实例统一移除 enabled 分区——两处卡片行尾
 // 各有软停用开关，弹窗勾选与之重复）：软停用 = 卡片行尾开关
 // （settings.enabled 行为门控）；强制停用 = 插件库「插件目录」页签
-// （cordis.patch.yml）。已存的 enabled 值不受影响（draft 为全量快照，
+// （行偏好 host-rows.json，重启宿主生效）。已存的 enabled 值不受影响（draft 为全量快照，
 // 未渲染字段原样带回保存）。
 // 数据源 = 扩展目录条目（A1 注册制：行包自述 extension 经 registry 聚合；
 // fields 声明 + configNs 锚点；字段级描述与类型提示 type/enum/min/max/

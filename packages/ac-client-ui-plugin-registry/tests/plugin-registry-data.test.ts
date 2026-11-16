@@ -45,34 +45,25 @@ describe('pluginApi · 目录直连（plugin/catalog）', () => {
   });
 });
 
-describe('pluginApi · 行偏好层（cordis.patch.yml 三态）', () => {
-  it('getPatchList 空态兜底（patches/file/warnings 各归空型）', async () => {
-    const { rpc } = rec({ 'plugin/patch-list': {} });
-    const r = await api.getPatchList(rpc);
-    expect(r).toEqual({ patches: [], file: '', warnings: [] });
+describe('pluginApi · 行集偏好层（rows/list|set|reset——cr-1116 重接）', () => {
+  it('getRowPrefs 空态兜底（rows/file/warnings 各归空型）', async () => {
+    const { rpc } = rec({ 'rows/list': {} });
+    const r = await api.getRowPrefs(rpc);
+    expect(r).toEqual({ rows: [], file: '', warnings: [] });
   });
 
-  it('setPluginPatch：written 态透传 patches + restartRequired；未知 state 归 written', async () => {
+  it('setRowPref：透传 rows + file；params 形状 {id, disabled}', async () => {
     const { rpc, calls } = rec({
-      'plugin/patch-set': { state: 'written', restartRequired: true, patches: [{ id: 'x', disabled: true }] },
+      'rows/set': { rows: [{ id: 'x', disabled: true }], file: 'host-rows.json' },
     });
-    const r = await api.setPluginPatch('x', true, rpc);
-    expect(r).toEqual({ state: 'written', restartRequired: true, patches: [{ id: 'x', disabled: true }] });
+    const r = await api.setRowPref('x', true, rpc);
+    expect(r).toEqual({ rows: [{ id: 'x', disabled: true }], file: 'host-rows.json' });
     expect(calls[0].params).toEqual({ id: 'x', disabled: true });
-    // 后端漏发 state → 归缺省 written（不把前端拖进未知态）
-    const r2 = await api.setPluginPatch('y', false, rec({ 'plugin/patch-set': {} }).rpc);
-    expect(r2.state).toBe('written');
-    expect(r2.patches).toEqual([]);
   });
 
-  it('setPluginPatch / resetPluginPatches：no-include-row 与 hot 透传', async () => {
-    const a = await api.setPluginPatch('x', true, rec({ 'plugin/patch-set': { state: 'no-include-row' } }).rpc);
-    expect(a.state).toBe('no-include-row');
-    expect(a.restartRequired).toBeUndefined();
-    const b = await api.resetPluginPatches('factory', rec({ 'plugin/patch-reset': { state: 'hot', patches: [] } }).rpc);
-    expect(b.state).toBe('hot');
-    const c = await api.resetPluginPatches('minimal', rec({ 'plugin/patch-reset': { state: 'written', restartRequired: true, patches: [] } }).rpc);
-    expect(c).toEqual({ state: 'written', restartRequired: true, patches: [] });
+  it('resetRowPrefs：清空后 rows 全量复位视图', async () => {
+    const r = await api.resetRowPrefs(rec({ 'rows/reset': { rows: [{ id: 'a', disabled: false }], file: 'host-rows.json' } }).rpc);
+    expect(r).toEqual({ rows: [{ id: 'a', disabled: false }], file: 'host-rows.json' });
   });
 });
 
