@@ -91,7 +91,7 @@ function seedConvSettings(sid: string, patch: Record<string, string>): void {
 
 async function boot(agentId: string): Promise<ShellBootResult> {
   fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
-  return bootShell({ dataRoot: ROOT, agentId, catalogFile: CATALOG, mockProvider: true }, { emit: () => {} });
+  return bootShell({ dataRoot: ROOT, agentId, catalogFile: CATALOG, mockProvider: true });
 }
 
 describe('cr-1114 批1 三面验收（宿主能力面承诺面）', () => {

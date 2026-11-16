@@ -171,6 +171,9 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
        llm / llm-pool         模型会话（协议纯库 + 连接池）
 跨进程 信封投递（post-office）——Agent 是数据不是插件；壳崩不丢账本，
        宿主换代活壳自持（detached）+ 新宿主 boot 完整接管（socket-only 句柄，cr-967）
+监护   协议离 stdio（cr-1130）：节拍 = 文件（activation.lock / boot-progress.json），
+       心跳 = 锁 mtime + peek 双源，控制面 = manage 通道（socket 帧）——stdout/stderr
+       回归普通进程通道，stdin 不读
 横切   fs/shell/web/collab 工具族 · memory · timer · archive · plugin-registry …
 ```
 

@@ -39,7 +39,7 @@ describe('M7.5 webui 三拆 + 通道 端到端', () => {
 
   it('① 历史读：真壳会话 → user 账本终稿投影 → webui 读面回放对齐', async () => {
     seedConfig('alpha');
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'alpha', catalogFile: CATALOG }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'alpha', catalogFile: CATALOG });
     // user 壳（宿主内薄桩）经 ipc 直投两轮 + 终稿写穿 user 账本
     const net = await import('node:net');
     const client = net.connect(boot.transportHint);
@@ -78,7 +78,7 @@ describe('M7.5 webui 三拆 + 通道 端到端', () => {
 
   it('② 流式：run 旁带帧经真 ipc 连接到达 tap + 壳死即丢', async () => {
     seedConfig('beta');
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'beta', catalogFile: CATALOG }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'beta', catalogFile: CATALOG });
     // 宿主 tap 订阅旁带（真 ipc 连接——与投递信封同监听地址）
     const frames: Array<{ stream: string; kind: string; text?: string; finish?: string }> = [];
     const tap = await tapShellStream(boot.transportHint, (f) => frames.push(f as { stream: string; kind: string }));

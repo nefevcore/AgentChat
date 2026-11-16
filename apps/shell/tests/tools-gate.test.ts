@@ -52,7 +52,7 @@ async function bootWithMcp(agentId: string, writeAuth?: (root: string) => void) 
   fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
   writeAgentConfig(ROOT, { id: agentId, model: 'mock', rows: ['mcp', 'math'] });
   writeAuth?.(ROOT);
-  const boot = await bootShell({ dataRoot: ROOT, agentId, catalogFile: CATALOG }, { emit: () => {} });
+  const boot = await bootShell({ dataRoot: ROOT, agentId, catalogFile: CATALOG });
   const mcp = boot.ctx.get('mcp', false) as {
     registerServer(def: { name: string; clientFactory: () => McpConnection }): void;
     sync(): Promise<void>;

@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { socketPathFor, makeEnvelope } from 'ac-envelope-core';
+import { socketPathFor, makeEnvelope, waitForShellReady } from 'ac-envelope-core';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from '../user-stub.ts';
 import { readLedger } from 'ac-ledger';
@@ -44,14 +44,9 @@ async function spawnShell(agentId: string): Promise<{ child: ChildProcess; hint:
     '--mock-provider', '1', '--post-office', socketPathFor(path.resolve(ROOT), 'post-office')],
     { stdio: ['pipe', 'pipe', 'inherit'] });
   spawned.push(child);
-  const lines: string[] = [];
-  child.stdout.on('data', (c: Buffer) => { for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l); });
-  const deadline = Date.now() + 15_000;
-  while (!lines.some((l) => l.startsWith('boot.ready'))) {
-    if (Date.now() > deadline) throw new Error('boot.ready 超时：' + lines.join(' | '));
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  return { child, hint: lines.find((l) => l.startsWith('boot.ready'))!.split('\t')[2] };
+  child.stdout.on('data', () => {}); // cr-1129 批4：排水防反压（stdout 信号退役）
+  const lock = await waitForShellReady(path.join(ROOT, 'agents', agentId), 25_000);
+  return { child, hint: lock.transportHint };
 }
 
 describe('M8.4 user 壳半边端到端', () => {

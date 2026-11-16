@@ -1,7 +1,7 @@
 # 协议规格 · 信封 / 锁 / 监护（工程规格草稿）
 
 > 性质：协议规格现行事实源——信封 / 锁 / 监护三节的工程规格；`packages/ac-envelope-core` 各文件按章回引本档。
-> 状态：现行 · cr-419 2026-10-14 立稿，2026-10-15 补 A4（inbox 边界）与 F-8（budget 链式语义），cr-528 钉监护三参数。
+> 状态：现行 · cr-419 2026-10-14 立稿，2026-10-15 补 A4（inbox 边界）与 F-8（budget 链式语义），cr-528 钉监护三参数，cr-1130 D 节重写（监护信令离 stdio——承接 shell-protocol-off-stdio-plan）。
 > 读者：实现或审计信封投递 / activation 锁 / 宿主监护信号的人。
 >
 > 依据：per-agent 档案 D2/D4（投递原语与行协议）、R-1/R-3（uuid 签发与确认）、R-7（指纹）、R-4（授权信）；
@@ -142,44 +142,52 @@ requestId / budget 语义（不幂等、不确认、不入发件箱——outbox 
 > 2026-10-16 补充（cr-485）：宿主自身 boot 同形 = 清单驱动装配（宿主行集偏好文件 →
 > ac-rowset-core 派生宿主清单；cordis.patch.yml / loader patches 退役）——两树同形
 > boot，行集唯一来源 = 派生全域单一。见裁决簿〈patch 机制退役〉。
+>
+> **2026-11-16 重写（cr-1130 批5，承接 cr-1123 方案 E / shell-protocol-off-stdio-plan）：
+> 监护信令全量迁出 stdio**——stdout/stderr 回归普通进程通道（stdout 宿主侧排水 +
+> 诊断转发、stderr 诊断线），stdin 不读（spawn stdio = ignore）。三面归宿：节拍 →
+> 文件（activation.lock / boot-progress.json）、心跳 → 锁 mtime + peek 双源、控制 →
+> manage 通道（socket 帧）。
 
-## D1. 信号面（宿主 guardian 行 ↔ agent 壳，stdio）
+## D1. 信号面（宿主 guardian ↔ agent 壳——文件与 socket，零 stdio）
 
-宿主拉起壳进程时经 argv 传递：数据根锚定、agentId、授权投影引用、行集清单引用（ac-rowset-core 派生）、（CLI 形态反向：
-agent 拉宿主同款参数集）。壳在 stdout 按 TSV 输出生命周期信号（一行一事件）：
+宿主拉起壳进程时经 argv 传递：数据根锚定、agentId、授权投影引用、行集清单引用（ac-rowset-core
+派生）。（CLI 形态反向：agent 拉宿主同款参数集。）宿主与壳的协议接点：
+
+| 信号（原 stdout TSV） | 现形态 | 说明 |
+|---|---|---|
+| boot.lock.acquired | activation.lock 文件（O_EXCL 落盘） | 锁出现即节拍 1——宿主轮询/读锁 readActivationLock（transportHint 在锁内） |
+| boot.rows.ready | agents/<id>/boot-progress.json | 行集装配完成时原子写（temp+rename；bootId = 代际键，宿主只采信与锁同代进度） |
+| boot.ready | ipc listen 成功 | probeIpc 实连成功 = adopt 判据（与锁内 transportHint 对齐） |
+| guardian.ping | 锁 mtime 心跳 | 壳 30s touch 锁文件；宿主每拍 stat——新鲜窗 [now-2拍, now] 即喂活 |
+| run.started / run.settled | runbeat-<agent>.log 壳侧直写 | 壳订阅 loop 事件直接落运维日志（appendRollingLine 滚动）；宿主不中转 |
+| fingerprint.root | boot-progress.json 字段 | 宿主 adopt 后读取对拍（R-7） |
+| plugin.load-failed | boot-progress.json 内清单 | pluginLoadFailures 数组；宿主读进度即得 |
+| ctrl.done / ctrl.error（stdin/stdout 帧对） | manage 通道 request/response | 控制帧与 system/shutdown 全量走 socket（makeManageRequest/manageRoundTrip） |
+
+stdout = 自由通道（协议零依赖）；stderr = 日志通道（宿主聚合进日志目录）；stdin = 不读。
+退出码沿用 supervisor 语义：42 = 请求重拉、78 = 配置/组合失败（不重拉）、0 = 正常退出
+（idle-exit 收割走 0）。优雅关停 = manage system/shutdown 帧（SIGTERM 同义兜底；Windows
+SIGTERM 不跑 JS handler——kill 面以锁内 pid 点名强杀兜底）。
+
+## D2. 拉起三节拍与判死
 
 ```
-# boot 节拍（拉起 → 可用三节拍）
-boot.lock.acquired     <bootId> <isoTs>            锁获取成功
-boot.rows.ready        <bootId> <行数>             行集全部就位（= R-8 冒烟基结构态）
-boot.ready             <bootId> <transportHint>    壳可用（transport 监听开启）——宿主收到
-                                                    才把该 agent 标记为可达
-# 运行期
-run.started            <runId> <conversationId>    run 开始（健康监视粒度）
-run.settled            <runId> <finish>            run 收束（finish: ok | interrupted | error）
-guardian.ping          <isoTs>                     心跳（周期可配，缺省 30s；缺省 3 拍丢失
-                                                    = 判死，宿主走拉起三节拍）
-# 指纹自报（R-7）
-fingerprint.root       <merkleRoot>                壳根（与宿主计算对拍——两形态同根断言）
+节拍 1  spawn → 锁出现（O_EXCL；pid 代际校验——只认本代）
+节拍 2  boot-progress.json 出现（rows / fingerprint / 装载失败清单；bootId 同代才采信）
+节拍 3  probeIpc 实连成功 → adopt：可达表登记（hint 取自锁）
+常驻    锁 mtime 心跳（壳 30s touch）+ 宿主 peek run-state 探测——双源喂活，任一新鲜即活
+退出    锁消失 = 正常退出(0)；锁在 pid 死 = 崩溃(respawn)；锁换代 = 本代监护终结
 ```
 
-stderr = 日志通道（宿主聚合进日志目录）。退出码沿用 supervisor 语义：42 = 请求重拉、
-78 = 配置/组合失败（不重拉）、0 = 正常退出（idle-exit 收割走 0）。
-
-## D2. 拉起三节拍与退避
-
-```
-节拍 1  spawn：宿主 guardian 起 node 壳进程（argv 带锚定参数）
-节拍 2  adopt：boot.ready 到达 → 注册进可达表（之前该 agent 通信走发件箱滞留）
-节拍 3  verify：fingerprint.root 到达 → 与宿主侧对该 agent 子树定义的期望根对拍——
-         不一致 = 定义漂移 = fail-loud 事件（R-7 检验断言）
-崩溃退避：连续 crash 计数（缺省阈值 3 次内 60s）→ 熔断：不再自动拉起，
-         授权信通知 user（ask 形态），人工干预后清除计数
-idle-exit：壳内长闲（缺省 15min 无 run / 无 inbox 待消费 / 无在途交互 /
-         无在途 job——壳子进程 job 随进程蒸发，活跃 job 阻止收割）→ 进程退出
-         （退出码 0），来件由宿主按需重拉（+200ms 冷启动，会话粒度生灭）
-```
-
+节拍预算分级沿用 cr-962（45s/15s/15s——慢启动 = 有节拍的慢，不该死；挂死 = 无节拍，必死）。
+心跳判死：双源齐断跨 3 拍窗（30s 拍）→ declare-dead → kill（锁内 pid 点名）→ respawn 链。
+崩溃退避：连续 crash 计数（缺省阈值 3 次内 60s）→ 熔断：不再自动拉起，授权信通知 user
+（ask 形态），人工干预后清除计数。
+idle-exit：壳内长闲（缺省 15min 无 run / 无 inbox 待消费 / 无在途交互 / 无在途 job）→
+进程退出（退出码 0），来件由宿主按需重拉（+200ms 冷启动，会话粒度生灭）。
+非 persist 壳原 stdin EOF 防孤儿自杀语义已随 stdin 退役消亡——孤儿收割兜底 = idle-exit；
+owner 失活判定 = 锁观察（takeover 链）。
 # E. 授权信（grant / revoke，R-4 / D3 修订）
 
 ```

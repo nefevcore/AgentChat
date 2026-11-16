@@ -9,7 +9,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { makeEnvelope } from 'ac-envelope-core';
+import { makeEnvelope, waitForShellReady, manageRoundTrip } from 'ac-envelope-core';
 import { ConversationRegistry, ReachabilityTable, routeEnvelope } from 'ac-post-office';
 import { adoptShell } from '../orchestrate.ts';
 import { writeAgentConfig } from 'ac-agents-core';
@@ -69,18 +69,9 @@ describe('M5.4 药丸形端到端（D9 三步合一）', () => {
       '--mock-provider', '1'],
       { stdio: ['pipe', 'pipe', 'inherit'] });
     spawned.push(child);
-    const lines: string[] = [];
-    child.stdout.on('data', (c: Buffer) => {
-      for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l);
-    });
-    // 等三节拍（boot.ready 在 ipc 监听开启后才发——常驻壳语义）
-    const deadline = Date.now() + 15_000;
-    while (!lines.some((l) => l.startsWith('boot.ready'))) {
-      if (Date.now() > deadline) throw new Error('boot.ready 超时：' + lines.join(' | '));
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    const ready = lines.find((l) => l.startsWith('boot.ready'))!;
-    const hint = ready.split('\t')[2];
+    child.stdout.on('data', () => {}); // cr-1129 批4：排水防反压（stdout 信号退役）
+    // 就绪判据 = 锁 + probeIpc 实连（cr-1129 批4：stdout 信号退役）
+    const hint = (await waitForShellReady(path.join(ROOT, 'agents', 'alpha'), 25_000)).transportHint;
     expect(hint).toContain('pipe'); // win32 named pipe 真值（posix 为 .sock）
     reach.markReachable('alpha', hint);
     // 邮局直投
@@ -124,7 +115,7 @@ describe('M5.4 药丸形端到端（D9 三步合一）', () => {
     expect(rows.map((r) => r.content)).toEqual(['药丸全链', '[mock 回复 药丸全链]']);
     expect(rows[1]).toMatchObject({ agent_id: 'alpha', requestId: 'reply-req-full' });
     // shutdown 优雅退出 + 锁释放
-    child.stdin.write('shutdown\n');
+    await manageRoundTrip(hint, { ctrl: 'system', op: 'shutdown' }, 5_000);
     const code = await new Promise<number | null>((res) => child.on('exit', (c) => res(c)));
     expect(code).toBe(0);
     expect(fs.existsSync(path.join(ROOT, 'agents', 'alpha', 'activation.lock'))).toBe(false);
@@ -140,34 +131,22 @@ describe('M5.4 药丸形端到端（D9 三步合一）', () => {
       return c;
     };
     const first = mk();
-    const lines1: string[] = [];
-    first.stdout.on('data', (c: Buffer) => { for (const l of c.toString().split('\n')) if (l.trim() !== '') lines1.push(l); });
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('boot.ready 超时')), 15_000);
-      const iv = setInterval(() => {
-        if (lines1.some((l) => l.startsWith('boot.ready'))) { clearTimeout(t); clearInterval(iv); resolve(); }
-      }, 50);
-    });
-    const bootId1 = lines1.find((l) => l.startsWith('boot.lock.acquired'))!.split('\t')[1];
+    first.stdout.on('data', () => {});
+    const lock1 = await waitForShellReady(path.join(ROOT, 'agents', 'gamma'), 25_000);
+    const bootId1 = lock1.bootId;
     // SIGKILL 崩溃（不跑任何 handler——陈锁）
     first.kill('SIGKILL');
     await new Promise<void>((res) => first.on('exit', () => res()));
     expect(fs.existsSync(path.join(ROOT, 'agents', 'gamma', 'activation.lock'))).toBe(true); // 陈锁残留
     // 重拉：接管陈锁续跑
     const second = mk();
-    const lines2: string[] = [];
-    second.stdout.on('data', (c: Buffer) => { for (const l of c.toString().split('\n')) if (l.trim() !== '') lines2.push(l); });
-    await new Promise<void>((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error('重拉 boot.ready 超时')), 15_000);
-      const iv = setInterval(() => {
-        if (lines2.some((l) => l.startsWith('boot.ready'))) { clearTimeout(t); clearInterval(iv); resolve(); }
-      }, 50);
-    });
-    const bootId2 = lines2.find((l) => l.startsWith('boot.lock.acquired'))!.split('\t')[1];
+    second.stdout.on('data', () => {});
+    const lock2 = await waitForShellReady(path.join(ROOT, 'agents', 'gamma'), 25_000);
+    const bootId2 = lock2.bootId;
     expect(bootId2).not.toBe(bootId1);
     // 陈锁副本留证
     expect(fs.existsSync(path.join(ROOT, 'agents', 'gamma', 'activation.lock.stale-' + bootId1))).toBe(true);
-    second.stdin.write('shutdown\n');
+    await manageRoundTrip(lock2.transportHint, { ctrl: 'system', op: 'shutdown' }, 5_000);
     const code = await new Promise<number | null>((res) => second.on('exit', (c) => res(c)));
     expect(code).toBe(0);
   }, 45_000);

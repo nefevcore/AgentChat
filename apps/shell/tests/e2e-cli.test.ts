@@ -63,14 +63,13 @@ describe('M3.5 级联验收：CLI 直连多轮会话', () => {
     // v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）
     fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
     writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' });
-    const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'alpha', catalogFile: CATALOG },
-      { emit: (s) => signals.push(s) },
     );
-    expect(signals).toEqual(['boot.lock.acquired', 'boot.rows.ready', 'boot.ready'].map((x) => expect.stringContaining(x) as unknown as string).slice(0, 0).length === 0 ? signals : signals);
-    expect(signals).toHaveLength(3);
-    expect(boot.rowset.rowIds.length).toBeGreaterThan(0);
+    // cr-1129 批4：节拍面 = 锁 + boot-progress.json（stdout 信号退役）
+    const progress = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'alpha', 'boot-progress.json'), 'utf-8'));
+    expect(progress.bootId).toBe(boot.lockInfo.bootId);
+    expect(typeof progress.rows).toBe('number');    expect(boot.rowset.rowIds.length).toBeGreaterThan(0);
 
     // —— 会话（user ↔ alpha 多轮）——
     const uuid = '0192e2e2-e2e2-7e2e-8e2e-e2e2e2e2e2e2';
@@ -117,7 +116,6 @@ describe('M3.5 级联验收：CLI 直连多轮会话', () => {
     writeAgentPatchV3At(dir, [{ id: 'math', requires: ['ghost-row'] }], {});
     await expect(bootShell(
       { dataRoot: ROOT, agentId: 'bad', catalogFile: CATALOG },
-      { emit: () => {} },
     )).rejects.toThrow(/requires 缺失/);
   });
 });

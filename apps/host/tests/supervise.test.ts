@@ -4,6 +4,7 @@
 // 数据根恒 sandbox（红线）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { superviseShell } from '../supervise.ts';
 import type { SuperviseAdopter, AdoptedShellFace } from '../supervise.ts';
@@ -90,9 +91,10 @@ describe('superviseShell 常驻监护', () => {
     try {
       adopter.shells[0].emitBoot();
       expect(h.superviseEvents.some((e) => e.type === 'adopted')).toBe(true);
-      // 三拍内心跳都在——tick 全 ok，无判死事件
+      // 三拍内喂活在——tick 全 ok，无判死事件（cr-1129 批4：喂活源 =
+      // noteProbe 探测 / 锁 mtime——stdout ping 行退役）
       for (let i = 0; i < 5; i++) {
-        adopter.shells[0].pumpHeartbeat();
+        h.noteProbe();
         clock.advance(30_000);
         pump!();
       }
@@ -202,11 +204,18 @@ describe('superviseShell 常驻监护', () => {
     } finally { h.stop(); }
   });
 
-  it('插件装载失败回报：plugin.load-failed 行 → sink 转发', async () => {
+  it('插件装载失败回报（cr-1129 批4）：boot-progress.json failures 字段 → sink 转发', async () => {
     const clock = new ManualClock();
     const adopter = new FakeAdopter();
     const reach = new ReachabilityTable();
     const reports: Array<{ name: string; error: string }> = [];
+    // 失败清单落进度文件（bootId 与假壳同代才采信）
+    const dir = path.join(ROOT, 'agents', 'a1');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'boot-progress.json'), JSON.stringify({
+      bootId: 'boot-1', writtenAt: new Date().toISOString(),
+      pluginLoadFailures: [{ plugin: 'demo', error: 'entry syntax error' }],
+    }));
     const h = await superviseShell(
       { agentId: 'a1', dataRoot: ROOT, catalogFile: 'c.json', bootFile: 'b.ts', reach },
       {
@@ -217,13 +226,10 @@ describe('superviseShell 常驻监护', () => {
       },
     );
     try {
-      adopter.shells[0].emitBoot();
-      adopter.shells[0].emitLoadFailed('demo', 'entry syntax error');
       await new Promise((r) => setTimeout(r, 20));
       expect(reports).toEqual([{ name: 'demo', error: 'entry syntax error' }]);
     } finally { h.stop(); }
   });
-
   it('双源喂活（换代接管 D1）：stdout 静默 + noteProbe 在喂 → 不判死；双源齐断 → 判死强杀', async () => {
     const clock = new ManualClock();
     const adopter = new FakeAdopter();

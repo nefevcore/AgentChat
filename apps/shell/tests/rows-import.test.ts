@@ -38,14 +38,14 @@ function seedAgent(agentId: string, cfg: { rows?: AgentConfig['rows']; settings?
 describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
   it('boot 真装配沿用行（tools/persona/memory/goal…经 ctx.plugin 激活）+ dispose 零悬挂', async () => {
     seedAgent('alpha');
-    const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'alpha', catalogFile: CATALOG },
-      { emit: (s) => signals.push(s) },
     );
     try {
-      expect(signals).toHaveLength(3);
-      expect(signals[1]).toContain('boot.rows.ready');
+      // cr-1129 批4：节拍面 = boot-progress.json（stdout 信号退役）
+      const progress = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'alpha', 'boot-progress.json'), 'utf-8'));
+      expect(progress.bootId).toBe(boot.lockInfo.bootId);
+      expect(typeof progress.rows).toBe('number');
       // 缺省行集 = 基础壳行集（非捆绑行全量）——第一批导入行在内
       expect(boot.rowset.rowIds).toContain('tools');
       expect(boot.rowset.rowIds).toContain('persona');
@@ -60,7 +60,6 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
     seedAgent('beta', { settings: { persona: { text: '你是测试人格' } } });
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'beta', catalogFile: CATALOG },
-      { emit: () => {} },
     );
     try {
       // 垫片直读链：settingsOf 合成（全局层 ∪ 差异层）
@@ -91,7 +90,6 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
       encryptValue(deriveKey(machineMaterial()), 'ghp-test-token'), 'utf-8');
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'gamma', catalogFile: CATALOG },
-      { emit: () => {} },
     );
     try {
       // ① 模型编排：ctx.llm 路由 + ctx.agentLoop 服务到位
@@ -124,7 +122,6 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
     seedAgent('delta', { rows: { include: ['fs-tools', 'fs-search', 'str-replace-editor', 'shell-tools'] } });
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'delta', catalogFile: CATALOG },
-      { emit: () => {} },
     );
     try {
       const tools = boot.ctx.get('tools') as { list(): Array<{ name: string }> };
@@ -152,7 +149,7 @@ describe('M8.1 行集收敛第一批：cordis 装配通道', () => {
 describe('M8.1 第三批：依赖链行装配（jobs/shell-tools/harness-tools；convSettings 归垫片）', () => {
   it('三行真装配 + 行集闭包自动补依赖（点名 shell-tools/harness-tools → tools/jobs 并入）', async () => {
     seedAgent('eps', { rows: { include: ['shell-tools', 'harness-tools'] } });
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'eps', catalogFile: CATALOG }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'eps', catalogFile: CATALOG });
     try {
       // 闭包：依赖行自动并入（含 tools 基座）
       for (const id of ['tools', 'jobs', 'shell-tools', 'harness-tools']) {
@@ -218,7 +215,7 @@ describe('M8.1 第三批：依赖链行装配（jobs/shell-tools/harness-tools�
       '  requires: [ghost-row]',
       '',
     ].join('\n'), 'utf-8');
-    await expect(bootShell({ dataRoot: ROOT, agentId: 'zet', catalogFile: CATALOG }, { emit: () => {} }))
+    await expect(bootShell({ dataRoot: ROOT, agentId: 'zet', catalogFile: CATALOG }))
       .rejects.toThrow(/requires 缺失/);
   }, 20_000);
 });
@@ -226,7 +223,7 @@ describe('M8.1 第三批：依赖链行装配（jobs/shell-tools/harness-tools�
 describe('M8.1 第四批：交互承重与评测行（durable-interaction / ask-questions / bench）', () => {
   it('durable-interaction + ask-questions 真装配：服务到位 + jsonl 落盘指错数据根 + ask_questions 工具发起-作答闭环', async () => {
     seedAgent('eta', { rows: { include: ['ask-questions'] } });
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'eta', catalogFile: CATALOG }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'eta', catalogFile: CATALOG });
     try {
       // 闭包并入：ask-questions requires tools + durable-interaction
       for (const id of ['tools', 'durable-interaction', 'ask-questions']) {
@@ -255,7 +252,7 @@ describe('M8.1 第四批：交互承重与评测行（durable-interaction / ask-
   it('M8.6 idle-exit 探针：durable pending 阻止收割，答毕且四面空闲 → 可收割', async () => {
     seedAgent('eta', { rows: { include: ['ask-questions'] } });
     const { shellIsIdle } = await import('../boot.ts');
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'eta', catalogFile: CATALOG, mockProvider: true }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'eta', catalogFile: CATALOG, mockProvider: true });
     try {
       // 四面空闲（无 run / 无 inbox / 无在途交互 / 无活跃 job）
       expect(shellIsIdle(boot.ctx)).toBe(true);
@@ -281,7 +278,7 @@ describe('M8.1 第四批：交互承重与评测行（durable-interaction / ask-
   }, 20_000);
   it('bench 真装配 + scripted 全链路（mock provider → loop → 临时工具 → 对拍 → 报告）', async () => {
     seedAgent('the', { rows: { include: ['bench'] } });
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'the', catalogFile: CATALOG }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'the', catalogFile: CATALOG });
     try {
       // 闭包并入：bench requires tools + agent-loop（llm 经 agent-loop requires 链再并入）
       for (const id of ['tools', 'agent-loop', 'llm', 'bench']) {
@@ -312,7 +309,7 @@ describe('M8.1 第四批：交互承重与评测行（durable-interaction / ask-
 describe('M8.3 run 内 spawn 工具面（subagent 行 + 影子嵌套账本）', () => {
   it('subagent 行装配：工具在册 + ctx.subagents 软取（含 tools 闭包）', async () => {
     seedAgent('lamda', { rows: { include: ['subagent'] } });
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'lamda', catalogFile: CATALOG }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'lamda', catalogFile: CATALOG });
     try {
       for (const id of ['tools', 'subagent']) {
         expect(boot.rowset.rowIds, id + ' 应经闭包/点名在集').toContain(id);
@@ -351,7 +348,7 @@ describe('M8.3 run 内 spawn 工具面（subagent 行 + 影子嵌套账本）', 
 describe('M8.2 全量 loop 接线（conversation 域 + collab-tools）', () => {
   it('collab-tools 真装配：send_agent 工具在册 + deliver 方言叶闭环（注入会话真身）', async () => {
     seedAgent('iota', { rows: { include: ['collab-tools'] } });
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'iota', catalogFile: CATALOG }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'iota', catalogFile: CATALOG });
     try {
       // 闭包并入：collab-tools requires tools + conversation（agent-loop/llm 经链）
       for (const id of ['tools', 'conversation', 'ledger', 'agent-loop', 'llm']) {

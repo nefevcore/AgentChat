@@ -15,7 +15,7 @@ import { materializeChild, readAgentConfig, readAgentPatchV3At, writeAgentConfig
 import type { RowsetCatalog } from 'ac-rowset-core';
 import { evolveShell, defaultCollectProtectedFiles } from '../evolve.ts';
 import { takeSnapshot } from 'ac-snapshot-core';
-import { validateReceiptPayload } from 'ac-envelope-core';
+import { validateReceiptPayload, waitForShellReady, readBootProgress, manageRoundTrip } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-rsi-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
@@ -47,27 +47,26 @@ function realShell(dataRoot: string, agentId: string, parentId?: string) {
     adopt: () => new Promise<{ bootId: string; fingerprintRoot: string; shutdown: () => Promise<void> }>((resolve, reject) => {
       const args = ['--experimental-strip-types', BOOT, '--data-root', path.resolve(dataRoot), '--agent-id', agentId, '--catalog', CATALOG];
       if (parentId !== undefined) args.push('--parent-id', parentId);
-      const child = spawn(process.execPath, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+      const child = spawn(process.execPath, args, { stdio: ['ignore', 'ignore', 'inherit'] });
       spawned.push(child);
-      const lines: string[] = [];
-      child.stdout.on('data', (c: Buffer) => { for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l); });
-      const timer = setTimeout(() => reject(new Error('boot.ready 超时：' + lines.join(' | '))), 15_000);
-      child.on('exit', (code) => { clearTimeout(timer); reject(new Error('壳进程早退 code=' + code)); });
-      const iv = setInterval(() => {
-        const ready = lines.find((l) => l.startsWith('boot.ready'));
-        if (ready !== undefined) {
-          clearTimeout(timer); clearInterval(iv);
-          const [, , , root] = ready.split('\t');
-          resolve({
-            bootId: lines.find((l) => l.startsWith('boot.lock.acquired'))!.split('\t')[1],
+      // 就绪判据 = 锁 + probeIpc 实连；bootId/指纹取自锁与 boot-progress
+      //（stdio ignore——stdout 无管道，诊断走 stderr inherit）
+      const agentDir = path.join(dataRoot, 'agents', parentId !== undefined ? path.join(parentId, 'children', agentId) : agentId);
+      child.on('exit', (code) => { reject(new Error('壳进程早退 code=' + code)); });
+      void (async () => {
+        const lock = await waitForShellReady(agentDir, 15_000);
+        const progress = readBootProgress(agentDir);
+        const root = progress !== null && progress.bootId === lock.bootId ? progress.fingerprintRoot : undefined;
+        if (root === undefined) throw new Error('boot-progress 缺 fingerprintRoot（终拍未达）');
+        resolve({
+            bootId: lock.bootId,
             fingerprintRoot: root,
             shutdown: () => new Promise<void>((res) => {
-              child.stdin.write('shutdown\n');
+              void manageRoundTrip(lock.transportHint, { ctrl: 'system', op: 'shutdown' }, 5_000).catch(() => { /* kill 兜底 */ });
               child.on('exit', () => res());
             }),
-          });
-        }
-      }, 50);
+        });
+      })();
     }),
   };
 }

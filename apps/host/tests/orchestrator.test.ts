@@ -43,8 +43,8 @@ class FakeShell implements AdoptedShellFace {
   control(frame: Record<string, unknown>): Promise<unknown> { this.controlFrames.push(frame); return Promise.resolve({ ok: true }); }
 }
 
-describe('run 节拍落盘（cr-740 运维日志）', () => {
-  it('壳 run.started/run.settled TSV 行 → 缺省滚动落 runbeat-<agent>.log（带宿主时标）', async () => {
+describe('run 节拍落盘（cr-740→cr-1127 批3：宿主 sink 退役，壳侧直写）', () => {
+  it('壳 run 节拍 TSV 行 → 宿主不再落 runbeat-<agent>.log（V3：文件归壳侧产出）', async () => {
     const po = new PostOffice({ dataRoot: ROOT });
     const reach = new ReachabilityTable();
     const shells: FakeShell[] = [];
@@ -64,12 +64,9 @@ describe('run 节拍落盘（cr-740 运维日志）', () => {
       await orch.ensureAgent('rb-agent');
       shells[0].emitLine('run.started	r-1	conv-1	user	mock');
       shells[0].emitLine('run.settled	r-1	conv-1	stop	2	340	1200');
-      shells[0].emitLine('guardian.ping	T'); // 非 run 行不落
-      const log = fs.readFileSync(path.join(ROOT, '.runtime', 'logs', 'runbeat-rb-agent.log'), 'utf-8');
-      const lines = log.trim().split('\n');
-      expect(lines).toHaveLength(2);
-      expect(lines[0]).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z run\.started\tr-1\tconv-1\tuser\tmock$/);
-      expect(lines[1]).toContain('run.settled	r-1	conv-1	stop	2	340	1200');
+      // cr-1127 批3：宿主缺省 sink 退役——runbeat-<agent>.log 由壳侧直写
+      //（壳面断言见 apps/shell/tests/boot.test.ts runbeat 直写用例），宿主不再产出
+      expect(fs.existsSync(path.join(ROOT, '.runtime', 'logs', 'runbeat-rb-agent.log'))).toBe(false);
     } finally {
       orch.close();
     }

@@ -8,57 +8,74 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { adoptShell } from '../orchestrate.ts';
+import { acquireActivationLock, releaseActivationLock, listenIpc, socketPathFor, isManageRequest, makeManageReply } from 'ac-envelope-core';
 import { ReachabilityTable } from 'ac-post-office';
 import type { SpawnFn } from '../orchestrate.ts';
 
-describe('adoptShell stdout 循环常驻性（cr-580）', () => {
-  it('adopted 后超过 adopt deadline 的 ctrl.done 仍被分发（控制帧不超时）', async () => {
-    const written: string[] = [];
-    const lines: string[] = [
-      'boot.lock.acquired\tb-1',
-      'boot.rows.ready\tb-1\t31',
-      'boot.ready\tb-1\\tpipe-x'.replace('\\t', '\t'),
-    ];
-    const waiters: Array<(l: string) => void> = [];
-    const push = (l: string) => { const w = waiters.shift(); if (w) w(l); else lines.push(l); };
+describe('adoptShell 判据与控制面（cr-580 → cr-1129 批4：探测面唯一判据）', () => {
+  it('adopted 后慢回执控制帧仍往返成功（manage 通道不受拉起窗辖制）', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-deadline-'));
+    const agentDir = path.join(dataRoot, 'agents', 'a1');
+    const hint = socketPathFor(path.resolve(dataRoot), 'a1');
+    acquireActivationLock(agentDir, { pid: 4321, bootId: 'b-1', acquiredAt: new Date().toISOString(), transportHint: hint });
+    // 壳侧 manage 面：150ms 慢回执（> 旧 adopt deadline 语义面——拉起窗已收）
+    const server = await listenIpc(hint, (payload) => new Promise((resolve) => {
+      setTimeout(() => {
+        if (isManageRequest(payload)) resolve(makeManageReply(payload.manage.id, { ok: true, value: { echoed: true } }));
+        else resolve(undefined);
+      }, 150);
+    }));
     const spawnFn: SpawnFn = () => ({
       pid: 4321,
-      stdout: {
-        async *[Symbol.asyncIterator]() {
-          for (;;) {
-            const queued = lines.shift();
-            if (queued !== undefined) { yield queued; continue; }
-            yield await new Promise<string>((resolve) => { waiters.push(resolve); });
-          }
-        },
-      },
-      write: (line: string) => {
-        written.push(line);
-        // 壳侧回执：等 adopt deadline（60ms）过后再吐行——修复前该行
-        // 到达即循环退出、控制帧永挂
-        setTimeout(() => push('ctrl.done\t{}'), 150);
-      },
-      on: (event: string, cb: (code: number | null, signal: string | null) => void) => { void event; void cb; },
-      kill: () => { /* 测试替身无进程 */ },
+      stdout: { async *[Symbol.asyncIterator]() { for (;;) yield await new Promise<string>(() => {}); } },
+      write: () => { throw new Error('stdin 写点不得触达'); },
+      on: () => {},
+      kill: () => {},
     });
-    // 数据根用 tmpdir（adoptShell 会物化 agents/a1/config.json——相对路径
-    // 会把残留写进仓库根，cr-621 实锤过 X/ 泄漏）
-    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-deadline-'));
-    const adopted = await adoptShell({
-      agentId: 'a1',
-      dataRoot,
-      catalogFile: 'C',
-      bootFile: 'B',
-      reach: new ReachabilityTable(),
-      spawnFn,
-      timeoutMs: 60, // deadline 60ms——回执在 150ms（>deadline）
-    });
-    expect(adopted.transportHint).toBe('pipe-x');
-    const out = await adopted.control({ ctrl: 'admin', op: 'run-state', agentId: 'a1' });
-    expect(out).toEqual({});
-    expect(written).toHaveLength(1);
-    fs.rmSync(dataRoot, { recursive: true, force: true });
+    try {
+      const adopted = await adoptShell({
+        agentId: 'a1', dataRoot, catalogFile: 'C', bootFile: 'B',
+        reach: new ReachabilityTable(), spawnFn,
+      });
+      expect(adopted.transportHint).toBe(hint);
+      const out = await adopted.control({ ctrl: 'admin', op: 'run-state', agentId: 'a1' });
+      expect(out).toEqual({ echoed: true });
+    } finally {
+      releaseActivationLock(agentDir, 4321);
+      await server.close();
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
   }, 20_000);
+});
+
+describe('慢启动容忍（cr-962 分级预算 → 探测面形态）', () => {
+  it('锁/ipc 晚到（200ms）但预算内 → adopt 成功（有节拍的慢，不该死）', async () => {
+    const dataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-adopt-slow-'));
+    const agentDir = path.join(dataRoot, 'agents', 'a1');
+    const hint = socketPathFor(path.resolve(dataRoot), 'a1');
+    const late = (async () => {
+      await new Promise((r) => setTimeout(r, 200));
+      acquireActivationLock(agentDir, { pid: 4321, bootId: 'b-slow', acquiredAt: new Date().toISOString(), transportHint: hint });
+      return listenIpc(hint, () => undefined);
+    })();
+    const spawnFn: SpawnFn = () => ({
+      pid: 4321,
+      stdout: { async *[Symbol.asyncIterator]() { for (;;) yield await new Promise<string>(() => {}); } },
+      write: () => {},
+      on: () => {},
+      kill: () => {},
+    });
+    try {
+      const adopted = await adoptShell({
+        agentId: 'a1', dataRoot, catalogFile: 'C', bootFile: 'B',
+        reach: new ReachabilityTable(), spawnFn, timeoutMs: 2_000,
+      });
+      expect(adopted.transportHint).toBe(hint);
+      (await late).close();
+    } finally {
+      fs.rmSync(dataRoot, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
 
 describe('adopt watchdog 独立定时器 + 分级预算（cr-962）', () => {

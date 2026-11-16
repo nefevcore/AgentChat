@@ -17,6 +17,7 @@
 // 控制面 vs 数据面：信封走 requestId/幂等/阅后即焚那套；manage 帧是管理
 // 面往返，不入 AdmissionGate、不落账、不转投。
 // ============================================================
+import { IpcClient } from "./ipc.ts";
 
 /** 控制面请求帧（frame 载荷 = 壳 control() 的入参，词汇归壳侧） */
 export interface ManageRequest {
@@ -52,4 +53,29 @@ export function isManageReply(payload: unknown, id: string): payload is ManageRe
   if (manage === null || typeof manage !== "object") return false;
   const m = manage as { id?: unknown; ok?: unknown };
   return m.id === id && typeof m.ok === "boolean";
+}
+
+/**
+ * manage 往返（每次独立连接——cr-656 缓存连接被换代带走的教训；cr-1128
+ * 批 3b 自 apps/host/orchestrator 上移：控制面全量切 manage 通道后宿主
+ * adopt 面与子壳拉起面（ac-shell-subagent）双端同语义单源）。
+ * ok:false = 壳侧 control() 抛错（error 原样上抛）；超时 ms 到即弃。
+ */
+export async function manageRoundTrip(address: string, frame: Record<string, unknown>, timeoutMs: number): Promise<unknown> {
+  const client = new IpcClient();
+  const id = "manage-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 8);
+  await client.connect(address);
+  try {
+    // 内层 request 缺省 15s 超时与外层同拍传 ms（内层先到即内层语义——cr-1046）
+    const reply = await Promise.race([
+      client.request(makeManageRequest(id, frame), (f) => isManageReply(f, id)),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("manage 回执超时（" + timeoutMs + "ms）")), timeoutMs).unref();
+      }),
+    ]) as ManageReply;
+    if (reply.manage.ok !== true) throw new Error(reply.manage.error ?? "manage 帧执行失败");
+    return reply.manage.value;
+  } finally {
+    client.close();
+  }
 }

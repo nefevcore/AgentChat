@@ -15,11 +15,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type PostOffice, type ReachabilityTable } from 'ac-post-office';
-import { IpcClient, probeIpc } from 'ac-envelope-core';
-import { isManageReply, makeManageRequest, type ManageReply } from 'ac-envelope-core';
-import { adoptShell, appendRollingLine } from './orchestrate.ts';
+import { probeIpc } from 'ac-envelope-core';
+import { manageRoundTrip } from 'ac-envelope-core';
+import { adoptShell } from './orchestrate.ts';
 import { hostLog } from './host-log.ts';
-import { superviseShell, type SuperviseHandle, type SuperviseSpawnInput, type SuperviseAdopter, type RunbeatSink } from './supervise.ts';
+import { superviseShell, type SuperviseHandle, type SuperviseSpawnInput, type SuperviseAdopter } from './supervise.ts';
 import { adoptSocketShell } from './takeover.ts';
 
 /** 编排面装配入参 */
@@ -68,7 +68,6 @@ export interface OrchestratorOptions {
    * dataRoot/.runtime/logs/runbeat-<agent>.log，cap 512KB——shell-<agent>.log
    * 同机制）。时间戳宿主侧盖（壳 TSV 无时标——行到达即写）。
    */
-  runbeatSinkOf?: (agentId: string) => RunbeatSink;
   /**
    * 状态对账下沉口（cr-748）：活壳 run-state 对拍驱动的宿主侧动作面——
    * 缺席 = 对账静默（诊断面缺席不反噬）。观察型（emit 语义）：拉起/respawn
@@ -133,13 +132,6 @@ export interface RunStateSnapshot {
 
 export function createOrchestrator(options: OrchestratorOptions): OrchestratorHandle {
   const handles = new Map<string, SuperviseHandle>();
-
-  // run 节拍缺省落盘（cr-740 运维日志）：runbeat-<agent>.log 滚动文件——
-  // 活动量/失败面一眼可读。appendRollingLine 自吞失败（诊断面不反噬监护链）。
-  const runbeatSinkOf = options.runbeatSinkOf ?? ((agentId: string): RunbeatSink => {
-    const file = path.join(options.dataRoot, '.runtime', 'logs', 'runbeat-' + agentId + '.log');
-    return (line: string) => appendRollingLine(file, new Date().toISOString() + ' ' + line, 512 * 1024);
-  });
 
   const spawnInputOf = (agentId: string): SuperviseSpawnInput => ({
     agentId,
@@ -237,7 +229,7 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
             adopt: adopter,
             ...options.superviseOptions,
             ...{ onPluginLoadFailure: options.superviseOptions?.onPluginLoadFailure },
-            ...{ onRunbeat: options.superviseOptions?.onRunbeat ?? runbeatSinkOf(agentId) },
+            ...options.superviseOptions,
           });
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -360,38 +352,10 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
   const isTransportError = (err: unknown): boolean => typeof (err as { code?: unknown }).code === 'string';
   const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const withDeadline = async <T>(work: Promise<T>, ms: number, what: string): Promise<T> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        work,
-        new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(what + '超时（' + ms + 'ms）')), ms);
-        }),
-      ]);
-    } finally {
-      if (timer !== undefined) clearTimeout(timer);
-    }
-  };
-
-  /** socket manage 往返（每次独立连接——cr-656 缓存连接被换代带走的教训） */
-  const manageCall = async (hint: string, frame: Record<string, unknown>, ms: number): Promise<unknown> => {
-    const client = new IpcClient();
-    const id = 'manage-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
-    await client.connect(hint);
-    try {
-      // cr-1046：request 缺省 15s 超时会先于长管理帧（preview 干跑等）误杀——
-      // 超时传 ms 与外层 withDeadline 同拍（内层先到即内层语义）
-      const reply = await withDeadline(
-        client.request(makeManageRequest(id, frame), (f) => isManageReply(f, id), ms),
-        ms, 'manage 回执',
-      ) as ManageReply;
-      if (reply.manage.ok !== true) throw new Error(reply.manage.error ?? 'manage 帧执行失败');
-      return reply.manage.value;
-    } finally {
-      client.close();
-    }
-  };
+  /** socket manage 往返（cr-1128 起单源 ac-envelope-core manageRoundTrip——
+   * 每次独立连接，cr-656 缓存连接被换代带走的教训） */
+  const manageCall = (hint: string, frame: Record<string, unknown>, ms: number): Promise<unknown> =>
+    manageRoundTrip(hint, frame, ms);
 
   const liveShellIds = (): string[] => {
     let ids: string[] = [];

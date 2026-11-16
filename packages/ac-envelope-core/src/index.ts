@@ -27,3 +27,5 @@ export * from './socket.ts';
 export * from './ipc.ts';
 export * from './deliver.ts';
 export * from './lock.ts';
+export * from './boot-progress.ts';
+export * from './rolling-log.ts';

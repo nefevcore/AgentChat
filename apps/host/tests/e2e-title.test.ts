@@ -13,7 +13,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 // setup chdir 后落入 workspace/test/w<N>/——与 global setup 清理面解耦（同批
 // e2e-admin-preview；此前靠 afterEach 先杀壳才没炸）。
 import { fileURLToPath } from 'node:url';
-import { socketPathFor } from 'ac-envelope-core';
+import { socketPathFor, waitForShellReady } from 'ac-envelope-core';
 import { writeAgentConfig } from 'ac-agents-core';
 import { materializeBaseDocs, profileDirOf } from 'ac-rowset-core';
 import { bootHost } from '../boot.ts';
@@ -46,14 +46,8 @@ async function spawnShell(agentId: string): Promise<string> {
     '--mock-provider', '1', '--post-office', socketPathFor(path.resolve(ROOT), 'post-office')],
     { stdio: ['pipe', 'pipe', 'inherit'] });
   spawned.push(child);
-  const lines: string[] = [];
-  child.stdout.on('data', (c: Buffer) => { for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l); });
-  const deadline = Date.now() + 20_000;
-  while (!lines.some((l) => l.startsWith('boot.ready'))) {
-    if (Date.now() > deadline) throw new Error('boot.ready 超时：' + lines.join(' | '));
-    await new Promise((r) => setTimeout(r, 50));
-  }
-  return lines.find((l) => l.startsWith('boot.ready'))!.split('\t')[2];
+  child.stdout.on('data', () => {}); // cr-1129 批4：排水防反压（stdout 信号退役）
+  return (await waitForShellReady(path.join(ROOT, 'agents', agentId), 30_000)).transportHint;
 }
 
 describe('会话标题生成端到端（cr-672）', () => {

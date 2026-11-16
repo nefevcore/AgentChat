@@ -1,16 +1,17 @@
 // ============================================================
-// orchestrate.ts —— 宿主编排面（M5.3）
+// orchestrate.ts —— 宿主编排面（M5.3；cr-1129 批4 协议离 stdio）
 //
-// 拉起链：spawn boot.ts（argv 注数据根/agentId/catalog）→ 逐行消费
-// stdout TSV → ShellWarden 三节拍 → adopted 时可达表登记（hint =
-// boot.ready 携带值）→ 邮局路由可直投。进程 IO 注入（spawn 接口），
-// 编排逻辑纯域可测。
+// 拉起链：spawn boot.ts（argv 注数据根/agentId/catalog）→ 探测面判据
+//（锁出现 / boot-progress.json / probeIpc 实连——cr-1125 起）→ ShellWarden
+// 三节拍 → adopted 时可达表登记（hint 取自锁内 transportHint）→ 邮局路由
+// 可直投。stdout 不再承载协议（行流仅排水 + 诊断转发）；控制面走 manage
+// 通道。进程 IO 注入（spawn 接口），编排逻辑纯域可测。
 // ============================================================
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { socketPathFor } from 'ac-envelope-core';
+import { socketPathFor, readActivationLock, readBootProgress, probeIpc, appendRollingLine, manageRoundTrip } from 'ac-envelope-core';
 import { writeRecipe } from 'ac-supervisor-core';
 import { ShellWarden, type GuardianEvent } from 'ac-guardian';
 import type { PostOffice, ReachabilityTable } from 'ac-post-office';
@@ -78,21 +79,11 @@ const AGENTCHAT_EXE = (() => {
 function spawnOpts(extraEnv?: Record<string, string>): SpawnOptions {
   // cr-1097：env 显式合成（process.env 基底 + extraEnv）——缺省不传 env
   // 字段即继承（既有行为）；传则显式合成，开发者模式随拉壳注入壳进程。
+  // cr-1130 批5 stdio 收敛：stdin 不再承载协议（ignore——壳不读）；stdout/
+  // stderr 保持 pipe 供诊断（行流仅排水/转发，无协议语义）
   return extraEnv === undefined
-    ? { stdio: ['pipe', 'pipe', 'pipe'], detached: true }
-    : { stdio: ['pipe', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...extraEnv } };
-}
-
-/** 滚动追加一行（cr-662 诊断面）：超 capBytes 即滚成 .1（旧 .1 覆弃）。
- * 日志面自身失败（磁盘满/权限）静默——诊断写不得反噬监护链。 */
-export function appendRollingLine(file: string, line: string, capBytes: number): void {
-  try {
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    try {
-      if (fs.statSync(file).size > capBytes) fs.renameSync(file, file + '.1');
-    } catch { /* 文件尚不存在——直接追加 */ }
-    fs.appendFileSync(file, line + '\n', 'utf-8');
-  } catch { /* 诊断面失败不反噬 */ }
+    ? { stdio: ['ignore', 'pipe', 'pipe'], detached: true }
+    : { stdio: ['ignore', 'pipe', 'pipe'], detached: true, env: { ...process.env, ...extraEnv } };
 }
 
 export const defaultSpawn: SpawnFn = (cmd, args, hooks, env) => {
@@ -265,6 +256,10 @@ export async function adoptShell(
   const budgets = input.timeoutMs !== undefined
     ? [input.timeoutMs, input.timeoutMs, input.timeoutMs]
     : [45_000, 15_000, 15_000];
+  // 探测面轮询周期（cr-1125 批 1 锁出现即节拍 1——250ms 起步，计划 §六）
+  const PROBE_POLL_MS = 250;
+  // cr-1129 批 4：门控开关退役——探测面（锁/progress/probeIpc）为唯一
+  // adopt 判据；行流不再驱动三节拍（壳已零信号输出，stdout 仅诊断）。
   // agent 配置预置（壳 boot 读 AgentConfig）——编排面确保在场
   // （cr-918：在场探测/写口走 readAgentConfig/writeAgentConfig——patch
   // 主写，config.json 镜像退役）
@@ -301,20 +296,6 @@ export async function adoptShell(
   // 控制帧往返面（cr-552）：ctrl.done/ctrl.error TSV 行拦截 → pending 队列
   // FIFO 配对（壳侧串行回执——boot.control 逐帧执行后写回执）。行拦截
   // 优先于 lineCb（控制流量不进监护面）。
-  const ctrlPending: Array<{ resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> }> = [];
-  const ctrlDispatch = (line: string): boolean => {
-    if (!line.startsWith('ctrl.done') && !line.startsWith('ctrl.error')) return false;
-    const waiter = ctrlPending.shift();
-    if (waiter === undefined) return false; // 无等待者（迟到回执）——吞
-    clearTimeout(waiter.timer);
-    if (line.startsWith('ctrl.done')) {
-      try { waiter.resolve(JSON.parse(line.split('\t').slice(1).join('\t') || 'null')); }
-      catch { waiter.resolve(null); }
-    } else {
-      waiter.reject(new Error(line.split('\t').slice(1).join('\t') || '控制帧执行失败'));
-    }
-    return true;
-  };
   return new Promise<AdoptResult>((resolve, reject) => {
     let settled = false;
     // watchdog（cr-962）：到拍即杀（cr-805 反幽灵语义不变——无节拍 = 幽灵
@@ -323,6 +304,8 @@ export async function adoptShell(
     // 壳吐杂行不该续命。
     let stage = 0;
     const killState = { timedOut: false }; // 对象盒：闭包内赋值不受字面量收窄误判
+    let exited = false; // 探测面停摆条件之一（reject 后无 settled 可依）
+    let probeTimer: ReturnType<typeof setTimeout> | undefined; // 探测轮询链（自停：settled/exited/timedOut）
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     const clearWatchdog = (): void => {
       if (watchdog !== undefined) { clearTimeout(watchdog); watchdog = undefined; }
@@ -341,6 +324,7 @@ export async function adoptShell(
     armWatchdog();
     proc.on('exit', (code, signal) => {
       clearWatchdog();
+      exited = true;
       // 退出现场（cr-662）：code/signal + 时间戳收口进日志；非正常退出
       //（含早退）同步转宿主 stderr——崩溃不再零现场。
       const exitLine = `=== exit code=${code ?? 'null'} signal=${signal ?? ''} at ${new Date().toISOString()} ===`;
@@ -350,24 +334,19 @@ export async function adoptShell(
         reject(new Error(`壳进程早退（code=${code ?? 'null'} signal=${signal ?? ''}）——未达 boot.ready；尾部 stderr 见 ${stderrLog}`));
         return;
       }
-      for (const w of ctrlPending.splice(0)) {
-        clearTimeout(w.timer);
-        w.reject(new Error('壳进程退出——控制帧无回执'));
-      }
       exitCb?.(code, signal);
     });
-    void (async () => {
-      for await (const line of proc.stdout) {
+    // 单行处理（cr-1125 抽取 → cr-1129 批 4 收窄）：唯一驱动方 = 探测面
+    // 合成行（锁/progress/probeIpc → boot 节拍推进/warden 喂养/adopted 收口
+    // ——takeover.ts 合成 boot.ready 同款先例）；真实 stdout 行仅诊断转发
+    //（壳零信号输出，行流不再参与判据）。
+    const handleLine = (line: string): void => {
+      {
         if (killState.timedOut) return; // watchdog 已杀——行流停读
-        // 拉起窗辖制（cr-580 根因回归锁 + cr-805 反幽灵）由 watchdog 独立承担：
-        // adopted 后循环常驻分发 ctrl 回执/心跳（clearWatchdog 已解除辖制）。
         if (settled) {
-          // adopted 后：控制回执行优先拦截（cr-552——管理面往返，不进监护面）
-          if (ctrlDispatch(line)) continue;
-          // adopted 后：行直达订阅方（warden 喂养归 supervise 面——adopt 三节拍
-          // 消费已完成，避免双计）
+          // adopted 后：行直达订阅方（诊断面——日志行不再有协议语义）
           lineCb?.(line);
-          continue;
+          return;
         }
         // boot.* 节拍 = 有进度：进下一拍并重挂预算（cr-962 分级）。节拍行
         // 落滚动日志不刷控制台（cr-741 噪音治理——每次拉壳 3 行必出；时间
@@ -399,26 +378,65 @@ export async function adoptShell(
             pid: proc.pid,
             shutdown: () => new Promise((res) => {
               proc.on('exit', (code) => res(code));
-              proc.write('shutdown');
+              // cr-1129 批 4：关停恒走 manage system/shutdown 帧（takeover 先例
+              // ——回执丢失无害，以进程退面为准）
+              void manageRoundTrip(adopted.transportHint, { ctrl: 'system', op: 'shutdown' }, 5_000)
+                .catch(() => { /* 帧丢失——kill 兜底面在外 */ });
             }),
             kill: () => { proc.kill(); },
             onLine: (cb) => { lineCb = cb; },
             onExit: (cb) => { exitCb = cb; },
             stderrTail: () => [...stderrTailLines],
-            control: (frame) => new Promise((resolve, reject) => {
-              // 超时兜底：干跑/评测长任务也不该无限挂（缺省 60s）
-              const timer = setTimeout(() => {
-                const i = ctrlPending.findIndex((w) => w.timer === timer);
-                if (i >= 0) ctrlPending.splice(i, 1);
-                reject(new Error('控制帧回执超时'));
-              }, 60_000);
-              ctrlPending.push({ resolve, reject, timer });
-              proc.write(JSON.stringify(frame));
-            }),
+            control: (frame) => manageRoundTrip(adopted.transportHint, frame, 60_000),
           });
-          continue; // 行流不终止——常驻监护数据源
+          return; // 行流不终止——常驻监护数据源
         }
       }
+    };
+    void (async () => {
+      for await (const line of proc.stdout) handleLine(line);
     })().catch(reject);
+    // 探测面判据（cr-1125 起，cr-1129 批4 起唯一判据——门控已退役）：
+    // 锁出现（pid 代际校验）/ progress 文件（rows/fingerprint/装载失败）/
+    // probeIpc 实连驱动合成 TSV 行进 handleLine（warden/adopted 收口链
+    // 复用）；锁 + probeIpc 即可达 adopt（progress 缺席 = 旧壳兼容形态）。
+    {
+      let lockSeen = false;
+      let rowsSeen = false;
+      let probing = true;
+      const probeTick = (): void => {
+        if (!probing || settled || exited || killState.timedOut) return;
+        // 代际校验：只认本代 pid 持锁（上代残留锁不误判——progress 文件同款）
+        const lock = readActivationLock(agentDir);
+        if (lock === null || lock.pid !== proc.pid) {
+          probeTimer = setTimeout(probeTick, PROBE_POLL_MS);
+          probeTimer.unref();
+          return;
+        }
+        if (!lockSeen) {
+          lockSeen = true;
+          handleLine('boot.lock.acquired\t' + lock.bootId + '\t' + lock.acquiredAt);
+        }
+        const progress = readBootProgress(agentDir);
+        const mine = progress !== null && progress.bootId === lock.bootId ? progress : null;
+        if (!rowsSeen && mine !== null && mine.rows !== undefined) {
+          rowsSeen = true;
+          handleLine('boot.rows.ready\t' + lock.bootId + '\t' + mine.rows);
+        }
+        void probeIpc(lock.transportHint).then((alive) => {
+          if (!probing || settled || exited || killState.timedOut) return;
+          if (!alive) {
+            probeTimer = setTimeout(probeTick, PROBE_POLL_MS);
+            probeTimer.unref();
+            return;
+          }
+          probing = false;
+          handleLine('boot.ready\t' + lock.bootId + '\t' + lock.transportHint
+            + (mine?.fingerprintRoot !== undefined ? '\t' + mine.fingerprintRoot : ''));
+        });
+      };
+      probeTimer = setTimeout(probeTick, PROBE_POLL_MS);
+      probeTimer.unref();
+    }
   });
 }

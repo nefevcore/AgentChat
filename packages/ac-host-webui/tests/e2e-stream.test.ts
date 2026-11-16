@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
-import { socketPathFor } from 'ac-envelope-core';
+import { socketPathFor, waitForShellReady } from 'ac-envelope-core';
 import { bootHostWeb, type HostWebResult } from 'ac-host-webui';
 import { writeAgentConfig } from 'ac-agents-core';
 
@@ -78,14 +78,8 @@ describe('8.5d ws-bridge 旁带接线（壳 → 宿主 → webui 流式全链）
         { stdio: ['pipe', 'pipe', 'pipe'] });
       child.stderr.on('data', (c: Buffer) => { process.stderr.write('[shell:' + 'alpha] ' + c.toString()); });
       spawned.push(child);
-      const lines: string[] = [];
-      child.stdout.on('data', (c: Buffer) => { for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l); });
-      const deadline = Date.now() + 15_000;
-      while (!lines.some((l) => l.startsWith('boot.ready'))) {
-        if (Date.now() > deadline) throw new Error('boot.ready 超时：' + lines.join(' | '));
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      const hint = lines.find((l) => l.startsWith('boot.ready'))!.split('\t')[2];
+      child.stdout.on('data', () => {}); // cr-1129 批4：排水防反压（stdout 信号退役）
+      const hint = (await waitForShellReady(path.join(ROOT, 'agents', 'alpha'), 25_000)).transportHint;
       // 宿主接旁带流（adopt 后 tap——B3 语义）
       await host.tapAgent('alpha', hint);
       // 可达登记（邮局直投面）

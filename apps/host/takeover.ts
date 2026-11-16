@@ -123,10 +123,9 @@ export function adoptSocketShell(lock: LiveShellLock, deps: SocketOnlyDeps): Ado
     transportHint: lock.hint,
     pid: lock.pid,
     events: [{ type: 'adopted', agentId: lock.agentId, bootId: lock.bootId, transportHint: lock.hint }],
-    onLine(cb) {
-      // 合成 boot.ready 行：驱动 warden 三节拍收尾（adopted/心跳基线）——
-      // 接管壳的持续行流缺席，此后喂活全走 noteProbe（D1）。
-      cb('boot.ready\t' + lock.bootId + '\t' + lock.hint);
+    onLine() {
+      // cr-1129 批4：合成 boot.ready 行退役——supervise 直接由 events 收口
+      // warden adopt（喂活走 noteProbe / 锁 mtime 双源）。
     },
     onExit(cb) { exitCb = cb; },
     async shutdown() {

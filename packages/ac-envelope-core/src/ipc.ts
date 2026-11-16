@@ -15,6 +15,7 @@
 // ============================================================
 import * as net from 'node:net';
 import { encodeFrame, FrameDecoder } from './frame.ts';
+import { readActivationLock, type ActivationLockInfo } from './lock.ts';
 
 /** 传输层错误回帧（onFrame reject 的 wire 形——发送方 IpcClient 转 reject） */
 export interface IpcRejectFrame {
@@ -271,5 +272,27 @@ export class IpcClient {
   close(): void {
     this.socket?.destroy();
     this.socket = null;
+  }
+}
+
+/**
+ * 等壳就绪（cr-1129 批 4）：锁在场且 probeIpc 实连成功 = 壳 ipc 已 listen
+ *（协议离 stdio 后「就绪」的唯一判据）。消费方 = 宿主 adopt 探测面 /
+ * 子壳拉起面（ac-shell-subagent）/ 各 e2e 等待点。超时抛错（含最后已知
+ * 锁态，诊断面同旧 waitReady 语义）。
+ */
+export async function waitForShellReady(agentDir: string, timeoutMs: number, pollMs = 200): Promise<ActivationLockInfo> {
+  const deadline = Date.now() + timeoutMs;
+  let lastLock: ActivationLockInfo | null = null;
+  for (;;) {
+    const lock = readActivationLock(agentDir);
+    if (lock !== null) {
+      lastLock = lock;
+      if (await probeIpc(lock.transportHint)) return lock;
+    }
+    if (Date.now() > deadline) {
+      throw new Error('壳就绪超时（锁/probeIpc 双判据）：' + (lastLock === null ? '锁未出现' : '锁在 ' + lastLock.bootId + ' 但 ipc 未 listen'));
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
 }

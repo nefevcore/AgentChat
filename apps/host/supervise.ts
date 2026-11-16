@@ -11,13 +11,18 @@
 //     壳内自持），宿主清可达表即可；
 //   · 壳退出 → shellExited：respawn（指数退避重拉同链）/ broken（熔断
 //     ——不再自动拉起）/ done（正常退出——来件按需拉起）；
-//   · 插件装载失败回报（cr-543 遗留）：plugin.load-failed TSV 行 →
-//     宿主 pluginRegistry.reportLoadFailure（阈值 3 熔断 → 行集条目
-//     剔除——fail-closed）。
+//   · 插件装载失败回报（cr-543 → cr-1129 批4）：boot-progress.json 的
+//     pluginLoadFailures 字段 → 宿主 pluginRegistry.reportLoadFailure
+//    （阈值 3 熔断 → 行集条目剔除——fail-closed）。
+//   · 心跳喂活（cr-1129 批4，§2.4 双源）：① 锁 mtime 文件心跳（壳 30s
+//     touch）② 编排面 peek run-state 探测（noteProbe）——任一源新鲜即活。
 //
 // 纯域可测：拉起函数 / 时钟 / 回报面全注入。
 // ============================================================
 import { ShellWarden, DEFAULT_GUARDIAN_CONFIG, type GuardianEvent, type GuardianConfig } from 'ac-guardian';
+import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { readBootProgress } from 'ac-envelope-core';
 import type { ReachabilityTable, PostOffice } from 'ac-post-office';
 import { hostLog } from './host-log.ts';
 
@@ -47,7 +52,7 @@ export interface AdoptedShellFace {
   events: GuardianEvent[];
   shutdown(): Promise<number | null>;
   kill(): void;
-  /** stdout 行订阅（boot.ready 后继续——guardian.ping / run 节拍 / plugin.load-failed） */
+  /** stdout 行订阅（cr-1129 批4 后纯诊断转发面——监护/协议语义已迁文件与 manage 通道） */
   onLine(cb: (line: string) => void): void;
   /** 进程退出订阅（signal = 崩溃现场） */
   onExit(cb: (code: number | null, signal: string | null) => void): void;
@@ -63,13 +68,6 @@ export type SuperviseAdopter = (input: SuperviseSpawnInput) => Promise<AdoptedSh
 /** 插件装载失败回报面（生产 = pluginRegistry.reportLoadFailure） */
 export type LoadFailureSink = (name: string, error: string) => Promise<void>;
 
-/**
- * run 节拍转发面（cr-740 运维日志）：壳 stdout 的 run.started/run.settled
- * TSV 行原样转发（guardian 消费后旁路一报）。生产接线 = orchestrator 落
- * dataRoot/.runtime/logs/runbeat-<agent>.log。
- */
-export type RunbeatSink = (line: string) => void;
-
 /** 监护事件（宿主编排面消费——日志/告警面） */
 export type SuperviseEvent =
   | { type: 'adopted'; agentId: string; bootId: string; transportHint: string }
@@ -82,8 +80,6 @@ export interface SuperviseOptions {
   adopt: SuperviseAdopter;
   /** 插件装载失败回报面（缺席 = 静默丢弃——CLI 直连形态无宿主） */
   onPluginLoadFailure?: LoadFailureSink;
-  /** run 节拍转发面（cr-740；缺席 = 静默丢弃） */
-  onRunbeat?: RunbeatSink;
   config?: Partial<GuardianConfig>;
   now?(): number;
   /** 监护 tick 周期（缺省 = 心跳周期） */
@@ -182,13 +178,16 @@ export async function superviseShell(
 
   const pushEvent = (e: SuperviseEvent): void => { superviseEvents.push(e); };
 
-  /** plugin.load-failed TSV 行解析（字段：插件名 / 错误摘要） */
-  const parseLoadFailed = (line: string): { plugin: string; error: string } | null => {
-    const [signal, ...fields] = line.split('\t');
-    if (signal !== 'plugin.load-failed') return null;
-    const plugin = (fields[0] ?? '').trim();
-    if (plugin === '') return null;
-    return { plugin, error: (fields[1] ?? '').trim() };
+  // 文件心跳源（cr-1129 批4，§2.4 源①）：壳 30s touch 锁 mtime，宿主每拍
+  // 读锁 stat——mtime 新鲜（< 2 拍心跳窗）即 warden 喂活（noteProbe 面，
+  // 与 peek 探测源同构）。锁缺席/过期不喂——判死链交 warden tick 既有语义。
+  const lockFile = path.join(input.dataRoot, 'agents', input.agentId, 'activation.lock');
+  const lockHeartbeatFresh = (): boolean => {
+    try {
+      const age = now() - fs.statSync(lockFile).mtimeMs;
+      // 新鲜 = mtime 落在 [now - 2 拍, now]（负龄 = 时钟倒退/伪造旧锁——不喂）
+      return age >= 0 && age < config.heartbeatIntervalMs * 2;
+    } catch { return false; /* 锁缺席（壳退出窗）——不喂 */ }
   };
 
   /** 退避延迟（主线 decideOnExit 同构：delay 用累计前 streak） */
@@ -215,6 +214,12 @@ export async function superviseShell(
       const adopted = shell.events.find((e) => e.type === 'adopted');
       if (adopted !== undefined) {
         adoptedAt = now();
+        // cr-1129 批4：warden adopt 收口——stdout 三节拍行退役，直接合成
+        // boot.ready 喂入（adoptShell 探测面/takeover 同款语义单点收敛于此）
+        if (!warden.isAdopted()) {
+          warden.feedLine('boot.ready\t' + shell.bootId + '\t' + shell.transportHint
+            + (adopted.fingerprintRoot !== undefined ? '\t' + adopted.fingerprintRoot : ''), now());
+        }
         pushEvent({ type: 'adopted', agentId: input.agentId, bootId: adopted.bootId, transportHint: adopted.transportHint });
         // adopted 订阅面（cr-551 编排面）：re-tap 等消费方经此接线，每次
         // 拉起/重拉成功都触发（新壳新连接——旧 tap 由消费方幂等收旧）
@@ -222,21 +227,18 @@ export async function superviseShell(
           try { cb(adopted.transportHint); } catch { /* 订阅方异常不阻断监护链 */ }
         }
       }
-      // TSV 行流：心跳/run 节拍喂 warden（三节拍后继续——常驻监护数据源）
-      shell.onLine((line) => {
-        warden.feedLine(line, now());
-        // 插件装载失败回报（cr-543 遗留接线）：壳→宿主单向
-        const failure = parseLoadFailed(line);
-        if (failure !== null && options.onPluginLoadFailure !== undefined) {
-          void options.onPluginLoadFailure(failure.plugin, failure.error).catch(() => {
-            /* 回报失败不重试——宿主在场时下轮装载失败仍回报（计数以宿主侧档为准） */
-          });
+      // 装载失败回报（cr-543 → cr-1129 批4）：承载面 = boot-progress.json
+      //（pluginLoadFailures 字段；stdout TSV 行退役）；代际对齐本代 bootId。
+      if (options.onPluginLoadFailure !== undefined) {
+        const progress = readBootProgress(path.join(input.dataRoot, 'agents', input.agentId));
+        if (progress !== null && progress.bootId === shell.bootId) {
+          for (const f of progress.pluginLoadFailures ?? []) {
+            void options.onPluginLoadFailure(f.plugin, f.error).catch(() => {
+              /* 回报失败不重试——宿主在场时下轮装载失败仍回报（计数以宿主侧档为准） */
+            });
+          }
         }
-        // run 节拍转发（cr-740 运维日志）：warden 消费后旁路一报
-        if (options.onRunbeat !== undefined && (line.startsWith('run.started') || line.startsWith('run.settled'))) {
-          options.onRunbeat(line);
-        }
-      });
+      }
       // 壳退出 → warden 判定（respawn / broken / done）；退出现场
       //（cr-662：signal + stderr 尾行）随编排事件面上报宿主
       shell.onExit((code, signal) => {
@@ -290,6 +292,7 @@ export async function superviseShell(
   // —— 监护循环（unref——宿主不被监护定时器吊命；测试经 tickPump 同步泵） ——
   const onTick = (): void => {
     if (stopped || broken) return;
+    if (lockHeartbeatFresh()) warden.noteProbe(now());
     const ruling = warden.tick(now());
     if (ruling === 'ok') return;
     const reason = ruling === 'declare-dead' ? 'heartbeat-lost' : 'idle-exit';

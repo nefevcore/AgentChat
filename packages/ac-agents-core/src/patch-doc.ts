@@ -199,6 +199,7 @@ export const RESERVED_UNIT_NAMES: ReadonlySet<string> = new Set([
   'agent.patch', // agent.patch.yml
   'preset-origin', // preset-origin.json（cr-812 模板升级通路——切片三并入 origin 块）
   'boot-graph', // boot-graph.json（cr-909 审计快照——含时间戳，进 settings 即污染主体指纹）
+  'boot-progress', // boot-progress.json（cr-1126 协议离 stdio：boot 进度文件——含 writtenAt 时间戳，同款指纹污染面）
 ]);
 
 /** 插件配置单元名校验（param-case；保留字/路径组件拒绝） */

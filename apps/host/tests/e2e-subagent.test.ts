@@ -14,6 +14,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readLedger } from 'ac-ledger';
 import { readChildConfig, writeAgentConfig, type AgentConfig } from 'ac-agents-core';
+import { waitForShellReady, manageRoundTrip } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-sub-e2e-' + process.pid);
 const BOOT = fileURLToPath(new URL('../../shell/boot.ts', import.meta.url));
@@ -52,48 +53,20 @@ function seedHostFaceCache(): void {
     facts: [],
   }), 'utf-8');
 }
-/** 拉起父壳（真进程）并取 control 面（stdin 控制帧 + stdout TSV 回执） */
-function startParent(agentId: string) {
-  return new Promise<{ control: (frame: Record<string, unknown>) => Promise<unknown>; shutdown: () => Promise<void> }>((resolve, reject) => {
-    const child = spawn(process.execPath,
-      ['--experimental-strip-types', BOOT, '--data-root', path.resolve(ROOT), '--agent-id', agentId, '--catalog', CATALOG, '--mock-provider', '1', '--persist', 'true'],
-      { stdio: ['pipe', 'pipe', 'inherit'] });
-    spawned.push(child);
-    const lines: string[] = [];
-    child.stdout.on('data', (c: Buffer) => { for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l); });
-    const timer = setTimeout(() => reject(new Error('父壳 boot.ready 超时：' + lines.join(' | '))), 30_000);
-    child.on('exit', (code) => { clearTimeout(timer); reject(new Error('父壳早退 code=' + code)); });
-    const iv = setInterval(() => {
-      if (lines.some((l) => l.startsWith('boot.ready'))) {
-        clearTimeout(timer); clearInterval(iv);
-        resolve({
-          control: (frame) => new Promise((res2, rej2) => {
-            const base = lines.length; // 只扫新增段（旧 ctrl.done 不重放）
-            const t2 = setTimeout(() => rej2(new Error('控制帧超时：' + lines.slice(-5).join(' | '))), 60_000);
-            const iv2 = setInterval(() => {
-              for (let i = lines.length - 1; i >= base; i--) {
-                if (lines[i].startsWith('ctrl.done')) {
-                  clearTimeout(t2); clearInterval(iv2);
-                  try { res2(JSON.parse(lines[i].split('\t').slice(1).join('\t'))); } catch { res2(null); }
-                  return;
-                }
-                if (lines[i].startsWith('ctrl.error')) {
-                  clearTimeout(t2); clearInterval(iv2);
-                  rej2(new Error(lines[i]));
-                  return;
-                }
-              }
-            }, 50);
-            child.stdin.write(JSON.stringify(frame) + '\n');
-          }),
-          shutdown: () => new Promise<void>((res3) => {
-            child.stdin.write('shutdown\n');
-            child.on('exit', () => res3());
-          }),
-        });
-      }
-    }, 50);
-  });
+/** 拉起父壳（真进程）并取 control 面（cr-1129 批4：manage 通道——stdout 信号/stdin 帧对退役） */
+async function startParent(agentId: string): Promise<{ control: (frame: Record<string, unknown>) => Promise<unknown>; shutdown: () => Promise<void> }> {
+  const child = spawn(process.execPath,
+    ['--experimental-strip-types', BOOT, '--data-root', path.resolve(ROOT), '--agent-id', agentId, '--catalog', CATALOG, '--mock-provider', '1', '--persist', 'true'],
+    { stdio: ['ignore', 'ignore', 'inherit'] });
+  spawned.push(child);
+  const lock = await waitForShellReady(path.join(ROOT, 'agents', agentId), 30_000);
+  return {
+    control: (frame) => manageRoundTrip(lock.transportHint, frame, 60_000),
+    shutdown: () => new Promise<void>((res3) => {
+      void manageRoundTrip(lock.transportHint, { ctrl: 'system', op: 'shutdown' }, 5_000).catch(() => { /* kill 兜底 */ });
+      child.on('exit', () => res3());
+    }),
+  };
 }
 
 describe('M8.3 e2e：真子壳 spawn + bench 门', () => {

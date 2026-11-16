@@ -7,7 +7,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { execFileSync } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
+import { waitForShellReady, socketPathFor, manageRoundTrip } from 'ac-envelope-core';
 import {
   parseShellArgs, deriveAndAssertRowset, bootShell, assembleRows, seedPlaceholderAssemblers, workspaceClosureRoots,
   replayAnsweredAfterInbox,
@@ -48,14 +49,12 @@ describe('M6.5 影子 boot（--parent-id，P2③ 影子不撞锁）', () => {
     seedAgent('w');
     const parent = await bootShell(
       { dataRoot: ROOT, agentId: 'w', catalogFile: CATALOG },
-      { emit: () => {} },
     );
     // 影子物化（R-5）
     const childDir = path.join(ROOT, 'agents', 'w', 'children', 'w-s1');
     seedChild('w', 'w-s1');
     const shadow = await bootShell(
       { dataRoot: ROOT, agentId: 'w-s1', catalogFile: CATALOG, parentId: 'w' },
-      { emit: () => {} },
     );
     // 两锁并存不同路径
     expect(fs.existsSync(path.join(ROOT, 'agents', 'w', 'activation.lock'))).toBe(true);
@@ -69,7 +68,6 @@ describe('M6.5 影子 boot（--parent-id，P2③ 影子不撞锁）', () => {
     seedAgent('w2');
     await expect(bootShell(
       { dataRoot: ROOT, agentId: 'ghost', catalogFile: CATALOG, parentId: 'w2' },
-      { emit: () => {} },
     )).rejects.toThrow(/配置缺席/);
   });
 });
@@ -77,15 +75,14 @@ describe('M6.5 影子 boot（--parent-id，P2③ 影子不撞锁）', () => {
 describe('M6.2 主体指纹自报（R-7 两形态同源）', () => {
   it('bootShell 返回根 = 宿主侧同函数对拍同根（漂移 = fail-loud 信号）', async () => {
     seedAgent('fp1');
-    const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'fp1', catalogFile: CATALOG },
-      { emit: (s, ...fields) => signals.push([s, ...fields].join('\t')) },
     );
     await boot.close();
-    const ready = signals.find((s) => s.startsWith('boot.ready'))!;
-    expect(ready.split('\t')).toHaveLength(4); // signal + bootId + hint + root
-    expect(ready.split('\t')[3]).toBe(boot.fingerprint.root);
+    // cr-1129 批 4：fingerprint 自报面 = boot-progress.json（stdout 信号退役）
+    const progress = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'fp1', 'boot-progress.json'), 'utf-8'));
+    expect(progress.bootId).toBe(boot.lockInfo.bootId);
+    expect(progress.fingerprintRoot).toBe(boot.fingerprint.root);
     // 宿主侧 verify：同输入同函数（config + catalog + 菜单行包根 × 依赖闭包）
     const hostSide = subjectFingerprint({
       configJson: JSON.stringify(readAgentConfig(ROOT, 'fp1')), // cr-918：与 boot.ts 同读面（patch 赢）
@@ -152,13 +149,11 @@ describe('boot 恢复链 R4 串行锁（cr-1015 S1 断根）', () => {
   });
 });
 
-describe('run 节拍 emit（cr-740 运维面）', () => {
-  it('loop/run-started + loop/after-run → run.started/run.settled TSV', async () => {
+describe('run 节拍壳侧直写（cr-740 → cr-1127/cr-1129 批4：TSV 信号退役）', () => {
+  it('loop/run-started + loop/after-run → runbeat-<agent>.log 两行', async () => {
     seedAgent('rb1');
-    const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'rb1', catalogFile: CATALOG },
-      { emit: (s, ...f) => signals.push([s, ...f].join('	')) },
     );
     try {
       boot.ctx.emit('loop/run-started', {
@@ -170,22 +165,20 @@ describe('run 节拍 emit（cr-740 运维面）', () => {
         finish: 'stop', text: '', steps: [],
         usage: { prompt: 10, completion: 5, promptAccumulated: 10, steps: 2, elapsedMs: 1200 },
       });
-      const started = signals.find((s) => s.startsWith('run.started'));
-      const settled = signals.find((s) => s.startsWith('run.settled'));
-      expect(started).toBe('run.started	r1	conv-1	user	mock');
-      // settled：runId/conv/finish/steps/tokens/elapsedMs（无 error 字段）
-      expect(settled).toBe('run.settled	r1	conv-1	stop	2	10	1200');
+      const log = fs.readFileSync(path.join(ROOT, '.runtime', 'logs', 'runbeat-rb1.log'), 'utf-8');
+      const rows = log.trim().split('\n');
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toMatch(/ run\.started\tr1\tconv-1\tuser\tmock$/);
+      expect(rows[1]).toMatch(/ run\.settled\tr1\tconv-1\tstop\t2\t10\t1200$/);
     } finally {
       await boot.close();
     }
   }, 20_000);
 
-  it('error run → settled 尾带截断的 error 字段（\t/\n 剥除）', async () => {
+  it('error run → settled 尾带截断的 error 字段（制表/换行剥除）', async () => {
     seedAgent('rb2');
-    const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'rb2', catalogFile: CATALOG },
-      { emit: (s, ...f) => signals.push([s, ...f].join('	')) },
     );
     try {
       boot.ctx.emit('loop/after-run', {
@@ -194,9 +187,9 @@ describe('run 节拍 emit（cr-740 运维面）', () => {
         finish: 'error', error: 'boom\tnewline\nhere', text: '', steps: [],
         usage: { prompt: 0, completion: 0, promptAccumulated: 0, steps: 1 },
       });
-      const settled = signals.find((s) => s.startsWith('run.settled'))!;
-      // 字段数 = 7 + error；error 内制表符/换行已压平
-      expect(settled.split('	')).toHaveLength(8);
+      const log = fs.readFileSync(path.join(ROOT, '.runtime', 'logs', 'runbeat-rb2.log'), 'utf-8');
+      const settled = log.trim().split('\n')[0];
+      expect(settled.split('\t')).toHaveLength(8);
       expect(settled.endsWith('boom newline here')).toBe(true);
     } finally {
       await boot.close();
@@ -252,25 +245,24 @@ describe('rowset 派生断言', () => {
   });
 });
 
-describe('boot 编排（emit spy）', () => {
-  it('三节拍序列：lock.acquired → rows.ready → ready（bootId 贯穿）', async () => {
+describe('boot 编排（cr-1129 批4：节拍面 = 锁 + boot-progress.json）', () => {
+  it('三节拍落盘形态：锁在场 → progress（rows + fingerprint，bootId 贯穿）', async () => {
     seedAgent('b1');
-    const signals: string[] = [];
     const exits: Array<() => void> = [];
     // 占位装配器：基础行集全部可装配
     const r = deriveAndAssertRowset(ROOT, 'b1', CATALOG);
     seedPlaceholderAssemblers(r.rows);
     const res = await bootShell(
       { dataRoot: ROOT, agentId: 'b1', catalogFile: CATALOG },
-      { emit: (s, ...f) => signals.push([s, ...f].join('\t')), onExit: (h) => exits.push(h) },
+      { onExit: (h) => exits.push(h) },
     );
-    expect(signals[0].startsWith('boot.lock.acquired\t')).toBe(true);
-    expect(signals[1].startsWith('boot.rows.ready\t')).toBe(true);
-    expect(signals[2].startsWith('boot.ready\t')).toBe(true);
-    const bootId = signals[0].split('\t')[1];
-    expect(signals[1].split('\t')[1]).toBe(bootId);
-    expect(signals[2].split('\t')[1]).toBe(bootId);
-    expect(res.rowsReady).toBe(r.rowIds.length);
+    // 节拍 1：锁在场（O_EXCL 即节拍——宿主 readActivationLock 面）
+    expect(fs.existsSync(path.join(ROOT, 'agents', 'b1', 'activation.lock'))).toBe(true);
+    // 节拍 2+3：progress 文件（rows + fingerprint，bootId 与锁同源）
+    const progress = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'b1', 'boot-progress.json'), 'utf-8'));
+    expect(progress.bootId).toBe(res.lockInfo.bootId);
+    expect(progress.rows).toBe(r.rowIds.length);
+    expect(progress.fingerprintRoot).toBe(res.fingerprint.root);
     // exit handler 释放锁
     for (const h of exits) h();
     expect(fs.existsSync(path.join(ROOT, 'agents', 'b1', 'activation.lock'))).toBe(false);
@@ -287,22 +279,30 @@ describe('boot 编排（emit spy）', () => {
 });
 
 describe('进程级冒烟（真起 boot.ts）', () => {
-  it('node boot.ts 全链：退出码 0 + stdout 三节拍 + 锁文件释放', () => {
+  it('node boot.ts 全链：锁/progress 落盘 + SIGTERM 优雅退 0 + 锁释放（cr-1129 批4）', async () => {
     seedAgent('c1');
-    const out = execFileSync(process.execPath, [
+    const child = spawn(process.execPath, [
       '--experimental-strip-types',
       fileURLToPath(new URL('../boot.ts', import.meta.url)),
       '--data-root', path.resolve(ROOT),
       '--agent-id', 'c1',
       '--catalog', CATALOG,
-    ], { encoding: 'utf-8' });
-    const lines = out.split('\n').filter((l) => l.startsWith('boot.'));
-    expect(lines.map((l) => l.split('\t')[0])).toEqual([
-      'boot.lock.acquired', 'boot.rows.ready', 'boot.ready',
-    ]);
-    // 进程退出 → 锁已释放（exit handler）
+    ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    // 就绪判据 = 锁 + probeIpc 实连（stdout 信号退役）
+    const lock = await waitForShellReady(path.join(ROOT, 'agents', 'c1'), 25_000);
+    expect(lock.transportHint).toBe(socketPathFor(path.resolve(ROOT), 'c1'));
+    const progress = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'c1', 'boot-progress.json'), 'utf-8'));
+    expect(progress.bootId).toBe(lock.bootId);
+    expect(typeof progress.rows).toBe('number');
+    // 关停走 manage system/shutdown 帧（Windows SIGTERM 不跑 JS handler——
+    // stdin shutdown 行已退役，cr-1129 批4）
+    await manageRoundTrip(lock.transportHint, { ctrl: 'system', op: 'shutdown' }, 5_000);
+    const code = await new Promise<number>((resolve) => {
+      child.on('exit', (c) => resolve(c ?? -1));
+    });
+    expect(code).toBe(0);
     expect(fs.existsSync(path.join(ROOT, 'agents', 'c1', 'activation.lock'))).toBe(false);
-  }, 30_000);
+  }, 35_000);
 
   it('同 agent 双进程互斥：第二个进程退出码 1 + 拒绝消息', () => {
     seedAgent('c2');
@@ -330,7 +330,7 @@ describe('进程级冒烟（真起 boot.ts）', () => {
 describe('编译产物快照（cr-910 批6 切片四：审计视图）', () => {
   it('boot 后 agents/<id>/boot-graph.json 落盘（行集 + 目录行摘要）', async () => {
     writeAgentConfig(ROOT, { id: 'snap1', model: 'mock' });
-    const boot = await bootShell({ dataRoot: ROOT, agentId: 'snap1', catalogFile: CATALOG }, { emit: () => {} });
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'snap1', catalogFile: CATALOG });
     const snapPath = path.join(ROOT, 'agents', 'snap1', 'boot-graph.json');
     expect(fs.existsSync(snapPath)).toBe(true);
     const snap = JSON.parse(fs.readFileSync(snapPath, 'utf-8'));

@@ -25,7 +25,7 @@ import { materializeChild, listChildIds, readAgentConfig, readPluginConfigsAt, c
 import { readGlobalAuth, readAgentAuth, deriveChildAuth } from 'ac-auth-core';
 import { fitInstalledRows, type RowDescriptor } from 'ac-rowset-core';
 import { filterSpawnTools, convInheritOf, spawnChildConfigOf } from './inherit.ts';
-import { makeEnvelope, deliver, readActivationLock, IpcClient, type DeliverResult, type RendezvousPaths, type Envelope } from 'ac-envelope-core';
+import { makeEnvelope, deliver, readActivationLock, IpcClient, manageRoundTrip, waitForShellReady, type DeliverResult, type RendezvousPaths, type Envelope } from 'ac-envelope-core';
 import { runAddress } from 'ac-core-utils';
 import { readLedger, readJournal } from 'ac-ledger';
 
@@ -1176,26 +1176,13 @@ const defaultSpawnShell: SpawnShellFn = (a) => {
   // 窗——用户随手关窗即杀子代理且无任何回执；仓库其余 spawn 点均已带，此处补齐。
   // detached（cr-856，对齐 cr-642 orchestrate）：父壳退出（restart_shell/崩溃）
   // 时不被 Windows Job 对象/控制台组连带杀灭——R-5「owner 失活子存活」不再
-  // 靠运气；stdio 仍 pipe（ipc/控制帧监护面照常），壳退出自然断链。
-  const child = childSpawn(AGENTCHAT_EXE, args, { stdio: ['pipe', 'pipe', 'inherit'], windowsHide: true, detached: true });
-  const lines: string[] = [];
-  child.stdout!.on('data', (c: Buffer) => {
-    for (const l of c.toString().split('\n')) if (l.trim() !== '') lines.push(l);
-  });
-  const readyHint = (): string | null => {
-    const ready = lines.find((l) => l.startsWith('boot.ready'));
-    if (ready === undefined) return null;
-    return ready.split('\t')[2] ?? null;
-  };
-  const waitReady = async (): Promise<string> => {
-    const deadline = Date.now() + 20_000;
-    for (;;) {
-      const hint = readyHint();
-      if (hint !== null) return hint;
-      if (Date.now() > deadline) throw new Error('子壳 boot.ready 超时：' + lines.join(' | '));
-      await sleep(100);
-    }
-  };
+  // 靠运气；stdio 收敛（cr-1130 批5）：stdin/stdout ignore——协议全量走
+  // 文件（锁/progress）与 manage 通道，无管道即无反压面；stderr inherit 诊断。
+  const child = childSpawn(AGENTCHAT_EXE, args, { stdio: ['ignore', 'ignore', 'inherit'], windowsHide: true, detached: true });
+  // 就绪判据 = 锁 + probeIpc 实连（cr-1129 批4：stdout boot.ready 行退役）
+  const childDir = path.join(path.resolve(a.dataRoot), 'agents', a.parentId, 'children', a.childId);
+  const waitReady = (): Promise<string> =>
+    waitForShellReady(childDir, 20_000).then((lock) => lock.transportHint);
   let clientP: Promise<IpcClient> | null = null;
   const clientOf = async (): Promise<IpcClient> => {
     if (clientP === null) {
@@ -1214,27 +1201,18 @@ const defaultSpawnShell: SpawnShellFn = (a) => {
       const ack = await client.send(env) as { fresh?: boolean };
       return { fresh: ack.fresh !== false };
     },
-    control: (frame) => new Promise((resolve, reject) => {
-      const base = lines.length; // 只扫新增段（旧 ctrl.done 不重放）
-      const timer = setTimeout(() => { clearInterval(iv); reject(new Error('控制帧超时')); }, 20_000);
-      const iv = setInterval(() => {
-        for (let i = lines.length - 1; i >= base; i--) {
-          if (lines[i].startsWith('ctrl.done')) {
-            clearTimeout(timer); clearInterval(iv);
-            try { resolve(JSON.parse(lines[i].split('\t').slice(1).join('\t'))); } catch { resolve(null); }
-            return;
-          }
-          if (lines[i].startsWith('ctrl.error')) {
-            clearTimeout(timer); clearInterval(iv);
-            reject(new Error('控制帧失败：' + lines[i]));
-            return;
-          }
-        }
-      }, 50);
-      child.stdin.write(JSON.stringify(frame) + '\n');
-    }),
-    shutdown: () => new Promise((res) => {
-      child.stdin.write('shutdown\n');
+    // cr-1129 批4：控制面/关停恒走 manage 通道（hint 取自子壳锁，
+    // readActivationLock 同域单源；stdin/stdout 帧对已拆除）
+    control: (frame: Record<string, unknown>) => {
+      const lock = readActivationLock(childDir);
+      if (lock === null) return Promise.reject(new Error('子壳锁缺席——控制帧无面'));
+      return manageRoundTrip(lock.transportHint, frame, 20_000);
+    },
+    shutdown: () => new Promise<void>((res) => {
+      const lock = readActivationLock(childDir);
+      if (lock !== null) {
+        void manageRoundTrip(lock.transportHint, { ctrl: 'system', op: 'shutdown' }, 5_000).catch(() => { /* 帧丢失——kill 兜底 */ });
+      }
       child.on('exit', () => res());
       setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* 已退出 */ } }, 10_000).unref();
     }),

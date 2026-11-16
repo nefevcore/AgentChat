@@ -20,7 +20,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import {
-  acquireActivationLock, releaseActivationLock, socketPathFor,
+  acquireActivationLock, releaseActivationLock, socketPathFor, writeBootProgress, appendRollingLine,
   makeEnvelope, issueRequestId,
   AdmissionGate, FrameDecoder, encodeFrame, isStreamFrame, makeManageReply, isManageRequest,
   streamFrameFromDelta,
@@ -44,12 +44,6 @@ import { makeConversationRow } from 'ac-shell-conversation';
 import { makeSubagentRow } from 'ac-shell-subagent';
 import type { LlmStreamChunk } from 'ac-llm';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
-
-// —— stdout TSV 节拍（协议规格 D1——一行一事件，宿主 guardian 消费） ——
-
-export function emitBootSignal(signal: string, ...fields: string[]): void {
-  process.stdout.write([signal, ...fields].join('\t') + '\n');
-}
 
 // —— idle-exit 四条件探针（协议 D2：收割判据——run / inbox 待消费 / 在途
 // 交互 / 活跃 job 四面全空才可收割；任一在场 = 阻止。软取服务面，缺席 =
@@ -612,13 +606,13 @@ export function replayAnsweredAfterInbox(
 export async function bootShell(
   args: ShellBootArgs,
   opts: {
-    emit?: (signal: string, ...fields: string[]) => void;
     onExit?: (handler: () => void) => void;
     /** 优雅退出请求面（换代接管：system/shutdown 帧 → 进程入口 resolve 0） */
     onShutdown?: () => void;
   } = {},
 ): Promise<ShellBootResult> {
-  const emit = opts.emit ?? emitBootSignal;
+  // cr-1129 批 4：stdout TSV 信号面退役——节拍/装载失败/指纹全量落
+  // boot-progress.json（批 1/2 已就位），诊断行走 stderr。
   const bootId = crypto.randomUUID();
   const agentDir = args.parentId !== undefined
     ? path.join(args.dataRoot, 'agents', args.parentId, 'children', args.agentId)
@@ -638,7 +632,6 @@ export async function bootShell(
   if (lock.kind === 'refused') {
     throw new Error('activation 锁被进程 ' + lock.holder.pid + ' 持有（bootId=' + lock.holder.bootId + '）——单例语义拒绝');
   }
-  emit('boot.lock.acquired', bootId, lockInfo.acquiredAt);
   opts.onExit?.(() => releaseActivationLock(agentDir, process.pid));
   // cr-651：本壳即 restart_shell 的换代结果——复活标记已兑现，自清（宿主
   // boot 扫标记兜底重拉时，标记在我们 boot 完成后不再需要）。自清前读出
@@ -677,6 +670,9 @@ export async function bootShell(
   // 归宿主裁决（阈值 3 → 行集条目剔除），壳自身 boot 不被第三方插件拖死
   //（fail-closed 对插件：该行缺席即其工具面缺席；宿主回报面由常驻监护
   // supervise 消费本节拍转发 pluginRegistry.reportLoadFailure）。
+  // 装载失败清单（cr-1126 双写期）：emit 之外同步入 boot-progress 文件
+  //（批 4 stdout 行退役后文件为唯一承载——宿主读进度即得）。
+  const pluginLoadFailures: Array<{ plugin: string; error: string }> = [];
   const menuRows = fitInstalledRows(path.resolve(args.dataRoot), 'shell', args.agentId).rows;
   for (const pluginRow of menuRows) {
     if (!rowset.rowIds.includes(pluginRow.id)) continue;
@@ -685,7 +681,7 @@ export async function bootShell(
         return await assemblePluginRow(pluginRow, c as Context);
       } catch (err) {
         const name = path.basename(path.dirname(pluginRow.path as string));
-        emit('plugin.load-failed', name, String(err).slice(0, 200));
+        pluginLoadFailures.push({ plugin: name, error: String(err).slice(0, 200) });
         return undefined; // 跳行（无 fiber——assembleRows 的 void 分支）
       }
     });
@@ -699,7 +695,7 @@ export async function bootShell(
       try {
         return await assemblePluginRow(row, c as Context);
       } catch (err) {
-        emit('plugin.load-failed', row.id, String(err).slice(0, 200));
+        pluginLoadFailures.push({ plugin: row.id, error: String(err).slice(0, 200) });
         return undefined;
       }
     });
@@ -860,7 +856,8 @@ export async function bootShell(
       fibers.push(benchFiber);
     }
   }
-  emit('boot.rows.ready', bootId, String(rowsReady));
+  // cr-1126 节拍 2 落 boot-progress（原子覆写；批 1 宿主探测面已消费）
+  writeBootProgress(agentDir, { bootId, writtenAt: new Date().toISOString(), rows: rowsReady, pluginLoadFailures });
 
   // 主体指纹自报（R-7：入指纹 = 行集推导一切——config + catalog + 行包内容；
   // 无 path 的占位行不入行集指纹面〔未实现 = 未生效〕）。boot.ready 第四域。
@@ -958,7 +955,6 @@ export async function bootShell(
       | undefined;
     if (bench === undefined) throw new Error('bench 服务缺席——行集不含 bench 行');
     const report = await bench.run(frame.suite, frame.options);
-    emit('bench.report', JSON.stringify(report)); // TSV 尾域 = 报告 JSON（拉起方解析）
     return report;
   };
   const server = net.createServer((socket) => {
@@ -1174,7 +1170,8 @@ export async function bootShell(
       resolve();
     });
   });
-  emit('boot.ready', bootId, transportHint, fingerprint.root);
+  // cr-1126 终拍进度（rows + fingerprint + 装载失败清单全量）落盘
+  writeBootProgress(agentDir, { bootId, writtenAt: new Date().toISOString(), rows: rowsReady, fingerprintRoot: fingerprint.root, pluginLoadFailures });
   // boot 恢复面（cr-629；cr-974 起孤儿收口退役——D-3 读方配平：上代壳
   // 死于 mid-run 的未闭合 run 不回写，读侧（fold）合成 run-end(interrupted)
   // 投影）。pending inbox 重投——已落账未消费的信（排队/steer 落空/安全
@@ -1191,7 +1188,7 @@ export async function bootShell(
           return 0;
         })
         .then((n) => {
-          if (n > 0) emit('inbox.recovered', String(n));
+          if (n > 0) process.stderr.write('[shell] inbox 恢复补投：' + n + ' 封\n');
         })
     : Promise.resolve();
   // ④ 收尾一致性对账（cr-666，leftovers C2）：crash 窗口「只落账未执行」
@@ -1200,7 +1197,7 @@ export async function bootShell(
   if (convSvc?.reconcileUndelivered !== undefined) {
     void inboxRecovery
       .then(() => convSvc.reconcileUndelivered!())
-      .then((n) => { if (n > 0) emit('inbox.reconciled', String(n)); })
+      .then((n) => { if (n > 0) process.stderr.write('[shell] 收尾对账补投：' + n + ' 封\n'); })
       .catch((err: unknown) => {
         process.stderr.write('[shell] 收尾对账补投失败：' + String(err) + '\n');
       });
@@ -1230,23 +1227,33 @@ export async function bootShell(
         process.stderr.write('[shell] 「已重启」注入失败：' + String(err) + '\n');
       });
   }
-  replayAnsweredAfterInbox(convSvc, inboxRecovery, emit);
+  // cr-1129 批 4：重放计数走 stderr 诊断（stdout 信号面退役；纯域函数签名不变）
+  replayAnsweredAfterInbox(convSvc, inboxRecovery, (s) => process.stderr.write('[shell] ' + s + '\n'));
   // run 节拍订阅（cr-740 运维面）：loop 事件 → stdout TSV（emit 注入面——纯域
   // 可测）。字段语义：
   //   run.started  <runId> <conversationId> <source> <model>
   //   run.settled  <runId> <conversationId> <finish> <steps> <totalTokens> <elapsedMs> [error]
   // 机制 run（meta.ARCHIVE_REVIEW_META——归档整理）照发：运维面关心活动量与
   // 失败率，来源经 source 字段可辨。宿主侧 onRunbeat 落 runbeat 日志。
+  // cr-1127 批 3：runbeat 壳侧直写（宿主 sink 退役）——同一行数据本壳落
+  // dataRoot/.runtime/logs/runbeat-<agentId>.log（滚动语义与宿主旧 sink 同源
+  // appendRollingLine）；TSV emit 双写保留至批 4。
+  const runbeatFile = path.join(path.resolve(args.dataRoot), '.runtime', 'logs', 'runbeat-' + args.agentId + '.log');
+  const runbeat = (line: string): void => {
+    appendRollingLine(runbeatFile, new Date().toISOString() + ' ' + line, 512 * 1024);
+  };
   ctx.on('loop/run-started', (request: LoopRunRequest) => {
-    emit('run.started',
-      request.runId ?? '', request.conversationId ?? '', request.source ?? '', request.model);
+    runbeat(['run.started',
+      request.runId ?? '', request.conversationId ?? '', request.source ?? '', request.model].join('\t'));
   });
   ctx.on('loop/after-run', (request: LoopRunRequest, result: LoopRunResult) => {
-    emit('run.settled',
+    const fields = [
       request.runId ?? '', request.conversationId ?? '', result.finish,
       String(result.usage.steps), String(result.usage.totalAccumulated ?? result.usage.prompt),
       result.usage.elapsedMs !== undefined ? String(result.usage.elapsedMs) : '',
-      ...(result.error !== undefined ? [String(result.error).replaceAll('\t', ' ').replaceAll('\n', ' ').slice(0, 300)] : []));
+      ...(result.error !== undefined ? [String(result.error).replaceAll('\t', ' ').replaceAll('\n', ' ').slice(0, 300)] : []),
+    ];
+    runbeat(['run.settled', ...fields].join('\t'));
   });
   return {
     lockInfo, rowset, rowsReady, ctx, transportHint, fingerprint, rowTools: rowToolFace(),
@@ -1397,7 +1404,8 @@ export async function main(argv: string[]): Promise<number> {
           // 裸 '../../' 锚在 dev bundle（cr-961）指向仓库外 → systemAlive
           // 恒假 → 复活抢跑 supervisor（2026-11-10 现场，cr-995）。
           systemLockFile: path.join(shellSelfRoot(), '.runtime'),
-          emit: emitBootSignal,
+          // cr-1129 批 4：revive 观测信号走 stderr 诊断线（stdout 信号面退役）
+          emit: (s) => process.stderr.write('[shell] ' + s + '\n'),
         })
       : null;
     // 安全重启退出码（cr-629）：conversation/restart-ready → 优雅退出 42
@@ -1410,8 +1418,17 @@ export async function main(argv: string[]): Promise<number> {
       result.ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => {
         void notifyHostRestartShell(args, p.conversationId).finally(() => decideExit(42));
       });
+      // 锁路径同源 bootShell（影子形态 = children 域；main 作用域无 agentDir）
+      const lockFile = path.join(
+        args.parentId !== undefined
+          ? path.join(path.resolve(args.dataRoot), 'agents', args.parentId, 'children', args.agentId)
+          : path.join(path.resolve(args.dataRoot), 'agents', args.agentId),
+        'activation.lock',
+      );
       const heartbeat = setInterval(() => {
-        emitBootSignal('guardian.ping', new Date().toISOString());
+        // cr-1126 文件心跳（§2.4）：30s touch 锁 mtime——零协议喂活源 ①
+        //（宿主读锁 stat 即得；touch 失败静默——判活另有 peek 双源兜底）。
+        try { fs.utimesSync(lockFile, new Date(), new Date()); } catch { /* 锁已换代/缺席 */ }
       }, HEARTBEAT_MS);
       heartbeat.unref();
       const idleProbe = setInterval(() => {
@@ -1419,32 +1436,9 @@ export async function main(argv: string[]): Promise<number> {
         if (shellIsIdle(result.ctx)) decideExit(0);
       }, IDLE_PROBE_MS);
       idleProbe.unref();
-      let pending = '';
-      process.stdin.on('data', (c: Buffer) => {
-        noteActive();
-        pending += c.toString();
-        let idx: number;
-        while ((idx = pending.indexOf('\n')) >= 0) {
-          const line = pending.slice(0, idx).trim();
-          pending = pending.slice(idx + 1);
-          if (line === '') continue;
-          if (line === 'shutdown') { decideExit(0); return; }
-          if (!line.startsWith('{')) continue; // 非协议行忽略
-          let frame: ControlFrame;
-          try { frame = JSON.parse(line) as ControlFrame; } catch { continue; }
-          void result.control(frame)
-            .then((reply) => emitBootSignal('ctrl.done', JSON.stringify(reply)))
-            .catch((err: unknown) => emitBootSignal('ctrl.error', String(err)));
-        }
-      });
-      // stdin EOF 语义随复活职责翻转（cr-612 根因修复）：宿主死 = 管道断 =
-      // EOF——带复活职责的壳把它当失联旁证（立即 kick 探测 + 保持存活，
-      // idle-exit 15min 仍是收割兜底），不再自杀；无职责壳维持防孤儿自杀。
-      if (args.persist !== true) process.stdin.on('end', () => {
-        if (revive !== null) revive.kick();
-        else decideExit(0);
-      });
-      process.stdin.resume();
+      // cr-1129 批 4：stdin 帧循环退役——控制帧/关停全量走 manage 通道
+      //（cr-1128 批 3b 已切换）；stdin EOF 防孤儿自杀语义随之消亡（计划
+      // §2.3——owner 失活判定改锁观察，孤儿收割兜底 = idle-exit 15min）。
       process.on('SIGTERM', () => decideExit(0));
     });
     revive?.stop();

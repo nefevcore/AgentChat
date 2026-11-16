@@ -27,21 +27,18 @@ afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 describe('M8.3 boot 控制帧面', () => {
   it('interrupt：无活跃 run 返回 {interrupted:false}', async () => {
     seed('kilo');
-    const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'kilo', catalogFile: CATALOG, mockProvider: true },
-      { emit: (s) => signals.push(s) },
     );
     try {
       expect(await boot.control({ ctrl: 'interrupt' })).toEqual({ interrupted: false });
     } finally { await boot.close(); }
   });
 
-  it('bench：控制帧全链（scripted mock → loop → 对拍）+ bench.report TSV', async () => {
+  it('bench：控制帧全链（scripted mock → loop → 对拍）——报告经 control 返回面（cr-1129 批4：TSV 信号退役）', async () => {
     const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'kilo', catalogFile: CATALOG, mockProvider: true },
-      { emit: (s, ...f) => signals.push([s, ...f].join('\t')) },
     );
     try {
       const report = await boot.control({
@@ -50,9 +47,6 @@ describe('M8.3 boot 控制帧面', () => {
       }) as { total: number; passed: number };
       expect(report.total).toBeGreaterThan(0);
       expect(report.passed).toBe(report.total);
-      const line = signals.find((s) => s.startsWith('bench.report'));
-      expect(line).toBeDefined();
-      expect(JSON.parse(line!.split('\t').slice(1).join('\t')).passed).toBe(report.passed);
     } finally { await boot.close(); }
   }, 30_000);
 
@@ -69,7 +63,6 @@ describe('M8.3 boot 控制帧面', () => {
     const signals: string[] = [];
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'kilo', catalogFile: CATALOG, mockProvider: true },
-      { emit: (s) => signals.push(s) },
     );
     try {
       const sys = await boot.control({ ctrl: 'preview', what: 'system-prompt' }) as { systemPrompt: string };
@@ -89,7 +82,6 @@ describe('M8.3 boot 控制帧面', () => {
     seed('kilo', { rows: { include: ['math'] } }); // 点名不含 bench——不进即不装
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'kilo', catalogFile: CATALOG, mockProvider: true },
-      { emit: () => {} },
     );
     try {
       await expect(boot.control({ ctrl: 'bench', suite: 'bfcl', options: { model: 'x', provider: 'y', scripted: true, limit: 1 } }))
@@ -100,12 +92,11 @@ describe('M8.3 boot 控制帧面', () => {
     seed('kilo', { rows: { include: ['math'] }, settings: { persona: { text: '我是 kilo' } } });
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'kilo', catalogFile: CATALOG, mockProvider: true },
-      { emit: () => {} },
     );
     const client = new IpcClient();
     try {
       await client.connect(boot.transportHint);
-      // 与 stdin 控制帧同一个 control() 入口：preview 干跑照常答
+      // manage 帧即唯一控制面入口（cr-1129 批4：stdin 帧对退役）：preview 干跑照常答
       const reply = await client.request(
         makeManageRequest('m1', { ctrl: 'preview', what: 'system-prompt' }),
         (f) => isManageReply(f, 'm1'),
@@ -125,12 +116,12 @@ describe('M8.3 boot 控制帧面', () => {
     }
   }, 30_000);
 
-  it('system/shutdown 帧（换代接管）：回执 ok 后触发 onShutdown——与 stdin shutdown 行同语义', async () => {
+  it('system/shutdown 帧（换代接管）：回执 ok 后触发 onShutdown（cr-1129 批4 起唯一优雅关停面）', async () => {
     seed('kilo', { rows: { include: ['math'] }, settings: { persona: { text: '我是 kilo' } } });
     let shutdownCalls = 0;
     const boot = await bootShell(
       { dataRoot: ROOT, agentId: 'kilo', catalogFile: CATALOG, mockProvider: true },
-      { emit: () => {}, onShutdown: () => { shutdownCalls += 1; } },
+      { onShutdown: () => { shutdownCalls += 1; } },
     );
     const client = new IpcClient();
     try {
@@ -145,8 +136,7 @@ describe('M8.3 boot 控制帧面', () => {
       seed('mini');
       const boot2 = await bootShell(
         { dataRoot: ROOT, agentId: 'mini', catalogFile: CATALOG, mockProvider: true },
-        { emit: () => {} },
-      );
+        );
       try {
         const c2 = new IpcClient();
         await c2.connect(boot2.transportHint);
