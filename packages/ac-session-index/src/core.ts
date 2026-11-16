@@ -5,6 +5,10 @@
 // line_len + 身份键），内容永远按字节区间回源 jsonl 读——索引是纯缓存，
 // 可全量重建（方案 §0.2「指针索引只指真源」红线）。DB = node:sqlite 内建
 // DatabaseSync（宿主单写者，WAL）。
+// cr-1138 聚合读面（sessionMeta/sessionByDay）：records 表行内元数据列
+// （role/agent_id/run/ts）的 SQL 统计——不引入第二事实源（真源仍是 jsonl，
+// 索引可重建即聚合自愈）；「零语义」指不做内容解释，行内元数据列本就
+// 为定位/判别而索引，统计是其只读投影。
 //
 // 增量协议（files 表 size/mtimeMs/consumed 三键对账，方案 §1.1）：
 //   · 无行 / size < consumed / mtimeMs 倒退 / size 变小（compact 重写）
@@ -74,6 +78,57 @@ function domainOf(dir: string): string {
   return path.basename(path.dirname(path.dirname(dir)));
 }
 
+/** 会话键词法分类（cr-1138，与前端 routeDialog 词法闸同源口径）：
+ *  'g-' 前缀 = 群键；含 '~' = 对桶（agent⇄agent / gid~member 成员流 /
+ *  a~a 自会话）；uuid 形 = 独立会话；其余（裸 agentId 历史桶等）= other。 */
+export type SessionKind = 'pair' | 'single' | 'group' | 'other';
+export function sessionKindOf(key: string): SessionKind {
+  if (key.startsWith('g-')) return 'group';
+  if (key.includes('~')) return 'pair';
+  if (SESSION_UUID_RE.test(key)) return 'single';
+  return 'other';
+}
+const SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 会话元数据聚合（cr-1138——records 表 SQL 统计，零盘读）。
+ *
+ *  时间维度双口径（v1/v2 行形态差异迫使区分，消费面各取所需）：
+ *   · 活动口径（firstAt/lastAt/activeDays）= 全部记录行（含 step/run-end/
+ *     inject）——健康仪表板、activity 窗口、「这个会话最近有没有动」；
+ *   · 发言口径（firstSpeechAt/lastSpeechAt/speechDays）= user/agent 发言行
+ *     且正文不空的语义面——diving「沉默天数」、「有没有在对话」。
+ *   两者不可互替：Agent 跑了长 run 但没发言 = 活动在场、发言缺席。
+ *
+ *  total/speech 跨域合计：agent⇄agent 对桶两侧域各记一份时为镜像近似
+ *  （时序维度不受影响）；日口径 = UTC。 */
+export interface SessionMeta {
+  key: string;
+  kind: SessionKind;
+  /** 持有该会话记录的 agent 域（镜像对桶 >1） */
+  domains: string[];
+  /** records 行数（含 context/inject/step 等非发行） */
+  total: number;
+  /** user/agent 发言行数（diving「有对话」口径） */
+  speech: number;
+  /** distinct run 数 */
+  runs: number;
+  /** 全行最早/最晚时标（ISO，活动口径） */
+  firstAt: string | null;
+  lastAt: string | null;
+  /** 有任意记录行的 UTC 日数（活动口径） */
+  activeDays: number;
+  /** 发言行最早/最晚时标（ISO，发言口径——diving 沉默天数取 lastSpeechAt） */
+  firstSpeechAt: string | null;
+  lastSpeechAt: string | null;
+  /** 有发言的 UTC 日数（发言口径） */
+  speechDays: number;
+  /** 末发言行的角色/归属（roster 预览权威化数据源——发言口径，非活动末行） */
+  lastRole: string | null;
+  lastAgent: string | null;
+  /** 末活动行型（step/run-end/inject/message…；健康仪表板） */
+  lastType: string | null;
+}
+
 /** 行内字段安全取值（撕裂/异形行容错——缺席 = NULL） */
 function str(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
@@ -95,9 +150,11 @@ export class SessionIndex {
     this.db = new DatabaseSync(dbFile);
     this.db.exec('PRAGMA journal_mode=WAL');
     // cr-974：records 表增事件列（type/tool_call_id——v2 相位/收束行定位）；
+    // cr-1138：增 ts_num（统一数字时标——v2 事件行用 ts 数字/epoch，v1 行用
+    // timestamp ISO 文本，两代形态不同；聚合的时间/活跃日维度须单一时标列）。
     // 旧 schema 落库 = 纯缓存过期 → 整库弃重建（files 一并清，refresh 自愈）
     const cols = (this.db.prepare('PRAGMA table_info(records)').all() as Array<{ name?: unknown }>).map((c) => c.name);
-    if (cols.length > 0 && !cols.includes('type')) {
+    if (cols.length > 0 && (!cols.includes('type') || !cols.includes('ts_num'))) {
       this.db.exec('DROP TABLE IF EXISTS records; DROP TABLE IF EXISTS journal_lines; DROP TABLE IF EXISTS subcalls; DROP TABLE IF EXISTS files;');
     }
     this.db.exec(
@@ -107,7 +164,7 @@ export class SessionIndex {
       'CREATE TABLE IF NOT EXISTS records (' +
         'conv TEXT, domain TEXT, seq INTEGER, byte_offset INTEGER, line_len INTEGER, ' +
         'role TEXT, agent_id TEXT, run TEXT, request_id TEXT, message_id TEXT, ts TEXT, ' +
-        'type TEXT, tool_call_id TEXT); ' +
+        'type TEXT, tool_call_id TEXT, ts_num INTEGER); ' +
       'CREATE INDEX IF NOT EXISTS idx_records_conv_domain ON records(conv, domain); ' +
       'CREATE TABLE IF NOT EXISTS journal_lines (' +
         'conv TEXT, domain TEXT, seq INTEGER, byte_offset INTEGER, line_len INTEGER, ' +
@@ -206,10 +263,14 @@ export class SessionIndex {
     }
     if (kind === 'records') {
       if (row.type === 'session-header') return false; // 头行不是消息行
+      // 时标归一（cr-1138）：v2 事件行（step/* · run-end · inject）只带数字
+      // ts（epoch ms）无 role/timestamp；v1 行（含 v2 的 message 发言行）带
+      // ISO timestamp。两代并存——ts_num 是聚合的时间维度单源。
+      const tsNum = num(row.ts) ?? (typeof row.timestamp === 'string' ? (Date.parse(row.timestamp) || null) : null);
       this.stmt(
-        'INSERT INTO records (conv, domain, seq, byte_offset, line_len, role, agent_id, run, request_id, message_id, ts, type, tool_call_id) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      ).run(conv, domain, num(row.seq), byteOffset, lineLen, str(row.role), str(row.agent_id), str(row.run), str(row.requestId), str(row.message_id), str(row.timestamp), str(row.type), str(row.toolCallId));
+        'INSERT INTO records (conv, domain, seq, byte_offset, line_len, role, agent_id, run, request_id, message_id, ts, type, tool_call_id, ts_num) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(conv, domain, num(row.seq), byteOffset, lineLen, str(row.role), str(row.agent_id), str(row.run), str(row.requestId), str(row.message_id), str(row.timestamp), str(row.type), str(row.toolCallId), tsNum);
       return true;
     }
     if (kind === 'journal') {
@@ -273,6 +334,111 @@ export class SessionIndex {
    *  定向 refreshStats + 周期对账维护） */
   catalog(): Array<{ conv: string; size: number; mtimeMs: number }> {
     return this.stmt('SELECT conv, SUM(size) AS size, MAX(mtimeMs) AS mtimeMs FROM files GROUP BY conv').all() as Array<{ conv: string; size: number; mtimeMs: number }>;
+  }
+
+  /** 会话元数据聚合（cr-1138）：先 refreshConversation（惰性对账——聚合
+   *  新鲜度跟对账协议走），再 records 表 SQL 统计。会话源目录不存在 =
+   *  null；存在但零行 = 全零 meta（空会话是合法态）。 */
+  sessionMeta(dataRoot: string, convId: string): SessionMeta | null {
+    if (sessionDirs(dataRoot, convId).length === 0) return null;
+    this.refreshConversation(dataRoot, convId);
+    // 时标单源 = ts_num（v1 ISO timestamp / v2 数字 ts 归一——见 indexLine）；
+    // ISO 输出用 strftime 还原（消费面可 Date.parse 直取）。
+    const SPEECH = "role IN ('user', 'agent')";
+    const ISO = (col: string) => `strftime('%Y-%m-%dT%H:%M:%fZ', ts_num / 1000.0, 'unixepoch')`;
+    const DAY = (expr = 'ts_num') => `date(${expr} / 1000, 'unixepoch')`;
+    const agg = this.stmt(
+      'SELECT COUNT(*) AS total, ' +
+      `SUM(CASE WHEN ${SPEECH} THEN 1 ELSE 0 END) AS speech, ` +
+      `MIN(${ISO('ts_num')}) AS firstAt, MAX(${ISO('ts_num')}) AS lastAt, ` +
+      `COUNT(DISTINCT ${DAY()}) AS activeDays, ` +
+      `MIN(CASE WHEN ${SPEECH} THEN ${ISO('ts_num')} END) AS firstSpeechAt, ` +
+      `MAX(CASE WHEN ${SPEECH} THEN ${ISO('ts_num')} END) AS lastSpeechAt, ` +
+      `COUNT(DISTINCT CASE WHEN ${SPEECH} THEN ${DAY()} END) AS speechDays, ` +
+      'COUNT(DISTINCT run) AS runs ' +
+      'FROM records WHERE conv = ?',
+    ).get(convId) as {
+      total: number; speech: number | null; runs: number;
+      firstAt: string | null; lastAt: string | null; activeDays: number;
+      firstSpeechAt: string | null; lastSpeechAt: string | null; speechDays: number;
+    };
+    // 末发言者（roster 预览权威化）：发言口径——名单行要的是「最后谁说了话」，
+    // 活动口径的末行常是 run-end/step（无 role/agent，真实数据实证）。
+    const lastSpeech = this.stmt(
+      "SELECT role AS lastRole, agent_id AS lastAgent FROM records " +
+      "WHERE conv = ? AND role IN ('user', 'agent') AND ts_num IS NOT NULL " +
+      'ORDER BY ts_num DESC, seq DESC LIMIT 1',
+    ).get(convId) as { lastRole: string | null; lastAgent: string | null } | undefined;
+    // 末活动行型（健康仪表板：最近发生了什么——step/run-end/inject 等）
+    const lastType = this.stmt(
+      'SELECT type FROM records WHERE conv = ? AND ts_num IS NOT NULL ORDER BY ts_num DESC, seq DESC LIMIT 1',
+    ).get(convId) as { type: string | null } | undefined;
+    const domains = (this.stmt(
+      'SELECT DISTINCT domain FROM records WHERE conv = ? ORDER BY domain',
+    ).all(convId) as Array<{ domain: string }>).map((r) => r.domain);
+    // COUNT/SUM/COUNT DISTINCT 聚合行恒在场（空表也返回一行）；
+    // speech 的 SUM 零命中 = NULL → 归零，其余直接断言非空。
+    return {
+      key: convId,
+      kind: sessionKindOf(convId),
+      domains,
+      total: agg.total,
+      speech: agg.speech ?? 0,
+      runs: agg.runs,
+      firstAt: agg.firstAt,
+      lastAt: agg.lastAt,
+      activeDays: agg.activeDays,
+      firstSpeechAt: agg.firstSpeechAt,
+      lastSpeechAt: agg.lastSpeechAt,
+      speechDays: agg.speechDays,
+      lastRole: lastSpeech?.lastRole ?? null,
+      lastAgent: lastSpeech?.lastAgent ?? null,
+      lastType: lastType?.type ?? null,
+    };
+  }
+
+  /** 全量会话键枚举（agents/*\/sessions/* 目录名去重——索引维护面，
+   *  非读面：供显式预热/覆盖度统计用） */
+  allConversationIds(dataRoot: string): string[] {
+    const out = new Set<string>();
+    let agents: fs.Dirent[] = [];
+    try { agents = fs.readdirSync(path.join(dataRoot, 'agents'), { withFileTypes: true }); } catch { return []; }
+    for (const a of agents) {
+      if (!a.isDirectory() || !isSafeId(a.name)) continue;
+      let convs: fs.Dirent[] = [];
+      try { convs = fs.readdirSync(path.join(dataRoot, 'agents', a.name, 'sessions'), { withFileTypes: true }); } catch { continue; }
+      for (const c of convs) if (c.isDirectory() && isSafeId(c.name)) out.add(c.name);
+    }
+    return [...out];
+  }
+
+  /** 日聚合（cr-1138）：有 conversationId = 该会话（先 refresh，权威）；
+   *  缺省 = 全局（**已索引子集**——索引惰性，未访问过的会话不在内；消费方
+   *  必须读 coverage 判断覆盖度，勿把子集当平台全貌）；full = true 显式
+   *  预热（枚举全部会话逐个对账，首次代价高——仪表板冷启动场景显式调用，
+   *  此后索引增量维护）。day = UTC 日期串。 */
+  sessionByDay(
+    dataRoot: string,
+    convId?: string,
+    full = false,
+  ): { days: Array<{ day: string; total: number; speech: number }>; coverage: { indexedConversations: number; totalConversations: number } } {
+    if (convId !== undefined) this.refreshConversation(dataRoot, convId);
+    const allIds = this.allConversationIds(dataRoot);
+    if (full) for (const id of allIds) this.refreshConversation(dataRoot, id);
+    // 日桶单源 = ts_num（全行活动口径；发言单独计数）——两代行形态通吃
+    const base = "SELECT date(ts_num / 1000, 'unixepoch') AS day, COUNT(*) AS total, " +
+      "SUM(CASE WHEN role IN ('user', 'agent') THEN 1 ELSE 0 END) AS speech " +
+      'FROM records WHERE ts_num IS NOT NULL' + (convId !== undefined ? ' AND conv = ?' : '') +
+      ' GROUP BY day ORDER BY day';
+    const rows = convId !== undefined ? this.stmt(base).all(convId) : this.stmt(base).all();
+    const days = (rows as Array<{ day: string; total: number; speech: number | null }>)
+      .map((r) => ({ day: r.day, total: Number(r.total), speech: Number(r.speech ?? 0) }));
+    // 覆盖度诚实性（cr-1138）：全局视图是已索引子集——不告诉消费方就会被
+    // 当成平台全貌（真实数据实证：未访问会话造成日期空档）。
+    const indexed = convId !== undefined
+      ? 1
+      : Number((this.stmt('SELECT COUNT(DISTINCT conv) AS n FROM records').get() as { n: number }).n);
+    return { days, coverage: { indexedConversations: indexed, totalConversations: convId !== undefined ? 1 : allIds.length } };
   }
 
   /** 会话索引行全清（目录已消失——账面与指针行一并回收） */

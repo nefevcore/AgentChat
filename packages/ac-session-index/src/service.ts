@@ -9,7 +9,9 @@
 // ============================================================
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
-import { SessionIndex, type RefreshReport } from './core.ts';
+import { SessionIndex, type RefreshReport, type SessionMeta, type SessionKind } from './core.ts';
+
+export type { SessionMeta, SessionKind };
 
 /** 行配置（boot 装配参数） */
 export interface SessionIndexRowOptions {
@@ -56,6 +58,20 @@ export class SessionIndexService extends Service {
 
   drop(convId: string): void {
     this.index.drop(convId);
+  }
+
+  /** 会话元数据聚合（cr-1138）：records 表 SQL 统计，零盘读 */
+  sessionMeta(convId: string): SessionMeta | null {
+    return this.index.sessionMeta(this.dataRoot, convId);
+  }
+
+  /** 日聚合（cr-1138）：单会话权威（带 refresh）/ 全局已索引子集
+   *（coverage 报覆盖度；full = 显式预热全量对账） */
+  sessionByDay(
+    convId?: string,
+    full = false,
+  ): { days: Array<{ day: string; total: number; speech: number }>; coverage: { indexedConversations: number; totalConversations: number } } {
+    return this.index.sessionByDay(this.dataRoot, convId, full);
   }
 
   /** 某 run 的子调用行（缺席 = []; 未入账 = undefined 回落全量读） */

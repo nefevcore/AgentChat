@@ -65,6 +65,36 @@ interface SessionIndexFace {
   fingerprintOf(conversationId: string): { fingerprint: string; domains: string[] };
   /** subcall 档案按 run 定位 seek（undefined = 该域档案未索引 → 调用方回落全读） */
   subcallLines(conversationId: string, domain: string, run: string): Array<Record<string, unknown>> | undefined;
+  /** 会话元数据聚合（cr-1138——records 表 SQL 统计，零盘读；null = 会话不存在）。
+   *  结构与 ac-session-index SessionMeta 同形（窄接口零 import 纪律）。 */
+  sessionMeta(conversationId: string): SessionMetaRow | null;
+  /** 日聚合（单会话权威/全局已索引子集；coverage 报覆盖度，full = 显式预热） */
+  sessionByDay(conversationId?: string, full?: boolean): {
+    days: Array<{ day: string; total: number; speech: number }>;
+    coverage: { indexedConversations: number; totalConversations: number };
+  };
+}
+
+/** SessionMeta 结构面（cr-1138——ac-session-index SessionMeta 同形窄化） */
+interface SessionMetaRow {
+  key: string;
+  kind: 'pair' | 'single' | 'group' | 'other';
+  domains: string[];
+  total: number;
+  speech: number;
+  runs: number;
+  /** 全行活动口径 */
+  firstAt: string | null;
+  lastAt: string | null;
+  activeDays: number;
+  /** 发言口径（diving 沉默天数取 lastSpeechAt） */
+  firstSpeechAt: string | null;
+  lastSpeechAt: string | null;
+  speechDays: number;
+  /** 末发言者（roster 预览）/ 末活动行型（健康仪表板） */
+  lastRole: string | null;
+  lastAgent: string | null;
+  lastType: string | null;
 }
 
 /** web-api 行依赖注入（宿主 boot 组装——非 cordis inject：UserStub/数据根为宿主编排件非行服务） */
@@ -491,6 +521,26 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
           running: ((await runningOf(deps)) ?? []).map((r) => ({ agentId: r.agentId, conversationId: r.conversationId })),
           ...(spawning !== undefined ? { spawning } : {}),
         };
+      });
+
+      // session/meta（cr-1138）：会话元数据聚合——sessionIndex 行在场走
+      // SQL 统计（零盘读）；行缺席 fail-loud（host.yml 骨架行，缺 = 装配
+      // 异常而非用户可选项——与 conv-settings 硬依赖同姿态）。消费面：
+      // unread 读位对账/roster 预览权威化（后续批）+ 仪表板。
+      web.registerRpc('session/meta', (params) => {
+        const index = ctx.get('sessionIndex') as SessionIndexFace | undefined;
+        if (index === undefined) throw new Error('sessionIndex 服务未装配（session-index 行不在宿主行集）——session/meta 不可用');
+        const p = obj(params);
+        const conversationId = optStr(p.conversationId);
+        if (conversationId !== undefined) {
+          const meta = index.sessionMeta(conversationId);
+          if (meta === null) throw new Error('会话不存在：' + conversationId);
+          return { meta };
+        }
+        // 全局视图（cr-1138）：缺省 = 已索引子集 + coverage 覆盖度（索引惰性
+        // ——不报覆盖度即被当成平台全貌）；full = true 显式预热全部会话
+        //（首次代价高，仪表板冷启动用；此后索引增量维护）。
+        return index.sessionByDay(undefined, p.full === true);
       });
 
       // ---- 会话级覆盖面（cr-565）----

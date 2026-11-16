@@ -95,7 +95,7 @@ describe('未读持久化与刷新恢复（persistUnread 链路）', () => {
   it('single 会话未读同链路恢复（AgentList 聚合徽章口径）', async () => {
     // single 分区经 ingestFrame 无直接入站口——用测试面造快照（load 校验
     // 形状）后水合，锁定恢复端契约（single:sid 键合法）
-    unreadStore.saveUnreadSnapshot({ [singleDialog('sess-1')]: 4 });
+    unreadStore.saveUnreadSnapshot({ [singleDialog('sess-1')]: { n: 4, ts: 1 } });
     const { RosterCore } = await import('ac-client-ui-agents/client');
     const feed = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
     expect(feed.getDialog(singleDialog('sess-1'))!.unread).toBe(4);
@@ -105,14 +105,14 @@ describe('未读持久化与刷新恢复（persistUnread 链路）', () => {
     // 造 single 未读快照 → 水合恢复 → 进入会话（SessionList selectSingle →
     // chat.setSingleContext → feed.setActiveSingle 同款调用）→ 未读清零且
     // 写穿（刷新后不复活——single 无名册行，不清则活动栏聚合永久残留）
-    unreadStore.saveUnreadSnapshot({ [singleDialog('sess-1')]: 3, [groupDialog('room-a')]: 2 });
+    unreadStore.saveUnreadSnapshot({ [singleDialog('sess-1')]: { n: 3, ts: 1 }, [groupDialog('room-a')]: { n: 2, ts: 1 } });
     const { RosterCore } = await import('ac-client-ui-agents/client');
     const feed = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
     feed.setActiveSingle('sess-1', 'alpha');
     expect(feed.getDialog(singleDialog('sess-1'))!.unread).toBe(0);
     // 写穿：别的分区不受牵连；重建实例（= 刷新）single 未读不复活
     const snap = unreadStore.loadUnreadSnapshot();
-    expect(snap![groupDialog('room-a')]).toBe(2);
+    expect(snap![groupDialog('room-a')]!.n).toBe(2);
     expect(snap![singleDialog('sess-1')]).toBeUndefined();
     const feed2 = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
     expect(feed2.getDialog(singleDialog('sess-1'))).toBeNull();
@@ -121,7 +121,7 @@ describe('未读持久化与刷新恢复（persistUnread 链路）', () => {
 
   it('pruneSingleUnread 对账：active 集外的 single 未读清 + 写穿（删/归档会话的孤儿未读无行可点——tab 聚合永久残留根修，cr-290）', async () => {
     // 造快照：live 会话 + 已删会话（快照残留）各带未读
-    unreadStore.saveUnreadSnapshot({ [singleDialog('live-1')]: 2, [singleDialog('gone-1')]: 5, [groupDialog('room-a')]: 3 });
+    unreadStore.saveUnreadSnapshot({ [singleDialog('live-1')]: { n: 2, ts: 1 }, [singleDialog('gone-1')]: { n: 5, ts: 1 }, [groupDialog('room-a')]: { n: 3, ts: 1 } });
     const { RosterCore } = await import('ac-client-ui-agents/client');
     const feed = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
     feed.pruneSingleUnread(['live-1']); // SingleBoardService.refresh 后同款调用（active 集）
@@ -141,7 +141,7 @@ describe('未读持久化与刷新恢复（persistUnread 链路）', () => {
     const broken = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
     expect(broken.getUnreadCount('alpha')).toBe(0);
 
-    unreadStore.__setUnreadSnapshotRaw(JSON.stringify({ 'junk:key': 1, [directDialog('alpha')]: 0, [groupDialog('g')]: -3, [singleDialog('s')]: 'x' }));
+    unreadStore.__setUnreadSnapshotRaw(JSON.stringify({ version: 2, entries: { 'junk:key': 1, [directDialog('alpha')]: 0, [groupDialog('g')]: { n: -3, ts: 1 }, [singleDialog('s')]: 'x' } }));
     const junk = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
     expect(junk.getDialog(directDialog('alpha'))).toBeNull();
     expect(junk.getDialog(groupDialog('g'))).toBeNull();

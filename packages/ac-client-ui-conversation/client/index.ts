@@ -98,9 +98,9 @@ declare module 'ac-client-slots' {
   }
 }
 
-/** singles 会话键词汇锁（cr-1120，与服务端 isSingleSessionId 同形）：uuid v4/v7。
- *  签发源 = 服务端 issueConversationId（uuidv7）/ 前端 issueLocalConversationId。 */
-const SINGLE_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** singles 会话键词汇锁：并源 dialogIdLex（cr-1137——routeDialog 词法闸
+ *  同一谓词，两处走散 = 路由与登记口径漂移的苗头） */
+import { SINGLE_SESSION_ID_RE } from './dialogIdLex.ts';
 
 interface ConversationClientOptions {
   /** 预留（对齐 cordis Service 构造签名形态） */
