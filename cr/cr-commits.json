@@ -1,6 +1,6 @@
 {
- "scannedHead": "d74f609a9c3901992de969265a900200b05b499d",
- "generatedAt": "2026-11-16T13:05:20.881Z",
+ "scannedHead": "1fe6d8395bb9485b5b83fd046303945187f17f30",
+ "generatedAt": "2026-11-16T13:05:22.389Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5102,6 +5102,11 @@
     "sha": "d74f609a9c3901992de969265a900200b05b499d",
     "date": "2026-11-16",
     "subject": "fix(session): cr-1120 singles 会话键词汇锁（uuid 形）——对桶/sub_ 键不入清单（未分组幻影行 + unread 串台根修）"
+   },
+   {
+    "sha": "1fe6d8395bb9485b5b83fd046303945187f17f30",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 台账攒批——cr-1135 登记/状态 + cr-1120 提交投影"
    }
   ],
   "1121": [
@@ -5180,6 +5185,11 @@
     "sha": "ed5d1750757b83fc7dfc00c4d7746246a6e01a0b",
     "date": "2026-11-16",
     "subject": "fix(conversation): cr-1135 上下文占用仪表收束/续聊跳变根修（锚点校准比率）"
+   },
+   {
+    "sha": "1fe6d8395bb9485b5b83fd046303945187f17f30",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 台账攒批——cr-1135 登记/状态 + cr-1120 提交投影"
    }
   ]
  }
