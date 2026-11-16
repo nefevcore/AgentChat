@@ -1149,4 +1149,8 @@
 - 【cr-1128 2026-11-16 壳协议离 stdio 批3b：控制面切 manage 通道（orchestrate adopt 面 + 子壳 service）→cr-1123 #platform】
 - 【cr-1129 2026-11-16 壳协议离 stdio 批4：信号退役（emitBootSignal 全删 + stdin 帧循环拆除 + 判据切换探测面唯一 + 锁 mtime 心跳喂入 + e2e 改写 + 门控退役）→cr-1123 #platform】
 - 【cr-1130 2026-11-16 壳协议离 stdio 批5：协议规格 D 节改稿 + spawn stdio 收敛 + README 同步 + 计划归档 →cr-1123 #platform】
+- 【cr-1131 2026-11-16 注入卡挂靠结构修复计划成文：ViewRow 全序 + 投影层锚定（docs/design/webui/inject-card-anchoring-plan.md）——消除长会话首屏注入卡降级『独立上下文』的结构方案（根因两层：foldViewRecords 尾段无序×分页切窗偏斜；v1 存量直落行 agent_id=user 恒值×前端窗口局部挂靠猜测）】
+- 【cr-1132 2026-11-16 注入卡挂靠结构修复:ViewRow 时间全序 + 投影层锚定(foldViewRecords 尾段 slot 归并 + anchor 派生 + viewer 域归属归一 + buildTurns 坍缩 + face-shell 收编)】
+- 【cr-1133 2026-11-16 viewer 存量镜像域读面归一:agents/user 域 speech/盲区 run 误投为 user 发言(migrated-msg 伪 run + 空终稿行致 viewerRuns 漏锚)】
+- 【cr-1134 2026-11-16 user 域正主回迁:agents/user 会话数据迁回对端 agent 域后清理(迁移前后投影对拍保内容零丢失)】
 

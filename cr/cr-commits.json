@@ -1,6 +1,6 @@
 {
- "scannedHead": "235038ce34712b455f08a267f0349e951195b6b1",
- "generatedAt": "2026-11-16T09:25:58.526Z",
+ "scannedHead": "31d1f72ba24e62a247a47c6972b04a72c4a24664",
+ "generatedAt": "2026-11-16T12:25:16.870Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5052,6 +5052,11 @@
     "sha": "9abdc3ca20921135ce540b8a3beb6c4de1479fc1",
     "date": "2026-11-15",
     "subject": "fix(struct): cr-1115 结构消除 boot 窗口可达登记竞态——锁活不等于 ipc 就绪,rescue/peek/adoptLiveShells 登记前先探 pipe 实连"
+   },
+   {
+    "sha": "7b8b64d6effac1c1b1ffc5491677f5a4441d4858",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 台账攒批——cr-1115~1130 登记/状态/提交投影"
    }
   ],
   "1116": [
@@ -5135,6 +5140,20 @@
     "sha": "235038ce34712b455f08a267f0349e951195b6b1",
     "date": "2026-11-16",
     "subject": "feat(platform): 壳协议离 stdio 迁移（方案 E）——监护信令全量迁出 stdout/stdin cr-1130 →cr-1123（批 1-5：cr-1125/1126/1127/1128/1129/1130）：节拍=锁+boot-progress 文件、心跳=锁 mtime+peek 双源、控制面=manage 通道、runbeat 壳侧直写、spawn stdio 收敛、规格 D 节重写、计划归档"
+   }
+  ],
+  "1131": [
+   {
+    "sha": "31d1f72ba24e62a247a47c6972b04a72c4a24664",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1132/1133/1134 注入卡挂靠结构修复 + viewer 镜像域归一 + user 域正主回迁 →cr-1131"
+   }
+  ],
+  "1132": [
+   {
+    "sha": "31d1f72ba24e62a247a47c6972b04a72c4a24664",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1132/1133/1134 注入卡挂靠结构修复 + viewer 镜像域归一 + user 域正主回迁 →cr-1131"
    }
   ]
  }
