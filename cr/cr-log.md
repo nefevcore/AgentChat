@@ -1134,4 +1134,8 @@
 - 【cr-1113 2026-11-15 渲染契约复查批:resume 落账行补 label 数据面 + 注释修正在库(shim 别名删除/历史判据描述/ledger-projection resume 口径)+ 文档交叉引用 #render-contract】
 - 【cr-1114 2026-11-15 工具源统一（批1+2）：host-face boot 静态承诺面 + rowTools 活查询化 + 前缀快照漂移升重算 + ToolSource 契约与 MCP 发现缓存——修 timer 代理工具三面失明】
 - 【cr-1115 2026-11-15 结构消除 boot 窗口可达登记竞态：锁活不等于 ipc 就绪，rescue/peek/adoptLiveShells 登记前先探 pipe 实连】
+- 【cr-1116 2026-11-16 plugin-registry 插件目录页修复：停用急救数据面自退役的 plugin/patch-* 重接 rows/list|set|reset（后端 cr-485 起恒 throw，页面点了就报错）+ 装配机制文案对齐现行模型（cordis.yml 措辞全面退役、恒冷生效、host-rows.json）+ 删后端无实现的 minimal 还原死按钮】
+- 【cr-1117 2026-11-16 declareClient 死面退役批：32 前端行包宿主半边零功能化（v3 下图成员=行存在性、ctx.webui 声明注册表零消费且服务提供方 ac-webui 零装配）+ ac-webui 包物理退役 + 各包 ac-webui 依赖声明清理 + 宿主半边 boot-graph 断言测试改写；extension 自述保留（plugin/extension-catalog 活消费）；ac-webui-extensions 保留（slotCatalog 单源锚点活消费）】
+- 【cr-1118 2026-11-16 archive 行回归 shell 骨架必装面（cr-1033 误降能力行）+ news~news 手动归档恢复】
+- 【cr-1119 2026-11-16 机制通知 busy 排队收信即落账致 context 行抢跑原 run 收束（restart_host 通知 seq 错位+通知轮不识自己）：机制排队行改消费点落账】
 
