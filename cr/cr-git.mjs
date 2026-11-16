@@ -137,7 +137,8 @@ function readProj() {
   try { return JSON.parse(fs.readFileSync(PROJ, 'utf8')); } catch { return null; }
 }
 
-function doSync(rebuild) {
+// persist=false：内存态校验（check 懒引用面用）——只算不落盘，守门命令禁写副作用。
+function doSync(rebuild, persist = true) {
   const root = gitRoot();
   if (root == null) die('sync 需要 git 仓库（cr/ 所在项目）');
   const head = (gitOk(['rev-parse', 'HEAD'], root) || '').trim();
@@ -169,8 +170,9 @@ function doSync(rebuild) {
   const dangling = Object.keys(entries).map(Number).filter((n) => !known.has(n)).sort((a, b) => a - b);
   const sorted = Object.fromEntries(Object.keys(entries).map(Number).sort((a, b) => a - b)
     .map((n) => [String(n), entries[String(n)]]));
+  const refCount = Object.values(entries).reduce((a, v) => a + v.length, 0);
   if (prev?.entries && JSON.stringify(prev.entries) === JSON.stringify(sorted)) {
-    return { proj: { ...prev, scannedHead: head }, dangling, refCount: Object.values(entries).reduce((a, v) => a + v.length, 0), unchanged: true };
+    return { proj: { ...prev, scannedHead: head }, dangling, refCount, unchanged: true };
   }
   const proj = {
     scannedHead: head,
@@ -178,8 +180,7 @@ function doSync(rebuild) {
     _comment: '生成物：node cr/cr-git.mjs sync——禁手改（cr-984）',
     entries: sorted,
   };
-  fs.writeFileSync(PROJ, JSON.stringify(proj, null, 1) + '\n');
-  const refCount = Object.values(entries).reduce((a, v) => a + v.length, 0);
+  if (persist) fs.writeFileSync(PROJ, JSON.stringify(proj, null, 1) + '\n');
   return { proj, dangling, refCount };
 }
 
@@ -236,12 +237,12 @@ function cmdCheck() {
       if (m && !known.has(Number(m[1]))) errs.push('锁5：logs/ 悬挂详情 cr-' + m[1] + '.md（索引无此号）');
     }
   }
-  // commit 引用面（懒 sync；无 git 仓库跳过）
+  // commit 引用面（内存态懒校验，不落盘——守门禁写副作用，投影落盘走显式 sync）
   if (root == null) {
     softWarns.push('非 git 仓库——commit 引用面校验跳过');
   } else {
     try {
-      const r = doSync(false);
+      const r = doSync(false, false);
       if (r.dangling.length) errs.push('锁6：悬空 commit 引用 ' + r.dangling.map((n) => 'cr-' + n).join(' '));
     } catch (e) {
       errs.push('锁6：sync 不可用（' + e.message + '）');
