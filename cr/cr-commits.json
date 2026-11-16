@@ -1,6 +1,6 @@
 {
- "scannedHead": "1fe6d8395bb9485b5b83fd046303945187f17f30",
- "generatedAt": "2026-11-16T13:05:22.389Z",
+ "scannedHead": "8603e79db08246ae4a81a86d491cf9ff71839a10",
+ "generatedAt": "2026-11-16T13:05:57.675Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5107,6 +5107,11 @@
     "sha": "1fe6d8395bb9485b5b83fd046303945187f17f30",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1135 登记/状态 + cr-1120 提交投影"
+   },
+   {
+    "sha": "8603e79db08246ae4a81a86d491cf9ff71839a10",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 投影重建(cr-1120 提交后 sync)"
    }
   ],
   "1121": [
