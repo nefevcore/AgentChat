@@ -8,6 +8,9 @@
 // 换轨面：5 模式排程状态机（arm/fire/nextDelayOf/补偿三 case）→
 //   runCheck（worker 求值）→ verdict 分派。旧条目 boot 时 compileEntry
 //   一次性编译迁移（timer.json.bak 备份）。
+// cr-1149：verdict 校验前移为 inspectVerdict 单源判据（与干跑同一份）——
+//   类型不合法的轮整轮不处置 + 退避记账；可疑项（next 在过去等）记 lastNote
+//   诊断面（同提示不刷屏）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -24,6 +27,7 @@ import {
   CHECK_FLOOR_MS,
   compileEntry,
   createHolidayResolver,
+  inspectVerdict,
   isLegacyEntryShape,
   localISO,
   makeTimerUtils,
@@ -208,6 +212,8 @@ export class HostTimersService extends Service {
   private lastGateCode = new Map<string, number>();
   private lastGateCodeAt = new Map<string, string>();
   private lastError = new Map<string, { at: string; message: string; streak: number }>();
+  /** verdict 非致命提示（next 在过去等，cr-1149）——同文本不重复记 */
+  private lastNote = new Map<string, { at: string; text: string }>();
   private storedSnapshot = new Map<string, string>();
   private legacyGateNotice = new Set<string>();
   private migrating = false;
@@ -391,15 +397,7 @@ export class HostTimersService extends Service {
       for (const e of entries) valid.add(`${owner}/${e.id}`);
     }
     for (const key of this.persisted.keys()) {
-      if (!key.startsWith('_') && !valid.has(key)) {
-        this.persisted.delete(key);
-        this.nextAtMs.delete(key);
-        this.lastSkip.delete(key);
-        this.lastGateErrorAt.delete(key);
-        this.lastGateCode.delete(key);
-        this.lastGateCodeAt.delete(key);
-        this.lastError.delete(key);
-      }
+      if (!key.startsWith('_') && !valid.has(key)) this.forget(key);
     }
     this.saveState();
     for (const [owner, entries] of this.entriesByAgent) {
@@ -451,7 +449,18 @@ export class HostTimersService extends Service {
     return [...this.entriesByAgent].map(([owner, entries]) => ({ owner, entries }));
   }
 
-  /** 排程态快照（诊断面——脚本型字段） */
+  /**
+   * 排程态快照（诊断面——脚本型字段）。
+   *
+   * **时间字段一律用 owner 时区的带偏移 ISO**（`localISO`）：曾出现 `lastAt`
+   * 带 `+08:00` 而 `nextAt` 是 UTC `Z`，直接字符串相减差 8 小时——消费方
+   * （news 2026-11-17）据此差点把正常 30m 判成 7h30m 漂移。同类字段必须同格式，
+   * 否则「能算但算错」比「不能算」更危险。
+   *
+   * 惰性字段（lastSkip* / lastGate* / lastError* / lastNote*）**只在事件发生后才
+   * 出现**，且都是内存态（宿主重启即清空）。故「缺失」的含义是：本次启动以来
+   * 未发生该事件——前提是 `listVersion` 已达到引入该字段的版本（见 timer-face）。
+   */
   scheduleState(owner: string, entryId: string): {
     lastAt?: string;
     nextAt?: string;
@@ -464,6 +473,8 @@ export class HostTimersService extends Service {
     lastErrorAt?: string;
     lastError?: string;
     errorStreak?: number;
+    lastNoteAt?: string;
+    lastNote?: string;
     triggeredCount?: number;
   } {
     const key = `${owner}/${entryId}`;
@@ -474,19 +485,31 @@ export class HostTimersService extends Service {
     const gateCode = this.lastGateCode.get(key);
     const gateCodeAt = this.lastGateCodeAt.get(key);
     const err = this.lastError.get(key);
+    const note = this.lastNote.get(key);
+    const tz = this.tzOf(owner);
     return {
       ...(ps?.lastTriggeredAt ? { lastAt: ps.lastTriggeredAt } : {}),
-      ...(next !== undefined ? { nextAt: new Date(next).toISOString() } : {}),
+      ...(next !== undefined ? { nextAt: localISO(new Date(next), tz) } : {}),
       ...(skip ? { lastSkipAt: skip.at, lastSkipReason: skip.reason, skipStreak: skip.streak } : {}),
       ...(gateErr ? { lastGateErrorAt: gateErr } : {}),
       ...(gateCode !== undefined ? { lastGateCode: gateCode } : {}),
       ...(gateCodeAt ? { lastGateCodeAt: gateCodeAt } : {}),
       ...(err ? { lastErrorAt: err.at, lastError: err.message, errorStreak: err.streak } : {}),
+      ...(note ? { lastNoteAt: note.at, lastNote: note.text } : {}),
       ...(ps?.executedCount !== undefined ? { triggeredCount: ps.executedCount } : {}),
     };
   }
 
-  save(owner: string, entries: TimerScriptEntry[]): { ok: boolean; error?: string } {
+  /**
+   * 写回条目表并重排。seed = 新条目的首检初值（cr-1149 v2：set 时干跑即首检，
+   * 其 state + next 直接落为记账/排程断点——arm 见未来断点直排，不再立即探测
+   * 投递；「设置即投递」这条路径由此从宿主侧消除，不依赖脚本纪律）。
+   */
+  save(
+    owner: string,
+    entries: TimerScriptEntry[],
+    seed?: Record<string, { state?: unknown; nextAt?: Date }>,
+  ): { ok: boolean; error?: string } {
     const stored: TimerStoreEntry = { entries };
     if (owner === GLOBAL_TIMER_OWNER) {
       this.configService()?.set('timer.tasks', entries);
@@ -510,14 +533,16 @@ export class HostTimersService extends Service {
     else this.entriesByAgent.delete(owner);
     const valid = new Set(enabled.map((e) => `${owner}/${e.id}`));
     for (const key of this.persisted.keys()) {
-      if (key.startsWith(`${owner}/`) && !valid.has(key)) {
-        this.persisted.delete(key);
-        this.nextAtMs.delete(key);
-        this.lastSkip.delete(key);
-        this.lastGateErrorAt.delete(key);
-        this.lastGateCode.delete(key);
-        this.lastGateCodeAt.delete(key);
-        this.lastError.delete(key);
+      if (key.startsWith(`${owner}/`) && !valid.has(key)) this.forget(key);
+    }
+    if (seed !== undefined) {
+      for (const [id, s] of Object.entries(seed)) {
+        if (!valid.has(`${owner}/${id}`)) continue;
+        if (!(s.nextAt instanceof Date) || isNaN(s.nextAt.getTime())) continue;
+        this.persisted.set(`${owner}/${id}`, {
+          ...(s.state !== undefined ? { scriptState: s.state } : {}),
+          persistNextAt: s.nextAt.toISOString(),
+        });
       }
     }
     this.saveState();
@@ -542,15 +567,7 @@ export class HostTimersService extends Service {
     else this.entriesByAgent.delete(owner);
     const valid = new Set(enabled.map((e) => `${owner}/${e.id}`));
     for (const key of this.persisted.keys()) {
-      if (key.startsWith(`${owner}/`) && !valid.has(key)) {
-        this.persisted.delete(key);
-        this.nextAtMs.delete(key);
-        this.lastSkip.delete(key);
-        this.lastGateErrorAt.delete(key);
-        this.lastGateCode.delete(key);
-        this.lastGateCodeAt.delete(key);
-        this.lastError.delete(key);
-      }
+      if (key.startsWith(`${owner}/`) && !valid.has(key)) this.forget(key);
     }
     this.saveState();
     for (const entry of enabled) this.arm(owner, entry);
@@ -564,8 +581,11 @@ export class HostTimersService extends Service {
     return true;
   }
 
-  /** 干跑检测（timer 工具 test 动作——不触发不排程，返回 verdict） */
-  async dryRun(owner: string, code: string, state?: unknown): Promise<{ ok: true; verdict: TimerCheckVerdict } | { ok: false; error: string }> {
+  /**
+   * 干跑检测（timer 工具 test / set 自检——不触发不排程）。校验与运行期同一份
+   * 判据（inspectVerdict，cr-1149）：类型错误直接拒，可疑项经 notes 回话。
+   */
+  async dryRun(owner: string, code: string, state?: unknown): Promise<{ ok: true; verdict: TimerCheckVerdict; notes: string[] } | { ok: false; error: string }> {
     const args = this.checkArgsOf(owner, { id: 'dry-run', enabled: true, kind: 'script', code }, state);
     const r = await runCheckInWorker(code, args, this.utilsConfigOf(owner), this.checkWallMs);
     if (!r.ok) return { ok: false, error: r.error };
@@ -573,7 +593,9 @@ export class HostTimersService extends Service {
     if (typeof verdict !== 'object') {
       return { ok: false, error: 'verdict 缺失（脚本须 return { action?, next?, state?, active? }）' };
     }
-    return { ok: true, verdict };
+    const insp = inspectVerdict(verdict);
+    if (insp.error !== undefined) return { ok: false, error: insp.error };
+    return { ok: true, verdict, notes: insp.notes };
   }
 
   // ============================================================
@@ -676,27 +698,22 @@ export class HostTimersService extends Service {
     const args = this.checkArgsOf(owner, entry);
     const r = await runCheckInWorker(entry.code, args, this.utilsConfigOf(owner), this.checkWallMs);
     if (!r.ok) {
-      const prev = this.lastError.get(key);
-      const streak = (prev?.streak ?? 0) + 1;
-      this.lastError.set(key, { at: localISO(undefined, this.tzOf(owner)), message: r.error, streak });
-      this.ctx.logger.warn(`[timers] ${key} 检测失败（第 ${streak} 次）：${r.error}`);
-      if (streak >= CHECK_STOP_STREAK) {
-        this.ctx.logger.warn(`[timers] ${key} 连续 ${streak} 次失败——停排（fail-loud），修正脚本后重新 save/重启恢复`);
-        return;
-      }
-      const backoff = BACKOFF_STEPS_MS[Math.min(streak - 1, BACKOFF_STEPS_MS.length - 1)];
-      this.scheduleCheck(key, owner, entry, backoff);
+      this.retryAfterError(key, owner, entry, r.error, stillArmed);
       return;
     }
     this.lastError.delete(key);
     const verdict = r.verdict;
     if (verdict === undefined) {
-      const prev = this.lastError.get(key);
-      const streak = (prev?.streak ?? 0) + 1;
-      this.lastError.set(key, { at: localISO(undefined, this.tzOf(owner)), message: '脚本无返回值（须 return { action?, next?, state?, active? }）', streak });
-      if (stillArmed() && streak < CHECK_STOP_STREAK) this.scheduleCheck(key, owner, entry, BACKOFF_STEPS_MS[Math.min(streak - 1, BACKOFF_STEPS_MS.length - 1)]);
+      this.retryAfterError(key, owner, entry, '脚本无返回值（须 return { action?, next?, state?, active? }）', stillArmed);
       return;
     }
+    // 类型层校验（cr-1149）：与干跑同一份判据——不合法整轮不处置（fail-loud）
+    const insp = inspectVerdict(verdict);
+    if (insp.error !== undefined) {
+      this.retryAfterError(key, owner, entry, insp.error, stillArmed);
+      return;
+    }
+    if (insp.notes.length > 0) this.noteVerdict(key, owner, insp.notes);
     if (verdict.active === false) {
       const cur = this.persisted.get(key);
       const fired = verdict.action !== undefined && verdict.action !== '';
@@ -750,17 +767,46 @@ export class HostTimersService extends Service {
       }
     }
     if (!stillArmed()) return;
+    // next 已由 inspectVerdict 保证为 Date（active 轮必在）；nextWaitMs 只做地板钳制
     const nextMs = nextWaitMs(verdict.next);
     if (nextMs === null) {
-      const prev = this.lastError.get(key);
-      const streak = (prev?.streak ?? 0) + 1;
-      this.lastError.set(key, { at: localISO(undefined, this.tzOf(owner)), message: 'next 须为 Date（用 u.at()/u.after() 构造或 epoch 算术）：' + String(verdict.next), streak });
-      this.ctx.logger.warn(`[timers] ${key} verdict.next 非 Date——按退避重排`);
-      if (streak >= CHECK_STOP_STREAK) return;
-      this.scheduleCheck(key, owner, entry, BACKOFF_STEPS_MS[Math.min(streak - 1, BACKOFF_STEPS_MS.length - 1)]);
+      this.retryAfterError(key, owner, entry, 'verdict.next 无法排程：' + String(verdict.next), stillArmed);
       return;
     }
     this.scheduleCheck(key, owner, entry, nextMs);
+  }
+
+  /** 失败处置：记账 + 退避重排（连续 CHECK_STOP_STREAK 次停排 fail-loud） */
+  private retryAfterError(key: string, owner: string, entry: TimerScriptEntry, message: string, stillArmed: () => boolean): void {
+    const prev = this.lastError.get(key);
+    const streak = (prev?.streak ?? 0) + 1;
+    this.lastError.set(key, { at: localISO(undefined, this.tzOf(owner)), message, streak });
+    this.ctx.logger.warn(`[timers] ${key} 检测失败（第 ${streak} 次）：${message}`);
+    if (streak >= CHECK_STOP_STREAK) {
+      this.ctx.logger.warn(`[timers] ${key} 连续 ${streak} 次失败——停排（fail-loud），修正脚本后重新 save/重启恢复`);
+      return;
+    }
+    if (stillArmed()) this.scheduleCheck(key, owner, entry, BACKOFF_STEPS_MS[Math.min(streak - 1, BACKOFF_STEPS_MS.length - 1)]);
+  }
+
+  /** verdict 非致命提示：记诊断面 + 文本变化才曝光日志（同提示不刷屏） */
+  private noteVerdict(key: string, owner: string, notes: string[]): void {
+    const text = notes.join('；');
+    if (this.lastNote.get(key)?.text === text) return;
+    this.lastNote.set(key, { at: localISO(undefined, this.tzOf(owner)), text });
+    this.ctx.logger.warn(`[timers] ${key} verdict 提示：${text}`);
+  }
+
+  /** 条目记账单点清理（取消排程 + 清全量诊断/记账态——新增 Map 只改这里） */
+  private forget(key: string): void {
+    this.cancel(key);
+    this.persisted.delete(key);
+    this.lastSkip.delete(key);
+    this.lastGateErrorAt.delete(key);
+    this.lastGateCode.delete(key);
+    this.lastGateCodeAt.delete(key);
+    this.lastError.delete(key);
+    this.lastNote.delete(key);
   }
 
   /** 挂下次检测（地板钳制 CHECK_FLOOR_MS——防忙循环） */
@@ -892,8 +938,7 @@ export class HostTimersService extends Service {
 
   private completeEntry(owner: string, entry: TimerScriptEntry, executedCount: number): void {
     const key = `${owner}/${entry.id}`;
-    this.cancel(key);
-    this.persisted.delete(key);
+    this.forget(key);
     this.saveState();
     const cached = this.entriesByAgent.get(owner);
     if (cached) {
