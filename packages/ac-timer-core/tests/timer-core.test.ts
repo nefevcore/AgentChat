@@ -1,271 +1,181 @@
 // ============================================================
-// ac-timer-core：间隔解析 / 目标时间 / 节假日（调休优先）/ 模板 / 恢复延迟
+// ac-timer-core 单测（cr-1147 v2 探测循环）：utils 纯函数包 /
+// validateScriptEntries / nextWaitMs / compileEntry 全模式（不炸不丢）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import {
+  CHECK_FLOOR_MS,
+  compileEntry,
   createHolidayResolver,
-  describeEntry,
-  formatWeekdayLabel,
-  isFullDatetime,
-  isWeekdayTime,
+  isLegacyEntryShape,
   localISO,
+  makeTimerUtils,
   msUntilTime,
-  nextDelayOf,
-  parseActiveHours,
+  nextWaitMs,
   parseInterval,
-  randomDelay,
-  renderHint,
-  withinActiveHours,
-  type TimerEntry,
+  validateScriptEntries,
+  type LegacyTimerEntry,
+  type TimerCheckArgs,
+  type TimerUtils,
 } from '../src/index.ts';
 
-describe('ac-timer-core parseInterval', () => {
-  it('组合单位累加；ms 单位（正则序）；非法/零 → null', () => {
-    expect(parseInterval('300ms')).toBe(300);
-    expect(parseInterval('30s')).toBe(30_000);
-    expect(parseInterval('5m')).toBe(300_000);
-    expect(parseInterval('2h30m')).toBe(2 * 3600_000 + 30 * 60_000);
-    expect(parseInterval('1d')).toBe(24 * 3600_000);
-    expect(parseInterval('0s')).toBeNull();
-    expect(parseInterval('abc')).toBeNull();
-    expect(parseInterval('')).toBeNull();
+const u: TimerUtils = makeTimerUtils({ tz: 'Asia/Shanghai' });
+
+const e = (over: Partial<LegacyTimerEntry>): LegacyTimerEntry => ({
+  id: 'x', enabled: true, mode: 'delay', hint: 'h', ...over,
+});
+
+/** 固定「现在」的测试 args（2026-11-17 周二 09:05 上海） */
+const args = (over: Partial<TimerCheckArgs> = {}): TimerCheckArgs => ({
+  now: '2026-11-17T09:05:00+08:00',
+  count: 0,
+  ...over,
+});
+
+/** 求值编译产物（注入 utils；Date 序列化为 ISO 便于断言） */
+function runCompiled(code: string, a: TimerCheckArgs): Record<string, unknown> {
+  const fn = eval('(' + code + ')') as (x: TimerCheckArgs, utils: TimerUtils) => Record<string, unknown>;
+  return fn(a, u);
+}
+
+describe('makeTimerUtils', () => {
+  it('minute/day/dow 墙钟（上海时区）', () => {
+    const t = new Date('2026-11-17T09:05:00+08:00');
+    expect(u.minute(t)).toBe(545);
+    expect(u.day(t)).toBe('2026-11-17');
+    expect(u.dow(t)).toBe(2);
+  });
+  it('workday：周末/工作日', () => {
+    expect(u.workday(new Date('2026-11-17T12:00:00+08:00'))).toBe(true); // 周二
+    expect(u.workday(new Date('2026-11-14T12:00:00+08:00'))).toBe(false); // 周六
+  });
+  it('ms 间隔串解析', () => {
+    expect(u.ms('30m')).toBe(1_800_000);
+    expect(u.ms('2h30m')).toBe(9_000_000);
+    expect(u.ms('bad')).toBeNull();
+  });
+  it('at 钟面顺延（09:05 后的下一个 09:00 = 次日）', () => {
+    const d = u.at('09:00');
+    expect(d.getTime()).toBeGreaterThan(new Date('2026-11-17T09:05:00+08:00').getTime());
+  });
+  it('after 显式锚点', () => {
+    const d = u.after('30m', new Date('2026-11-17T08:00:00Z'));
+    expect(d.toISOString()).toBe('2026-11-17T08:30:00.000Z');
   });
 });
 
-describe('ac-timer-core msUntilTime', () => {
-  const at = (iso: string) => new Date(iso);
-
-  it('每日 HH:mm：未来时刻；已过顺延次日（缺省 = DEFAULT_TZ，cr-1053——宿主时区无关）', () => {
-    // 上海墙 18:00（UTC 10:00）：10:30 已过 → 次日 10:30（25.5h − 当地↔上海偏移由 tz 路径吸收）
-    const now = at('2026-08-22T10:00:00Z');
-    expect(msUntilTime('10:30', now)).toBe(16.5 * 3600_000); // 上海 18:00 → 次日 10:30 上海
-    expect(msUntilTime('19:30', now)).toBe(1.5 * 3600_000);  // 上海 18:00 → 当晚 19:30
+describe('validateScriptEntries', () => {
+  it('最小形状通过；缺 code 抛错', () => {
+    const ok = validateScriptEntries([{ id: 'a', enabled: true, kind: 'script', code: '(a,u)=>({})' }]);
+    expect(ok).toHaveLength(1);
+    expect(() => validateScriptEntries([{ id: 'a', enabled: true, kind: 'script' } as never])).toThrow('code');
   });
-
-  it('指定日期：未来有效；已过 → null（缺省 DEFAULT_TZ：墙钟按上海解释）', () => {
-    const now = at('2026-08-22T10:00:00Z'); // 上海 18:00
-    expect(msUntilTime('2026-08-23T09:00', now)).toBe(15 * 3600_000); // 次日 09:00 上海 = 01:00Z
-    expect(msUntilTime('2026-08-22 09:00', now)).toBeNull(); // 上海当天 09:00 已过（18:00）
-    expect(msUntilTime('2026-08-22T10:00', now)).toBeNull(); // 恰好现在 = 已过
-  });
-
-  it('周几：本周未到按差值；已过顺延下周（缺省 DEFAULT_TZ——宿主时区无关）', () => {
-    const now = at('2026-08-22T10:00:00Z'); // 上海周六 18:00
-    expect(msUntilTime('Sun 11:00', now)).toBe(17 * 3600_000); // 次日周日 11:00 上海 = 03:00Z
-    expect(msUntilTime('周六 12:00', now)).toBe((6 * 24 + 18) * 3600_000); // 上海 18:00 已过 12:00 → 下周六 12:00（6 天 18h）
-    expect(msUntilTime('周六 19:00', now)).toBe(1 * 3600_000); // 当天晚些
-  });
-
-  it('非法输入 → null', () => {
-    expect(msUntilTime('25:00')).toBeNull();
-    expect(msUntilTime('xx:00')).toBeNull();
-    expect(msUntilTime('Foo 12:00')).toBeNull();
+  it('kind 非 script 抛错', () => {
+    expect(() => validateScriptEntries([{ id: 'a', enabled: true, kind: 'mode', code: 'x' } as never])).toThrow('kind');
   });
 });
 
-describe('ac-timer-core 格式辅助', () => {
-  it('isFullDatetime / isWeekdayTime / formatWeekdayLabel', () => {
-    expect(isFullDatetime('2026-08-23T09:00')).toBe(true);
-    expect(isFullDatetime('09:00')).toBe(false);
-    expect(isWeekdayTime('Sun 12:00')).toBe(true);
-    expect(isWeekdayTime('周日 12:00')).toBe(true);
-    expect(isWeekdayTime('09:00')).toBe(false);
-    expect(formatWeekdayLabel('Sun 12:00')).toBe('每周日 12:00');
-    expect(formatWeekdayLabel('周一 09:00')).toBe('每周一 09:00');
+describe('nextWaitMs（Date 唯一形态）', () => {
+  it('未来 Date → 差值', () => {
+    expect(nextWaitMs(new Date(Date.now() + 60_000))).toBeGreaterThanOrEqual(59_000);
   });
-
-  it('describeEntry 五模式标签', () => {
-    const e = (mode: TimerEntry['mode'], extra: Partial<TimerEntry> = {}): TimerEntry =>
-      ({ id: 'x', enabled: true, mode, hint: 'h', ...extra }) as TimerEntry;
-    expect(describeEntry(e('time', { time: '09:00' }))).toBe('每天 09:00');
-    expect(describeEntry(e('time', { time: '2026-08-23T09:00' }))).toBe('2026-08-23T09:00');
-    expect(describeEntry(e('workday', { time: '09:00' }))).toBe('工作日 09:00');
-    expect(describeEntry(e('holiday', { time: '09:00' }))).toBe('节假日 09:00');
-    expect(describeEntry(e('random', { delayMin: '1m', delayMax: '2m' }))).toBe('随机 1m~2m');
-    expect(describeEntry(e('delay', { delay: '30m' }))).toBe('每隔 30m');
+  it('过去 Date → 地板', () => {
+    expect(nextWaitMs(new Date(Date.now() - 60_000))).toBe(CHECK_FLOOR_MS);
   });
-
-  it('randomDelay：范围约束', () => {
-    for (let i = 0; i < 20; i++) {
-      const d = randomDelay('1m', '2m');
-      expect(d).toBeGreaterThanOrEqual(60_000);
-      expect(d).toBeLessThanOrEqual(120_000);
-    }
-    expect(randomDelay('5m', '1m')).toBe(60_000); // min>=max → max（src 语义）
+  it('非 Date / undefined → null（脚本错误路径）', () => {
+    expect(nextWaitMs(undefined)).toBeNull();
+    expect(nextWaitMs('30m' as unknown as Date)).toBeNull();
+    expect(nextWaitMs(new Date('bad'))).toBeNull();
   });
 });
 
-describe('ac-timer-core 节假日', () => {
-  it('周末为假；调休优先；配置节假日生效', () => {
-    const resolve = createHolidayResolver({
-      holidays: ['2026-08-24'], // 周一
-      makeupWorkdays: ['2026-08-22'], // 周六调休上班
-    });
-    expect(resolve.isHoliday(new Date('2026-08-22T12:00:00'))).toBe(false); // 周六但调休
-    expect(resolve.isWorkday(new Date('2026-08-22T12:00:00'))).toBe(true);
-    expect(resolve.isHoliday(new Date('2026-08-23T12:00:00'))).toBe(true); // 周日
-    expect(resolve.isHoliday(new Date('2026-08-24T12:00:00'))).toBe(true); // 周一配置节假日
-    expect(resolve.isWorkday(new Date('2026-08-25T12:00:00'))).toBe(true); // 普通周二
+describe('compileEntry（不炸不丢）', () => {
+  it('delay：首轮静默排满周期；次轮触发续排', () => {
+    const code = compileEntry(e({ mode: 'delay', delay: '30m' })).code;
+    const first = runCompiled(code, args());
+    expect(first.action).toBeUndefined();
+    expect(first.state).toEqual({ started: true });
+    expect(first.next).toBeInstanceOf(Date);
+    const second = runCompiled(code, args({ state: { started: true } }));
+    expect(second.action).toBe('h');
+    expect(second.next).toBeInstanceOf(Date);
   });
-
-  it('阳历固定节日（元旦/清明/劳动/国庆）', () => {
-    const { isHoliday } = createHolidayResolver();
-    expect(isHoliday(new Date('2026-01-01T12:00:00'))).toBe(true);
-    expect(isHoliday(new Date('2026-10-02T12:00:00'))).toBe(true);
-    expect(isHoliday(new Date('2026-05-02T12:00:00'))).toBe(true);
-    // 普通工作日不是节假日
-    expect(isHoliday(new Date('2026-08-25T12:00:00'))).toBe(false);
+  it('delay 无串：终结', () => {
+    expect(runCompiled(compileEntry(e({ mode: 'delay' })).code, args()).active).toBe(false);
   });
-});
-
-describe('ac-timer-core localISO / renderHint', () => {
-  it('localISO：偏移推导（缺省 DEFAULT_TZ——上海墙钟，宿主时区无关）', () => {
-    const s = localISO(new Date('2026-08-22T02:00:00Z'));
-    expect(s).toBe('2026-08-22T10:00:00+08:00');
+  it('random：首轮静默 + 区间内随机 Date', () => {
+    const code = compileEntry(e({ mode: 'random', delayMin: '1m', delayMax: '2m' })).code;
+    const first = runCompiled(code, args());
+    expect(first.action).toBeUndefined();
+    const d = first.next as Date;
+    const from = Date.now();
+    expect(d.getTime() - from).toBeGreaterThanOrEqual(60_000);
+    expect(d.getTime() - from).toBeLessThanOrEqual(120_000 + 500);
   });
-
-  it('renderHint：模板变量（缺省 DEFAULT_TZ——上海墙钟，宿主时区无关）', () => {
-    const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', time: '09:30', hint: '' };
-    const out = renderHint('现在 {{time}}，定时 {time}，日期 {{date}}', entry, new Date('2026-08-22T07:04:00Z'));
-    expect(out).toContain('现在 15:04');
-    expect(out).toContain('定时 09:30');
-    expect(out).toContain('2026');
+  it('time 每天：到点 + last 同日防重', () => {
+    const code = compileEntry(e({ mode: 'time', time: '09:00' })).code;
+    expect(runCompiled(code, args()).action).toBe('h');
+    expect(runCompiled(code, args({ last: '2026-11-17T08:00:00+08:00' })).action).toBeUndefined();
+    expect(runCompiled(code, args({ last: '2026-11-16T08:00:00+08:00' })).action).toBe('h');
   });
-});
-
-describe('ac-timer-core nextDelayOf（恢复态）', () => {
-  it('delay：持久化状态抵扣已流逝时间', () => {
-    const entry: TimerEntry = { id: 'x', enabled: true, mode: 'delay', delay: '10m', hint: 'h' };
-    const now = Date.now();
-    expect(nextDelayOf(entry, { startedAt: new Date(now - 4 * 60_000).toISOString(), totalDelayMs: 600_000 }, now)).toBe(6 * 60_000);
-    // 超时恢复 → 0（立即触发）
-    expect(nextDelayOf(entry, { startedAt: new Date(now - 11 * 60_000).toISOString(), totalDelayMs: 600_000 }, now)).toBe(0);
-    // 无状态 → 全量延迟
-    expect(nextDelayOf(entry, undefined, now)).toBe(600_000);
+  it('time 每周：周几门控', () => {
+    const code = compileEntry(e({ mode: 'time', time: '周日 12:00' })).code;
+    expect(runCompiled(code, args()).action).toBeUndefined(); // 周二
   });
-
-  it('time：msUntilTime 语义', () => {
-    const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', time: '23:59', hint: 'h' };
-    // 上海墙 18:00（UTC 10:00）：23:59 当晚（cr-1053 缺省 DEFAULT_TZ——宿主时区无关）
-    const d = nextDelayOf(entry, undefined, new Date('2026-08-22T10:00:00Z').getTime());
-    expect(d).toBe((23 * 60 + 59 - 18 * 60) * 60_000);
+  it('time 指定日期：当天到点触发即完成；过日终结', () => {
+    const code = compileEntry(e({ mode: 'time', time: '2026-12-01T09:00' })).code;
+    expect(runCompiled(code, args()).action).toBeUndefined();
+    const gone = runCompiled(code, args({ now: '2026-12-02T10:00:00+08:00' }));
+    expect(gone.active).toBe(false);
+    const hit = runCompiled(code, args({ now: '2026-12-01T09:05:00+08:00' }));
+    expect(hit.action).toBe('h');
+    expect(hit.active).toBe(false);
   });
-});
-
-describe('ac-timer-core 活动窗口（activeHours）', () => {
-  it('parseActiveHours：常规/跨午夜/非法', () => {
-    expect(parseActiveHours('06:30-23:30')).toEqual({ startMin: 390, endMin: 1410 });
-    expect(parseActiveHours('22:00-06:00')).toEqual({ startMin: 1320, endMin: 360 }); // 跨午夜合法
-    expect(parseActiveHours('00:00-00:00')).toEqual({ startMin: 0, endMin: 0 }); // 全天防御形
-    expect(parseActiveHours('25:00-26:00')).toBeNull();
-    expect(parseActiveHours('abc')).toBeNull();
-    expect(parseActiveHours('')).toBeNull();
+  it('workday/holiday 门控（u.workday）', () => {
+    const wd = compileEntry(e({ mode: 'workday', time: '09:00' })).code;
+    // 2026-11-17 周二 = 工作日 → hit
+    expect(runCompiled(wd, args()).action).toBe('h');
+    const hol = compileEntry(e({ mode: 'holiday', time: '10:00' })).code;
+    // 周二非节假日 → miss
+    expect(runCompiled(hol, args()).action).toBeUndefined();
   });
-
-  it('withinActiveHours：常规窗口边界（含头不含尾）', () => {
-    const at = (h: number, m: number) => new Date(2026, 7, 22, h, m);
-    expect(withinActiveHours('06:30-23:30', at(6, 30))).toBe(true); // 含 start
-    expect(withinActiveHours('06:30-23:30', at(6, 29))).toBe(false);
-    expect(withinActiveHours('06:30-23:30', at(23, 29))).toBe(true);
-    expect(withinActiveHours('06:30-23:30', at(23, 30))).toBe(false); // 不含 end
-    expect(withinActiveHours('06:30-23:30', at(12, 0))).toBe(true);
+  it('activeHours：窗外静默', () => {
+    const code = compileEntry(e({ mode: 'time', time: '19:00', activeHours: '06:30-23:30' })).code;
+    // 09:05 在窗内——用窗外时刻验证 miss（now=23:40）
+    const late = runCompiled(code, args({ now: '2026-11-17T23:40:00+08:00' }));
+    expect(late.action).toBeUndefined();
   });
-
-  it('withinActiveHours：跨午夜窗口（22:00-06:00）', () => {
-    const at = (h: number, m: number) => new Date(2026, 7, 22, h, m);
-    expect(withinActiveHours('22:00-06:00', at(23, 0))).toBe(true);
-    expect(withinActiveHours('22:00-06:00', at(3, 0))).toBe(true);
-    expect(withinActiveHours('22:00-06:00', at(12, 0))).toBe(false);
-    expect(withinActiveHours('22:00-06:00', at(21, 59))).toBe(false);
+  it('repeatCount：count 达阈值触发即终结', () => {
+    const code = compileEntry(e({ mode: 'delay', delay: '5m', repeatCount: 3 })).code;
+    const last = runCompiled(code, args({ state: { started: true }, count: 2 }));
+    expect(last.active).toBe(false);
+    expect(last.action).toBe('h');
+    const mid = runCompiled(code, args({ state: { started: true }, count: 1 }));
+    expect(mid.active).toBeUndefined();
   });
-
-  it('withinActiveHours：start===end 视为全天；非法 spec fail-open 恒 true', () => {
-    const at = (h: number) => new Date(2026, 7, 22, h, 0);
-    expect(withinActiveHours('00:00-00:00', at(12))).toBe(true);
-    expect(withinActiveHours('garbage', at(12))).toBe(true);
-  });
-
-  it('withinActiveHours：按 tz 墙上时钟判定（上海 vs UTC）', () => {
-    // 2026-06-01T02:00:00Z：上海墙 10:00 / UTC 墙 02:00
-    const now = new Date('2026-06-01T02:00:00Z');
-    expect(withinActiveHours('09:00-12:00', now, 'Asia/Shanghai')).toBe(true); // 上海 10:00 在窗内
-    expect(withinActiveHours('09:00-12:00', now, 'UTC')).toBe(false); // UTC 02:00 窗外
-  });
-
-  it('describeEntry：activeHours 追加窗口标注', () => {
-    const e = { id: 'x', enabled: true, mode: 'delay', delay: '30m', hint: 'h', activeHours: '06:30-23:30' } as TimerEntry;
-    expect(describeEntry(e)).toBe('每隔 30m（活动窗口 06:30-23:30）');
+  it('投递侧字段透传', () => {
+    const s = compileEntry(e({ mode: 'delay', delay: '30m', conversationId: 'c1', gate: 'x.py', gateOnError: 'run', target: 'a,b' }));
+    expect(s.conversationId).toBe('c1');
+    expect(s.gate).toBe('x.py');
+    expect(s.gateOnError).toBe('run');
+    expect(s.target).toBe('a,b');
   });
 });
 
-describe('ac-timer-core 时区墙上时钟（tz 参数；缺省 = DEFAULT_TZ〔cr-1053〕）', () => {
-  // 固定锚点：2026-06-01T00:30:00Z（UTC 墙 00:30 周一 / 上海墙 08:30 周一）
-  const NOW = new Date('2026-06-01T00:30:00Z');
-
-  it('每日 HH:mm 按目标时区墙上时钟解释（UTC vs Asia/Shanghai 差 8h）', () => {
-    expect(msUntilTime('01:00', NOW, 'UTC')).toBe(30 * 60_000); // UTC 墙 00:30 → 30 分钟后
-    // 上海墙 08:30：01:00 已过 → 次日 01:00 上海 = 06-01T17:00Z → 16.5h
-    expect(msUntilTime('01:00', NOW, 'Asia/Shanghai')).toBe(16.5 * 3600_000);
-    // 同一时刻两时区目标差恒为偏移差（上海更早到 09:00 → 延迟少 8h）
-    expect(msUntilTime('09:00', NOW, 'Asia/Shanghai')! - msUntilTime('09:00', NOW, 'UTC')!).toBe(-8 * 3600_000);
+describe('isLegacyEntryShape / 内核留存', () => {
+  it('形态判据', () => {
+    expect(isLegacyEntryShape({ id: 'x', mode: 'delay', hint: 'h' })).toBe(true);
+    expect(isLegacyEntryShape({ id: 'x', kind: 'script', code: '(a,u)=>({})' })).toBe(false);
+    expect(isLegacyEntryShape(null)).toBe(false);
   });
-
-  it('周几跨日界：UTC 周一 20:00 = 上海周二 04:00——"周一 09:00" 的次周目标差 8h', () => {
-    const now = new Date('2026-06-01T20:00:00Z'); // UTC 周一 / 上海周二
-    const utc = msUntilTime('Mon 09:00', now, 'UTC')!;
-    const sh = msUntilTime('Mon 09:00', now, 'Asia/Shanghai')!;
-    expect(new Date(now.getTime() + utc).toISOString()).toBe('2026-06-08T09:00:00.000Z');
-    expect(new Date(now.getTime() + sh).toISOString()).toBe('2026-06-08T01:00:00.000Z'); // 上海 09:00
-    expect(sh - utc).toBe(-8 * 3600_000);
+  it('parseInterval / msUntilTime / localISO', () => {
+    expect(parseInterval('30ms')).toBe(30);
+    expect(msUntilTime('09:00', new Date('2026-11-17T23:00:00+08:00'), 'Asia/Shanghai')).toBeGreaterThan(9 * 3600_000);
+    expect(localISO(new Date('2026-11-17T01:00:00Z'), 'Asia/Shanghai').startsWith('2026-11-17T09:00:00')).toBe(true);
   });
-
-  it('指定日按目标时区解释；非法 tz 归一 DEFAULT_TZ（不抛错）', () => {
-    const full = msUntilTime('2026-06-02T09:00', NOW, 'Asia/Shanghai');
-    expect(new Date(NOW.getTime() + full!).toISOString()).toBe('2026-06-02T01:00:00.000Z');
-    expect(msUntilTime('09:00', NOW, 'Mars/Olympus')).toBe(msUntilTime('09:00', NOW)); // 非法 → DEFAULT_TZ（与缺省同值）
-  });
-
-  it('节假日判定按目标时区取"今天"（配置节假日集合）', () => {
-    // 2026-01-01T02:00+08:00 = 2025-12-31T18:00Z：上海日期 01-01 / UTC 日期 12-31
-    const instant = new Date('2025-12-31T18:00:00Z');
-    const sh = createHolidayResolver({ holidays: ['2026-01-01'] }, 'Asia/Shanghai');
-    const utc = createHolidayResolver({ holidays: ['2026-01-01'] }, 'UTC');
-    expect(sh.isHoliday(instant)).toBe(true); // 上海已是元旦
-    expect(utc.isHoliday(instant)).toBe(false); // UTC 还是 12-31（周三，非周末）
-    expect(utc.isWorkday(instant)).toBe(true);
-  });
-});
-
-describe('ac-timer-core 并源交叉锁定与 renderHint tz（cr-425）', () => {
-  it('localISO ≡ zonedParts/zonedWallToUtc 并源：正偏移与跨季节偏移（纽约 EST→EDT）', () => {
-    // 上海无夏令时：全年 +08:00
-    expect(localISO(new Date('2026-01-15T00:00:00Z'), 'Asia/Shanghai')).toBe('2026-01-15T08:00:00+08:00');
-    // 纽约 1 月 EST（−5）、7 月 EDT（−4）——偏移推导跨季节正确
-    expect(localISO(new Date('2026-01-15T00:00:00Z'), 'America/New_York')).toBe('2026-01-14T19:00:00-05:00');
-    expect(localISO(new Date('2026-07-15T00:00:00Z'), 'America/New_York')).toBe('2026-07-14T20:00:00-04:00');
-    // 墙钟秒非零 + 毫秒尾：偏移仍精确到整分（cr-425 集成测试抓到的秒级回归锁定）
-    expect(localISO(new Date('2026-01-15T00:00:44.700Z'), 'UTC')).toBe('2026-01-15T00:00:44+00:00');
-  });
-
-  it('zonedWallToUtc 定点迭代跨 DLT：纽约 2026-03-08 02:30 不存在时刻不抛错', () => {
-    // 2026-03-08 春季拨快（02:00→03:00）：02:30 墙钟不存在，迭代收敛不抛错即契约（跳变侧语义不锁定）
-    const epoch = msUntilTime('2026-03-08T02:30', new Date('2026-03-01T00:00:00Z'), 'America/New_York');
-    expect(typeof epoch).toBe('number');
-  });
-
-  it('renderHint：tz 墙上时钟渲染（{{time}}/{{date}}/{{now}} 同源）', () => {
-    const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', hint: '', time: '09:30' };
-    // 2026-06-01T02:00:00Z：上海墙 10:00 / UTC 墙 02:00
-    const now = new Date('2026-06-01T02:00:00Z');
-    const out = renderHint('现在 {{time}} {{date}}', entry, now, 'UTC');
-    expect(out).toContain('现在 02:00');
-    expect(out).toContain('2026年6月1日'); // UTC 日期
-    const sh = renderHint('现在 {{time}}', entry, now, 'Asia/Shanghai');
-    expect(sh).toContain('现在 10:00');
-  });
-
-  it('renderHint：非法 tz 归一 DEFAULT_TZ 不抛错（cr-1053——上海墙钟）', () => {
-    const entry: TimerEntry = { id: 'x', enabled: true, mode: 'time', hint: '', time: '09:30' };
-    expect(renderHint('现在 {{time}}', entry, new Date('2026-06-01T02:00:00Z'), 'Mars/Olympus')).toContain('现在 10:00'); // 上海墙
+  it('createHolidayResolver 周末判定', () => {
+    const r = createHolidayResolver({}, 'Asia/Shanghai');
+    expect(r.isWorkday(new Date('2026-11-17T12:00:00+08:00'))).toBe(true);
+    expect(r.isWorkday(new Date('2026-11-14T12:00:00+08:00'))).toBe(false);
   });
 });

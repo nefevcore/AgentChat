@@ -1,119 +1,309 @@
 // ============================================================
 // ac-timer-core —— 定时算法纯库（零 cordis 依赖）
 //
-// src svc/timer/timer.ts 的算法半边原样平移（调度状态机在 ac-timer 行，
-// 官方 cordis-timer 的 ctx.timeout/interval 承担排程回收）：
-//   · parseInterval   —— 间隔串（0s/5m/1h/2h30m）→ 毫秒
-//   · msUntilTime     —— 每日 HH:mm / 指定日期 / 周几 → 目标毫秒
-//   · 节假日判定      —— 农历（chinese-lunar）+ 阳历固定 + 周末 +
-//                        调休配置覆盖（makeup 优先于 holiday）
-//   · localISO        —— 指定时区的 ISO 串（缺省 DEFAULT_TZ——cr-1053）
-//   · renderHint      —— {{now}}/{{time}}/{{date}}/{time} 模板
-//   · describeEntry   —— 条目的人类可读标签
+// cr-1147 脚本化重做（探测循环定位）：定时器 = 探测循环 + 判定函数。
+// next 不是业务触发时刻，是下次探测时刻；触发与否由脚本当轮判定。
+// 面向 Agent 自管理（人类经 Agent 间接设置）——无模式、无排定锚点。
+// 本库承载：
+//   · 脚本契约 —— TimerCheckArgs / TimerCheckVerdict / TimerScriptEntry
+//     + validateScriptEntries + nextWaitMs（Date 唯一形态）
+//   · makeTimerUtils —— utils 纯函数包（per-owner 构造、方法纯）
+//   · compileEntry —— 旧 5 模式条目编译器（存量迁移单源，等价性降级
+//     为「不炸、不丢」——Agent 后续自会重写成原生形态）
+//   · 算法半边留存 —— parseInterval / msUntilTime（utils.at/after 内核）、
+//     createHolidayResolver（utils.workday 消费）、localISO（args.now）
 // ============================================================
 import * as lunar from 'chinese-lunar';
 import { DEFAULT_TZ, resolveTimezone } from 'ac-core-utils'; // 缺省时区单源（cr-1053）
 
+// ============================================================
+// utils 纯函数包（cr-1147 v2：判定逻辑所需时间词汇——方法对传入时刻
+// 求值，同参恒值可单测；墙钟类操作禁入脚本〔进程时区陷阱〕，经 utils
+// 走 owner 时区）
+// ============================================================
+
+export interface TimerUtils {
+  /** 时刻墙上分钟（0-1439；按 owner 时区） */
+  minute(date: Date): number;
+  /** 时刻墙上日期（'YYYY-MM-DD'；按 owner 时区） */
+  day(date: Date): string;
+  /** 时刻墙上周几（0=周日；按 owner 时区） */
+  dow(date: Date): number;
+  /** 时刻是否工作日（农历+配置判定；按 owner 时区） */
+  workday(date: Date): boolean;
+  /** 间隔串（'30m'/'2h30m'/'7d'）→ 毫秒 */
+  ms(interval: string): number | null;
+  /** 下一个钟面时刻（'09:00' 每日顺延 / '周日 12:00' 每周 / ISO 指定）→ Date */
+  at(spec: string): Date;
+  /** from（缺省 now）后推 interval → Date（探测节奏常用） */
+  after(interval: string, from?: Date): Date;
+}
+
+/** 周几独立求值（en-US short weekday） */
+function zonedDow(date: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).formatToParts(date);
+  const v = parts.find((x) => x.type === 'weekday')?.value ?? 'Sun';
+  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+  return map[v] ?? 0;
+}
+
 /**
- * 定时条目形状校验（timer/save 入站；非法抛错——防脏配置落盘）。
- * cr-886 自 ac-host-rows/timers-row 下沉（宿主能力面消费成环解法——词法
- * 本属 timer 域纯函数；timers-row re-export 不留，消费方直连）。
+ * 构造 utils 包（per-owner：闭包捕获 tz + 节假日配置——配置不随检测变，
+ * 构造一次复用）。方法纯：对传入时刻求值，同参恒值。
  */
-export function validateTimerEntries(raw: unknown): TimerEntry[] {
-  if (!Array.isArray(raw)) throw new Error('参数 entries 须为 TimerEntry 数组');
+export function makeTimerUtils(options: { tz?: string; holidays?: string[]; makeupWorkdays?: string[] } = {}): TimerUtils {
+  const tz = resolveTimezone(options.tz);
+  const holidays = createHolidayResolver({ holidays: options.holidays, makeupWorkdays: options.makeupWorkdays }, tz);
+  return {
+    minute: (d) => { const w = zonedParts(d, tz); return w.h * 60 + w.mi; },
+    day: (d) => localISO(d, tz).slice(0, 10),
+    dow: (d) => zonedDow(d, tz),
+    workday: (d) => holidays.isWorkday(d),
+    ms: (iv) => parseInterval(iv),
+    at: (spec) => new Date(Date.now() + (msUntilTime(spec, new Date(), tz) ?? 0)),
+    after: (iv, from) => new Date((from ?? new Date()).getTime() + (parseInterval(iv) ?? 0)),
+  };
+}
+
+export function validateScriptEntries(raw: unknown): TimerScriptEntry[] {
+  if (!Array.isArray(raw)) throw new Error('参数 entries 须为 TimerScriptEntry 数组');
   return raw.map((item, i) => {
     if (item === null || typeof item !== 'object') throw new Error('entries[' + i + '] 非对象');
     const e = item as Record<string, unknown>;
-    if (typeof e.id !== 'string' || e.id === '') throw new Error('entries[' + i + '].id 缺失');
-    if (e.mode !== 'time' && e.mode !== 'delay' && e.mode !== 'random' && e.mode !== 'workday' && e.mode !== 'holiday') {
-      throw new Error('entries[' + i + '].mode 非法（' + String(e.mode) + '）');
-    }
-    if (typeof e.hint !== 'string') throw new Error('entries[' + i + '].hint 须为字符串');
-    if (e.enabled !== undefined && typeof e.enabled !== 'boolean') throw new Error('entries[' + i + '].enabled 须为 boolean');
+    const at = (k: string): string => 'entries[' + i + '].' + k;
+    if (typeof e.id !== 'string' || e.id === '') throw new Error(at('id') + ' 缺失');
+    if (e.kind !== undefined && e.kind !== 'script') throw new Error(at('kind') + ' 非法（' + String(e.kind) + '）');
+    if (typeof e.code !== 'string' || e.code.trim() === '') throw new Error(at('code') + ' 缺失（判定脚本源码）');
+    if (e.enabled !== undefined && typeof e.enabled !== 'boolean') throw new Error(at('enabled') + ' 须为 boolean');
     if (e.conversationId !== undefined && (typeof e.conversationId !== 'string' || !e.conversationId)) {
-      throw new Error('entries[' + i + '].conversationId 须为非空字符串');
+      throw new Error(at('conversationId') + ' 须为非空字符串');
     }
-    return e as unknown as TimerEntry;
+    if (e.target !== undefined && typeof e.target !== 'string') throw new Error(at('target') + ' 须为字符串');
+    if (e.task !== undefined && e.task !== 'archive-all' && e.task !== 'backup-all') throw new Error(at('task') + ' 非法');
+    if (e.gate !== undefined && typeof e.gate !== 'string') throw new Error(at('gate') + ' 须为字符串');
+    if (e.gateOnError !== undefined && e.gateOnError !== 'skip' && e.gateOnError !== 'run') throw new Error(at('gateOnError') + ' 非法');
+    if (e.label !== undefined && typeof e.label !== 'string') throw new Error(at('label') + ' 须为字符串');
+    return e as unknown as TimerScriptEntry;
   });
 }
 
-/** 定时任务条目（5 模式；持久化形态归 ac-agent-store entry 'timer'） */
-export interface TimerEntry {
+/**
+ * 旧 5 模式条目（cr-1147 前持久形态；现为 compileEntry 输入 + 迁移判据）。
+ * 磁盘上仍可能是此形状——宿主 boot 时经 compileEntry 一次性编译为脚本条目。
+ */
+export interface LegacyTimerEntry {
   id: string;
   enabled: boolean;
   mode: 'time' | 'delay' | 'random' | 'workday' | 'holiday';
-  /** mode=time/workday/holiday：HH:mm（每天）/ YYYY-MM-DDTHH:mm（指定）/ 周日 12:00 */
   time?: string;
-  /** mode=delay：间隔串（如 30m） */
   delay?: string;
-  /** mode=random：下界（缺省 30s） */
   delayMin?: string;
-  /** mode=random：上界（缺省 5m） */
   delayMax?: string;
-  /** 限定次数（>0；缺省/0 = 永久） */
   repeatCount?: number;
-  /** 触发提示词（agent run 的入站内容；模板变量见 renderHint） */
   hint: string;
-  /**
-   * 机制任务（规约 3：机制任务不过 LLM）：'archive-all' / 'backup-all'——
-   * 直调对应服务方法，替代 src 的 __archive_all__ 字符串协议。
-   */
   task?: 'archive-all' | 'backup-all';
-  /**
-   * 目标清单（仅全局条目有意义）：逗号分隔 agent id 或 '*'（全部非
-   * virtual Agent）；per-Agent 条目缺省 = 所属 agent。
-   */
   target?: string;
-  /**
-   * 触发回投会话键（2026-09-26 会话维度定时）：定时唤醒发往本会话桶而非
-   * Agent 自会话对角线——独立会话（sid）/ 对桶（pairKey）/ 群 id 皆可。
-   * timer 工具 set 时从执行身份（call.conversationId）自动烘焙：用户在
-   * 哪个会话设的提醒就回哪个会话（提醒留在用户视线内，不自造无人消费
-   * 的桶）。缺省 = M19/D2 原语义（owner 自会话对角线）。目标会话消亡
-   * （独立会话归档/移除）→ 跳过本轮不计数，重排下一周期。
-   */
   conversationId?: string;
-  /**
-   * 活动窗口（如 "06:30-23:30"；跨午夜形如 "22:00-06:00" 合法）：
-   * 到点触发时墙上时钟不在窗口内 → 不投递不计数，重排下一周期——
-   * 调度层静默（区别于"业务脚本内部判静默"：LLM 不被唤醒，零 token）。
-   * 缺省 = 全天。按 owner 生效时区解释（ac-timer tzOf）。
-   */
   activeHours?: string;
-  /**
-   * 预检门命令（如 "python files/news/scripts/quiet_check.py"）：
-   * 到点先执行，用于"平台级 quiet 判定前置"——让静默判定发生在唤醒
-   * LLM 之前，而不是花 30 万 token 上下文换取一句"静默"。
-   *
-   * 退出码三值语义（ISSUE-22 补丁三）：
-   *   · 0 = 放行，正常投递；
-   *   · 1 = **约定「预期静默」**（如夜间窗口脚本），跳过本轮、不投递不计数、
-   *     记 lastSkipReason='gate'——与「gate 自己崩了」必须可区分；
-   *   · 其它非零 = gate 自身故障，打宿主 warn 并记 lastSkipReason='gate-error'，
-   *     随后按 gateOnError 决定放行还是跳过。
-   * 超时 / 启动层失败（命令不存在等拿不到退出码）恒 fail-open 放行。
-   * 缺省 = 无预检。命令在宿主 shell 执行（cwd = 数据根）。
-   */
+  /** 预检门命令（存量兼容件：新条目不再宣传——判定逻辑归脚本） */
   gate?: string;
+  gateOnError?: 'skip' | 'run';
+}
+
+export function isLegacyEntryShape(e: unknown): e is LegacyTimerEntry {
+  if (typeof e !== 'object' || e === null) return false;
+  const r = e as Record<string, unknown>;
+  return r.kind === undefined && typeof r.mode === 'string';
+}
+
+/**
+ * 检测入参（宿主记账快照——纯数据，四字段零派生量）。
+ */
+export interface TimerCheckArgs {
+  /** 本轮检测时刻（owner 时区 ISO——localISO 产出；Date 可直接构造） */
+  now: string;
+  /** 上次投递时刻（owner 时区 ISO；从未触发 = 缺席）——防重/补偿判据 */
+  last?: string;
+  /** 历史投递次数（宿主权威——gate 跳过轮不计数；「跑满 N 次收工」用） */
+  count: number;
+  /** 脚本私有持久状态（上次 verdict 带回；结构由脚本自定义） */
+  state?: unknown;
+}
+
+/**
+ * 检测脚本 verdict：正交四轴——触发（action）/ 排程（next）/ 记忆（state）/
+ * 生死（active）。探测循环定位：next = 下次探测时刻，非业务触发时刻。
+ */
+export interface TimerCheckVerdict {
+  /** 本轮投递的唤醒文本（undefined = 静默检测轮）。有值即投唤醒信。 */
+  action?: string;
   /**
-   * gate 自身故障（退出码既非 0 也非 1）时的兜底方向：
-   *   · 'skip'（缺省，fail-closed）——判断不了就别投递：**策略型** gate
-   *     （workday / activeHours / 客户窗口）应选此，宁可静默也不打扰人；
-   *   · 'run'（fail-open）——照常投递：**优化型** gate（只为省 token 的
-   *     quiet 预检，正确性已由脚本自身兜住）应选此，否则 gate 一崩条目
-   *     就永久静默（ISSUE-22：静默比跑一次贵得多）。
-   * 两种方向都会打 warn + 记 lastGateErrorAt，故 fail-open 也不静默。
+   * 下次探测时刻（Date 唯一形态）。用 utils.at()/after() 构造（宿主 tz
+   * 解析）或 epoch 算术；过去值钳到 CHECK_FLOOR_MS 地板。
    */
+  next?: Date;
+  /** 脚本私有持久状态（宿主原样存取——跨检测记忆，gate 跳过轮也保存） */
+  state?: unknown;
+  /** false = 任务完成：不排下次、条目摘除归档。缺省 true。与 action 正交。 */
+  active?: boolean;
+}
+
+/** 检测脚本签名（双参：args 快照 + utils 纯函数包） */
+export type TimerCheckFn = (args: TimerCheckArgs, utils: TimerUtils) => TimerCheckVerdict | Promise<TimerCheckVerdict>;
+
+/** 探测间隔地板（防忙循环——探测循环定位下唯一的节奏防线） */
+export const CHECK_FLOOR_MS = 10_000;
+/** verdict 无 next 时的缺省探测间隔（1h） */
+export const DEFAULT_RECHECK_MS = 3_600_000;
+
+/**
+ * verdict.next（Date）→ 距 now 的等待毫秒（宿主排程唯一入口）。
+ * 非 Date/NaN 按 null（调用方按脚本错误处置）；过去值 → 地板（脚本 bug
+ * 防线，不静默吞——nextWaitMs 返回地板而非 0，配合 scheduleCheck 双保险）。
+ */
+export function nextWaitMs(next: Date | undefined, now = new Date()): number | null {
+  if (!(next instanceof Date) || isNaN(next.getTime())) return null;
+  const wait = next.getTime() - now.getTime();
+  if (wait <= 0) return CHECK_FLOOR_MS;
+  return wait;
+}
+
+/**
+ * 脚本条目（cr-1147 起唯一持久形态；entries/timer.json）。
+ * 检测 = code（判定脚本）；投递 = conversationId/target/task/gate（宿主安全面）。
+ */
+export interface TimerScriptEntry {
+  id: string;
+  enabled: boolean;
+  kind: 'script';
+  /** 判定脚本源码（可擦除 TS 双参谓词——TimerCheckFn 形状，须自包含） */
+  code: string;
+  /** 人读标签 */
+  label?: string;
+  conversationId?: string;
+  task?: 'archive-all' | 'backup-all';
+  target?: string;
+  gate?: string;
   gateOnError?: 'skip' | 'run';
 }
 
 // ============================================================
-// 间隔与目标时间
+// compileEntry（存量迁移编译器——语义等价降级为「不炸、不丢」）
+// ============================================================
+
+
+/**
+ * 旧 5 模式条目 → 脚本条目编译器（迁移单源；boot 与手工迁移共用）。
+ * v2 语义等价降级为「不炸、不丢」：产物为 (a,u) 双参谓词，判定逻辑
+ * 机械直译旧模式意图，锚点精确性不再追求（探测循环定位——Agent 后续
+ * 自会重写为原生形态）。
+ *   · time 每天/周几 → u.minute(a.now) 到点判定 + u.day(a.last) 防重 + next=u.at(time)
+ *   · time 指定日期 → 过日终结；到点触发即完成
+ *   · delay → 首轮静默排满周期（state.started）；次轮起 action + next=u.after(delay)
+ *   · random → 每轮现抽 [rmin,rmax]
+ *   · workday/holiday → u.workday(new Date(a.now)) 门控
+ *   · activeHours → u.minute 窗口判定（跨午夜或形）
+ *   · repeatCount → a.count+1 >= N 时 action + active:false
+ * hint → 静态 action 文本。
+ */
+export function compileEntry(legacy: LegacyTimerEntry): TimerScriptEntry {
+  const mode = legacy.mode;
+  const isCal = mode === 'time' || mode === 'workday' || mode === 'holiday';
+  const time = isCal ? (legacy.time ?? '') : '';
+  const daily = time.match(/^(\d{1,2}):(\d{2})$/);
+  const weekly = time.match(/^(周日|周一|周二|周三|周四|周五|周六)\s+(\d{1,2}):(\d{2})$/);
+  const full = time.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})$/);
+  const repeat = typeof legacy.repeatCount === 'number' && legacy.repeatCount > 0 ? legacy.repeatCount : 0;
+  const text = JSON.stringify(legacy.hint);
+  const dow: Record<string, number> = { 周日: 0, 周一: 1, 周二: 2, 周三: 3, 周四: 4, 周五: 5, 周六: 6 };
+  const win = (legacy.activeHours ?? '').match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
+  const winS = win ? parseInt(win[1], 10) * 60 + parseInt(win[2], 10) : 0;
+  const winE = win ? parseInt(win[3], 10) * 60 + parseInt(win[4], 10) : 0;
+  const inWin = win
+    ? winS < winE
+      ? 'u.minute(now) >= ' + winS + ' && u.minute(now) < ' + winE
+      : '(u.minute(now) >= ' + winS + ' || u.minute(now) < ' + winE + ')'
+    : '';
+  const workdayGate = mode === 'workday' ? ' && u.workday(now)' : mode === 'holiday' ? ' && !u.workday(now)' : '';
+  const repeatArm = repeat > 0
+    ? '  if (a.count + 1 >= ' + repeat + ') return { action: text, active: false };\n'
+    : '';
+  const head = '  const text = ' + text + ';\n  const now = new Date(a.now);\n';
+  const guard = inWin ? '  if (!(' + inWin + ')) return { next: u.after(\'1h\') };\n' : '';
+  let body = '';
+  if (!isCal && mode === 'delay' && !legacy.delay) {
+    body = head + '  return { active: false };';
+  } else if (!isCal) {
+    const nextLit = mode === 'delay' ? 'u.after(' + JSON.stringify(legacy.delay ?? '30m') + ')' : 'd';
+    const draw = mode === 'random'
+      ? (() => {
+          const min = legacy.delayMin ? (parseInterval(legacy.delayMin) ?? 30_000) : 30_000;
+          const max = legacy.delayMax ? (parseInterval(legacy.delayMax) ?? 300_000) : 300_000;
+          const lo = Math.min(min, max), hi = Math.max(min, max);
+          return '  const d = new Date(Date.now() + ' + lo + ' + Math.floor(Math.random() * ' + (hi - lo + 1) + '));\n';
+        })()
+      : '';
+    body = head
+      + draw
+      + guard
+      + '  if (!(a.state && a.state.started)) return { next: ' + nextLit + ', state: { started: true } };\n'
+      + repeatArm
+      + '  return { action: text, next: ' + nextLit + ' };';
+  } else if (full !== null) {
+    const day = full[1];
+    const targetMin = parseInt(full[2], 10) * 60 + parseInt(full[3], 10);
+    body = head
+      + '  if (u.day(now) > ' + JSON.stringify(day) + ') return { active: false };\n'
+      + '  const hit = u.day(now) === ' + JSON.stringify(day) + ' && u.minute(now) >= ' + targetMin + workdayGate + ' && !a.last;\n'
+      + '  return hit ? { action: text, active: false } : { next: u.at(' + JSON.stringify(day + 'T' + full[2] + ':' + full[3]) + ') };';
+  } else {
+    const specLit = JSON.stringify(time);
+    let hitCond = '';
+    if (weekly !== null) {
+      const wd = dow[weekly[1]] ?? 0;
+      const targetMin = parseInt(weekly[2], 10) * 60 + parseInt(weekly[3], 10);
+      hitCond = 'u.dow(now) === ' + wd + ' && u.minute(now) >= ' + targetMin;
+    } else {
+      const m = daily !== null ? daily : ['0', '0', '0'] as unknown as RegExpMatchArray;
+      const targetMin = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
+      hitCond = 'u.minute(now) >= ' + targetMin;
+    }
+    const lastGuard = ' && (!a.last || u.day(new Date(a.last)) !== u.day(now))';
+    const repeatHit = repeat > 0
+      ? '  if (hit && a.count + 1 >= ' + repeat + ') return { action: text, active: false };\n'
+      : '';
+    body = head
+      + guard
+      + '  const hit = ' + hitCond + lastGuard + workdayGate + ';\n'
+      + repeatHit
+      + '  return hit ? { action: text, next: u.at(' + specLit + ') } : { next: u.at(' + specLit + ') };';
+  }
+  return {
+    id: legacy.id,
+    enabled: legacy.enabled,
+    kind: 'script',
+    code: '(a, u) => {\n' + body + '\n}',
+    label: describeLegacy(legacy),
+    ...(legacy.conversationId !== undefined ? { conversationId: legacy.conversationId } : {}),
+    ...(legacy.task !== undefined ? { task: legacy.task } : {}),
+    ...(legacy.target !== undefined ? { target: legacy.target } : {}),
+    ...(legacy.gate !== undefined ? { gate: legacy.gate } : {}),
+    ...(legacy.gateOnError !== undefined ? { gateOnError: legacy.gateOnError } : {}),
+  };
+}
+
+/** 旧条目人读标签（迁移 label 固化） */
+function describeLegacy(legacy: LegacyTimerEntry): string {
+  const sched = legacy.time ?? legacy.delay ?? (legacy.delayMin && legacy.delayMax ? legacy.delayMin + '~' + legacy.delayMax : '');
+  return '定时 ' + legacy.mode + (sched ? ' ' + sched : '');
+}
+
+// ============================================================
+// 间隔与目标时间（utils.at/after 解析内核）
 // ============================================================
 
 /**
  * 解析间隔字符串为毫秒数（300ms/0s/5m/1h/2h30m；非法/零 → null）。
- * 单位集合为 src 超集：补 ms（毫秒）供测试与细粒度场景；
  * 正则交替序 ms 先于 m（否则 '30ms' 被吞成 30 分钟）。
  */
 export function parseInterval(input: string): number | null {
@@ -137,16 +327,10 @@ export function parseInterval(input: string): number | null {
 
 /**
  * 计算到目标时间的毫秒数（已过 → null，除每日 HH:mm 顺延次日）。
- * 支持：HH:mm（每天）、YYYY-MM-DDTHH:mm / YYYY-MM-DD HH:mm（指定）、
- * Sun 12:00 / 周日 12:00（每周）。
- * @param tz 目标时刻所在 IANA 时区（缺省 = DEFAULT_TZ〔cr-1053 单源〕；
- *   "HH:mm"按该时区的墙上时钟解释，跨夏令时由目标时刻处的偏移收敛；
- *   空/非法经 resolveTimezone 归一——原「进程本地缺省」移除，部署环境
- *   不再影响定时语义）
+ * tz = owner 生效时区（cr-1053 单源）。
  */
 export function msUntilTime(timeStr: string, now = new Date(), tz?: string): number | null {
   const p = zonedParts(now, resolveTimezone(tz));
-  // 伪本地时刻：本地字段 = tz 墙上时钟 → 复用既有墙上时钟算术
   const pseudo = new Date(p.y, p.m - 1, p.d, p.h, p.mi, p.s);
   const localMs = msUntilLocal(timeStr, pseudo);
   if (localMs === null) return null;
@@ -158,14 +342,13 @@ export function msUntilTime(timeStr: string, now = new Date(), tz?: string): num
   return epoch - now.getTime();
 }
 
-/** msUntilTime 的墙上时钟算术内核（tz 路径经伪本地时刻复用——本地 Date
- *  字段当墙钟字段用，仅内部消费，不再承担「进程本地缺省」角色） */
+/** msUntilTime 的墙上时钟算术内核（仅内部消费） */
 function msUntilLocal(timeStr: string, now: Date): number | null {
   const s = timeStr.trim();
 
-  const fullMatch = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}:\d{2})$/);
+  const fullMatch = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})$/);
   if (fullMatch) {
-    const target = new Date(`${fullMatch[1]}T${fullMatch[2]}`);
+    const target = new Date(fullMatch[1] + 'T' + fullMatch[2] + ':' + fullMatch[3]);
     if (isNaN(target.getTime())) return null;
     const ms = target.getTime() - now.getTime();
     return ms > 0 ? ms : null;
@@ -200,65 +383,10 @@ function msUntilLocal(timeStr: string, now: Date): number | null {
   return target.getTime() - now.getTime();
 }
 
-/** 是否完整日期时间（非每日 HH:mm / 周几格式） */
-export function isFullDatetime(timeStr: string): boolean {
-  return /^\d{4}-\d{2}-\d{2}/.test(timeStr.trim());
-}
-
-const WEEKDAY_CN: Partial<Record<string, string>> = {
-  sun: '周日', mon: '周一', tue: '周二', wed: '周三', thu: '周四', fri: '周五', sat: '周六',
-};
-
-/** 是否周几格式（Sun 12:00 / 周一 09:00） */
-export function isWeekdayTime(timeStr: string): boolean {
-  return /^[A-Za-z\u4e00-\u9fff]+\s+\d{1,2}:\d{2}$/.test(timeStr.trim());
-}
-
 // ============================================================
-// 活动窗口（activeHours）
+// 时区墙上时钟（utils.minute/day 与 args.now 的内核）
 // ============================================================
 
-/** 活动窗口解析结果（start/end 为当日分钟数，end ≤ start = 跨午夜） */
-interface ActiveWindow {
-  startMin: number;
-  endMin: number;
-}
-
-/** 解析 activeHours（"HH:mm-HH:mm"；跨午夜 start > end 合法） */
-export function parseActiveHours(spec: string): ActiveWindow | null {
-  const m = spec.trim().match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
-  if (!m) return null;
-  const sh = parseInt(m[1], 10), sm = parseInt(m[2], 10);
-  const eh = parseInt(m[3], 10), em = parseInt(m[4], 10);
-  if (sh > 23 || sm > 59 || eh > 23 || em > 59) return null;
-  return { startMin: sh * 60 + sm, endMin: eh * 60 + em };
-}
-
-/**
- * 墙上时钟是否在活动窗口内（tz 缺省 = DEFAULT_TZ〔cr-1053 单源，resolveTimezone
- * 归一〕——timers-row 调用点恒显式传 owner 时区）。
- * 跨午夜窗口（如 22:00-06:00）：now ≥ start 或 now < end 即在窗内；
- * start === end 视为全天（防御书写 "00:00-00:00" 的本意）。
- */
-export function withinActiveHours(
-  spec: string,
-  now = new Date(),
-  tz?: string,
-): boolean {
-  const win = parseActiveHours(spec);
-  if (win === null) return true; // 非法窗口不挡触发（fail-open，排程日志另有告警）
-  const p = zonedParts(now, resolveTimezone(tz));
-  const nowMin = p.h * 60 + p.mi;
-  if (win.startMin === win.endMin) return true;
-  if (win.startMin < win.endMin) return nowMin >= win.startMin && nowMin < win.endMin;
-  return nowMin >= win.startMin || nowMin < win.endMin;
-}
-
-// ============================================================
-// 时区墙上时钟（tz 参数路径；缺省路径不经过——历史行为零变化）
-// ============================================================
-
-/** 时刻在某时区的墙上时钟字段（Intl formatToParts；非法 tz 抛错） */
 interface ZonedParts {
   y: number;
   m: number;
@@ -282,78 +410,37 @@ function zonedParts(date: Date, tz: string): ZonedParts {
   };
 }
 
-/** 时区墙上时钟 → 纪元毫秒（定点迭代：guess = 基准 − 当前偏移；DST 边界外一步收敛） */
+/** 时区墙上时钟 → 纪元毫秒（定点迭代：DST 边界外一步收敛） */
 function zonedWallToUtc(y: number, m: number, d: number, h: number, mi: number, tz: string): number {
   const base = Date.UTC(y, m - 1, d, h, mi, 0, 0);
   let guess = base;
   let prev = NaN;
   for (let i = 0; i < 3; i++) {
-    if (guess === prev) break; // 已收敛（偏移稳定）
+    if (guess === prev) break;
     prev = guess;
     const p = zonedParts(new Date(guess), tz);
     const asUtc = Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s, 0);
-    // off = guess − asUtc = −offset（东八区 off=−8h）→ E = 基准 − offset = base + off
     guess = base + (guess - asUtc);
   }
   return guess;
 }
 
-/** 周几时间 → 中文标签（Sun 12:00 → 每周日 12:00） */
-export function formatWeekdayLabel(timeStr: string): string {
-  const m = timeStr.trim().match(/^([A-Za-z\u4e00-\u9fff]+)\s+(\d{1,2}:\d{2})$/);
-  if (!m) return timeStr;
-  const wd = WEEKDAY_CN[m[1]] ?? WEEKDAY_CN[m[1].toLowerCase()] ?? m[1];
-  return `每${wd} ${m[2]}`;
-}
-
-/** 随机延迟（[min, max]；非法回退 30s~5m） */
-export function randomDelay(minStr?: string, maxStr?: string): number {
-  const min = parseInterval(minStr || '30s') ?? 30_000;
-  const max = parseInterval(maxStr || '5m') ?? 300_000;
-  if (min >= max) return max;
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-/** 条目的人类可读标签 */
-export function describeEntry(entry: TimerEntry): string {
-  const base = (() => {
-    switch (entry.mode) {
-      case 'time': {
-        const t = entry.time ?? '';
-        return isFullDatetime(t) ? t : isWeekdayTime(t) ? formatWeekdayLabel(t) : `每天 ${t}`;
-      }
-      case 'workday':
-        return `工作日 ${entry.time ?? ''}`;
-      case 'holiday':
-        return `节假日 ${entry.time ?? ''}`;
-      case 'random':
-        return `随机 ${entry.delayMin || '30s'}~${entry.delayMax || '5m'}`;
-      default:
-        return `每隔 ${entry.delay}`;
-    }
-  })();
-  if (entry.activeHours) return `${base}（活动窗口 ${entry.activeHours}）`;
-  return base;
-}
-
 // ============================================================
-// 节假日判定（农历 + 阳历固定 + 周末 + 配置覆盖）
+// 节假日判定（utils.workday 消费）
 // ============================================================
 
 export interface HolidayOptions {
-  /** 额外法定节假日（YYYY-MM-DD） */
   holidays?: string[];
-  /** 调休工作日（YYYY-MM-DD；优先于节假日判定） */
   makeupWorkdays?: string[];
 }
 
 function formatDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 }
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
-/** 农历节日窗口（src 现状原样：正月 1~7 春节 + 正月 28~30 窗口、五月 3~5 端午、八月 14~16 中秋） */
+/** 农历节日窗口（src 现状原样） */
 function isLunarHoliday(date: Date): boolean {
   try {
     const l = lunar.solarToLunar(date);
@@ -379,9 +466,7 @@ function isSolarHoliday(date: Date): boolean {
 
 /**
  * 创建节假日判定器（调休优先 → 配置节假日 → 农历 → 阳历 → 周末）。
- * @param tz 判定所用时区（缺省 = DEFAULT_TZ〔cr-1053 单源，resolveTimezone
- *   归一〕；"今天/周几"按该时区墙上时钟取——per-Agent 时区的 workday/
- *   holiday 门控）
+ * tz = owner 生效时区（cr-1053 单源）。
  */
 export function createHolidayResolver(options: HolidayOptions = {}, tz?: string) {
   const holidays = new Set(options.holidays ?? []);
@@ -394,7 +479,7 @@ export function createHolidayResolver(options: HolidayOptions = {}, tz?: string)
   const isHoliday = (date = new Date()): boolean => {
     const d = toLocal(date);
     const today = formatDate(d);
-    if (makeups.has(today)) return false; // 调休工作日优先
+    if (makeups.has(today)) return false;
     if (holidays.has(today)) return true;
     if (isLunarHoliday(d)) return true;
     if (isSolarHoliday(d)) return true;
@@ -404,69 +489,15 @@ export function createHolidayResolver(options: HolidayOptions = {}, tz?: string)
   return { isHoliday, isWorkday: (date = new Date()) => !isHoliday(date) };
 }
 
-// ============================================================
-// 时区与模板
-// ============================================================
-
-/** 指定时区的 ISO 时间串（zonedParts 墙钟 + 偏移直减推导；缺省/非法归一
- *  DEFAULT_TZ——cr-1053：原「降级 UTC+8」分支即 DEFAULT_TZ 直算，收口后
- *  不再需要） */
+/**
+ * 指定时区的 ISO 时间串（墙上时钟在前 + 偏移尾——slice(0,10) 即该时区
+ * 日期；args.now / args.last 的生产者）。
+ */
 export function localISO(date = new Date(), tz = DEFAULT_TZ): string {
-  {
-    const wall = zonedParts(date, resolveTimezone(tz));
-    const dateStr = `${wall.y}-${pad2(wall.m)}-${pad2(wall.d)}T${pad2(wall.h)}:${pad2(wall.mi)}:${pad2(wall.s)}`;
-    // 偏移 = 墙钟按 UTC 解释的纪元 − 该时刻自身纪元（正向定义一次减法；
-    // 墙钟串截到秒 → 毫秒尾差由 Math.round 消除）
-    const offsetMin = Math.round((new Date(`${dateStr}+00:00`).getTime() - date.getTime()) / 60000);
-    const sign = offsetMin >= 0 ? '+' : '-';
-    const absMin = Math.abs(offsetMin);
-    return `${dateStr}${sign}${pad2(Math.floor(absMin / 60))}:${pad2(absMin % 60)}`;
-  }
-}
-
-/**
- * hint 模板渲染：{{now}}/{{time}}/{{date}}/{time}（nowDate 注入便于测试）。
- * 全部墙上时钟按 tz 渲染（per-owner 生效时区；缺省/非法归一 DEFAULT_TZ
- * ——cr-1053，zonedParts 与 toLocaleString 同 zone 单源）。
- */
-export function renderHint(hint: string, entry: TimerEntry, nowDate = new Date(), tz?: string): string {
-  const zone = resolveTimezone(tz);
-  const zoned = zonedParts(nowDate, zone);
-  const hh = String(zoned.h).padStart(2, '0');
-  const mm = String(zoned.mi).padStart(2, '0');
-  const zhDate: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', timeZone: zone };
-  const zhNow: Intl.DateTimeFormatOptions = { ...zhDate, hour: '2-digit', minute: '2-digit' };
-  return (hint || '')
-    .replace(/\{\{now\}\}/g, nowDate.toLocaleString('zh-CN', zhNow))
-    .replace(/\{\{time\}\}/g, `${hh}:${mm}`)
-    .replace(/\{\{date\}\}/g, nowDate.toLocaleDateString('zh-CN', zhDate))
-    .replace(/\{time\}/g, entry.time || `${hh}:${mm}`);
-}
-
-/**
- * 计算条目下一次延迟（排程用）。
- * random/delay 模式：优先用持久化状态恢复剩余延迟（elapsed 抵扣）；
- * time/workday/holiday：msUntilTime。恢复态由调用方（ac-timer）持有。
- */
-export function nextDelayOf(
-  entry: TimerEntry,
-  persisted: { startedAt?: string; totalDelayMs?: number } | undefined,
-  now = Date.now(),
-  tz?: string,
-): number | null {
-  if (entry.mode === 'random') {
-    if (persisted?.startedAt && persisted.totalDelayMs != null) {
-      const elapsed = now - new Date(persisted.startedAt).getTime();
-      return Math.max(0, persisted.totalDelayMs - elapsed);
-    }
-    return randomDelay(entry.delayMin, entry.delayMax);
-  }
-  if (entry.mode === 'delay') {
-    if (persisted?.startedAt && persisted.totalDelayMs) {
-      const elapsed = now - new Date(persisted.startedAt).getTime();
-      return Math.max(0, persisted.totalDelayMs - elapsed);
-    }
-    return entry.delay ? parseInterval(entry.delay) : null;
-  }
-  return entry.time ? msUntilTime(entry.time, new Date(now), tz) : null;
+  const wall = zonedParts(date, resolveTimezone(tz));
+  const dateStr = wall.y + '-' + pad2(wall.m) + '-' + pad2(wall.d) + 'T' + pad2(wall.h) + ':' + pad2(wall.mi) + ':' + pad2(wall.s);
+  const offsetMin = Math.round((new Date(dateStr + '+00:00').getTime() - date.getTime()) / 60000);
+  const sign = offsetMin >= 0 ? '+' : '-';
+  const absMin = Math.abs(offsetMin);
+  return dateStr + sign + pad2(Math.floor(absMin / 60)) + ':' + pad2(absMin % 60);
 }

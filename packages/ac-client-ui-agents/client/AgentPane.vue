@@ -9,7 +9,7 @@
 // ============================================================
 import { ref, computed, watch } from 'vue';
 import type { FieldMeta, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
-import type { TimerEntry } from 'ac-timer-core';
+import type { TimerScriptEntry } from 'ac-timer-core';
 import { assemblyOf, type AgentBrief } from './useAgentSettings.ts';
 import { toFields, filterFields } from 'ac-client-ui-settings/client/schema.ts';
 import { Button, Checkbox, FieldRow, Icon, IconAction, Input, Select, StatusDot, Tabs, Textarea } from '@agentchat/webui-kit';
@@ -31,7 +31,7 @@ const props = defineProps<{
   effective: Record<string, any>;
   sysContent: string; sysEnabled: boolean;
   agentContent: string; agentEnabled: boolean;
-  timers: TimerEntry[];
+  timers: TimerScriptEntry[];
   assembly: AssemblyData | null;
   assemblyError?: string;
   llmSchemas: Record<string, any[]>;
@@ -47,7 +47,7 @@ const emit = defineEmits<{
   (e: 'update:sysEnabled', v: boolean): void;
   (e: 'update:agentContent', v: string): void;
   (e: 'update:agentEnabled', v: boolean): void;
-  (e: 'update:timers', v: TimerEntry[]): void;
+  (e: 'update:timers', v: TimerScriptEntry[]): void;
   (e: 'switch', agentId: string): void;
   (e: 'back'): void;
   (e: 'save'): void;

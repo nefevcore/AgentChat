@@ -43,7 +43,7 @@ export const SECTION_ORDER = {
   GUIDELINES_ARTIFACTS: 340, // 指引：产出物引用
   GUIDELINES_COLLAB: 350, // 指引：多Agent协作 + 群聊协作
   GROUP_CONTRACT: 355, // 群聊行为契约（cr-944 P3：纯行为规则静态化——群身份单源 CONVERSATION）
-  GUIDELINES_TIMER: 360, // 指引：主动安排（远程段；cr-944 C：singles 亦注入）
+  GUIDELINES_TIMER: 360, // 指引：主动安排（远程段；cr-944 C singles 亦注入；cr-1147 探测循环心智）
   GUIDELINES_ASK: 370, // 指引：不可逆操作前询问
   GUIDELINES_SUBAGENT: 380, // 指引：并行子任务
   GUIDELINES_GOAL: 390, // 指引：目标与待办（goal）

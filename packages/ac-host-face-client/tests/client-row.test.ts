@@ -61,13 +61,13 @@ const HOST_CONTRACT: HostFaceContract = {
   tools: [{
     name: 'timer',
     description:
-      '管理定时任务：set 安排一条提醒/延时任务（到点以新消息唤醒你并携带 hint）、list 查看自己的条目、cancel 按 id 取消。会话维度：在哪个会话设置就回哪个会话；时间串支持 HH:mm（每天）/ YYYY-MM-DDTHH:mm（一次）/ 周日 12:00 每周 / 间隔（30m、1h）。',
+      '管理定时任务（cr-1147 探测循环：定时器 = 探测循环 + 判定脚本，Agent 自管理）：set 安排一条探测任务（code = 判定脚本，双参谓词 (a, u) => ({ action?, next?, state?, active? })，落盘前自动干跑自检）；test 干跑看 verdict（不落盘不触发）；list 查看条目（排程态诊断）；cancel 按 id 取消。会话维度：在哪个会话设置就回哪个会话。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['set', 'list', 'cancel'], description: '操作' },
-        hint: { type: 'string', description: '[set] 触发时携带的提示词（到点唤醒你时看到的指令——写清楚要做什么）' },
-        time: { type: 'string', description: '[set] 时间串：HH:mm 每天定点 / YYYY-MM-DDTHH:mm 指定时刻 / 周日 12:00 每周 / 30m 间隔延时' },
+        action: { type: 'string', enum: ['set', 'list', 'cancel', 'test'], description: '操作' },
+        code: { type: 'string', description: '[set/test] 判定脚本源码（双参谓词 (a, u) => { … }；限可擦除 TS，禁 import）' },
+        label: { type: 'string', description: '[set] 人读标签（list 展示）' },
         entry_id: { type: 'string', description: '[cancel] 条目 id（list 可见）' },
       },
       required: ['action'],
@@ -99,7 +99,7 @@ const HOST_CONTRACT: HostFaceContract = {
   }],
   sections: [{
     name: 'GUIDELINES_TIMER',
-    text: '主动安排：发现值得持续跟进或适时提醒的事项时，主动用 timer(action="set") 安排，不必等用户指令。',
+    text: '主动安排：值得持续跟进或适时提醒的事项，主动用 timer(action="set") 安排，不必等用户指令。定时器 = 探测循环 + 判定脚本：宿主按脚本 next 周期探测，action 有值才唤醒你（静默轮零 token）——写脚本即设计自己的巡检/提醒节奏（可读状态、真随机、自适应间隔），并用 test 干跑验证、timer list 查健康度（lastError/triggeredCount）。',
     promise: true,
     gate: { toolsAny: ['timer'] },
   }],

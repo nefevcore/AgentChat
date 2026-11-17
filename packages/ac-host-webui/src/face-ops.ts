@@ -15,7 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
-import type { TimerEntry } from 'ac-timer-core';
+import type { TimerScriptEntry } from 'ac-timer-core';
 import {
   GLOBAL_TIMER_OWNER,
   conversationWorkspaceRoot,
@@ -26,7 +26,7 @@ import {
   workspaceTreeBase,
   resolveWorkspaceFile,
 } from 'ac-host-rows';
-import { validateTimerEntries } from 'ac-timer-core'; // cr-886 下沉单源
+import { validateScriptEntries } from 'ac-timer-core'; // cr-886 下沉单源（cr-1147 换名）
 import { createPoolCredentials, maskSecrets } from './config-face.ts';
 import type { ShellAdminPort } from './face-shell.ts';
 import { readCatalogSnapshot } from './face-shell.ts';
@@ -160,9 +160,9 @@ export async function collectRunning(deps: FaceOpsDeps): Promise<RunningProjecti
 /** 定时任务面（ctx.timers = 宿主 timers 行；行缺席 = fail-loud） */
 function registerTimers(web: WebFace, ctx: Context): void {
   const timers = (): {
-    list(): Array<{ owner: string; entries: TimerEntry[] }>;
-    entries(owner: string): TimerEntry[];
-    save(owner: string, entries: TimerEntry[]): void;
+    list(): Array<{ owner: string; entries: TimerScriptEntry[] }>;
+    entries(owner: string): TimerScriptEntry[];
+    save(owner: string, entries: TimerScriptEntry[]): void;
     triggerNow(owner: string, entryId: string): boolean;
   } => {
     const service = ctx.get('timers') as ReturnType<typeof timers> | undefined;
@@ -179,7 +179,7 @@ function registerTimers(web: WebFace, ctx: Context): void {
   web.registerRpc('timer/save', (params) => {
     const p = obj(params);
     const owner = ownerOf(p);
-    timers().save(owner, validateTimerEntries(p.entries));
+    timers().save(owner, validateScriptEntries(p.entries));
     return { saved: true, owner };
   });
   web.registerRpc('timer/trigger', (params) => {

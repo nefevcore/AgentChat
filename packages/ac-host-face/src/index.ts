@@ -94,7 +94,7 @@ export class HostFaceRegistry extends Service {
   }
 
   /** 按名路由执行（宿主闸 = 贡献行 executor 自带：admin 复查/服务在场判） */
-  execute(ctx: Context, tool: string, args: Record<string, unknown>, identity: { agentId?: string; conversationId?: string }): { ok: boolean; result?: unknown; error?: string } {
+  execute(ctx: Context, tool: string, args: Record<string, unknown>, identity: { agentId?: string; conversationId?: string }): { ok: boolean; result?: unknown; error?: string } | Promise<{ ok: boolean; result?: unknown; error?: string }> {
     for (const contribution of this.entries.values()) {
       if (contribution.tools.some((t) => t.name === tool)) {
         return contribution.executor(ctx, args, identity);
@@ -154,7 +154,7 @@ export function makeHostFaceRow(options: HostFaceRowOptions): Plugin {
       const svc = new HostFaceRegistry(ctx, options);
       service = svc;
       const address = socketPathFor(options.dataRoot, 'host-face');
-      const fiber = listenIpcConns(address, (payload) => {
+      const fiber = listenIpcConns(address, async (payload) => {
         if (payload === null || typeof payload !== 'object' || typeof (payload as { kind?: unknown }).kind !== 'string') {
           return undefined;
         }
@@ -169,7 +169,7 @@ export function makeHostFaceRow(options: HostFaceRowOptions): Plugin {
           return { kind: 'contract', corrId, contract };
         }
         if (frame.kind === 'execute') {
-          const r = svc.execute(ctx, frame.tool, frame.args, {
+          const r = await svc.execute(ctx, frame.tool, frame.args, {
             agentId: frame.agentId,
             conversationId: frame.conversationId,
           });

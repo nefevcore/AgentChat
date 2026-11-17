@@ -62,7 +62,7 @@ export type HostToolExecutor = (
   ctx: unknown,
   args: Record<string, unknown>,
   identity: { agentId?: string; conversationId?: string },
-) => { ok: boolean; result?: unknown; error?: string };
+) => { ok: boolean; result?: unknown; error?: string } | Promise<{ ok: boolean; result?: unknown; error?: string }>;
 
 /** 宿主能力契约（discover 响应载荷） */
 export interface HostFaceContract {

@@ -165,13 +165,13 @@ describe('宿主 boot（单树装配面）', () => {
     await web.callRpc('config/delete', { key: 'llmProviders' });
     // 宿主直读面（cr-567）：timer / 预设 / 标签 / 技能 / 快照 / 用量 / 版本 / 事件治理
     const saved = await web.callRpc('timer/save', {
-      agentId: 'wired', entries: [{ id: 't1', mode: 'time', time: '09:00', hint: '晨报' }],
+      agentId: 'wired', entries: [{ id: 't1', enabled: true, kind: 'script', code: '(a, u) => ({ next: u.at(\'09:00\') })' }],
     }) as { saved: boolean; owner: string };
     expect(saved).toMatchObject({ saved: true, owner: 'wired' });
     const entries = await web.callRpc('timer/entries', { agentId: 'wired' }) as { owner: string; entries: Array<{ id: string }> };
     expect(entries.owner).toBe('wired');
     expect(entries.entries.map((e) => e.id)).toEqual(['t1']);
-    await expect(web.callRpc('timer/save', { agentId: 'wired', entries: [{ id: 'x', mode: 'nope', hint: '' }] })).rejects.toThrow(/mode/);
+    await expect(web.callRpc('timer/save', { agentId: 'wired', entries: [{ id: 'x', kind: 'script' }] })).rejects.toThrow(/code/);
     const presets = await web.callRpc('agents/presets') as { presets: Array<{ id: string }> };
     // id = 预设 Agent 身份（物化时用的 __name__ 形式——独立会话可选用）
     expect(presets.presets.map((t) => t.id).sort()).toEqual(['__abap_dev__', '__creator__', '__dsh_minimal__', '__standard__']);
