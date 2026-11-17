@@ -1164,4 +1164,7 @@
 - 【cr-1143 2026-11-17 live 会话 todo/goal dock 卡不刷新：刷新帧族迁 cr-976 新帧（tool/result · run/settled）补漏 + ledger 工具结果行 name 恒落】
 - 【cr-1144 2026-11-17 未读计数收口：机制注入行不再计未读（一轮回复=1，修双倍）+ send_agent(to:user) 独立私信 user 桩直播帧（修定时自会话私信零反馈）】
 - 【cr-1145 2026-11-17 未读服务端权威源实施计划（cr-1144 遗留缺口的终态设计——读位持久化 + 对账归一）】
+- 【cr-1146 2026-11-17 未读服务端权威源实施：读位持久化 meta/unread.json + session/mark-read RPC + 首屏/批量对账 + 前端 localStorage 退役（unread-authority-plan 落地）】
+- 【cr-1147 2026-11-17 定时器脚本化重做：检测逻辑下沉为可擦除 TS 判定脚本（worker containment），旧 5 模式条目一次性编译迁移 #timer #host-rows】
+- 【cr-1148 2026-11-17 ask_questions 无人值守会话两道防线：无人桶无超时兜底（C：超龄 pending 定时关闭+重启对账）与 peer 提问路由（B：agent~agent 桶 ask 通知对端 Agent 代答，interactionReply 标记信封复用）】
 

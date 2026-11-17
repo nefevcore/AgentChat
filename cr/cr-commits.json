@@ -1,6 +1,6 @@
 {
- "scannedHead": "095eb84aca3655a99cb8e0d1d0001fc2fb39e9ef",
- "generatedAt": "2026-11-16T15:28:55.291Z",
+ "scannedHead": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
+ "generatedAt": "2026-11-17T08:29:38.191Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4219,6 +4219,11 @@
     "sha": "f3fb88470d30b96e7f0a9dc4f3fb26bf86d253ad",
     "date": "2026-11-10",
     "subject": "feat(pipeline): cr-976/977 直播管线 B 案 Phase 3——事件投影转发 + feed-core 一次性重构"
+   },
+   {
+    "sha": "1f9788cdb2ac5f582b20b012f0d789561bcd15fe",
+    "date": "2026-11-17",
+    "subject": "fix(webui): cr-1143 live 会话 todo/goal dock 卡不刷新——刷新帧族迁 cr-976 新帧（tool/result·run/settled）+ ledger 工具结果行 name 恒落（直调帧有名可路由，goal 匹配去 subcall 条件）"
    }
   ],
   "978": [
@@ -4481,6 +4486,11 @@
   ],
   "1033": [
    {
+    "sha": "e710560d57642840159c6fb124306d8c8b62a589",
+    "date": "2026-11-16",
+    "subject": "fix(struct): cr-1118 archive 行回归 shell 骨架必装面（cr-1033 误降能力行致全系统归档失效）"
+   },
+   {
     "sha": "357cbe74d33c4eb066e8c2459cd701b71b610d68",
     "date": "2026-11-12",
     "subject": "docs(meta): cr-1041 agentchat-dev 技能同步架构现状（登记行入库——技能目录 .dsh/ 本地态不入库）"
@@ -4489,11 +4499,6 @@
     "sha": "d0b0d3d0942b4e8d9585e0016cc34e25b0b89e7e",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1027~1032 装配菜单代数落地（批1-4）+ cr-1033 §六-5 能力定义归包（B1-B3）——mergeMenu 纯函数取代差量求值（撞名护栏/requires fail-loud/词汇白名单 id/name/requires/config）+ shell.yml 双区化 v4→v5（批3 v3 唯一读面后，B3 单区化只剩 13 骨架行）+ agent.patch.yml v3 菜单片段（行定义+src-fingerprint+原子写+.bak）+ boot 校准面（指纹漂移自动重写）+ 指纹足迹依赖闭包 + subagent spawn 词面换父壳活装配行集（批4，readCatalog 从 ac-shell-subagent 退役）；B1 归包：22 能力包 package.json ac.rows（27 行，name 聚合派生禁自写）+ aggregatePackageRows 聚合器；B2 换源：gen 聚合 + readCatalog 合并语义（骨架归基座/能力归投影）+ 部署链随行物化 row-catalog.json（入数据根分层契约）；B3 收缩：readDualZoneBaseDoc/dualZoneEntries 退役（zone 变投影派生词），存量基线戳 migrate --rebase 一次收敛（workspace/home 121 身份，定义指纹零漂移）；行词汇瘦身（tools/packs/bundle 退役）+ parity 锁删除 + tool-catalog 全 dump 生成；全量 424 文件 / test:unit+integration 绿"
-   },
-   {
-    "sha": "e710560d57642840159c6fb124306d8c8b62a589",
-    "date": "2026-11-16",
-    "subject": "fix(struct): cr-1118 archive 行回归 shell 骨架必装面（cr-1033 误降能力行致全系统归档失效）"
    }
   ],
   "1034": [
@@ -5032,6 +5037,11 @@
   ],
   "1114": [
    {
+    "sha": "462b59e3f03815794f13d010c9792f4454f21eba",
+    "date": "2026-11-16",
+    "subject": "feat(mcp): cr-1122 listChanged 通知接线——ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK 内建 ClientOptions.listChanged 面接入，能力门控+300ms debounce 由 SDK 承担，autoRefresh=false 重发现归对账链）+ ac-mcp 建连订阅触发 redetect 复用 cr-1114 对账全链（diff/发现缓存/tools/source-changed）；顺带修 prepareRun 静默吞错（.then(next,next) 改 warn+放行）；真实数据根配置 deepwiki 公开服务器 + per-agent 授权，运行时验证通过"
+   },
+   {
     "sha": "c436644077cb2818f48a3e2b0050af6a9ad33b5f",
     "date": "2026-11-15",
     "subject": "chore(cr): 台账 cr-1114~1115 登记 + 投影重建"
@@ -5040,26 +5050,26 @@
     "sha": "1f7cea8f37b895cac46ba37a7f845cec047f1d62",
     "date": "2026-11-15",
     "subject": "feat(tools): cr-1114 工具源统一批1+2——host-face boot 静态承诺面(spec 下沉 core+段拆承诺/补位)+prepare 缝对账重建(emit tools/source-changed)+rowTools 活查询化(listWithOwner+fiberNames 桥,boot 反查退役审计面)+前缀快照正文域漂移升③重算(diff 句退役)+ToolSource 契约与两源实现+MCP 发现缓存(meta/mcp-discovery def-hash 键)与发现对账(redetect)——修 timer 三面失明"
-   },
-   {
-    "sha": "462b59e3f03815794f13d010c9792f4454f21eba",
-    "date": "2026-11-16",
-    "subject": "feat(mcp): cr-1122 listChanged 通知接线——ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK 内建 ClientOptions.listChanged 面接入，能力门控+300ms debounce 由 SDK 承担，autoRefresh=false 重发现归对账链）+ ac-mcp 建连订阅触发 redetect 复用 cr-1114 对账全链（diff/发现缓存/tools/source-changed）；顺带修 prepareRun 静默吞错（.then(next,next) 改 warn+放行）；真实数据根配置 deepwiki 公开服务器 + per-agent 授权，运行时验证通过"
    }
   ],
   "1115": [
    {
-    "sha": "9abdc3ca20921135ce540b8a3beb6c4de1479fc1",
-    "date": "2026-11-15",
-    "subject": "fix(struct): cr-1115 结构消除 boot 窗口可达登记竞态——锁活不等于 ipc 就绪,rescue/peek/adoptLiveShells 登记前先探 pipe 实连"
-   },
-   {
     "sha": "7b8b64d6effac1c1b1ffc5491677f5a4441d4858",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1115~1130 登记/状态/提交投影"
+   },
+   {
+    "sha": "9abdc3ca20921135ce540b8a3beb6c4de1479fc1",
+    "date": "2026-11-15",
+    "subject": "fix(struct): cr-1115 结构消除 boot 窗口可达登记竞态——锁活不等于 ipc 就绪,rescue/peek/adoptLiveShells 登记前先探 pipe 实连"
    }
   ],
   "1116": [
+   {
+    "sha": "87eac396ecf936530a46209ab811227a71dd101b",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 投影重建(cr-1116~1119 提交后 sync)"
+   },
    {
     "sha": "b70f5eada1456e345ee2f629ea5597c9b4240b38",
     "date": "2026-11-16",
@@ -5069,11 +5079,6 @@
     "sha": "c4e2703087fcf59415eab4e3776a6f9bd6ade616",
     "date": "2026-11-16",
     "subject": "fix(webui): cr-1116 插件目录页数据面重接 rows/list|set|reset + 装配文案对齐现行模型（删 minimal 死按钮）"
-   },
-   {
-    "sha": "87eac396ecf936530a46209ab811227a71dd101b",
-    "date": "2026-11-16",
-    "subject": "chore(cr): 投影重建(cr-1116~1119 提交后 sync)"
    }
   ],
   "1117": [
@@ -5099,14 +5104,9 @@
   ],
   "1120": [
    {
-    "sha": "d74f609a9c3901992de969265a900200b05b499d",
+    "sha": "9a0a6d8e226d5e2f2547275538ab845eb4f93ea8",
     "date": "2026-11-16",
-    "subject": "fix(session): cr-1120 singles 会话键词汇锁（uuid 形）——对桶/sub_ 键不入清单（未分组幻影行 + unread 串台根修）"
-   },
-   {
-    "sha": "1fe6d8395bb9485b5b83fd046303945187f17f30",
-    "date": "2026-11-16",
-    "subject": "chore(cr): 台账攒批——cr-1135 登记/状态 + cr-1120 提交投影"
+    "subject": "chore(cr): 投影收尾(cr-1120 末笔提交入索引)"
    },
    {
     "sha": "8603e79db08246ae4a81a86d491cf9ff71839a10",
@@ -5114,9 +5114,14 @@
     "subject": "chore(cr): 投影重建(cr-1120 提交后 sync)"
    },
    {
-    "sha": "9a0a6d8e226d5e2f2547275538ab845eb4f93ea8",
+    "sha": "1fe6d8395bb9485b5b83fd046303945187f17f30",
     "date": "2026-11-16",
-    "subject": "chore(cr): 投影收尾(cr-1120 末笔提交入索引)"
+    "subject": "chore(cr): 台账攒批——cr-1135 登记/状态 + cr-1120 提交投影"
+   },
+   {
+    "sha": "d74f609a9c3901992de969265a900200b05b499d",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1120 singles 会话键词汇锁（uuid 形）——对桶/sub_ 键不入清单（未分组幻影行 + unread 串台根修）"
    }
   ],
   "1121": [
@@ -5128,6 +5133,11 @@
   ],
   "1122": [
    {
+    "sha": "2568f8e1439a0f12289d705c9a37d7b166e573e3",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 投影重建(cr-1122 提交后 sync)"
+   },
+   {
     "sha": "6cde79ae3c67ff674ea6919553605e7e8ab2cca0",
     "date": "2026-11-16",
     "subject": "chore(cr): cr-1122 台账与详情登记"
@@ -5136,11 +5146,6 @@
     "sha": "462b59e3f03815794f13d010c9792f4454f21eba",
     "date": "2026-11-16",
     "subject": "feat(mcp): cr-1122 listChanged 通知接线——ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK 内建 ClientOptions.listChanged 面接入，能力门控+300ms debounce 由 SDK 承担，autoRefresh=false 重发现归对账链）+ ac-mcp 建连订阅触发 redetect 复用 cr-1114 对账全链（diff/发现缓存/tools/source-changed）；顺带修 prepareRun 静默吞错（.then(next,next) 改 warn+放行）；真实数据根配置 deepwiki 公开服务器 + per-agent 授权，运行时验证通过"
-   },
-   {
-    "sha": "2568f8e1439a0f12289d705c9a37d7b166e573e3",
-    "date": "2026-11-16",
-    "subject": "chore(cr): 投影重建(cr-1122 提交后 sync)"
    }
   ],
   "1123": [
@@ -5166,14 +5171,14 @@
   ],
   "1131": [
    {
-    "sha": "31d1f72ba24e62a247a47c6972b04a72c4a24664",
-    "date": "2026-11-16",
-    "subject": "fix(session): cr-1132/1133/1134 注入卡挂靠结构修复 + viewer 镜像域归一 + user 域正主回迁 →cr-1131"
-   },
-   {
     "sha": "cd1ebf614ff841b2284c3939682f1d1b527b5f7b",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1131~1134 登记/状态/提交投影"
+   },
+   {
+    "sha": "31d1f72ba24e62a247a47c6972b04a72c4a24664",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1132/1133/1134 注入卡挂靠结构修复 + viewer 镜像域归一 + user 域正主回迁 →cr-1131"
    }
   ],
   "1132": [
@@ -5188,35 +5193,40 @@
     "sha": "8077da8f4228cf0adc937bfabef95dbbf9ffae5a",
     "date": "2026-11-16",
     "subject": "chore(cr): 投影重建(cr-1134 提交后 sync)"
+   },
+   {
+    "sha": "a7d2f2e492bacbb0a6893fb7c23f0e7b88dc39d2",
+    "date": "2026-11-17",
+    "subject": "fix(ledger): cr-1134 续——已收束无 ts 事实的孤儿 run 不盲区投出（迁移 journal 存量步无 ts：无锚不去重+排序守尾，与真实终稿双投成 live agent 侧幻影；正主由带锚终稿行承载，在途 run 活投影不受限）"
    }
   ],
   "1135": [
    {
-    "sha": "ed5d1750757b83fc7dfc00c4d7746246a6e01a0b",
-    "date": "2026-11-16",
-    "subject": "fix(conversation): cr-1135 上下文占用仪表收束/续聊跳变根修（锚点校准比率）"
-   },
-   {
     "sha": "1fe6d8395bb9485b5b83fd046303945187f17f30",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1135 登记/状态 + cr-1120 提交投影"
+   },
+   {
+    "sha": "ed5d1750757b83fc7dfc00c4d7746246a6e01a0b",
+    "date": "2026-11-16",
+    "subject": "fix(conversation): cr-1135 上下文占用仪表收束/续聊跳变根修（锚点校准比率）"
    }
   ],
   "1136": [
    {
-    "sha": "e406b8c7547223c464166b54e6670fb16de9d20d",
-    "date": "2026-11-16",
-    "subject": "fix(cr): cr-1136 check 守门零写副作用（内存态懒校验，投影落盘走显式 sync）"
-   },
-   {
     "sha": "47bf2c2d0c0c56c1184aa9d42b260f0d6fe70572",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1136 登记/状态/投影"
+   },
+   {
+    "sha": "e406b8c7547223c464166b54e6670fb16de9d20d",
+    "date": "2026-11-16",
+    "subject": "fix(cr): cr-1136 check 守门零写副作用（内存态懒校验，投影落盘走显式 sync）"
    }
   ],
   "1137": [
    {
-    "sha": "095eb84aca3655a99cb8e0d1d0001fc2fb39e9ef",
+    "sha": "4ef5ddb33974f1235f6a888af87814a038b02b21",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1137~1142 登记 + cr-1141 裁决详档"
    },
@@ -5247,14 +5257,14 @@
   ],
   "1140": [
    {
-    "sha": "095eb84aca3655a99cb8e0d1d0001fc2fb39e9ef",
+    "sha": "4ef5ddb33974f1235f6a888af87814a038b02b21",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1137~1142 登记 + cr-1141 裁决详档"
    }
   ],
   "1141": [
    {
-    "sha": "095eb84aca3655a99cb8e0d1d0001fc2fb39e9ef",
+    "sha": "4ef5ddb33974f1235f6a888af87814a038b02b21",
     "date": "2026-11-16",
     "subject": "chore(cr): 台账攒批——cr-1137~1142 登记 + cr-1141 裁决详档"
    }
@@ -5264,6 +5274,68 @@
     "sha": "6b52cbf1267dec72b108a1859292972a9c466b7a",
     "date": "2026-11-16",
     "subject": "fix(session): cr-1142 roster 预览权威化（发言口径）+ 高频面只读聚合约束"
+   }
+  ],
+  "1143": [
+   {
+    "sha": "1f9788cdb2ac5f582b20b012f0d789561bcd15fe",
+    "date": "2026-11-17",
+    "subject": "fix(webui): cr-1143 live 会话 todo/goal dock 卡不刷新——刷新帧族迁 cr-976 新帧（tool/result·run/settled）+ ledger 工具结果行 name 恒落（直调帧有名可路由，goal 匹配去 subcall 条件）"
+   }
+  ],
+  "1144": [
+   {
+    "sha": "c8d004132f73c1a5603f2f733d0d88786a6044f1",
+    "date": "2026-11-17",
+    "subject": "chore(cr): 台账同步 cr-1144/cr-1145"
+   },
+   {
+    "sha": "a22eb85f0b57b5b8047e77564091ca6062957f9c",
+    "date": "2026-11-17",
+    "subject": "docs(session): cr-1145 未读服务端权威源实施计划（cr-1144 遗留缺口终态设计）"
+   },
+   {
+    "sha": "b396cb4f5984cb4c20f0019a5e8ea09ec5e2bfad",
+    "date": "2026-11-17",
+    "subject": "fix(unread): cr-1144 机制注入行不计未读（一轮回复=1）+ send_agent(to:user) 独立私信直播帧"
+   }
+  ],
+  "1145": [
+   {
+    "sha": "c8d004132f73c1a5603f2f733d0d88786a6044f1",
+    "date": "2026-11-17",
+    "subject": "chore(cr): 台账同步 cr-1144/cr-1145"
+   },
+   {
+    "sha": "a22eb85f0b57b5b8047e77564091ca6062957f9c",
+    "date": "2026-11-17",
+    "subject": "docs(session): cr-1145 未读服务端权威源实施计划（cr-1144 遗留缺口终态设计）"
+   },
+   {
+    "sha": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
+    "date": "2026-11-17",
+    "subject": "feat(unread): cr-1146 未读服务端权威源实施——读位持久化 meta/unread.json（水位单调）+ session/mark-read 与首屏/批量对账 RPC + 前端 localStorage 退役（cr-1145 计划落地）"
+   }
+  ],
+  "1146": [
+   {
+    "sha": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
+    "date": "2026-11-17",
+    "subject": "feat(unread): cr-1146 未读服务端权威源实施——读位持久化 meta/unread.json（水位单调）+ session/mark-read 与首屏/批量对账 RPC + 前端 localStorage 退役（cr-1145 计划落地）"
+   }
+  ],
+  "1147": [
+   {
+    "sha": "769c5933bc76d8c9ec9e525a0e4b1825b91a7b3a",
+    "date": "2026-11-17",
+    "subject": "feat(timers): cr-1147 定时器脚本化重做——探测循环 + 判定脚本"
+   }
+  ],
+  "1148": [
+   {
+    "sha": "114c89c04123d5632fd0e503f6ebc79b75f00bdb",
+    "date": "2026-11-17",
+    "subject": "feat(ask): cr-1148 无人值守会话 ask_questions 两道防线——超时兜底 + peer 代答路由"
    }
   ]
  }
