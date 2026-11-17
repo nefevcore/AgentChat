@@ -25,14 +25,19 @@
   },
   "dependencies": {
     "@agentchat/cordis": "workspace:*",
+    "ac-agents": "workspace:*",
     "ac-core-utils": "workspace:*",
     "ac-durable-interaction": "workspace:*",
     "ac-tools": "workspace:*"
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",
+    "ac-agents-core": "workspace:*",
+    "ac-envelope-core": "workspace:*",
     "ac-extension-core": "workspace:*",
+    "ac-ledger": "workspace:*",
     "ac-llm": "workspace:*",
+    "ac-shell-conversation": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {

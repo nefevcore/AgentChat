@@ -26,9 +26,16 @@ import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { DurableInteraction } from 'ac-durable-interaction';
 import { runAddress } from 'ac-core-utils'; // run 寻址——cr-318 下沉纯库
+import { humanPresentOf } from 'ac-agents'; // 无人桶判定单源（cr-1079）——cr-1148 兜底路由轴
 
 /** 挂起等待的轮询双保险间隔（replied 事件之外——store 可能被外部进程回复） */
 const WAIT_POLL_MS = 150;
+
+/** cr-1148 无人桶无回音兜底超时（毫秒）。开时记入 payload.noReplyDeadlineMs，
+ * 挂起等待对账超龄即 close('timeout')——closed 注入支线（「用户未响应——
+ * 请自行决断」）零新机制接管。期间任何作答（用户/peer 代答/管理面）先到
+ * 先得：reply 落盘即 answered，超时 close 对 answered 幂等空操作。 */
+const NO_REPLY_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
  * 本 run 未消费交互登记表：id → {agent, conversationId}。
@@ -298,6 +305,14 @@ export function apply(ctx: Context) {
             observe(cur);
             continue;
           }
+          // cr-1148 无人桶无回音兜底：payload 自带 deadline 且已超龄 →
+          // close('timeout')。closed 事件回流本监听器 observe → 注入
+          // 「用户未响应——请自行决断」续走（零新注入机制）；有人桶
+          // payload 无 deadline，此门恒不过。
+          const deadline = (cur?.payload as { noReplyDeadlineMs?: unknown } | null | undefined)?.noReplyDeadlineMs;
+          if (typeof deadline === 'number' && Date.now() > deadline) {
+            try { service.close(id, 'timeout'); } catch { /* 对账尽力——observe 半边兜底 */ }
+          }
         }
         if (call.request.signal?.aborted || want.size === 0) finish();
       }, WAIT_POLL_MS);
@@ -437,7 +452,7 @@ export function apply(ctx: Context) {
   ctx.tools.register({
     name: 'ask_questions',
     requiresInteraction: true, // 交互轴：self 会话（机制 run）自动排除（formDeniedBy 单源）
-    description: '向用户提问并等待回答（发起后本 run 挂起，用户回答到达后自动继续）。用于需要用户决策或确认的场景。',
+    description: '向用户提问并等待回答（发起后本 run 挂起，用户回答到达后自动继续）。用于需要用户决策或确认的场景。无人值守会话（agent~agent 对话等）慎用：用户大概率不在场——能自主决断就别问；确需决策转投用户在场的会话；实在要问，对端 Agent 会收到代答通知，10 分钟无回音自动按「未响应」收束自行决断。',
     parameters: {
       type: 'object',
       properties: {
@@ -495,6 +510,13 @@ export function apply(ctx: Context) {
           // 继承走 conv-settings access 会话键（deliver 边界合成）；
           // 留痕仅作诊断。放 payload（types 契约的展示/处理数据区）。
           ...(call.access ? { access: call.access } : {}),
+          // cr-1148 无人桶兜底：peer 提问路由（发起壳 opened 通知对端）+
+          // 超时 deadline（挂起等待对账超龄 close——回答者永远缺席的 run
+          // 不得无限挂死）。有人桶两样都不带（形态不变）。
+          ...(humanPresentOf(String(conversationId)) ? {} : {
+            noReply: true,
+            noReplyDeadlineMs: Date.now() + NO_REPLY_TIMEOUT_MS,
+          }),
         },
         ...(call.toolCallId !== undefined ? { correlationId: call.toolCallId } : {}),
         ...(agentId !== undefined ? { owner: agentId } : {}),

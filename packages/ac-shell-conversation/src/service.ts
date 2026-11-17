@@ -22,7 +22,7 @@ import type { Envelope } from 'ac-envelope-core';
 import { budgetAfterReceive, deliver, entersInbox, type RendezvousPaths } from 'ac-envelope-core';
 import { readLedger, readJournal } from 'ac-ledger';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
-import { effectiveToolMode, discoverTools, narrowToolsByMode } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 两步投影（cr-1049）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）
+import { effectiveToolMode, discoverTools, narrowToolsByMode, humanPresentOf } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 两步投影（cr-1049）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）+ 无人桶判定（cr-1148 peer 提问路由轴）
 import { answerNotice } from 'ac-ask-questions'; // 应答通知正文单源（cr-636 恢复面重放口径与主线 late-reply 同源）
 import { readFileSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
@@ -60,6 +60,20 @@ function answerNoticeOf(record: { id: string; payload?: unknown; answer?: unknow
   return answerNotice(record as Parameters<typeof answerNotice>[0]);
 }
 
+/** cr-1148 peer 提问通知正文：对端 Agent 视角的一段自然语言（含问题载荷与
+ *  interaction id）。形态对齐 subagent askNoticeText（同为「机器应答者」的
+ *  通知）——模型读到即可作答；答案回投通道在正文中说明（send_agent 回信
+ *  即代答——收信面转 interactionReply）。 */
+function peerAskNotice(peer: string, asker: string, record: { id: string; payload?: unknown }): string {
+  const qs = Array.isArray((record.payload as { questions?: unknown } | null)?.questions)
+    ? (record.payload as { questions: Array<{ question?: string; options?: string[]; multi?: boolean }> }).questions
+    : [];
+  const lines = qs.map((q) => '- ' + (q.question ?? '') + (q.multi ? '（多选）' : '') + ': ' + (q.options ?? []).map((o, j) => String.fromCharCode(65 + j) + '. ' + o).join('　'));
+  return '[系统通知] ' + asker + ' 在无人值守会话 ' + asker + '~' + peer + ' 里发起提问并挂起等待（interaction ' + record.id + '）：\n'
+    + (lines.length > 0 ? lines.join('\n') : '（问题载荷缺席——正文不完整）') + '\n'
+    + '该会话无用户在场，由你代答。用 send_agent 回信（to=' + asker + '）即为答案——请在回复消息末尾附加一行标记 [peer-ask:' + record.id + ']（代答回执判定键，缺它回复只是普通消息）；若认为不该等待，可回复「自行决断」；不回则它将在超时后自动收束。';
+}
+
 /** 续跑态（cr-667，A1）：恢复面传入 driveRun 的中断 run 重建前缀 */
 interface RunResume {
   messages: import('ac-llm').LlmMessage[];
@@ -91,6 +105,20 @@ interface OwnedChildFace {
   deliverToChild?(childId: string, env: Envelope): Promise<boolean>;
   /** 子域提问信封转交（cr-863）：盘校验 + 幂等门 + emit + 注入（subagent 行单源） */
   notifyChildAsk?(childId: string, interactionId: string): void;
+}
+
+/** cr-1148 peer 提问路由判据：ask 交互的会话键是否 agent~agent 无人桶，
+ * 是则返回对端 agent id（代答通知目标），否则 null（有人桶/子域/自桶——
+ * 不路由）。子域 ask 的 key 形如 <parent>~<child> 且 owner 是子 id——本函数
+ * 只在 owner=本壳顶层 agent 的分支被调用，子域面天然不达。 */
+function peerOfAsk(record: { key?: unknown; owner?: unknown }): string | null {
+  if (typeof record.key !== 'string' || record.key === '') return null;
+  const parts = record.key.split('~');
+  if (parts.length !== 2 || parts[0] === '' || parts[1] === '' || parts[0] === 'user' || parts[1] === 'user') return null;
+  if (humanPresentOf(record.key)) return null; // 有人桶不路由（单源判定——含 user 对桶排除）
+  const owner = typeof record.owner === 'string' ? record.owner : '';
+  if (owner === '' || !parts.includes(owner)) return null;
+  return parts[0] === owner ? parts[1] : parts[0];
 }
 
 /** 完成回执的发起会话键（任务信封 payload 原样往返；缺席 = 宿主直调/旧版子壳） */
@@ -182,6 +210,22 @@ export class ConversationService extends Service {
         });
       });
     }
+    // cr-1148 peer 提问路由（B 半边——发起壳侧）：agent~agent 无人桶的 ask
+    // opened → 通知对端 Agent 代答。子域 ask 不进本面（record.owner 是子 id、
+    // peer 提取判 owner=this.agentId 直接排除）。跨壳：deliver() 双层会合
+    // （活对端直投 ipc / 缺席落对端 inbox——boot recoverPendingInbox 消费，
+    // 延迟而非丢失）；单进程主线形态：对端端点不在场 → 同落 inbox 兜底。
+    if (this.parentId === undefined) {
+      this.ctx.on('durable-interaction/opened', (record) => {
+        if (record.kind !== 'ask_questions') return;
+        if (record.owner !== this.agentId) return; // 只路由本壳自己的 ask（子域 ask 在子壳进程，不达本面）
+        const peer = peerOfAsk(record);
+        if (peer === null) return;
+        void this.pushPeerAsk(peer, record).catch((err: unknown) => {
+          process.stderr.write('[shell] peer 提问信封推送失败（' + record.id + '）：' + String(err) + '\n');
+        });
+      });
+    }
     // steer 消费点落账（cr-971）：loop 步边界 splice 时把 pending 登记的注入
     // 行落 journal——文件序 = 模型消息序。ts 用消费时刻（真实生效点）。
     this.ctx.on('loop/steer-consumed', (agent: string | undefined, conversationId: string | undefined, handle: string, consumed: Array<{ message: { content?: unknown }; sender?: string; source?: string; requestId?: string }>) => {
@@ -262,6 +306,16 @@ export class ConversationService extends Service {
       if (durable === undefined) throw new Error('durableInteraction 服务缺席——代答无落点');
       durable.reply(iReply.id, iReply.answer ?? null);
       return 'ledger-only';
+    }
+    // cr-1148 peer 代答收信（B 半边——对端壳侧）：本壳在某无人桶里被通知
+    // 代答过（peerAsk 信封 requestId 前缀），发起者的回信（对提问的答复）→
+    // 转投发起壳 interactionReply 同链。判据窄化：sender 是被通知的 peer
+    // 侧自己回给 asker 的普通消息、但该 asker 在发起侧有 pending 提问且
+    // 通知未消费——见 peerAnswerOf。转发后落 peer 视角回信行（对桶双侧
+    // 账本各持一份投影，与 send_agent 跨壳投递同形状）。
+    if (env.kind === 'message' && env.sender !== this.agentId && env.sender !== 'user') {
+      const forwarded = await this.forwardPeerAnswerIfAny(env);
+      if (forwarded) return 'ledger-only';
     }
     // 子域提问信封（cr-863 双通道之二——子壳 opened 推送）：不作会话行
     //（同 interactionReply 的通道信任面），转 subagent 行 notifyChildAsk
@@ -345,9 +399,51 @@ export class ConversationService extends Service {
       }
       return outcome;
     }
-    // queue / ledger-only / deduped：落账即全部职责（队列消费在 run 收束点）
+  // queue / ledger-only / deduped：落账即全部职责（队列消费在 run 收束点）
     return plan.action === 'queue' ? 'queued' : plan.action;
   }
+
+  // —— cr-1148 peer 代答（B 半边——对端壳侧）——
+
+  /** 已通知的 peer ask（interaction id → 发起者）：本壳被通知代答过的面。
+   *  发起者回信到达时若在此册（且未消费），转 interactionReply 投回发起壳。
+   *  内存态与 subagent askNotified 同形态（壳生命周期内有效；跨代重通知
+   *  由发起壳 opened 路由幂等键 requestId 兜住——重投同键 dedupe）。 */
+  private peerAskSeen = new Map<string, { asker: string; conversationId: string; consumed: boolean }>();
+
+  /** peer 代答回信转发（收信分支调用）：sender 是本壳曾代答通知的发起者、
+   *  且其 pending 提问未被消费 → 构造 interactionReply 信封投回发起壳
+   *  （双层会合——同 pushPeerAsk 寻址）。答案形态对齐 ask_questions 契约
+   *  （answers: string[]）。转发成功标记 consumed——一次提问一答，后续
+   *  普通消息不再误转。 */
+  private async forwardPeerAnswerIfAny(env: Envelope): Promise<boolean> {
+    // 回执标记在正文本里（send_agent 无 structured payload 通道）：形如
+    // [peer-ask:<interactionId>] 的行——通知正文引导对端回复时附上。标记
+    // 行本身从答案文本剥离（不污染答复内容）。
+    const text = typeof (env.payload as { text?: unknown } | null)?.text === 'string'
+      ? (env.payload as { text: string }).text
+      : '';
+    const m = text.match(/\[peer-ask:([^\]]+)\]/);
+    if (m === null) return false;
+    const seen = this.peerAskSeen.get(m[1]!);
+    if (seen === undefined || seen.consumed) return false;
+    const answer = text.replace(m[0], '').trim();
+    if (answer === '') return false;
+    const reply: Envelope = {
+      uuid: seen.conversationId,
+      requestId: 'peer-answer-' + m[1],
+      sender: this.agentId,
+      to: seen.asker,
+      kind: 'message',
+      budget: 0,
+      payload: { interactionReply: { id: m[1], answer: { answers: [answer] } } },
+    };
+    await deliver(this.parentPaths, reply);
+    seen.consumed = true;
+    return true;
+  }
+
+
 
   // —— 主线消费方言叶（collab-tools 等 inject 'conversation' 的行——方法面
   // 子集适配：deliver 组装主线 ConversationOutcome 形状；目标非本壳 agent =
@@ -1699,6 +1795,41 @@ export class ConversationService extends Service {
       payload: { childAsk: { interactionId } },
     };
     await deliver(this.parentPaths, env);
+  }
+
+  /**
+   * cr-1148 peer 提问通知（B 半边——发起壳侧发送）：ask opened → 投对端。
+   * 正文按 ③号路由的「自然语言代答」形态设计：对端醒在自己的 发起者~对端
+   * 桶里读问题、回复即为代答；payload.peerAsk 声明意图 + 原文快照（对端
+   * shell 不装本行时正文仍自含）。requestId = peer-ask-<interactionId>
+   * （inbox 文件名幂等键）。budget=1：一次唤醒，回音/超时都不再自动续。
+   */
+  private async pushPeerAsk(peer: string, record: { id: string; key?: unknown; payload?: unknown }): Promise<void> {
+    const text = peerAskNotice(peer, this.agentId, record);
+    const env: Envelope = {
+      uuid: this.agentId + '~' + peer,
+      requestId: 'peer-ask-' + record.id,
+      sender: this.agentId,
+      to: peer,
+      kind: 'message',
+      budget: 1,
+      payload: {
+        text,
+        peerAsk: {
+          interactionId: record.id,
+          conversationId: typeof record.key === 'string' ? record.key : '',
+          questions: (record.payload as { questions?: unknown } | null)?.questions ?? [],
+        },
+      },
+    };
+    await deliver(this.parentPaths, env);
+    // 发起侧自记（cr-1148 设计修正：登记册在**发起壳**——回信到达本壳时
+    // 查册转发。对端壳零状态：它只按通知正文回复，册不需跨壳。）
+    this.peerAskSeen.set(record.id, {
+      asker: this.agentId,
+      conversationId: typeof record.key === 'string' ? record.key : '',
+      consumed: false,
+    });
   }
 
   /** 跨壳信封发送（邮局 dispatch——deliver 跨壳面 / 群扇出 / postReply
