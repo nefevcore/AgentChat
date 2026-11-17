@@ -71,7 +71,7 @@ describe('ledger/event-appended（cr-976 泛化通知）', () => {
     } finally { await h.stop(); }
   });
 
-  it('tool/after-execute 落账：单行 step/tool-call-result 批', async () => {
+  it('tool/after-execute 落账：单行 step/tool-call-result 批（name 恒落——cr-1143）', async () => {
     const h = await bootLedger(ROOT, 'p3c');
     try {
       h.ctx.emit('tool/after-execute', { agentId: 'p3c', conversationId: uuid, runId: 'run-t', toolCallId: 'call-9', name: 'hello' } as never, { ok: true, output: '输出' } as never, undefined, 30);
@@ -79,7 +79,9 @@ describe('ledger/event-appended（cr-976 泛化通知）', () => {
       const hit = h.got.find((p) => p.rows.some((r) => r.type === 'step/tool-call-result'));
       expect(hit).toBeDefined();
       expect(hit!.rows).toHaveLength(1);
-      expect(hit!.rows[0]).toMatchObject({ run: 'run-t', toolCallId: 'call-9', durationMs: 30 });
+      // name 恒落：顶层直调行也带名（tool/result 帧按名路由——todo/goal
+      // dock 刷新触发；cr-1143 前仅 run_code 子调用落 name）
+      expect(hit!.rows[0]).toMatchObject({ run: 'run-t', toolCallId: 'call-9', name: 'hello', durationMs: 30 });
     } finally { await h.stop(); }
   });
 

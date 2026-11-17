@@ -122,11 +122,13 @@ export class LedgerService extends Service {
         result: r,
         // 工具执行耗时（cr-766）：事件第四参——历史回放工具卡耗时数据源
         ...(durationMs !== undefined ? { durationMs } : {}),
-        // 子调用档案（cr-597）：run_code 程序内桥接的子调用携带名/参——
-        // 宿主步行只有宿主 run_code 调用对，子调用卡片的名/参唯一来源
+        // 工具名恒落（cr-1143）：name 是 ToolCall 契约必填位，事件族消费方
+        // （tool/result 帧按名路由——todo/goal dock 刷新触发）不区分直调/
+        // 子调用，行内缺席即断链。子调用档案（cr-597）只追加 subcall 标记
+        // 与名参全文。
+        ...(call.name !== undefined ? { name: call.name } : {}),
         ...(call.runCodeSubcall === true ? {
           subcall: true,
-          name: call.name,
           arguments: JSON.stringify(call.args ?? {}),
         } : {}),
         ts: Date.now(),

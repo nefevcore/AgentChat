@@ -32,6 +32,27 @@ export async function fetchTodos(
   }
 }
 
+/**
+ * dock 卡刷新帧判定（cr-976 B 案帧族——cr-1143 自 .vue 内联抽源）：
+ * tool/result（name=todo 命中本桶）· run/settled（同桶收束兜底）。
+ * 与 useGoalTracking 现行姿势同构（同族刷新语义单源可对拍）。
+ */
+export function todoRefreshTrigger(
+  type: string,
+  args: unknown[],
+  conversationId: string,
+): boolean {
+  if (type === 'tool/result') {
+    const [p] = args as Array<{ name?: string; conversationId?: string } | undefined>;
+    return p?.name === 'todo' && p.conversationId === conversationId;
+  }
+  if (type === 'run/settled') {
+    const [p] = args as Array<{ conversationId?: string } | undefined>;
+    return p?.conversationId === conversationId;
+  }
+  return false;
+}
+
 // ============================================================
 // 会话流卡片归一化（纯函数）：todo 工具消息 → 卡片数据
 // ============================================================

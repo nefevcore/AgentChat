@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { normalizeTodoCard } from '../client/tasks.ts';
 import type { RpcClientFace } from 'ac-client-runtime';
-import { fetchTodos } from '../client/tasks.ts';
+import { fetchTodos, todoRefreshTrigger } from '../client/tasks.ts';
 
 describe('normalizeTodoCard（todo 工具消息 → 卡片数据）', () => {
   it('live 终值形（output = JSON.stringify(output 对象)）：取 output.todos', () => {
@@ -103,5 +103,29 @@ describe('fetchTodos（可选能力面：经 ctx.rpc 契约）', () => {
       },
     };
     await expect(fetchTodos(badRpc, 'a1', 'a1~user')).resolves.toBeNull();
+  });
+});
+
+describe('todoRefreshTrigger（dock 刷新帧判定——cr-976 B 案帧族，cr-1143）', () => {
+  const CONV = 'a1~user';
+
+  it('tool/result：name=todo 且本桶 → 触发', () => {
+    expect(todoRefreshTrigger('tool/result', [{ name: 'todo', conversationId: CONV }], CONV)).toBe(true);
+  });
+
+  it('tool/result：name 非 todo / 他人桶 → 不触发', () => {
+    expect(todoRefreshTrigger('tool/result', [{ name: 'read', conversationId: CONV }], CONV)).toBe(false);
+    expect(todoRefreshTrigger('tool/result', [{ name: 'todo', conversationId: 'b2~user' }], CONV)).toBe(false);
+    expect(todoRefreshTrigger('tool/result', [{ conversationId: CONV }], CONV)).toBe(false);
+  });
+
+  it('run/settled：同桶收束兜底 → 触发', () => {
+    expect(todoRefreshTrigger('run/settled', [{ conversationId: CONV, finish: 'stop' }], CONV)).toBe(true);
+    expect(todoRefreshTrigger('run/settled', [{ conversationId: 'b2~user' }], CONV)).toBe(false);
+  });
+
+  it('已退役旧帧族（tool/after-execute · loop/after-run）→ 不触发（回归锚）', () => {
+    expect(todoRefreshTrigger('tool/after-execute', [{ name: 'todo', conversationId: CONV }], CONV)).toBe(false);
+    expect(todoRefreshTrigger('loop/after-run', [{ conversationId: CONV }], CONV)).toBe(false);
   });
 });

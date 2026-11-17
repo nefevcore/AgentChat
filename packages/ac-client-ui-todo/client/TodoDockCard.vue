@@ -1,10 +1,11 @@
 <!-- TodoDockCard.vue —— todo 域 dock 卡（conversation:dock-widget 贡献）
   会话级任务清单面板：数据自理（域投影归域插件——M27 §0.3 层 3）。
-  刷新时机全事件化（对齐 slot-tree dock 契约的 tool/after-execute ·
-  loop/after-run 模式）：
+  刷新时机全事件化（cr-976 B 案帧族——tool/result · run/settled，同
+  useGoalTracking 现行姿势；cr-1143 补漏：此前仍监听已退役的
+  tool/after-execute · loop/after-run，live 期间刷新链死透）：
     · 会话上下文切换（agentId/conversationId watch，immediate）
-    · tool/after-execute 帧（name=todo 且 conversationId 命中本桶）
-    · loop/after-run 帧（同桶收束兜底——后台过滤抑制的帧之后仍能对齐）
+    · tool/result 帧（name=todo 且 conversationId 命中本桶）
+    · run/settled 帧（同桶收束兜底——后台过滤抑制的帧之后仍能对齐）
   三态契约：undefined = 服务不可用（行摘除/RPC 失败）静默；null|[] = 无
   清单不渲染。RPC 与事件帧均经 ctx（useContext fork 本行插件 fiber——
   D17：组件卸载即订阅回收；rpc 依赖由行 client 插件 inject 声明）。 -->
@@ -12,7 +13,7 @@
 import { ref, watch, onUnmounted, toRef } from 'vue';
 import { useContext } from 'ac-client-runtime';
 import TodoPanel from './TodoPanel.vue';
-import { fetchTodos, type TaskTodo } from './tasks.ts';
+import { fetchTodos, todoRefreshTrigger, type TaskTodo } from './tasks.ts';
 
 const props = defineProps<{
   /** 席位 owner 上下文透传（D16-③：ComposerDock 经 SlotOutlet data 传入） */
@@ -44,16 +45,7 @@ watch([agentId, conversationId], () => void refresh(), { immediate: true });
 
 const off = rpc.onEvent((type, args) => {
   const c = conversationId.value;
-  if (!c) return;
-  if (type === 'tool/after-execute') {
-    const [call] = args as Array<{ name?: string; conversationId?: string } | undefined>;
-    if (call?.name === 'todo' && call.conversationId === c) void refresh();
-    return;
-  }
-  if (type === 'loop/after-run') {
-    const [request] = args as Array<{ conversationId?: string } | undefined>;
-    if (request?.conversationId === c) void refresh();
-  }
+  if (c && todoRefreshTrigger(type, args, c)) void refresh();
 });
 onUnmounted(() => off());
 </script>
