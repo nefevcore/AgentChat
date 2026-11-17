@@ -412,7 +412,6 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
     const ledgerOwner = speechAgentOfRun.get(run) ?? rf.domain;
     const p = foldStepsOf(rf, subcallsFor(rf.domain, run));
     if (p === null) continue;
-    all.push(...(injectRowsOf.get(run) ?? []));
     // 末事实 ts（foldLlmReplay 孤儿 slot 同源）——时间全序位次锚
     let lastTs = 0;
     for (const ev of rf.events) {
@@ -420,6 +419,13 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       if ((ev.ts ?? 0) > lastTs) lastTs = ev.ts ?? 0;
     }
     if (rf.aggregated !== undefined) for (const s of rf.aggregated) if ((s.ts ?? 0) > lastTs) lastTs = s.ts ?? 0;
+    // cr-1134 续:已收束但无任何 ts 事实的孤儿 run 不投（foldLlmReplay 孤儿
+    // slot 同判据「无 ts 事实——无锚不插」）——迁移 journal 的存量步无 ts 字段，
+    // 盲区投出后排序守尾 + 无锚不去重，与真实终稿（另一 run 键承载同内容）双投，
+    // 且 toHistoryMessages 缺 ts 继承后继=恒在会话末（live「agent 侧幻影」形态）。
+    // 正主内容由带锚终稿行承载。在途 run（无 end）不受此限——活投影语义优先。
+    if (lastTs <= 0 && rf.end !== undefined) continue;
+    all.push(...(injectRowsOf.get(run) ?? []));
     all.push({
       role: 'assistant',
       agent_id: ledgerOwner,

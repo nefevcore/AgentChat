@@ -312,6 +312,42 @@ describe('渲染契约切片 A（cr-1109）', () => {
   });
 });
 
+describe('已收束无 ts 孤儿 run 不盲区投出（cr-1134 续——live agent 侧幻影根因）', () => {
+  it('journal 步无 ts 且已 settled:盲区不投（正主终稿由另一 run 承载,双投即幻影）', () => {
+    const dir = sessionDir(ROOT, AGENT, 'conv-nots');
+    fs.mkdirSync(path.join(dir, 'journal'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '问', agent_id: 'user', requestId: 'q', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+      // 正主终稿：另一 run 键承载同内容（真实场景 = v2 终稿行）
+      { role: 'agent', content: '明白了——同一段话', agent_id: AGENT, requestId: 'a', run: 'run-real', message_id: 'a', timestamp: '2026-11-09T10:00:10.000Z', seq: 2 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    // 迁移形态 journal：步无 ts + settled（孤儿）
+    fs.writeFileSync(path.join(dir, 'journal', 'partials.jsonl'), [
+      { type: 'journal-step', run: 'run-orphan-nots', step: 1, content: '明白了——同一段话' },
+      { type: 'journal-settled', run: 'run-orphan-nots', finish: 'ok' },
+    ].map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
+    const view = foldViewRecords(foldSession(ROOT, 'conv-nots'), ROOT, 'conv-nots');
+    // 正主终稿在场、孤儿不投（不双投）
+    expect(view.filter((r) => (r.content ?? '').includes('明白了')).length).toBe(1);
+    expect(view.some((r) => r.run === 'run-orphan-nots')).toBe(false);
+  });
+
+  it('在途 run（无 end）无 ts 照投——活投影语义优先', () => {
+    const dir = sessionDir(ROOT, AGENT, 'conv-nots2');
+    fs.mkdirSync(path.join(dir, 'journal'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '问', agent_id: 'user', message_id: 'q', timestamp: '2026-11-09T10:00:00.000Z', seq: 1 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    fs.writeFileSync(path.join(dir, 'journal', 'partials.jsonl'), [
+      { type: 'journal-step', run: 'run-live-nots', step: 1, content: '在途步（无 ts）' },
+    ].map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
+    const view = foldViewRecords(foldSession(ROOT, 'conv-nots2'), ROOT, 'conv-nots2');
+    expect(view.some((r) => r.run === 'run-live-nots' && r.partial === true)).toBe(true);
+  });
+});
+
 describe('run 归口注入卡残留回落（cr-1134——run 有 end 无终稿行时卡不得缺席）', () => {
   it('带 run 键的 context 行:run 无终稿行时按直落卡投出（不再永久缺席）', () => {
     const conv = 'conv-orphan-inj';
@@ -362,12 +398,14 @@ describe('viewer 镜像域读面归一（cr-1133——agent 发言不得投为 u
     }
     fs.writeFileSync(path.join(mirrorDir, 'messages.jsonl'), mirrorRows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
     if (opts.migratedJournal === true) {
-      // 迁移伪 run：journal-step 无对应终稿行（曾以 domain='user' 盲区重投）
+      // 迁移伪 run：journal-step 无对应终稿行（曾以 domain='user' 盲区重投）；
+      // ts 用真实 epoch——cr-1134 续起已收束孤儿无 ts 不投（与 foldLlmReplay 孤儿
+      // slot 同判据），夹具需带 ts 才能测「归属正源」语义
       fs.writeFileSync(path.join(mirrorDir, 'journal', 'partials.jsonl'), [
         { type: 'journal-step', run: 'migrated-msg-x', step: 1, content: '迁移的 agent 发言' },
         { type: 'journal-settled', run: 'migrated-msg-x', finish: 'ok' },
         ...(opts.emptyFinal === true ? [
-          { type: 'journal-step', run: 'run-empty-final', step: 1, content: '空终稿 run 的步' },
+          { type: 'journal-step', run: 'run-empty-final', step: 1, content: '空终稿 run 的步', ts: Date.parse('2026-11-09T10:01:05.000Z') },
           { type: 'journal-settled', run: 'run-empty-final', finish: 'ok' },
         ] : []),
       ].map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
