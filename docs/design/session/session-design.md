@@ -613,6 +613,36 @@ news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
 - **F6 群双事实源（影子桶 + 本体）**：已消解——D11 落地 + cr-4 成员流（§6.1）。
 - **F7 错误折叠为 assistant 文本**：已消解——词汇 v2 `context+source:'error'`（§2.5、D12）。
 
+## 11. 未读权威源（cr-1146）
+
+「读了没有」是用户会话域的事实，由服务端权威承载——读位持久化 + 计数恒派生，前端 live 帧计数降级为乐观增量（对账面纠偏）。总谱（背景/根因/裁决记录）：`docs/design/archive/session/unread-authority-plan.md`（cr-1145）。
+
+### 11.1 数据面
+
+| 件 | 归位 | 说明 |
+|---|---|---|
+| `<dataRoot>/meta/unread.json` | `ac-core-utils/unread.ts` 纯库 | `{ version:1, entries: { [conversationId]: { seq?, messageId?, ts } } }`——只存读位不存计数（落计数即造双源）；损坏留档 + tmp/rename 原子写 |
+| 会话键 | 与 feed 分区键同构 | 对桶 `a~b` / single `sid` / 群 `gid`（群轴独立——成员流键 `gid~m` 不入会话轴） |
+| 水位合并 | `mergeMark` 单调取大 | 多端并发读后读覆盖先读不回退；seq 双在场比 seq，缺席回落 messageId 恒等性 |
+
+### 11.2 RPC 面（宿主 web-api 行）
+
+| RPC | 语义 |
+|---|---|
+| `session/mark-read` | `{ conversationId, seq?, messageId? }` → 水位单调取大落盘；幂等（重复调用返回既有水位） |
+| `session/history` 首屏旁带 | offset=0 全量响应带 `unreadCount` + `readMark`（unchanged 短路/上翻不带——字段缺席 = 不对账） |
+| `session/unread` | 批量对账：读位会话 ∪ 账本会话目录（群流键按 `meta/groups` 过滤）→ per-会话权威未读数 |
+| `group/history` 首屏旁带 | 同 history（群行集 = 成员流合并去重行；user 入站行不计） |
+
+未读派生 `unreadOf(rows, mark)`（纯函数住纯库）：事实行 = `role:'agent'|'assistant'` 且非 `agent_id:'user'`、非段/注入/空终稿、有 message_id 锚；判重口径与 `projectUserReplay` 同源（requestId/message_id + run 单行）。
+
+### 11.3 前端消费面（feed-core）
+
+- 启动期：`init()` → `session/unread` 批量水合全部徽章（页面关闭期间的产生在此补计；失败静默降级旧后端形态）；
+- 进入会话：`clearUnread` 本地即时清 + `session/mark-read`（锚 = 分区已见行最新锚：seq 优先 / 尾部 persistedMsgId 兜底；空分区无锚不发——不盲目提水位）；
+- live 帧：`bumpUnread` 锚定增量维持现状（乐观面——权威对账纠偏）；
+- localStorage `agentchat.unread` 与 `unreadStore.ts` 已退役（cr-1139 多 tab 收敛面职责整体移交服务端对账）。
+
 ---
 
 ## 附录 A · 术语表

@@ -27,7 +27,7 @@ import type { PostOffice } from 'ac-post-office';
 // 群配置纯读面（cr-712 下沉 ac-core-utils：壳侧 group 垫片共用读词汇——
 // 垫片 import 本包即壳→宿主反向依赖；本行改为单源消费，写面仍在下方）
 import {
-  assertGid, listGroupConfigs, memberStreamKey, readGroupConfig, type GroupConfig,
+  assertGid, listGroupConfigs, memberStreamKey, readGroupConfig, readMarkOf, unreadOf, type GroupConfig, type UnreadRow,
 } from 'ac-core-utils';
 
 export type { GroupConfig } from 'ac-core-utils';
@@ -282,7 +282,10 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
       });
 
       // 群会话账本读面：全成员流合并（入站行跨流同 requestId 去重；成员
-      // 终稿只落自己流），时间升序 + 尾部 limit/offset 分页（session/history 同义）
+      // 终稿只落自己流），时间升序 + 尾部 limit/offset 分页（session/history 同义）。
+      // cr-1146：首屏（offset=0）旁带 unreadCount/readMark——群未读读位键 =
+      // gid（群轴），行集 = 本读面的去重后流行（非 viewer 发言才计——user
+      // 入站行 agent_id='user' 由 unreadOf 谓词排除）。
       web.registerRpc('group/history', (params) => {
         const p = obj(params);
         const gid = reqStr(p, 'groupId');
@@ -305,9 +308,22 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         const all = [...byKey.values()].sort((a, b) => a.at - b.at);
         const limit = typeof p.limit === 'number' && p.limit > 0 ? Math.floor(p.limit) : 50;
         const offset = typeof p.offset === 'number' && p.offset >= 0 ? Math.floor(p.offset) : 0;
+        // cr-1146 首屏旁带：合并行集即未读行集（requestId/message_id 去重已
+        // 在 byKey 完成——unreadOf 再判 user 入站行与水位）
+        const unreadSide = offset === 0
+          ? (() => {
+            const mark = readMarkOf(dataRoot, gid);
+            const rows = all.map((m) => ({
+              role: 'agent', agent_id: m.from, content: m.content,
+              message_id: m.id, seq: undefined as never,
+            })) as UnreadRow[];
+            return { unreadCount: unreadOf(rows, mark), ...(mark !== undefined ? { readMark: mark } : {}) };
+          })()
+          : {};
         return {
           groupId: gid,
           messages: all.slice(Math.max(0, all.length - offset - limit), Math.max(0, all.length - offset)),
+          ...unreadSide,
         };
       });
     },

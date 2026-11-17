@@ -13,7 +13,7 @@
 //     __agentchatBootReady（cr-274）同款 evaluateJavascript 桥姿势。
 //
 // 归位：读方 = feed-core 触发点（唯一写方），住 conversation 行 client，
-// 与 unreadStore 同款裁决（客户端 UI 增益态，不进后端）；不引 DOM lib
+// 客户端 UI 增益态裁决同款（不进后端）；不引 DOM lib
 // ——浏览器面经结构化类型访问（本包进根 tsc 程序），node 测试环境
 // undefined → 静默无通知。
 // ============================================================

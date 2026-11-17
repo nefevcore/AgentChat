@@ -46,6 +46,9 @@
 //   · DEFAULT_TZ / resolveTimezone —— 缺省时区与降级链（cr-1053 下沉：
 //     timer-core 函数缺省 / timers-row 行基线 / ac-datetime 注入行
 //     三层同源——此前进程本地与 Asia/Shanghai 字面量并存，部署即漂移）
+//   · ReadMark / markRead / readMarks / unreadOf / mergeMark —— 未读读位
+//     读写面与未读派生（cr-1146 下沉：宿主 web-api 行（mark-read RPC）与
+//     face-ops（批量对账）两处共用——各写一份水位合并语义必走散）
 // 下沉后 session 与 group 互相零 import：协作只经 ctx.get 服务面
 // （D11 跨域读写口），两行可独立停用。
 // ============================================================
@@ -169,3 +172,4 @@ export * from './workspaces.ts'; // 工作区登记表读写面（数据分层�
 export * from './time-keys.ts'; // UTC 日/月键 + 缺省时区基线（cr-1052/1053 时间词法单源——usage/relay/timer-core/timers-row/datetime 共用）
 
 export * from './replay-wrap.ts';
+export * from './unread.ts'; // 未读读位读写面 + 未读派生纯函数（cr-1146：宿主 web-api 行读写——meta/unread.json 单源）

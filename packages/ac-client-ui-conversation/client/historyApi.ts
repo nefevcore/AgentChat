@@ -437,11 +437,11 @@ export async function fetchGroupHistory(
   offset: number,
   limit: number,
   rpc: Rpc,
-): Promise<{ messages: GroupHistoryMessage[] }> {
-  const r = await rpc.call<{ messages?: PGroupRecord[] }>('group/history', {
+): Promise<{ messages: GroupHistoryMessage[]; unreadCount?: number }> {
+  const r = await rpc.call<{ messages?: PGroupRecord[]; unreadCount?: number }>('group/history', {
     groupId,
     ...(Number.isFinite(limit) ? { limit } : {}),
     ...(offset > 0 ? { offset } : {}),
   });
-  return { messages: (r.messages ?? []).flatMap(expandGroupRecord) };
+  return { messages: (r.messages ?? []).flatMap(expandGroupRecord), ...(r.unreadCount !== undefined ? { unreadCount: r.unreadCount } : {}) };
 }

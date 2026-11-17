@@ -9,6 +9,8 @@
 //   session/history      → ac-ledger assembleSessionView/historyView
 //                          （单次读组装 + lite 投影 + 指纹短路——cr-768）
 //   agents/list          → agents-core listAgentIds + readAgentConfig 直读
+//   session/mark-read    → ac-core-utils/unread（读位单调取大落盘——cr-1146
+//                          服务端权威源：只存读位不存计数，未读数恒派生）
 //   config/*             → ctx.config（宿主 config 行 = 配置落盘单源）+
 //                          ac-credentials-core（池 api_key 侧信道，cr-564）
 // 边界铁律（主线同款）：纯编排——参数窄化 + 转发调用 + outcome→ack 映射，
@@ -16,13 +18,13 @@
 // ============================================================
 import type { Plugin, Context } from '@agentchat/cordis';
 import { readdir, readFile } from 'node:fs/promises';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, type Dirent } from 'node:fs';
 import type { MultipartBody, RouteCall } from 'ac-web-server';
 import * as path from 'node:path';
 import { assembleSessionView, conversationDirs, deleteConversationRow, historyView, truncateConversation, type JournalToolResult } from 'ac-ledger';
 import { listAgentIds, readAgentConfig, isAgentIdentity, isPresetId, materializedChildIds } from 'ac-agents-core';
 import { humanPresentOf } from 'ac-agents'; // conv-scope 批3：无人桶写键 fail-loud 门
-import { pairKey } from 'ac-core-utils';
+import { pairKey, markRead, readMarks, readMarkOf, unreadOf, listGroupConfigs, type ReadMark, type UnreadRow } from 'ac-core-utils'; // cr-1146 未读读位读写/派生纯库（listGroupConfigs 群流键过滤）
 import { registerOpsFace, runningOf, type FaceOpsDeps } from './face-ops.ts';
 import {
   avatarPathOf,
@@ -251,6 +253,8 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         // 语义需要精确 total。
         const reqFingerprint = typeof p.fingerprint === 'string' ? p.fingerprint : undefined;
         if (reqFingerprint !== undefined && offset === 0 && reqFingerprint === meta.fingerprint) {
+          // cr-1146 注记：短路不带未读旁带——账本未变 = 计数未变，前端以
+          // 字段缺席 = 不对账（本地态保持；权威对账走 session/unread 批量面）。
           return { conversationId, unchanged: true, fingerprint: reqFingerprint };
         }
         // 会话视图组装（cr-973 viewer 停写）：终稿层 = agent 域账本读时投影
@@ -271,6 +275,17 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const page = limit === undefined
           ? all
           : all.slice(Math.max(0, all.length - offset - limit), Math.max(0, all.length - offset));
+        // cr-1146 未读对账旁带（首屏 offset=0）：unreadCount = 事实行新于读位
+        // 水位的条数（ViewRow 投影行已按 projectUserReplay 口径去重——peer
+        // 终稿/事件行在列，user 行与注入行不投）；readMark 回显供增量乐观面
+        // 对齐。上翻/短路不带（分页语义只要 records）。
+        const unreadSide = offset === 0
+          ? (() => {
+            const mark = readMarkOf(deps.dataRoot, conversationId);
+            const factRows = all.filter((row) => row.role === 'assistant') as unknown as UnreadRow[];
+            return { unreadCount: unreadOf(factRows, mark), ...(mark !== undefined ? { readMark: mark } : {}) };
+          })()
+          : {};
         // B1 行级 seq：页区间 [firstSeq, lastSeq]（页内行 seq 最小/最大值；
         // 存量行无 seq 时缺席——多域 seq 空间各自单调，区间仅作水位参考锚，
         // 不承担跨域全序）。行级 seq 随 records 逐行携带。
@@ -287,6 +302,7 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
           ...seqSpan,
           ...(limit !== undefined ? { hasMore: offset + limit < all.length } : {}),
           ...(offset === 0 ? { fingerprint: meta.fingerprint } : {}),
+          ...unreadSide,
         };
       });
 
@@ -541,6 +557,60 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         // ——不报覆盖度即被当成平台全貌）；full = true 显式预热全部会话
         //（首次代价高，仪表板冷启动用；此后索引增量维护）。
         return index.sessionByDay(undefined, p.full === true);
+      });
+
+      // ---- 未读读位面（cr-1146 服务端权威源）----
+      // 写口唯一：进入会话即清（前端 clearUnread → 本 RPC）。水位单调取大
+      //（多端归一——裁决 3）；幂等重复调用返回既有水位不回退。参数锚 =
+      // seq 优先（B1 行级锚），messageId 兜底（存量行无 seq）。
+      web.registerRpc('session/mark-read', (params) => {
+        const p = obj(params);
+        const mark = markRead(deps.dataRoot, reqStr(p, 'conversationId'), {
+          ...(typeof p.seq === 'number' && Number.isInteger(p.seq) && p.seq > 0 ? { seq: p.seq } : {}),
+          ...(optStr(p.messageId) !== undefined ? { messageId: optStr(p.messageId) } : {}),
+        });
+        return { conversationId: reqStr(p, 'conversationId'), mark };
+      });
+
+      // 批量对账（前端启动期徽章水合）：全部已登记读位会话 → 权威未读数。
+      // 行集 = 账本会话目录（含无读位会话——未读全量），群走群轴由前端
+      // 另拉（群未读键空间 = group/history 同源，见 groups 行）。会话键域
+      // 限定非群（对桶/single）——群成员流键 gid~m 不是会话目录键。
+      web.registerRpc('session/unread', () => {
+        const marks = readMarks(deps.dataRoot);
+        const out: Array<{ conversationId: string; unreadCount: number; mark?: ReadMark }> = [];
+        const convs = new Set<string>(Object.keys(marks));
+        // 会话目录枚举（agent 域 sessions；群成员流键 gid~m 不入——对桶键
+        // 恰含 ~ 但群流右段是成员非 user，与对桶无法词法区分时按是否有
+        // 群配置判定：群 id 在 meta/groups 即群流，跳过）
+        const groupIds = new Set(listGroupConfigs(deps.dataRoot).map((g) => g.id));
+        try {
+          for (const a of readdirSync(path.join(deps.dataRoot, 'agents'), { withFileTypes: true })) {
+            if (!a.isDirectory()) continue;
+            let sds: Dirent[] = [];
+            try { sds = readdirSync(path.join(deps.dataRoot, 'agents', a.name, 'sessions'), { withFileTypes: true }); } catch { continue; }
+            for (const s of sds) {
+              if (!s.isDirectory()) continue;
+              // 群成员流键（首段 = 群 id）不进会话轴——群未读由 group 轴承担
+              const head = s.name.split('~')[0] ?? '';
+              if (groupIds.has(head)) continue;
+              convs.add(s.name);
+            }
+          }
+        } catch { /* 无 agents 域 */ }
+        for (const cid of convs) {
+          // 目录枚举来源的 cid 可能无读位（Object.hasOwn 判定——索引类型不承载 undefined）
+          const mark: ReadMark | undefined = Object.hasOwn(marks, cid) ? marks[cid] : undefined;
+          // 对账口径与 history 旁带同源：ViewRow assistant 行 = 事实行集
+          let rows: UnreadRow[];
+          try {
+            rows = assembleSessionView(deps.dataRoot, cid).filter((row) => row.role === 'assistant') as unknown as UnreadRow[];
+          } catch {
+            continue; // 坏会话跳过（不炸整批——face-ops 摘要同姿态）
+          }
+          out.push({ conversationId: cid, unreadCount: unreadOf(rows, mark), ...(mark !== undefined ? { mark } : {}) });
+        }
+        return { conversations: out };
       });
 
       // ---- 会话级覆盖面（cr-565）----

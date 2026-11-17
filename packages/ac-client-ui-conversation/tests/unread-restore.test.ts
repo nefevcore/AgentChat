@@ -1,161 +1,132 @@
 // ============================================================
 // ac-client-ui-conversation/tests/unread-restore.test.ts ——
-// 未读徽章刷新恢复回归
+// 未读服务端权威源回归（cr-1146——localStorage 快照退役）
 //
-// 需求锚：未读数字徽章（名册 Agent/群行 + 活动栏聚合）刷新后不丢。
-// 状态住 feed 分区 DialogFeed.unread（纯内存）——本回归锁定持久化
-// 链路：persistUnread 开 → 未读增量全量写穿 localStorage 单键
-// agentchat.unread；重建实例（= 刷新）→ 工厂期水合恢复徽章数字；
-// clearUnread → 写穿抹除（刷新不复活）。
-//
-// 手法：内存 localStorage 桩（先于被测模块注入——模块 import 时捕获
-// globalThis.localStorage；与 compose-prefs.test 同款）+ offline rpc
-// 拒绝面 + ingestFrame 直喂事件帧。persistUnread 缺省关——既有
-// feed 状态机测试族（webui/tests/feed-*）不写快照、互不污染。
+// 需求锚：未读徽章刷新后不丢 + 多端读位互通。权威源 = 服务端
+//（session/unread 批量对账 + 首屏旁带 + clearUnread → session/mark-read
+// RPC）。本回归锁定前端消费链路：启动期批量对账水合、clearUnread 发
+// mark-read（锚 = 分区已见行）、对账响应覆盖乐观增量。
+// 手法：rpc 桩捕获调用 + ingestFrame 直喂事件帧。
 // ============================================================
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { directDialog, groupDialog, singleDialog } from '../client/feed.ts';
 
-/** 内存 localStorage 桩（Map 语义） */
-class MemoryStorage {
-  private map = new Map<string, string>();
-  getItem(key: string): string | null { return this.map.get(key) ?? null; }
-  setItem(key: string, value: string): void { this.map.set(key, value); }
-  removeItem(key: string): void { this.map.delete(key); }
-  clear(): void { this.map.clear(); }
+let feedCore: typeof import('../client/feed-core.ts');
+
+async function importFeed() {
+  if (!feedCore) feedCore = await import('../client/feed-core.ts');
+  return feedCore;
 }
 
-let storage: MemoryStorage;
-let feedCore: typeof import('../client/feed-core.ts');
-let unreadStore: typeof import('../client/unreadStore.ts');
+/** rpc 桩：记录调用（mark-read 断言用）+ 可注入批量对账响应 */
+function makeRpc(unread?: Array<{ conversationId: string; unreadCount: number }>) {
+  const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+  return {
+    calls,
+    call: (method: string, params: Record<string, unknown>) => {
+      calls.push({ method, params });
+      if (method === 'session/unread') return Promise.resolve({ conversations: unread ?? [] });
+      if (method === 'session/history') return Promise.resolve({ records: [], hasMore: false });
+      return Promise.resolve({});
+    },
+    onEvent: () => () => undefined,
+  };
+}
 
-/** offline rpc 桩（call 拒绝 + 订阅 noop——与 feedStore.offlineRpc 同形） */
-const offlineRpc = {
-  call: () => Promise.reject(new Error('offline')),
-  onEvent: () => () => undefined,
-} as const;
+async function makeFeed(rpc: ReturnType<typeof makeRpc>) {
+  const { RosterCore } = await import('ac-client-ui-agents/client');
+  const fc = await importFeed();
+  return fc.createFeedCore(rpc as never, () => new RosterCore());
+}
 
-beforeAll(async () => {
-  storage = new MemoryStorage();
-  (globalThis as unknown as { localStorage: unknown }).localStorage = storage;
-  feedCore = await import('../client/feed-core.ts');
-  unreadStore = await import('../client/unreadStore.ts');
-});
-
-beforeEach(() => {
-  storage.clear();
-});
-
-describe('未读持久化与刷新恢复（persistUnread 链路）', () => {
-  it('persistUnread 开：未读增量写穿快照；重建实例（= 刷新）水合恢复', async () => {
-    // ── 会话一：产生 direct + group 未读 ──
-    const { RosterCore } = await import('ac-client-ui-agents/client');
-    const roster = new RosterCore();
-    const feed = feedCore.createFeedCore(offlineRpc as never, () => roster, { persistUnread: true });
-    feed.ingestFrame('router/message-received', ['alpha', { role: 'user', content: '私信一' }, 'alpha~user', 'alpha', 'agent']);
-    feed.ingestFrame('router/message-received', ['alpha', { role: 'user', content: '私信二' }, 'alpha~user', 'alpha', 'agent']);
-    feed.ingestFrame('group/message-posted', ['room-a', { from: 'beta', content: '群消息' }]);
+describe('未读服务端权威源（cr-1146）', () => {
+  it('启动期批量对账：session/unread 响应水合全部徽章（页面关闭期间的产生补计）', async () => {
+    const rpc = makeRpc([{ conversationId: 'alpha~user', unreadCount: 2 }, { conversationId: 'sess-1', unreadCount: 4 }]);
+    const feed = await makeFeed(rpc);
+    feed.init();
+    await new Promise((r) => setTimeout(r, 0)); // 对账 promise 落定
     expect(feed.getDialog(directDialog('alpha'))!.unread).toBe(2);
-    expect(feed.getDialog(groupDialog('room-a'))!.unread).toBe(1);
-
-    // ── 刷新 = 全新实例（新 roster/新工厂调用）水合同一份快照 ──
-    const feed2 = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    expect(feed2.getDialog(directDialog('alpha'))!.unread).toBe(2);
-    expect(feed2.getDialog(groupDialog('room-a'))!.unread).toBe(1);
-    // 徽章消费面（AgentList unreadCountOf / ActivityBar 聚合）同源恢复
-    expect(feed2.getUnreadCount('alpha')).toBe(2);
-    // 恢复只设徽章数字——分区消息体仍懒加载（不因水合预载历史）
-    expect(feed2.getDialog(directDialog('alpha'))!.rawMessages.length).toBe(0);
+    expect(feed.getUnreadCount('alpha')).toBe(2);
+    expect(feed.getDialog(singleDialog('sess-1'))!.unread).toBe(4);
+    // 恢复只设徽章数字——分区消息体不预载
+    expect(feed.getDialog(directDialog('alpha'))!.rawMessages.length).toBe(0);
   });
 
-  it('clearUnread 写穿抹除：读过的会话刷新后不复活', async () => {
-    const { RosterCore } = await import('ac-client-ui-agents/client');
-    const roster = new RosterCore();
-    const feed = feedCore.createFeedCore(offlineRpc as never, () => roster, { persistUnread: true });
-    feed.ingestFrame('router/message-received', ['alpha', { role: 'user', content: '私信' }, 'alpha~user', 'alpha', 'agent']);
-    feed.ingestFrame('group/message-posted', ['room-a', { from: 'beta', content: '群消息' }]);
-    feed.clearUnread(directDialog('alpha')); // 点开 Agent（AgentList 选中路径同款）
-    expect(feed.getDialog(directDialog('alpha'))!.unread).toBe(0);
-
-    const feed2 = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    // 读过的会话不在快照 → 新实例无分区，徽章消费面（getUnreadCount）回落 0
-    expect(feed2.getUnreadCount('alpha')).toBe(0);
-    expect(feed2.getDialog(directDialog('alpha'))).toBeNull();
-    expect(feed2.getDialog(groupDialog('room-a'))!.unread).toBe(1); // 未读的群不受牵连
+  it('clearUnread → session/mark-read RPC（seq 锚优先，空分区无锚不发）', async () => {
+    const rpc = makeRpc();
+    const feed = await makeFeed(rpc);
+    // 种历史行：seq 3 > 1（B1 行级锚取 max）
+    feed.append(directDialog('alpha'), { id: 'a1', role: 'agent', content: 'x', timestamp: 1, agent_id: 'alpha', seq: 1, persistedMsgId: 'm-1' });
+    feed.append(directDialog('alpha'), { id: 'a2', role: 'agent', content: 'y', timestamp: 2, agent_id: 'alpha', seq: 3, persistedMsgId: 'm-3' });
+    const d = feed.getDialog(directDialog('alpha'))!;
+    d.unread = 2;
+    feed.clearUnread(directDialog('alpha'));
+    expect(d.unread).toBe(0);
+    const mk = rpc.calls.find((c) => c.method === 'session/mark-read');
+    expect(mk).toBeDefined();
+    expect(mk!.params.conversationId).toBe('alpha~user');
+    expect(mk!.params.seq).toBe(3);
+    // 空分区（无已见行）清未读：不发 RPC（无锚不回写）
+    feed.ensureById(groupDialog('room-a'));
+    feed.clearUnread(groupDialog('room-a'));
+    expect(rpc.calls.filter((c) => c.method === 'session/mark-read').length).toBe(1);
   });
 
-  it('persistUnread 缺省关：增量不写快照（既有测试隔离面——webui feed 状态机族无 localStorage 依赖）', async () => {
+  it('历史首屏响应旁带 unreadCount 覆盖分区未读（权威纠偏乐观增量）', async () => {
+    // rpc 桩返回带 unreadCount 的首屏 + 一条带 seq 的记录行
+    const rpc = {
+      call: (method: string) => {
+        if (method === 'session/history') return Promise.resolve({
+          records: [], hasMore: false,
+          unreadCount: 7,
+        });
+        return Promise.resolve({});
+      },
+      onEvent: () => () => undefined,
+    };
+    const feed = await makeFeed(rpc as never);
+    feed.loadHistory(directDialog('alpha'), 'user', 'alpha');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(feed.getDialog(directDialog('alpha'))!.unread).toBe(7);
+  });
+
+  it('persistUnread 选项退役：传该选项不再报错（宽容面），localStorage 不再读写', async () => {
+    const rpc = makeRpc();
+    const fc = await importFeed();
     const { RosterCore } = await import('ac-client-ui-agents/client');
-    const feed = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore());
+    // @ts-expect-error 旧调用面（宽容——选项已退役）
+    const feed = fc.createFeedCore(rpc as never, () => new RosterCore(), { persistUnread: true });
     feed.ingestFrame('router/message-received', ['alpha', { role: 'user', content: '私信' }, 'alpha~user', 'alpha', 'agent']);
     expect(feed.getDialog(directDialog('alpha'))!.unread).toBe(1);
-    expect(unreadStore.loadUnreadSnapshot()).toBeNull(); // 不落盘
+    expect((globalThis as { localStorage?: { length: number } }).localStorage?.length ?? 0).toBe(0); // 不落 localStorage
   });
 
-  it('single 会话未读同链路恢复（AgentList 聚合徽章口径）', async () => {
-    // single 分区经 ingestFrame 无直接入站口——用测试面造快照（load 校验
-    // 形状）后水合，锁定恢复端契约（single:sid 键合法）
-    unreadStore.saveUnreadSnapshot({ [singleDialog('sess-1')]: { n: 4, ts: 1 } });
-    const { RosterCore } = await import('ac-client-ui-agents/client');
-    const feed = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    expect(feed.getDialog(singleDialog('sess-1'))!.unread).toBe(4);
+  it('对账响应缺 conversations / 失败静默（旧后端兼容——本地态保持）', async () => {
+    const rpc = {
+      call: (method: string) => method === 'session/unread' ? Promise.reject(new Error('旧后端')) : Promise.resolve({}),
+      onEvent: () => () => undefined,
+    };
+    const feed = await makeFeed(rpc as never);
+    feed.init(); // 拒绝静默——不炸
+    await new Promise((r) => setTimeout(r, 0));
+    expect(feed.getDialog(directDialog('alpha'))).toBeNull(); // 无分区（未水合）
   });
 
-  it('进入 single 会话清未读（setActiveSingle——与 setActiveGroup 进群同语义，幽灵未读修复回归）', async () => {
-    // 造 single 未读快照 → 水合恢复 → 进入会话（SessionList selectSingle →
-    // chat.setSingleContext → feed.setActiveSingle 同款调用）→ 未读清零且
-    // 写穿（刷新后不复活——single 无名册行，不清则活动栏聚合永久残留）
-    unreadStore.saveUnreadSnapshot({ [singleDialog('sess-1')]: { n: 3, ts: 1 }, [groupDialog('room-a')]: { n: 2, ts: 1 } });
-    const { RosterCore } = await import('ac-client-ui-agents/client');
-    const feed = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    feed.setActiveSingle('sess-1', 'alpha');
-    expect(feed.getDialog(singleDialog('sess-1'))!.unread).toBe(0);
-    // 写穿：别的分区不受牵连；重建实例（= 刷新）single 未读不复活
-    const snap = unreadStore.loadUnreadSnapshot();
-    expect(snap![groupDialog('room-a')]!.n).toBe(2);
-    expect(snap![singleDialog('sess-1')]).toBeUndefined();
-    const feed2 = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    expect(feed2.getDialog(singleDialog('sess-1'))).toBeNull();
-    expect(feed2.getDialog(groupDialog('room-a'))!.unread).toBe(2);
+  it('pruneSingleUnread 对账：active 集外的 single 未读清（孤儿未读根修，cr-290 语义保持）', async () => {
+    const rpc = makeRpc([{ conversationId: 'sess-1', unreadCount: 2 }, { conversationId: 'gone-1', unreadCount: 5 }]);
+    const feed = await makeFeed(rpc);
+    feed.init();
+    await new Promise((r) => setTimeout(r, 0));
+    feed.pruneSingleUnread(['sess-1']);
+    expect(feed.getDialog(singleDialog('sess-1'))!.unread).toBe(2); // live 不动
+    expect(feed.getDialog(singleDialog('gone-1'))!.unread).toBe(0); // 孤儿清零
   });
 
-  it('pruneSingleUnread 对账：active 集外的 single 未读清 + 写穿（删/归档会话的孤儿未读无行可点——tab 聚合永久残留根修，cr-290）', async () => {
-    // 造快照：live 会话 + 已删会话（快照残留）各带未读
-    unreadStore.saveUnreadSnapshot({ [singleDialog('live-1')]: { n: 2, ts: 1 }, [singleDialog('gone-1')]: { n: 5, ts: 1 }, [groupDialog('room-a')]: { n: 3, ts: 1 } });
-    const { RosterCore } = await import('ac-client-ui-agents/client');
-    const feed = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    feed.pruneSingleUnread(['live-1']); // SingleBoardService.refresh 后同款调用（active 集）
-    expect(feed.getDialog(singleDialog('live-1'))!.unread).toBe(2); // live 不动
-    expect(feed.getDialog(singleDialog('gone-1'))!.unread).toBe(0); // 孤儿未读清零（分区对象仍在——只清数，不删分区）
-    expect(feed.getDialog(groupDialog('room-a'))!.unread).toBe(3); // 非 single 分区不受牵连
-    const snap = unreadStore.loadUnreadSnapshot(); // 写穿：重建实例孤儿不复活
-    expect(snap![singleDialog('gone-1')]).toBeUndefined();
-    const feed2 = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    expect(feed2.getDialog(singleDialog('live-1'))!.unread).toBe(2);
-    expect(feed2.getDialog(singleDialog('gone-1'))).toBeNull();
-  });
-
-  it('脏快照防御：损坏 JSON / 非法键 / 非正整数 → 整份丢弃不恢复', async () => {
-    unreadStore.__setUnreadSnapshotRaw('{broken json');
-    const { RosterCore } = await import('ac-client-ui-agents/client');
-    const broken = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    expect(broken.getUnreadCount('alpha')).toBe(0);
-
-    unreadStore.__setUnreadSnapshotRaw(JSON.stringify({ version: 2, entries: { 'junk:key': 1, [directDialog('alpha')]: 0, [groupDialog('g')]: { n: -3, ts: 1 }, [singleDialog('s')]: 'x' } }));
-    const junk = feedCore.createFeedCore(offlineRpc as never, () => new RosterCore(), { persistUnread: true });
-    expect(junk.getDialog(directDialog('alpha'))).toBeNull();
-    expect(junk.getDialog(groupDialog('g'))).toBeNull();
-    expect(junk.getDialog(singleDialog('s'))).toBeNull();
-  });
-
-  it('非 viewer pair（矩阵只读分区）不恢复——徽章无此消费面，与增量口径一致', async () => {
-    const { RosterCore } = await import('ac-client-ui-agents/client');
-    const roster = new RosterCore();
-    const feed = feedCore.createFeedCore(offlineRpc as never, () => roster, { persistUnread: true });
-    // agent⇄agent 对桶（a~b 不含 viewer）：消息照常进分区（矩阵只读视角
-    // 实时显示），但 viewerRelevant=false 不计未读——快照恒无此键
-    feed.ingestFrame('router/message-received', ['beta', { role: 'user', content: '委托' }, 'beta~gamma', 'beta', 'agent']);
-    expect(feed.getDialog('pair:beta|gamma' as never)!.unread).toBe(0);
-    expect(unreadStore.loadUnreadSnapshot()).toBeNull();
+  it('非 viewer pair（矩阵只读分区）不入对账轴——dialogIdOfConversation 过滤', async () => {
+    const rpc = makeRpc([{ conversationId: 'beta~gamma', unreadCount: 3 }]);
+    const feed = await makeFeed(rpc);
+    feed.init();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(feed.getDialog('pair:beta|gamma' as never)).toBeNull(); // 非 viewer 对桶不水合
   });
 });

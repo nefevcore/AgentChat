@@ -118,9 +118,9 @@ export class ConversationService extends Service {
     super(ctx, 'sessions');
     void options;
     const rpc = (ctx as ClientContext).rpc;
-    // persistUnread：生产路径开未读快照持久化（刷新后徽章经
-    // localStorage 单键 agentchat.unread 恢复；独立实例/单测缺省关）
-    this.feed = createFeedCore(rpc, undefined, { persistUnread: true });
+    // cr-1146：未读读位归服务端（mark-read + 对账）——localStorage 快照
+    // 持久化选项随 unreadStore 退役，生产/测试同构（对账失败静默降级）
+    this.feed = createFeedCore(rpc);
     this.chat = createChatCore(reactive(this.feed) as unknown as FeedView, rpc);
   }
 

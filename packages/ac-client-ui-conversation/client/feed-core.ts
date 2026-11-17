@@ -22,12 +22,13 @@ import {
   historyPage, historyServed, chatPresence, extractPartialJsonString, uid,
   type StreamState,
 } from './chatOps.ts';
-import { loadUnreadSnapshot, saveUnreadSnapshot, watchUnreadSnapshot, mergeUnreadSnapshots, type UnreadEntry } from './unreadStore.ts';
+// cr-1146：unreadStore（localStorage 快照）退役——读位归服务端权威源
+// （session/mark-read RPC + 首屏/批量对账），多端收敛面随快照职责整体移交。
 import { agentInFlight } from './runStatus.ts';
 import { notifyUser, pageHidden } from './notifyBridge.ts';
 import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
-  type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId,
+  type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId, pairDialog,
   pairPartnerOf, pairHasViewer, bucketKey, fmtElapsed,
   mergeHistoryPage, mergeTimeOrdered, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, closeRunningToolCalls,
   groupMessageToChatMessage, pairMessageToChatMessage, attachmentFilesOf, splitAttachmentLines,
@@ -107,11 +108,8 @@ function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): Di
   };
 }
 
-/** createFeedCore 可选面：persistUnread = 未读快照持久化开关（缺省关）。
- *  生产路径（ConversationService）开：未读徽章刷新后经 localStorage
- *  单键 agentchat.unread 恢复；测试默认关——独立实例隔离，不互写快照。 */
+/** createFeedCore 可选面（cr-1146：persistUnread 随 localStorage 快照退役）。 */
 export interface FeedCoreOptions {
-  persistUnread?: boolean;
   /** 热集 LRU 上限（A2；缺省 30 个非空分区）——测试可注入小值 */
   lruMaxDialogs?: number;
   /** 热集字节预算（A2；缺省 ~30MB，按 rawMessages 内容长度估算） */
@@ -127,7 +125,6 @@ export function createFeedCore(
   roster: () => RosterCore = useRosterCore,
   options: FeedCoreOptions = {},
 ) {
-  const persistUnread = options.persistUnread === true;
   const lruMaxDialogs = options.lruMaxDialogs ?? 30;
   const lruByteBudget = options.lruByteBudget ?? 30 * 1024 * 1024;
   // ── State ──
@@ -146,60 +143,63 @@ export function createFeedCore(
     return v;
   }
 
-  // ── 未读持久化（persistUnread 开时生效）：工厂期水合 + 变更写穿 ──
-  // 多 tab 对账退订句柄（声明先于水合块——TDZ）
-  let unwatchUnread: (() => void) | null = null;
-  // 水合：恢复的分区只设 unread（不动 rawMessages/status——历史仍懒加载，
-  // 徽章数据不触发拉取）；恢复后即视为本实例的当前态，后续增量/清除
-  // 全量写回快照。非 viewer pair（矩阵只读分区）的未读无列表入口、
-  // 徽章不消费——不恢复（与增量路径的 viewerRelevant 口径一致）。
-  if (persistUnread) {
-    const saved = loadUnreadSnapshot();
-    if (saved) {
-      for (const [id, entry] of Object.entries(saved) as Array<[DialogId, UnreadEntry]>) {
-        const { kind, key } = parseDialogId(id);
-        if (kind === 'pair' && !pairHasViewer(key)) continue;
-        const d = ensureById(id);
-        d.unread = entry.n;
-        d.unreadTs = entry.ts;
-      }
+  // ── 未读服务端权威源（cr-1146）：读位经 session/mark-read 落服务端 ──
+  // localStorage 快照退役：刷新/多端归一改由服务端对账（首屏旁带 + 批量
+  // session/unread）。live 帧计数保留为乐观增量（bumpUnread 现状——对账面
+  // 纠偏）。会话键 = conversationId 同构（pair 对桶 / single sid / group gid）。
+
+  /** 会话键（DialogId → 服务端 conversationId；群 = gid，其余 = 分区键） */
+  function convKeyOf(id: DialogId): string {
+    const { kind, key } = parseDialogId(id);
+    return kind === 'pair' ? key.split('|').join('~') : key;
+  }
+
+  /** 分区读位锚：已见行的最新锚（seq 优先——B1 行级；回落尾部 persistedMsgId）。
+   *  空分区（未载历史）= 无锚——不回写读位（盲目提水位会把未真正读到的
+   *  行标已读；服务端水位保持）。 */
+  function readAnchorOf(d: DialogFeed): { seq?: number; messageId?: string } {
+    let seq: number | undefined;
+    for (const m of d.rawMessages) {
+      if (typeof m.seq === 'number' && m.seq > (seq ?? 0)) seq = m.seq;
     }
-    // 多 tab 收敛（cr-1139）：他 tab 写穿 → 以 ts 归一合并进内存（他 tab
-    // 清掉的（n=0 缺席）不复活本 tab 已清；新计的按 ts 采纳）。徽章数字
-    // 是派生消费面（getUnreadCount/computed），内存态更新即自动反映。
-    unwatchUnread = watchUnreadSnapshot((remote) => {
-      const local: Partial<Record<DialogId, UnreadEntry>> = {};
-      for (const [id, d] of Object.entries(dialogs.value)) {
-        if (d && d.unread > 0 && isViewerDialog(id as DialogId)) local[id as DialogId] = { n: d.unread, ts: d.unreadTs };
-      }
-      const merged = mergeUnreadSnapshots(local, remote);
-      for (const [id, entry] of Object.entries(merged) as Array<[DialogId, UnreadEntry]>) {
-        const d = ensureById(id);
-        d.unread = entry.n;
-        d.unreadTs = entry.ts;
-      }
-      // 他 tab 已清的键在本 tab 缺席于 merged：快照零值不落键（缺席即最新
-      // 清除——写穿恒全量投影），本 tab 若仍持旧计数则回落（保守收敛）。
-      const remoteIds = new Set(Object.keys(remote));
-      for (const [id, d] of Object.entries(dialogs.value)) {
-        if (!d || d.unread <= 0 || !isViewerDialog(id as DialogId)) continue;
-        if (merged[id as DialogId] === undefined && remoteIds.has(id) === false && Object.keys(remote).length > 0) {
-          // remote 非空且无此键 = 他 tab 投影里它已是零——对齐
-          d.unread = 0;
+    if (seq !== undefined) return { seq };
+    for (let i = d.rawMessages.length - 1; i >= 0; i--) {
+      const mid = d.rawMessages[i]!.persistedMsgId;
+      if (mid) return { messageId: mid };
+    }
+    return {};
+  }
+
+  /** 服务端批量对账（启动期徽章水合）：会话清单 → 分区 unread 覆盖。
+   *  服务端响应缺席/失败静默（旧后端兼容——本地态保持）。群不在会话轴
+   *  （群未读由 group/history 首屏旁带与本地增量承载）。 */
+  function reconcileUnread(): void {
+    void rpc.call<{ conversations?: Array<{ conversationId: string; unreadCount?: number }> }>('session/unread', {})
+      .then((r) => {
+        if (!Array.isArray(r.conversations)) return;
+        for (const c of r.conversations) {
+          if (typeof c.conversationId !== 'string' || typeof c.unreadCount !== 'number') continue;
+          const id = dialogIdOfConversation(c.conversationId);
+          if (id === null) continue;
+          const d = ensureById(id);
+          d.unread = c.unreadCount;
           d.unreadTs = Date.now();
         }
-      }
-    });
+      })
+      .catch(() => undefined); // 对账尽力而为
   }
-  /** 未读变更写穿（cr-1139 v2）：从 dialogs 全量投影 {n, ts} 映射落盘 */
-  function persistUnreadNow(): void {
-    if (!persistUnread) return;
-    const counts: Partial<Record<DialogId, UnreadEntry>> = {};
-    for (const [id, d] of Object.entries(dialogs.value)) {
-      if (d && d.unread > 0 && isViewerDialog(id as DialogId)) counts[id as DialogId] = { n: d.unread, ts: d.unreadTs };
+
+  /** conversationId → DialogId（对桶 → viewer pair 分区；无 ~ → single；
+   *  群键不在此轴——群走群历史旁带） */
+  function dialogIdOfConversation(cid: string): DialogId | null {
+    if (cid.includes('~')) {
+      const parts = cid.split('~');
+      if (parts.length !== 2 || !parts.includes(VIEWER_ID.value)) return null; // 非 viewer 对桶（矩阵只读）不入徽章轴
+      return pairDialog(parts[0] === VIEWER_ID.value ? parts[1] : parts[0], VIEWER_ID.value);
     }
-    saveUnreadSnapshot(counts);
+    return singleDialog(cid);
   }
+
   const _turnsCache = new Map<DialogId, ComputedRef<Turn[]>>();
   /** 增量 turns 状态：完成轮次复用对象身份，避免每个 token 全列表重渲染 */
   const _turnsMemo = new Map<DialogId, TurnsMemo>();
@@ -539,15 +539,19 @@ export function createFeedCore(
     const d = ensureById(id);
     d.unread += 1;
     d.unreadTs = Date.now();
-    persistUnreadNow();
   }
+  /** 清未读（写口唯一——进入会话即清）：本地即时清 + 服务端读位落定
+   *  （cr-1146）。锚 = 分区已见行最新锚（seq 优先/messageId 兜底）；空
+   *  分区无锚不发（服务端水位不动——盲目提水位会把未读到的行标已读）。
+   *  RPC 失败静默（本地已清；下次对账由服务端水位纠偏——乐观面语义）。 */
   function clearUnread(id: DialogId) {
     const d = dialogs.value[id];
-    if (d) {
-      d.unread = 0;
-      d.unreadTs = Date.now();
-      persistUnreadNow(); // 读位清除写穿（读即抹除，刷新不复活——ts 随行）
-    }
+    if (!d) return;
+    d.unread = 0;
+    d.unreadTs = Date.now();
+    const anchor = readAnchorOf(d);
+    if (anchor.seq === undefined && anchor.messageId === undefined) return;
+    void rpc.call('session/mark-read', { conversationId: convKeyOf(id), ...anchor }).catch(() => undefined);
   }
   /** single 分区未读对账（singles 域 refresh 后经 sessions 契约面调用）：
    *  不在 liveIds 内的 single 分区未读 = 孤儿——会话已删/归档，列表无行
@@ -712,7 +716,7 @@ export function createFeedCore(
     const livePartition = !!fpd && (fpd.streaming
       || fpd.rawMessages.some(m => m.isStreaming || (m.role === 'tool' && !m.content)));
     const fp = fpd !== undefined && !force && !livePartition ? fpd.historyFingerprint : undefined;
-    void rpc.call<{ records?: unknown[]; hasMore?: boolean; unchanged?: boolean; fingerprint?: string }>('session/history', { ...base, conversationId, ...(fp !== undefined ? { fingerprint: fp } : {}) })
+    void rpc.call<{ records?: unknown[]; hasMore?: boolean; unchanged?: boolean; fingerprint?: string; unreadCount?: number }>('session/history', { ...base, conversationId, ...(fp !== undefined ? { fingerprint: fp } : {}) })
       .then((r) => {
         // 指纹命中：分区已是最新（status 回 ready；保留 rawMessages/未读）
         if (r.unchanged === true) {
@@ -721,6 +725,16 @@ export function createFeedCore(
           if (d && (d.status === 'loading' || d.status === 'converging')) d.status = 'ready';
           if (d && typeof r.fingerprint === 'string') d.historyFingerprint = r.fingerprint;
           return;
+        }
+        // cr-1146 服务端对账：首屏（offset=0 全量响应）带 unreadCount →
+        // 覆盖分区未读（乐观增量被权威值纠偏——页面关闭期间的产生在此补计）。
+        // unchanged 短路/上翻无此字段（缺席 = 不对账）。
+        if (srcOffset === 0 && typeof (r as { unreadCount?: unknown }).unreadCount === 'number') {
+          const d = dialogs.value[fpDialogId];
+          if (d) {
+            d.unread = (r as { unreadCount: number }).unreadCount;
+            d.unreadTs = Date.now();
+          }
         }
         const records = (r.records ?? []) as Array<Record<string, unknown>>;
         historyServed(session, to, records.length);
@@ -1048,6 +1062,11 @@ export function createFeedCore(
     const preLen = d.rawMessages.length;
     try {
       const data = await fetchGroupHistory(groupId, 0, 50, rpc);
+      // cr-1146 服务端对账：群首屏旁带 unreadCount → 覆盖分区未读
+      if (typeof data.unreadCount === 'number') {
+        d.unread = data.unreadCount;
+        d.unreadTs = Date.now();
+      }
       const msgs = data.messages.map(groupMessageToChatMessage);
       const liveTail = d.rawMessages.slice(preLen);
       d.rawMessages = liveTail.length > 0 ? [...msgs, ...liveTail] : msgs;
@@ -2802,6 +2821,9 @@ export function createFeedCore(
     if (initialized) return; // 重入守卫（chat-core init 幂等语义对齐）
     initialized = true;
     rpc.onEvent(handleFrame);
+    // cr-1146 启动期未读对账：服务端权威值水合全部徽章（页面关闭期间的
+    // 产生在此补计——live 帧计数只覆盖在线窗口）
+    reconcileUnread();
     // 重连后清理：断线期间发出的 history 请求已作废（status 残留 'loading'
     // 永久堵死分页）；断线中丢失收尾帧的分区也要关闭残留流式占位
     rpc.onOpen?.(() => {
@@ -2886,7 +2908,7 @@ export function createFeedCore(
     // 原语
     ensureById, append, removeMessage, replaceMessage, truncateAfter, resetDialog, setRaw,
     maybeEvict, // A2：热集对账（测试面显式调用）
-    clearUnread, pruneSingleUnread,
+    clearUnread, pruneSingleUnread, reconcileUnread,
     // busy 排队发送回显登记（chat store 排队路径专用）
     registerQueuedSend, dropQueuedSend,
     // 历史
