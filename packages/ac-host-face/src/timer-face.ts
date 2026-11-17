@@ -24,10 +24,38 @@ export const extension: ExtensionMeta = {
 
 const err = (msg: string): { ok: false; error: string } => ({ ok: false, error: msg });
 
+/**
+ * timer list 的视图版本。**只在诊断字段面发生「不兼容变化」时递增**——消费方
+ * 应先确认 listVersion 达到自己需要的值，再读对应字段；不要用「某字段缺失」
+ * 反推「该状态一致/正常」（2026-11-17 第五例：configStale 缺失被读成「一致」）。
+ *   v1：id/mode/time/hint/enabled
+ *   v2：+ 原样 delay/gate 等字段、lastAt/nextAt/lagMs、lastSkip*、lastGate*、configStale
+ */
+const LIST_VERSION = 2;
+
 /** timers 服务最小面（HostTimersService——宿主 timers 行在场即有） */
 interface TimersFace {
   entries(owner: string): TimerEntry[];
-  save(owner: string, entries: TimerEntry[]): void;
+  /** ok:false = 写前冲突（磁盘被外部改过）——条目未被覆盖，需重取后重试 */
+  save(owner: string, entries: TimerEntry[]): { ok: boolean; error?: string };
+  /**
+   * 存储一致性（缺席 = 旧版 timers 行无此能力）：configStale=true = 磁盘已变、
+   * 内存仍是旧视图。新实现恒返回布尔（不返回 undefined）——字段缺失只应表示
+   * 「旧代码」，不应同时表示「一致」，否则消费方无法区分。
+   */
+  storeState?(owner: string): { configStale: boolean };
+  /** 排程态快照（缺席 = 旧版 timers 行——list 退回静态字段） */
+  scheduleState?(owner: string, entryId: string): {
+    lastAt?: string;
+    nextAt?: string;
+    lagMs?: number;
+    lastSkipAt?: string;
+    lastSkipReason?: string;
+    skipStreak?: number;
+    lastGateErrorAt?: string;
+    lastGateCode?: number;
+    lastGateCodeAt?: string;
+  };
 }
 
 /** timer 执行器（cr-886 起语义原样——tools.ts executeTimer 搬家） */
@@ -45,11 +73,32 @@ function executeTimer(
     return {
       ok: true,
       result: {
+        // 视图版本（字面量，新代码恒有）：消费方先看它确认「诊断字段是否齐备」，
+        // 再读各字段的值。缺席 = 旧版 timers 行（此时下列诊断字段全都没有）。
+        listVersion: LIST_VERSION,
         entries: timers.entries(owner).map((e) => ({
           id: e.id, mode: e.mode,
+          // time 保持旧行为（日历条目 = HH:mm；间隔/随机条目 = 周期摘要）——
+          // 兼容既有消费方，勿改其语义。
           time: e.time ?? e.delay ?? (e.delayMin !== undefined || e.delayMax !== undefined ? `${e.delayMin ?? '?'}-${e.delayMax ?? '?'}` : undefined),
+          // 原始字段原样透出（ISSUE-23）：只有 time 一个字段会让消费方把
+          // 「delay 模式」误读成「磁盘上是 time 键」——2026-11-17 news 据此
+          // 怀疑周期键被改名。列出口径 = 磁盘键名，判断配置变更请读这几个。
+          ...(e.delay !== undefined ? { delay: e.delay } : {}),
+          ...(e.delayMin !== undefined ? { delayMin: e.delayMin } : {}),
+          ...(e.delayMax !== undefined ? { delayMax: e.delayMax } : {}),
+          ...(e.gate !== undefined ? { gate: e.gate } : {}),
+          ...(e.gateOnError !== undefined ? { gateOnError: e.gateOnError } : {}),
           hint: e.hint, enabled: e.enabled,
+          // 排程态（lastAt 上次触发 / nextAt 下次触发的绝对时刻 / lagMs 上次迟到量）：
+          // 空窗自查数据源——不必再靠落盘 mtime 反推（ISSUE-22）
+          ...(timers.scheduleState?.(owner, e.id) ?? {}),
         })),
+        // 内存视图 vs 磁盘：entries 读的是 boot 时的内存副本，改了 entries/timer.json
+        // 但本字段为 true 时说明「磁盘已变、尚未生效」——重启/重载后一致（ISSUE-24）。
+        // 新代码恒给出 true/false；字段**完全缺席**只表示「跑的是没有 storeState 的
+        // 旧行」——缺失 ≠ 一致（2026-11-17 news 指出此处有缺失二义）。
+        ...(timers.storeState !== undefined ? { configStale: timers.storeState(owner).configStale } : {}),
       },
     };
   }
@@ -59,7 +108,8 @@ function executeTimer(
     const current = timers.entries(owner);
     const next = current.filter((e) => e.id !== id);
     if (next.length === current.length) return err('条目不存在: ' + id);
-    timers.save(owner, validateTimerEntries(next));
+    const res = timers.save(owner, validateTimerEntries(next));
+    if (!res.ok) return err(res.error ?? '保存失败');
     return { ok: true, result: { cancelled: id } };
   }
   if (action === 'set') {
@@ -69,7 +119,8 @@ function executeTimer(
     if (!time) return err('set 需要 time（时间串）');
     const entry = parseTimerEntry(time, hint, identity.conversationId);
     if (entry === null) return err('无法解析时间串: ' + time + '（支持 HH:mm / YYYY-MM-DDTHH:mm / 周日 12:00 / 30m 间隔）');
-    timers.save(owner, validateTimerEntries([...timers.entries(owner), entry]));
+    const res = timers.save(owner, validateTimerEntries([...timers.entries(owner), entry]));
+    if (!res.ok) return err(res.error ?? '保存失败');
     return { ok: true, result: { entry_id: entry.id, mode: entry.mode, time: entry.time ?? entry.delay ?? undefined } };
   }
   return err('未知 action: ' + action);
@@ -99,7 +150,7 @@ export function makeTimerFaceRow(): Plugin {
         tools: [{
           name: 'timer',
           description:
-            '管理定时任务：set 安排一条提醒/延时任务（到点以新消息唤醒你并携带 hint）、list 查看自己的条目、cancel 按 id 取消。会话维度：在哪个会话设置就回哪个会话；时间串支持 HH:mm（每天）/ YYYY-MM-DDTHH:mm（一次）/ 周日 12:00（每周）/ 间隔（30m、1h）。',
+            '管理定时任务：set 安排一条提醒/延时任务（到点以新消息唤醒你并携带 hint）、list 查看自己的条目（含 lastAt 上次触发 / nextAt 下次触发 / lagMs 上次迟到量 / lastSkipAt+lastSkipReason+skipStreak 最近一次按策略跳过 / lastGateCode+lastGateCodeAt 最近 gate 退出码及其时刻（成对读，旧值≠当前态）/ lastGateErrorAt gate 自身异常；顶层 configStale=true 表示磁盘条目已被外部修改但内存仍是旧视图——list 读的是内存副本，重启/重载后才生效）、cancel 按 id 取消。会话维度：在哪个会话设置就回哪个会话；时间串支持 HH:mm（每天）/ YYYY-MM-DDTHH:mm（一次）/ 周日 12:00（每周）/ 间隔（30m、1h；间隔以「上触发时刻」续排，宿主重启不重置周期）。',
           parameters: {
             type: 'object',
             properties: {

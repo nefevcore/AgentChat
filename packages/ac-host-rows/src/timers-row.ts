@@ -92,6 +92,56 @@ interface TimerLayerSettings {
   makeupWorkdays?: string[];
 }
 
+/**
+ * gate 预检结果（ISSUE-22 补丁三）：
+ *   run    = 退出码 0，放行
+ *   silent = 退出码 1，约定「预期静默」（如夜间窗口脚本——零 token 跳过）
+ *   error  = 其它非零：gate 自身故障（脚本崩/依赖缺失/写法错）
+ * 旧实现把 silent 与 error 混作「跳过」，于是 gate 崩掉时条目会永久静默，
+ * 且从外部与每夜正常静默完全同形（不可观测）。
+ */
+type GateVerdict = 'run' | 'silent' | 'error';
+
+/**
+ * 「预期静默」的**无歧义**退出码。必须与 1 并存的原因：
+ * 1 是绝大多数运行时未捕获异常的默认退出码（python 未捕获异常 = 1、
+ * node 未捕获异常 = 1）——把 1 直接当「约定静默」会让 gate 崩溃伪装成
+ * 夜间静默（正是 ISSUE-22 要消灭的那种）。
+ * 故：1 = 静默**仅当 stderr 为空**；20 = 静默（无论 stderr）；其余非零 = 故障。
+ */
+export const GATE_SILENT_EXIT = 20;
+
+/** gate stderr 末行（截 400 字符）——故障归因用；空串 = 无输出（导出供单测） */
+export function gateStderrTail(stderr: unknown): string {
+  if (typeof stderr !== 'string') return '';
+  const lines = stderr.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return '';
+  const last = lines[lines.length - 1];
+  return last.length > 400 ? last.slice(0, 400) + '…' : last;
+}
+
+/** storedSnapshot 里代表「磁盘上还没有这个文件」的哨兵值 */
+const ABSENT = '__ABSENT__';
+
+/**
+ * 稳定序列化（键排序）——用于比较「两份条目内容是否相同」。
+ * 不能直接用 JSON.stringify：外部写入（人或另一个进程）会改变键序，
+ * 那样「内容没变」也会被判成冲突（ISSUE-24）。
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+  const obj = value as Record<string, unknown>;
+  return (
+    '{' +
+    Object.keys(obj)
+      .sort()
+      .map((k) => JSON.stringify(k) + ':' + stableStringify(obj[k]))
+      .join(',') +
+    '}'
+  );
+}
+
 const isDeferred = (mode: TimerEntry['mode']) => mode === 'delay' || mode === 'random';
 const isCalendar = (mode: TimerEntry['mode']) => mode === 'time' || mode === 'workday' || mode === 'holiday';
 const repeatOf = (entry: TimerEntry) =>
@@ -126,6 +176,26 @@ export class HostTimersService extends Service {
   private schedules = new Map<string, () => void>();
   private heartbeatDispose?: () => void;
   private persisted = new Map<string, TimerPersistedState>();
+  /** key → 已排定的下次触发时刻（ms）——诊断面（timer list 的 nextAt） */
+  private nextAtMs = new Map<string, number>();
+  /** key → 最近一次触发的迟到量（ms）——诊断面（静默空窗可观测） */
+  private lastLagMs = new Map<string, number>();
+  /** key → 最近一次「按策略跳过」（门控/静默窗口）——与 lastAt 分格：跳过不写 lastAt */
+  private lastSkip = new Map<string, { at: string; reason: string; streak: number }>();
+  /** key → 最近一次 gate 自身故障时刻（fail-open 时也记——否则「崩了但照跑」无痕） */
+  private lastGateErrorAt = new Map<string, string>();
+  /** key → 最近一次 gate 退出码（非 0 才记；让「静默」能区分 20/旧码 1） */
+  private lastGateCode = new Map<string, number>();
+  /** key → 上面那次退出码的时刻（**必须有**：否则「昨夜 20」会被读成「此刻静默」） */
+  private lastGateCodeAt = new Map<string, string>();
+  /**
+   * owner → 我上一次读到/写出的条目内容指纹（ISSUE-24 乐观并发基准）。
+   * save 前拿它与磁盘现值比：不一致 = 期间有别人改过（人或另一进程），
+   * 此时整表覆盖会静默抹掉那笔改动（2026-11-17 给 news 补 gate 就是这样差点丢掉）。
+   */
+  private storedSnapshot = new Map<string, string>();
+  /** 已提示过「旧静默码 1」的 key（每进程每 key 只提示一次，避免 30m 档刷屏） */
+  private legacyGateNotice = new Set<string>();
 
   constructor(ctx: Context, options: TimersHostRowOptions) {
     super(ctx, 'timers');
@@ -154,22 +224,34 @@ export class HostTimersService extends Service {
     return cfg ?? null;
   }
 
-  /** entries/<owner>/timer.json 直读（agentStore 换轨——缺席 = null） */
-  private readStored(owner: string): TimerStoreEntry | null {
+  /**
+   * entries/<owner>/timer.json 直读（agentStore 换轨——缺席 = null）。
+   * remember=true（缺省）时把读到的内容指纹记进 storedSnapshot——save 的
+   * 冲突检测以它为「我的基准」（ISSUE-24）。
+   */
+  private readStored(owner: string, opts?: { remember?: boolean }): TimerStoreEntry | null {
     if (owner === GLOBAL_TIMER_OWNER) return null;
+    const remember = opts?.remember !== false;
+    const finish = (v: TimerStoreEntry | null): TimerStoreEntry | null => {
+      if (remember) this.storedSnapshot.set(owner, v === null ? ABSENT : stableStringify(v));
+      return v;
+    };
     const via = this.agentsEdit?.readEntry<TimerStoreEntry>(owner, 'timer');
-    if (via !== undefined) return Array.isArray(via.entries) ? via : null;
+    if (via !== undefined) return finish(Array.isArray(via.entries) ? via : null);
     try {
       const file = path.join(this.dataRoot, 'agents', owner, 'entries', 'timer.json');
       const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as TimerStoreEntry;
-      return Array.isArray(parsed.entries) ? parsed : null;
+      return finish(Array.isArray(parsed.entries) ? parsed : null);
     } catch {
-      return null; }
+      return finish(null);
+    }
   }
 
   /** entries/<owner>/timer.json 原子写（cr-551 单写者：编辑面在场走 saveEntry） */
   private writeStored(owner: string, stored: TimerStoreEntry): void {
     if (owner === GLOBAL_TIMER_OWNER) return;
+    // 写完即更新基准：否则下一次 save 会把自己刚写的当成「外部改动」
+    this.storedSnapshot.set(owner, stableStringify(stored));
     if (this.agentsEdit !== undefined) {
       this.agentsEdit.saveEntry(owner, 'timer', stored);
       return;
@@ -260,7 +342,15 @@ export class HostTimersService extends Service {
       for (const e of entries) valid.add(`${owner}/${e.id}`);
     }
     for (const key of this.persisted.keys()) {
-      if (!key.startsWith('_') && !valid.has(key)) this.persisted.delete(key);
+      if (!key.startsWith('_') && !valid.has(key)) {
+        this.persisted.delete(key);
+        this.nextAtMs.delete(key);
+        this.lastLagMs.delete(key);
+        this.lastSkip.delete(key);
+        this.lastGateErrorAt.delete(key);
+        this.lastGateCode.delete(key);
+        this.lastGateCodeAt.delete(key);
+      }
     }
     this.saveState();
 
@@ -323,12 +413,93 @@ export class HostTimersService extends Service {
     return [...this.entriesByAgent].map(([owner, entries]) => ({ owner, entries }));
   }
 
-  /** 保存某 owner 条目（全量覆盖）+ 重排；全局条目落 config */
-  save(owner: string, entries: TimerEntry[]): void {
+  /**
+   * 排程态快照（诊断面——timer list 暴露 lastAt/nextAt/lagMs）。
+   * 排定时刻 = startedAt + totalDelayMs（arm 幂等后该等式恒成立）；nextAt 取
+   * 实际已挂的 timeout 时刻，故能反映「下一档真实何时来」。
+   *
+   * 语义边界（勿混用）：lastAt = 本条目**到点并已投递唤醒信**（fireEntry 走完；
+   * 门控跳过、策略静默都不更新）。它**不证明**目标脚本执行成功、更不证明产物
+   * 落盘——「本档是否产出」仍以消费方自己的落盘证据（如文件 mtime）为准，
+   * 本组字段只回答「为什么没产出 / 为什么迟到 / 下一档何时来」（ISSUE-22）。
+   *
+   * lastSkipAt / lastSkipReason / skipStreak = 最近一次按策略跳过（门控、静默窗口）：
+   * 「lastAt 未前进」由此可细分（未到点 / 按策略跳过 / 系统停摆 / gate 故障）。
+   * skipStreak 的判据要带窗口语义——夜间静默窗内的单调增长是正常态（每夜涨到
+   * 窗口档数上限），故障判据是「超出该上限」或「窗外仍只记 gate 且不归零」。
+   *
+   * lastGateCode = 最近一次 gate 非 0 退出码（静默与故障都记）：区分「20 = 脚本声明的
+   * 预期静默」与「1 = 旧契约静默（平台靠 stderr 为空推断）」——后者每 key 只提示一次迁移。
+   * **必须与 lastGateCodeAt 成对读**：该字段是「最近一次」的历史值，gate 退回 0 时
+   * 不清空（清零会让「20 声明静默」和「正常放行」无法区分谁先谁后）。故
+   * `lastGateCode=20` + 时间戳是昨夜 → 那是旧值，不是「此刻静默」。
+   * 判当前态请看 lastSkip / lastAt 的**时刻**，不要看 code。
+   *
+   * lastGateErrorAt = gate 自身异常退出（既非 0 也非 1）的最近一次时刻：
+   * gateOnError='run'（fail-open）时条目照常投递、lastSkip 不更新，此时只有这个
+   * 字段能证明「gate 坏了但我们在放行」——否则崩了以后完全无痕。
+   */
+  scheduleState(owner: string, entryId: string): {
+    lastAt?: string;
+    nextAt?: string;
+    lagMs?: number;
+    lastSkipAt?: string;
+    lastSkipReason?: string;
+    skipStreak?: number;
+    lastGateErrorAt?: string;
+    lastGateCode?: number;
+    lastGateCodeAt?: string;
+  } {
+    const key = `${owner}/${entryId}`;
+    const ps = this.persisted.get(key);
+    const next = this.nextAtMs.get(key);
+    const lag = this.lastLagMs.get(key);
+    const skip = this.lastSkip.get(key);
+    const gateErr = this.lastGateErrorAt.get(key);
+    const gateCode = this.lastGateCode.get(key);
+    const gateCodeAt = this.lastGateCodeAt.get(key);
+    return {
+      ...(ps?.lastTriggeredAt ? { lastAt: ps.lastTriggeredAt } : {}),
+      ...(next !== undefined ? { nextAt: new Date(next).toISOString() } : {}),
+      ...(lag !== undefined ? { lagMs: lag } : {}),
+      ...(skip ? { lastSkipAt: skip.at, lastSkipReason: skip.reason, skipStreak: skip.streak } : {}),
+      ...(gateErr ? { lastGateErrorAt: gateErr } : {}),
+      ...(gateCode !== undefined ? { lastGateCode: gateCode } : {}),
+      ...(gateCodeAt ? { lastGateCodeAt: gateCodeAt } : {}),
+    };
+  }
+
+  /**
+   * 保存某 owner 条目（全量覆盖）+ 重排；全局条目落 config。
+   *
+   * 冲突检测（ISSUE-24）：本方法收到的 `entries` 恒来自调用方的内存副本
+   * （timer 工具的 set/cancel 都基于 entries(owner)），而内存副本是 boot 时
+   * 装载的。宿主运行期间若有人直接改了 entries/timer.json（例如给条目补
+   * gate 字段），再走一次 save 就会用 stale 副本整表覆盖，把外部改动**静默
+   * 抹掉**——2026-11-17 给 news 补 gate/gateOnError 时正是这个窗口。
+   *
+   * 处置：写前比对磁盘现值与「上次读到/写出的指纹」，不一致则**拒写**、
+   * 以磁盘为准重载内存、打 warn 并把冲突回给调用方（乐观并发：后写者必须
+   * 看见冲突，而不是赢者通吃）。调用方重试即基于新基准成功。
+   */
+  save(owner: string, entries: TimerEntry[]): { ok: boolean; error?: string } {
     const stored: TimerStoreEntry = { entries };
     if (owner === GLOBAL_TIMER_OWNER) {
+      // 全局条目住 config（config 行自管写面与冲突），不走本处快照检测
       this.configService()?.set('timer.tasks', entries);
     } else {
+      const disk = this.readStored(owner, { remember: false });
+      const diskSig = disk === null ? ABSENT : stableStringify(disk);
+      const base = this.storedSnapshot.get(owner);
+      if (base !== undefined && base !== diskSig) {
+        const msg =
+          `条目存储已被外部修改（${owner}）——本次写入已拒绝，请重取条目后重试。` +
+          `磁盘现值与宿主内存基准不一致：外部改动会被整表覆盖，故不写入`;
+        this.ctx.logger.warn(`[timers] ${msg}`);
+        // 以磁盘为准重载内存，让下一次 list/set 基于新基准
+        this.adoptStored(owner, disk);
+        return { ok: false, error: msg };
+      }
       this.writeStored(owner, stored);
     }
     this.stopAgent(owner);
@@ -337,7 +508,15 @@ export class HostTimersService extends Service {
     else this.entriesByAgent.delete(owner);
     const valid = new Set(enabled.map((e) => `${owner}/${e.id}`));
     for (const key of this.persisted.keys()) {
-      if (key.startsWith(`${owner}/`) && !valid.has(key)) this.persisted.delete(key);
+      if (key.startsWith(`${owner}/`) && !valid.has(key)) {
+        this.persisted.delete(key);
+        this.nextAtMs.delete(key);
+        this.lastLagMs.delete(key);
+        this.lastSkip.delete(key);
+        this.lastGateErrorAt.delete(key);
+        this.lastGateCode.delete(key);
+        this.lastGateCodeAt.delete(key);
+      }
     }
     this.saveState();
     for (const entry of enabled) this.arm(owner, entry);
@@ -345,6 +524,57 @@ export class HostTimersService extends Service {
     // cr-1121：invalidate 入口退役——注册面契约恒基线（timer 工具 schema 不随
     // 条目变更），壳侧 list 读恒现值，无需失效广播（currentHostFace 移交
     // hostFaceRegistry.sync 承载——贡献登记时才广播）。
+    return { ok: true };
+  }
+
+  /**
+   * 存储一致性快照（诊断面）：entries()/list() 返回的是**内存副本**，宿主
+   * boot 后不再自动重读磁盘——所以「改了 entries/timer.json 但 timer list
+   * 没变」是正常现象（2026-11-17 news 据此怀疑改动未生效）。本方法让这个
+   * 隐式状态显式化：configStale=true 表示磁盘已变而内存仍旧，重启/重载后生效。
+   *
+   * 注意只读不写快照（remember:false）——诊断动作不能改变冲突检测的基准。
+   *
+   * **恒返回布尔**（不为 undefined）：字段缺失本身有歧义（「一致」还是「跑的是
+   * 没有这个字段的旧代码」），故新代码一律显式给出 true/false；消费方判定顺序
+   * 应是「先看有无该字段 ⇒ 再读它的值」（2026-11-17 news 指出，同族第五例）。
+   */
+  storeState(owner: string): { configStale: boolean } {
+    // 全局条目住 config（无内存/磁盘分叉）——恒一致
+    if (owner === GLOBAL_TIMER_OWNER) return { configStale: false };
+    const base = this.storedSnapshot.get(owner);
+    // 基准缺席（该 owner 从未被读过）→ 无从判断，按「可能不一致」保守返回。
+    // 正常路径不会走到（reload 对每个 agent 都 readStored 一次）。
+    if (base === undefined) return { configStale: true };
+    const disk = this.readStored(owner, { remember: false });
+    const diskSig = disk === null ? ABSENT : stableStringify(disk);
+    return { configStale: base !== diskSig };
+  }
+
+  /**
+   * 以磁盘内容为准重载某个 owner（冲突后的恢复路径，ISSUE-24）。
+   * 只动该 owner 的条目与排程；不动 persisted 里其它 owner 的状态。
+   */
+  private adoptStored(owner: string, disk: TimerStoreEntry | null): void {
+    this.stopAgent(owner);
+    const enabled = disk?.entries.filter((e) => e.enabled !== false) ?? [];
+    this.storedSnapshot.set(owner, disk === null ? ABSENT : stableStringify(disk));
+    if (enabled.length > 0) this.entriesByAgent.set(owner, enabled);
+    else this.entriesByAgent.delete(owner);
+    const valid = new Set(enabled.map((e) => `${owner}/${e.id}`));
+    for (const key of this.persisted.keys()) {
+      if (key.startsWith(`${owner}/`) && !valid.has(key)) {
+        this.persisted.delete(key);
+        this.nextAtMs.delete(key);
+        this.lastLagMs.delete(key);
+        this.lastSkip.delete(key);
+        this.lastGateErrorAt.delete(key);
+        this.lastGateCode.delete(key);
+        this.lastGateCodeAt.delete(key);
+      }
+    }
+    this.saveState();
+    for (const entry of enabled) this.arm(owner, entry);
   }
 
   /** 手动触发（测试/诊断；不记账） */
@@ -365,6 +595,7 @@ export class HostTimersService extends Service {
       dispose();
       this.schedules.delete(key);
     }
+    this.nextAtMs.delete(key);
     this.syncHeartbeat();
   }
 
@@ -441,10 +672,19 @@ export class HostTimersService extends Service {
         entry.mode === 'delay'
           ? (parseInterval(entry.delay ?? '') ?? delayMs)
         : delayMs;
+      // 锚点必须与「已排定的下次触发时刻」一致：startedAt + totalDelayMs = nextFire。
+      // 旧写法恒写 now：delayMs 却是按旧 startedAt 扣减出来的剩余量 → 每次 arm
+      // （含每次宿主 boot 的 reload）都让下一次触发被推到「本次 arm + 整周期」。
+      // 实证（ISSUE-20，2026-11-17）：20:12/20:21/20:23 三连重启把 20:15 档推到 20:51；
+      // 05:41/05:44 两连重启把 05:46 档推到 06:11。改为按排定时刻倒推锚点，arm 幂等。
+      // 同一周期内（ps 在且周期未变）按排定时刻倒推锚点；首次 arm 或周期被改
+      // （entry.delay 变更）则从 now 起算一整周期，避免拿旧剩余量套新周期。
+      const sameCycle = ps !== undefined && ps.totalDelayMs === totalDelayMs;
+      const anchorMs = sameCycle ? Date.now() + delayMs - totalDelayMs : Date.now();
       this.persisted.set(key, {
         executedCount: ps?.executedCount ?? 0,
         ...(ps?.lastTriggeredAt ? { lastTriggeredAt: ps.lastTriggeredAt } : {}),
-        startedAt: localISO(undefined, tz),
+        startedAt: localISO(new Date(anchorMs), tz),
         totalDelayMs,
       });
       this.saveState();
@@ -452,9 +692,12 @@ export class HostTimersService extends Service {
 
     let budget = remaining;
     const scheduleNext = (ms: number | null): void => {
-      if (ms === null) return;
-      const dispose = ctx.timeout(() => void fire(), ms);
+      if (ms === null || !Number.isFinite(ms)) return;
+      // 负值/NaN 兜底（0 合法：arm 恢复态抵扣完 = 立即补偿触发一次）
+      const wait = ms > 0 ? ms : 0;
+      const dispose = ctx.timeout(() => void fire(), wait);
       this.schedules.set(key, dispose);
+      this.nextAtMs.set(key, Date.now() + wait);
       this.syncHeartbeat();
     };
     const fire = async () => {
@@ -464,37 +707,91 @@ export class HostTimersService extends Service {
         const list = this.entriesByAgent.get(owner);
         return list !== undefined && list.some((e) => e.id === entry.id && e.enabled !== false);
       };
+      // 跳过记账（ISSUE-22）：门控/静默窗口的「按策略跳过」不写 lastAt（那是真投递），
+      // 但必须留痕——否则消费方看「lastAt 未前进」分不清「没到点」「按策略跳过」
+      // 「系统停摆」三种。连续跳过次数持续增长 = gate 恒假/静默窗口配错（同样静默）。
+      const skip = (reason: string): void => {
+        const prev = this.lastSkip.get(key);
+        this.lastSkip.set(key, {
+          at: localISO(undefined, this.tzOf(owner)),
+          reason,
+          streak: (prev?.reason === reason ? prev.streak : 0) + 1,
+        });
+      };
       const tz = this.tzOf(owner);
       const holidays = this.holidaysOf(owner);
       const nextMs = () => (entry.time ? msUntilTime(entry.time, new Date(), tz) : null);
-      const nextCycleDelay = () =>
-        isCalendar(entry.mode)
-          ? nextMs()
-          : entry.mode === 'delay' ? (parseInterval(entry.delay ?? '') ?? 0) : randomDelay(entry.delayMin, entry.delayMax);
+      // 周期解析失败必须 fail-loud 且停排（ISSUE-23）：旧写法 `?? 0` 会让
+      // scheduleNext(0) 立即再 fire —— 非法 delay 串（如 "30min" 拼错成 "30 mi"）
+      // 会变成忙循环 + 每轮投递唤醒信。现在返回 null，scheduleNext 直接不排。
+      const nextCycleDelay = (): number | null => {
+        if (isCalendar(entry.mode)) return nextMs();
+        if (entry.mode === 'delay') {
+          const ms = entry.delay ? parseInterval(entry.delay) : null;
+          if (ms === null) {
+            this.ctx.logger.warn(
+              `[timers] ${key} 周期串无法解析（delay=${String(entry.delay)}）——停止排程，请修正条目`,
+            );
+          }
+          return ms;
+        }
+        return randomDelay(entry.delayMin, entry.delayMax);
+      };
       // 目标会话消亡门控：preview 形态无 singles/group 注册表——键形判据
       //（对桶含 ~ 恒存活）+ 端点在册判定（agent 在场 = 会话可投）
       if (!this.conversationAlive(entry)) {
+        skip('conversation');
         if (stillArmed()) scheduleNext(nextCycleDelay());
         return;
       }
       if (entry.mode === 'workday' && !holidays.isWorkday()) {
+        skip('workday');
         if (stillArmed()) scheduleNext(nextMs());
         return;
       }
       if (entry.mode === 'holiday' && !holidays.isHoliday()) {
+        skip('holiday');
         if (stillArmed()) scheduleNext(nextMs());
         return;
       }
       if (entry.activeHours && !withinActiveHours(entry.activeHours, new Date(), tz)) {
+        skip('activeHours');
         if (stillArmed()) scheduleNext(nextCycleDelay());
         return;
       }
-      if (entry.gate && !(await this.runGate(key, owner, entry.gate))) {
-        if (stillArmed()) scheduleNext(nextCycleDelay());
-        return;
+      if (entry.gate) {
+        const verdict = await this.runGate(key, owner, entry.gate);
+        if (verdict !== 'run') {
+          // 故障码与「预期静默」分格：都跳过本轮，但 gate-error 要能被消费方识别出来
+          const failOpen = verdict === 'error' && entry.gateOnError === 'run';
+          if (verdict === 'error') this.lastGateErrorAt.set(key, localISO(undefined, this.tzOf(owner)));
+          if (!failOpen) {
+            skip(verdict === 'error' ? 'gate-error' : 'gate');
+            if (stillArmed()) scheduleNext(nextCycleDelay());
+            return;
+          }
+          // fail-open：优化型 gate（只为省 token，正确性由脚本自身兜住）崩了照跑，
+          // 否则条目会永久静默——静默的代价大于跑一次（ISSUE-22）
+        }
+      }
+
+      // 迟到可见性（ISSUE-22）：delay 条目的排定档位 = startedAt + totalDelayMs。
+      // 系统休眠 / 宿主停摆 / 事件循环被长任务占住时，定时器只能在恢复后补触发一次，
+      // 不补历史档；旧行为完全静默（news 的 30m 轮巡空窗 51~91 分钟无任何日志）→ fail-loud。
+      // 位置必须在门控之后：activeHours / gate / workday 的「按策略跳过」是正常行为，
+      // 不算迟到（否则每个夜间条目都会打一条假迟到）。
+      if (entry.mode === 'delay' && ps?.startedAt && ps.totalDelayMs != null) {
+        const lagMs = Date.now() - (new Date(ps.startedAt).getTime() + ps.totalDelayMs);
+        this.lastLagMs.set(key, Math.max(0, lagMs));
+        if (lagMs >= 60_000) {
+          this.ctx.logger.warn(
+            `[timers] ${key} 触发迟到 ${Math.round(lagMs / 60_000)} 分钟（排定档位 ${ps.startedAt} + ${Math.round(ps.totalDelayMs / 60_000)}m）——疑似系统休眠或宿主停摆；本档只补触发一次，不补历史档`,
+          );
+        }
       }
 
       await this.fireEntry(owner, entry, key);
+      this.lastSkip.delete(key); // 真投递 → 跳过链清零
 
       // 触发后记账（delay/random 重置 startedAt；random 抽取下一次延迟固化）
       const cur = this.persisted.get(key);
@@ -530,7 +827,14 @@ export class HostTimersService extends Service {
           scheduleNext(ms);
         }
       } else {
-        scheduleNext(nextDelay ?? 0);
+        // delay 模式周期串解析失败 → 停排并 warn（旧写法 `?? 0` = 立即再 fire = 忙循环）
+        if (nextDelay === null && entry.mode === 'delay') {
+          this.ctx.logger.warn(
+            `[timers] ${key} 周期串无法解析（delay=${String(entry.delay)}）——停止排程，请修正条目`,
+          );
+          return;
+        }
+        scheduleNext(nextDelay);
       }
     };
 
@@ -550,29 +854,86 @@ export class HostTimersService extends Service {
   }
 
   /** gate 预检（主线语义：退出码非 0 跳过；启动层失败/超时 fail-open）。
-   * cwd = 数据根（preview 形态：无 workspace 行，gate 命令锚定数据根）。 */
-  private runGate(key: string, owner: string, command: string): Promise<boolean> {
+   * cwd = 数据根（preview 形态：无 workspace 行，gate 命令锚定数据根）。
+   *
+   * 退出码细分（ISSUE-22 补丁三 / 补丁四）：
+   *   · 0                  = 放行；
+   *   · 20                 = **约定「预期静默」**（无歧义，推荐）；
+   *   · 1 + stderr 空      = 约定「预期静默」（旧契约，兼容）；
+   *   · 1 + stderr 非空    = **崩溃**（python/node 未捕获异常都退 1）→ 判故障；
+   *   · 其它非零           = gate 自身故障 → 打 warn（带 stderr 末行）+ 记
+   *                          lastSkipReason='gate-error'，再按 gateOnError 定方向。
+   * 超时与启动层失败维持 fail-open(放行)。
+   */
+  private runGate(key: string, owner: string, command: string): Promise<GateVerdict> {
     return new Promise((resolve) => {
       const isWin = process.platform === 'win32';
       execFile(
 isWin ? 'cmd.exe' : '/bin/sh',
 isWin ? ['/d', '/s', '/c', command] : ['-c', command],
-        { timeout: this.gateTimeoutMs, windowsHide: true, cwd: this.dataRoot },
-        (err) => {
+        {
+          timeout: this.gateTimeoutMs,
+          windowsHide: true,
+          cwd: this.dataRoot,
+          maxBuffer: 256 * 1024,
+          // Windows 引号陷阱（ISSUE-22 补丁五）：不带 verbatim 时 Node 会把命令行里
+          // 的引号转义成 \" 交给 cmd.exe，而 cmd 不认这种转义 → 参数带着引号进进程
+          // （实测 `node "x.js"` 变成 MODULE_NOT_FOUND）。加引号本是为了支持含空格
+          // 的路径，结果恰好把它弄坏。verbatim 让命令串原样交给 cmd /c。
+          ...(process.platform === 'win32' ? { windowsVerbatimArguments: true } : {}),
+        },
+        (err, _stdout, stderr) => {
           if (err === null) {
-            resolve(true);
+            resolve('run');
             return;
           }
           if ((err as { killed?: boolean }).killed) {
-            resolve(true);
+            resolve('run');
             return;
           }
           if (typeof err.code !== 'number') {
-            resolve(true);
+            resolve('run');
+            return;
+          }
+          const detail = gateStderrTail(stderr);
+          this.lastGateCode.set(key, err.code);
+          this.lastGateCodeAt.set(key, localISO(undefined, this.tzOf(owner)));
+          if (err.code === GATE_SILENT_EXIT) {
+            resolve('silent');
+            return;
+          }
+          if (err.code === 1) {
+            // 1 + stderr 非空 = 崩溃（python/node 未捕获异常都退 1，traceback 走
+            // stderr）；1 + stderr 空 = 旧契约静默。方向保守：含糊时判故障。
+            if (detail === '') {
+              // 旧码兼容不等于可以沉默：静默码 20 才是「由脚本自己声明」的形态，
+              // 1 是平台靠「stderr 恰好为空」推断出来的——每 key 提示一次促迁移。
+              if (!this.legacyGateNotice.has(key)) {
+                this.legacyGateNotice.add(key);
+                this.ctx.logger.info(
+                  `[timers] ${key} gate 用旧静默码 1（stderr 为空）——按预期静默处理；` +
+                    `建议改用退出码 ${String(GATE_SILENT_EXIT)}：那样声明是明确的，不依赖平台推断`,
+                );
+              }
+              resolve('silent');
+              return;
+            }
+            this.ctx.logger.warn(
+              `[timers] ${key} gate 退出码 1 但 stderr 非空（按崩溃处理，不当作「预期静默」）；stderr: ${detail}` +
+                '——若这是刻意的静默，请改用退出码 ' + String(GATE_SILENT_EXIT) + ' 或保持 stderr 干净',
+            );
+            resolve('error');
             return;
           }
           void owner;
-          resolve(false);
+          // gate 的 stderr 是唯一可归因线索：脚本自己会打 '[gate-error] …'，
+          // 旧实现整段丢弃 → 宿主日志只剩「退出码 N」，排查还得去翻脚本私有日志。
+          this.ctx.logger.warn(
+            `[timers] ${key} gate 异常退出（code=${String(err.code)}；仅 0/1 有约定语义）` +
+              (detail ? `；stderr: ${detail}` : '') +
+              '——按条目 gateOnError 处置（缺省跳过；\'run\' = 放行）',
+          );
+          resolve('error');
         },
       );
     });

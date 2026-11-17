@@ -82,13 +82,29 @@ export interface TimerEntry {
   activeHours?: string;
   /**
    * 预检门命令（如 "python files/news/scripts/quiet_check.py"）：
-   * 到点先执行，退出码 0 = 正常投递；非 0 = 跳过本轮（不投递不计数，
-   * 记日志）。用于"平台级 quiet 判定前置"——让静默判定发生在唤醒
+   * 到点先执行，用于"平台级 quiet 判定前置"——让静默判定发生在唤醒
    * LLM 之前，而不是花 30 万 token 上下文换取一句"静默"。
-   * 缺省 = 无预检。命令在宿主 shell 执行，超时 30s 按失败处理
-   * （fail-open：预检失败不挡正常触发）。
+   *
+   * 退出码三值语义（ISSUE-22 补丁三）：
+   *   · 0 = 放行，正常投递；
+   *   · 1 = **约定「预期静默」**（如夜间窗口脚本），跳过本轮、不投递不计数、
+   *     记 lastSkipReason='gate'——与「gate 自己崩了」必须可区分；
+   *   · 其它非零 = gate 自身故障，打宿主 warn 并记 lastSkipReason='gate-error'，
+   *     随后按 gateOnError 决定放行还是跳过。
+   * 超时 / 启动层失败（命令不存在等拿不到退出码）恒 fail-open 放行。
+   * 缺省 = 无预检。命令在宿主 shell 执行（cwd = 数据根）。
    */
   gate?: string;
+  /**
+   * gate 自身故障（退出码既非 0 也非 1）时的兜底方向：
+   *   · 'skip'（缺省，fail-closed）——判断不了就别投递：**策略型** gate
+   *     （workday / activeHours / 客户窗口）应选此，宁可静默也不打扰人；
+   *   · 'run'（fail-open）——照常投递：**优化型** gate（只为省 token 的
+   *     quiet 预检，正确性已由脚本自身兜住）应选此，否则 gate 一崩条目
+   *     就永久静默（ISSUE-22：静默比跑一次贵得多）。
+   * 两种方向都会打 warn + 记 lastGateErrorAt，故 fail-open 也不静默。
+   */
+  gateOnError?: 'skip' | 'run';
 }
 
 // ============================================================
