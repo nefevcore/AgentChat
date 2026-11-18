@@ -70,6 +70,42 @@ async function seedBulkyConversation(ledger: LedgerService, uuid: string, agentI
 }
 
 describe('archive 行（D11 全壳内）', () => {
+  it('cr-1155：无 seq 的 v1 僵尸行随位置归档出清——不再永踞主日志', async () => {
+    seedAgent('zeta', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('zeta', async () => ({ finish: 'ok', text: '此前，概要。' }));
+    try {
+      // 头部手工预置 v1 无 seq 记忆行（现场事故形态——写面已恒 v2，只能直落文件）
+      const dir = path.join(ROOT, 'agents', 'zeta', 'sessions', 'user~zeta');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+        JSON.stringify({ role: 'context', source: 'memory-delta', agent_id: 'zeta', content: 'v1 僵尸行 A' }),
+        JSON.stringify({ role: 'context', source: 'memory-delta', agent_id: 'zeta', content: 'v1 僵尸行 B' }),
+      ].join('\n') + '\n', 'utf-8');
+      // v2 主体走正规写面（超阈值）
+      await seedBulkyConversation(h.ledger, 'user~zeta', 'zeta', 6);
+      await h.archive.requestArchive('user~zeta');
+      const after = readLedger(dir);
+      const zombieA = after.rows.find((r) => r.content === 'v1 僵尸行 A');
+      const zombieB = after.rows.find((r) => r.content === 'v1 僵尸行 B');
+      // 位置在归档边界前 → 随段出清（此前 (seq ?? Infinity) > boundary 恒真被钉死）
+      expect(zombieA).toBeUndefined();
+      expect(zombieB).toBeUndefined();
+      // 归档段里有它们的尸骸（可回查）
+      const segs = fs.readdirSync(path.join(dir, 'archive')).filter((n) => n.startsWith('history_') && !n.endsWith('.gz'));
+      const gz = fs.readdirSync(path.join(dir, 'archive')).filter((n) => n.startsWith('history_') && n.endsWith('.gz'));
+      let found = false;
+      for (const s of segs) {
+        if (fs.readFileSync(path.join(dir, 'archive', s), 'utf-8').includes('僵尸行')) found = true;
+      }
+      for (const g of gz) {
+        if (zlib.gunzipSync(fs.readFileSync(path.join(dir, 'archive', g))).toString('utf-8').includes('僵尸行')) found = true;
+      }
+      expect(found).toBe(true);
+    } finally {
+      await h.dispose();
+    }
+  });
+
   it('① 阈值检测 → 整理 run → 归档重建全链（低阈值触发 + 分段 + 概要）', async () => {
     seedAgent('alpha', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
     const spy: string[] = [];

@@ -57,6 +57,29 @@ function seedV1(): void {
 }
 
 describe('fold 单源（cr-974 §2.5 性质化）', () => {
+  it('cr-1156：compaction 后 seq 空间倒挂——收束时刻后落账的行恒进回放（admin~user 现场形态）', () => {
+    const uuid = 'conv-seq-inversion';
+    const dir = sessionDir(ROOT, AGENT, uuid);
+    fs.mkdirSync(dir, { recursive: true });
+    // 现场：compaction 落 boundary=1323（旧空间）→ 物理重写 → writer 重启小 seq（650+）
+    const rows: Array<Record<string, unknown>> = [
+      { type: 'session-header', version: 2, createdAt: '2026-11-17T08:00:00.000Z', participants: [AGENT, 'user'], kind: 'user' },
+      { type: 'compaction/start', run: 'comp-1', ts: Date.parse('2026-11-17T08:44:13.000Z'), seq: 1463 },
+      { type: 'compaction/summary', run: 'comp-1', summary: '此前，概要。', ts: Date.parse('2026-11-17T08:44:13.000Z'), seq: 1464 },
+      { type: 'compaction/end', run: 'comp-1', boundarySeq: 1323, ts: Date.parse('2026-11-17T08:44:13.000Z'), seq: 1465 },
+      { type: 'run-end', run: 'comp-1', finish: 'completed', ts: Date.parse('2026-11-17T08:44:13.000Z'), seq: 1466 },
+      // 重写后新会话内容（seq 倒挂区：650+ < 1323；落账时刻晚于 compaction）
+      { type: 'message', role: 'agent', content: '晚上好', agent_id: 'user', requestId: 'q-late', message_id: 'q-late', timestamp: '2026-11-18T14:18:38.000Z', seq: 654 },
+      { type: 'message', role: 'agent', content: '收到', agent_id: AGENT, requestId: 'r-late', message_id: 'r-late', timestamp: '2026-11-18T14:19:00.000Z', seq: 655 },
+    ];
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const llm = foldLlmReplay(foldSession(ROOT, uuid), AGENT, ROOT, uuid);
+    const texts = llm.map((m) => String(m.content));
+    expect(llm[0]?.role).toBe('system'); // 摘要头在场
+    expect(texts.some((t) => t.includes('晚上好'))).toBe(true); // 修复前：被 seq≤1323 静默滤出
+    expect(texts.some((t) => t.includes('收到'))).toBe(true);
+  });
+
   it('v1 存量会话：三方投影（视图/终稿层/LLM 回放）产出正确', () => {
     seedV1();
     const view = foldViewRecords(foldSession(ROOT, UUID), ROOT, UUID);

@@ -43,4 +43,30 @@ describe('recordsFor（cr-1102/1103 统一行读面）', () => {
     // 缺席会话域 = 空清单（fail-open——消费方锚检测/去重降级不阻断）
     expect(svc.recordsFor('none~alpha')).toEqual([]);
   });
+
+  it('cr-1155：无 seq 的 v1 存量行归位最旧——不排投影尾部冒充最新', async () => {
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'alpha' }));
+    fibers.push(fiber);
+    await fiber;
+    const svc = ctx.ledger as unknown as {
+      deliverRow(u: string, p: string[], k: string, row: Record<string, unknown>): Promise<boolean>;
+      journalInject(u: string, run: string, content: string, requestId?: string, extra?: { injectSource?: string }): Promise<void>;
+      recordsFor(u: string): Array<{ role: string; source?: string; seq?: number; content: string }>;
+    };
+    const uid = 'user~alpha';
+    // 直接文件预置 v1 无 seq 行（写面已恒 v2 形态，v1 行只能手工落盘——现场正是如此）
+    const dir = path.join(ROOT, 'agents', 'alpha', 'sessions', uid);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'messages.jsonl');
+    fs.writeFileSync(file, JSON.stringify({ role: 'context', source: 'memory-delta', agent_id: 'alpha', content: 'v1 旧行（2026-10）' }) + '\n', 'utf-8');
+    await svc.journalInject(uid, 'run-2', 'v2 新行', undefined, { injectSource: 'memory-delta' });
+    const rows = svc.recordsFor(uid);
+    expect(rows).toHaveLength(2);
+    // v1 行排最前（最旧），v2 行在后——倒扫取「最近」时命中 v2 而非 v1
+    expect(rows[0].content).toBe('v1 旧行（2026-10）');
+    expect(rows[0].seq).toBeUndefined();
+    expect(rows[1].content).toBe('v2 新行');
+    expect(typeof rows[1].seq).toBe('number');
+  });
 });

@@ -242,7 +242,12 @@ export class ArchiveShellService extends Service {
       }
       const enriched = [...rows, ...pseudo] as never[];
       const split = splitForArchive(enriched, budgets, lastArchived);
-      const archivedSeqs = new Set(split.archive.map((r) => (r as LedgerRow).seq).filter((s): s is number => typeof s === 'number'));
+      // cr-1155 归档对齐口径修正：split 切片是 enriched 数组的引用切片——
+      // 用引用集对齐（位置语义）替代 seq 集匹配，无 seq 的 v1 存量行按其
+      // 文件位置自然进归档集/保留集，不再被 (seq ?? Infinity) 永久钉在主日志
+      // （僵尸行：穿越任意多次 compaction 不离场——ac-memory 锚曾因 v1 行
+      // 永踞 recordsFor 投影尾部而 S 冻结、每 run 重注）。
+      const archivedSet = new Set<unknown>(split.archive);
       // compaction 事件永留主日志（§2.3 可审计可重建；其 run-end 同留——
       // 机制标记）——归档排除，fold summaryOf 跨轮迭替不受影响
       const compactionRuns = new Set(rows
@@ -252,17 +257,19 @@ export class ArchiveShellService extends Service {
         const t = String((r as { type?: unknown }).type ?? '');
         return t.startsWith('compaction/') || (t === 'run-end' && compactionRuns.has((r as { run?: unknown }).run));
       };
-      const archivedOriginal = rows.filter((r) => r.seq !== undefined && archivedSeqs.has(r.seq) && !isCompactionRow(r));
+      const archivedOriginal = rows.filter((r) => archivedSet.has(r) && !isCompactionRow(r));
       const baselineSeq = rows.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
-      const boundary = Math.max(lastArchived?.seq ?? 0, ...archivedSeqs, 0);
+      const archivedMaxSeq = split.archive.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
+      const boundary = Math.max(lastArchived?.seq ?? 0, archivedMaxSeq, 0);
       // 语义边界先 durable（摘要滚动即使零移出也落事件——回放头即刻换新）
       if (summary !== undefined) {
         await ledger.compactionFor(uuid, requestedAt + '-compaction-' + uuid, summary, boundary);
       }
       if (archivedOriginal.length === 0) return; // 零移出（尾部水位未越）——只滚摘要
-      // 尾部保留 = 边界后行 + compaction 事件行（永留主日志——边界前的
-      // 机制行不随 shadowed 前缀搬移，audit 面跨轮在场）
-      const keepRows = rows.filter((r) => (r.seq ?? Infinity) > boundary || isCompactionRow(r));
+      // 尾部保留 = 引用不在归档集的行 + compaction 事件行（永留主日志——
+      // 边界前的机制行不随 shadowed 前缀搬移，audit 面跨轮在场）。cr-1155：
+      // 引用对齐统一口径——无 seq v1 行按位置进出，与归档集互补成全划分。
+      const keepRows = rows.filter((r) => !archivedSet.has(r) || isCompactionRow(r));
       const report = await ledger.compactFor(uuid, {
         archive: archivedOriginal,
         keep: keepRows,

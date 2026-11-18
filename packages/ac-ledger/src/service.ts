@@ -529,7 +529,11 @@ export class LedgerService extends Service {
         });
       }
     }
-    out.sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER));
+    // cr-1155 排序口径修正：无 seq 的 v1 存量行归位最旧（文件序天然在前），
+    // 不再按 MAX_SAFE_INTEGER 排到尾部冒充「最新」——ac-memory 锚扫描曾因此
+    // 永命中 10 月 v1 旧行（S 冻结 → 无限重注）；消费方「取最近」类序依赖
+    // 以 v2 seq 为准，v1 行只作存量材料在场。
+    out.sort((a, b) => (a.seq ?? -1) - (b.seq ?? -1));
     return out;
   }
 

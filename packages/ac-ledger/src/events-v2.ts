@@ -130,6 +130,12 @@ export interface CompactionFacts {
   /** 覆盖边界（shadowed 前缀的最大 seq——exclusive；compaction/end 行携带，
    *  缺席回落该 run 三事件最大 seq） */
   boundarySeq: number;
+  /** 压缩收束时刻（compaction/end 的 ts——cr-1156：seq 空间倒挂期回放的
+   *  时刻维度兜底。compaction 物理重写后 writer 重启小 seq 空间（B1 尾窗
+   *  播种错过已归档高 seq 行），此后落账的行 seq 可能 ≤ boundarySeq——seq
+   *  比较只对事件前的 shadowed 前缀负责，事件后落账的行恒放行。
+   *  缺省 0 = 旧档无 ts，时刻维度不生效（回落纯 seq 判定）。 */
+  endTs: number;
 }
 
 /**
@@ -297,13 +303,16 @@ function placeEvent(facts: DomainFacts, ev: SessionEvent): void {
     case 'compaction-summary': {
       const cur = facts.compaction;
       if (cur === undefined || cur.run === ev.run || (ev.seq ?? 0) > cur.boundarySeq) {
-        facts.compaction = { run: ev.run, summary: ev.summary, boundarySeq: cur?.run === ev.run ? cur.boundarySeq : ev.seq ?? 0 };
+        facts.compaction = { run: ev.run, summary: ev.summary, boundarySeq: cur?.run === ev.run ? cur.boundarySeq : ev.seq ?? 0, endTs: cur?.run === ev.run ? cur.endTs : 0 };
       }
       return;
     }
     case 'compaction-end': {
       const cur = facts.compaction;
-      if (cur !== undefined && cur.run === ev.run) cur.boundarySeq = ev.boundarySeq ?? Math.max(cur.boundarySeq, ev.seq ?? 0);
+      if (cur !== undefined && cur.run === ev.run) {
+        cur.boundarySeq = ev.boundarySeq ?? Math.max(cur.boundarySeq, ev.seq ?? 0);
+        cur.endTs = ev.ts; // cr-1156：收束时刻（时刻维度兜底的判据）
+      }
       return;
     }
     case 'compaction-start': return;

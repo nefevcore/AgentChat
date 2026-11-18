@@ -205,10 +205,11 @@ export function foldTextReplay(fold: SessionFold, viewer: string): Array<{ role:
 
 /** 域名归并辅助（上）——会话压缩三态查询口（§2.3）：当前态回放的
  * 摘要头与边界（shadowed 前缀 seq ≤ boundarySeq 不进回放；v1 会话
- * 无压缩事件 → null，调用方回落 summary.md 兼容窗）。 */
-export function foldSummaryOf(fold: SessionFold): { text: string; boundarySeq: number } | null {
+ * 无压缩事件 → null，调用方回落 summary.md 兼容窗）。endTs = 压缩收束
+ * 时刻（cr-1156 回放过滤时刻维度）。 */
+export function foldSummaryOf(fold: SessionFold): { text: string; boundarySeq: number; endTs: number } | null {
   return fold.compaction !== undefined && fold.compaction.summary !== ''
-    ? { text: fold.compaction.summary, boundarySeq: fold.compaction.boundarySeq }
+    ? { text: fold.compaction.summary, boundarySeq: fold.compaction.boundarySeq, endTs: fold.compaction.endTs }
     : null;
 }
 
@@ -627,11 +628,22 @@ export function foldLlmReplay(
     timeline.push({ ts: new Date(lastTs).toISOString(), ord: ord++, orphan: run, ...(lastSeq !== undefined ? { orphanSeq: lastSeq } : {}) });
   }
   timeline.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.ord - b.ord));
-  // 压缩边界过滤（shadowed 前缀不进回放——v2 行恒带 seq；无 seq 存量行放行）
+  // 压缩边界过滤（shadowed 前缀不进回放——v2 行恒带 seq；无 seq 存量行放行）。
+  // cr-1156 时刻维度兜底：compaction 物理重写后 writer 重启小 seq 空间
+  // （B1 尾窗播种错过已归档高 seq 行——现场 admin~user：boundary=1323、
+  // 重写后新行 650+，seq 比较把当前会话全部行静默滤出、模型对用户新消息
+  // 失明）。修复：落账时刻晚于压缩收束时刻的行恒放行——物理重写后追加的
+  // 行天然在事件后；seq 比较只对事件前的 shadowed 前缀负责。
+  const afterEnd = (s: Slot): boolean => {
+    if (compaction === null || compaction.endTs <= 0) return false;
+    const ts = s.speech?.timestamp ?? s.notice?.timestamp;
+    if (ts === undefined) return false;
+    return Date.parse(ts) > compaction.endTs;
+  };
   const bounded = compaction !== null
     ? timeline.filter((s) => {
         const seq = s.speech?.seq ?? s.notice?.seq ?? s.orphanSeq;
-        return seq === undefined || seq > compaction.boundarySeq;
+        return seq === undefined || seq > compaction.boundarySeq || afterEnd(s);
       })
     : timeline;
   const subcallsFor = (domain: string, run: string): JournalToolResult[] =>

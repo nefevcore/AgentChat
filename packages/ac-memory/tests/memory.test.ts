@@ -3,9 +3,9 @@
 //
 // · 存储：files/<agentId>/memory/timeline.md 单文件（条目 = 宿主铸造头
 //   + 正文；seq 位置派生）；persist=false 纯内存后端同语义
-// · 注入：checkpoint/delta 协议（loop/before-run seam——cr-1102 迁移：
-//   落账 + 工作数组双写；锚检测 H>S delta / H=S 稳态 / 无锚或 H<S 快照
-//   重定基线；records() 读面兼容存量 context 行与 v2 inject 行形态）
+// · 注入：checkpoint/delta 协议（loop/before-run seam——cr-1102 迁移；
+//   cr-1154 水位归时间线私有 .anchors.json per-(Agent×会话)：H>S delta /
+//   H=S 稳态 / 无锚或 H<S 快照重定基线；账本注入行 = 纯回放材料）
 // · system 侧：恒定静态指引（memory-guide）
 // · 工具：memory_write / memory_grep（memory 标签门禁）
 // ============================================================
@@ -42,14 +42,12 @@ function scriptedProvider() {
   });
 }
 
-/** 假 session（注入协议测试）：context 行内存列表 + 触发 seam */
+/** 假 session（注入协议测试）：context 行内存列表 + 触发 seam。
+ *  cr-1154 后 memory 不再消费 records 读面——本类只承载 recordContext 落账面。 */
 class FakeSession extends Service {
-  rows = new Map<string, Array<{ role: string; source?: string; content: string; agent_id?: string; injectSource?: string; payload?: unknown }>>();
+  rows = new Map<string, Array<{ role: string; source?: string; content: string; agent_id?: string; payload?: unknown }>>();
   constructor(ctx: Context) {
     super(ctx, 'session');
-  }
-  async records(id: string) {
-    return this.rows.get(id) ?? [];
   }
   recordContext(id: string, agentId: string, content: string, extra: { source: string; label?: string; payload?: unknown }) {
     const list = this.rows.get(id) ?? [];
@@ -160,7 +158,7 @@ describe('ac-memory 服务面（write/entries/grep 三口）', () => {
   });
 });
 
-describe('ac-memory 注入协议（loop/before-run seam + 锚检测状态机——cr-1102）', () => {
+describe('ac-memory 注入协议（loop/before-run seam + 私有水位 .anchors——cr-1154）', () => {
   /** 经真实 seam 触发（agentLoop.run → loop/before-run waterfall） */
   async function runOnce(ctx: Context, agent: string, conversationId: string) {
     await ctx.agentLoop.run({ agent, model: 'mock-1', system: 'BASE', messages: USER, conversationId });
@@ -188,9 +186,8 @@ describe('ac-memory 注入协议（loop/before-run seam + 锚检测状态机—�
     expect(rows[0].source).toBe('memory-snapshot');
     expect(rows[0].content).toContain('记忆时间线：2 条');
     expect(rows[0].content).toContain('记忆二');
-    expect(rows[0].content).not.toMatch(/记忆基线 seq=/); // cr-1107:水位不寄生正文
-    expect((rows[0].payload as { memoryBaseline: number }).memoryBaseline).toBe(2);
-    expect(tailUser()).toBe(wrapSystemReminder(rows[0].content!)); // cr-1101：落账裸文（Plan B），工作数组包裹 = 回放投影同字节
+    expect(rows[0].payload).toBeUndefined(); // cr-1154：注入行纯回放材料，水位不寄生 payload
+    expect(tailUser()).toBe(wrapSystemReminder(rows[0].content!)); // cr-1101：落账裸文，工作数组包裹 = 回放投影同字节
   });
 
   it('H = S（稳态）→ 不注入（工作数组不加行）', async () => {
@@ -219,43 +216,36 @@ describe('ac-memory 注入协议（loop/before-run seam + 锚检测状态机—�
     expect(rows[1].source).toBe('memory-delta');
     expect(rows[1].content).toContain('他源写的');
     expect(rows[1].content).not.toContain('本会话写的');
-    expect((rows[1].payload as { memoryBaseline: number }).memoryBaseline).toBe(3);
+    expect(rows[1].payload).toBeUndefined(); // cr-1154：纯回放材料
   });
 
-  it('锚检测兼容 v2 inject 行形态（cr-1102 回归——壳现行落账经 records 读面投影）', async () => {
-    const ctx = await bootSession();
-    const session = ctx.get('session') as unknown as FakeSession;
-    // 壳内现行落账形：recordContext → journalInject（injectSource），读面
-    // （SessionShim.records → ledger.recordsFor）投影为 source=injectSource
-    // 的 context 行——锚检测须同口径命中（存量 context 行 + 现行 inject 行）
-    session.rows.set('alice~a1', [
-      { role: 'context', source: 'memory-snapshot', injectSource: 'memory-snapshot', content: '旧快照\n记忆基线 seq=1', agent_id: 'a1' },
-    ]);
-    ctx.memory.write('a1', { content: '基线条目', origin: 'bob~a1' });
-    ctx.memory.write('a1', { content: '他源新增', origin: 'bob~a1' });
-    await runOnce(ctx, 'a1', 'alice~a1');
-    const rows = session.rows.get('alice~a1')!;
-    expect(rows).toHaveLength(2);
-    expect(rows[1].source).toBe('memory-delta'); // 锚命中（非快照重定基线）
-    expect(rows[1].content).toContain('他源新增');
-    expect((rows[1].payload as { memoryBaseline: number }).memoryBaseline).toBe(2);
-  });
+  // （cr-1102「锚检测兼容 v2 inject 行形态」用例随锚扫描机制退役删除——
+  //  认锚从账本行改为锚文件私有，账本行对判定零影响的语义由下方
+  //  「水位私有化：脏账本」用例锁定。）
 
-  it('锚检测:现行行 payload 优先,存量行 content 正则回落(cr-1107)', async () => {
+  it('水位私有化：脏账本（乱序/无 seq/重复 memory 行在场）不影响判定——锚恒私有(cr-1155 回归同源)', async () => {
     const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;
-    // 存量形态(content 寄生)与现行形态(payload)混排——两者都能命中
+    // 模拟事故形态的脏账本：v1 无 seq 行 + 重复 delta + 乱序混排——
+    // cr-1154 后这些行对判定零影响（水位不在账本上）
     session.rows.set('alice~a1', [
       { role: 'context', source: 'memory-delta', content: '旧 delta\n记忆基线 seq=1', agent_id: 'a1' },
-      { role: 'context', source: 'memory-delta', content: '新 delta(水位在 payload)', agent_id: 'a1', payload: { memoryBaseline: 4 } },
+      { role: 'context', source: 'memory-delta', content: '旧 delta\n记忆基线 seq=1', agent_id: 'a1' },
+      { role: 'context', source: 'memory-delta', content: '僵尸 v1 行（无 seq 假装最新）', agent_id: 'a1' },
     ]);
     for (let i = 1; i <= 5; i++) ctx.memory.write('a1', { content: i < 5 ? `第${i}条` : '第五条', origin: 'bob~a1' });
-    await runOnce(ctx, 'a1', 'alice~a1');
+    await runOnce(ctx, 'a1', 'alice~a1'); // 无锚 → 快照重定基线（脏行零影响）
+    await runOnce(ctx, 'a1', 'alice~a1'); // 稳态
+    ctx.memory.write('a1', { content: '第六条', origin: 'bob~a1' });
+    await runOnce(ctx, 'a1', 'alice~a1'); // delta
     const rows = session.rows.get('alice~a1')!;
-    // 锚 = 4(payload 优先,流尾最近行)→ H=5 > S → delta 而非快照重定基线
-    expect(rows[2].source).toBe('memory-delta');
-    expect(rows[2].content).toContain('第五条');
-    expect((rows[2].payload as { memoryBaseline: number }).memoryBaseline).toBe(5);
+    // 按内容标记断言（预置脏行 source 也是 memory-delta，不能按 source 计数）：
+    // 快照注入恰 1 次、delta 注入恰 1 次且只含第六条——脏账本不产生任何额外注入
+    expect(rows.filter((r) => r.content.includes('第六条'))).toHaveLength(1);
+    const injected = rows.filter((r) => r.content.includes('第六条'))[0];
+    expect(injected.source).toBe('memory-delta');
+    expect(rows.filter((r) => r.source === 'memory-snapshot' && !r.content.includes('旧'))).toHaveLength(1);
+    expect(injected.content).not.toContain('第五条');
   });
 
   it('H < S（文件被人工缩短）→ 全量重定基线（快照自愈）', async () => {
@@ -276,24 +266,58 @@ describe('ac-memory 注入协议（loop/before-run seam + 锚检测状态机—�
     const r2 = s2.rows.get('alice~a1')!;
     expect(r2).toHaveLength(2);
     expect(r2[1].source).toBe('memory-snapshot'); // H<S → 快照重定基线
-    expect((r2[1].payload as { memoryBaseline: number }).memoryBaseline).toBe(1);
   });
 
-  it('双人格共桶（cr-46）：对方人格的注入行不是本 Agent 的锚——基线不互打', async () => {
+  it('双人格共桶（cr-46→cr-1154）：水位 per-Agent 私有——共桶对方水位天然隔离', async () => {
     const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;
-    // news 人格：4 条，已注入锚 seq=4
+    // news 人格：4 条，已注入（锚在 news 自己的 .anchors 里）
     for (let i = 0; i < 4; i++) ctx.memory.write('news', { content: `news 记忆 ${i + 1}` });
     await runOnce(ctx, 'news', 'news~user');
-    // user 人格：1 条，已注入锚 seq=1（桶内 news 的锚 seq=4 在场）
+    // user 人格：1 条——共桶内 news 的注入行在场，但 user 的水位在自己的锚文件（零串台可能）
     ctx.memory.write('user', { content: 'user 记忆' });
     await runOnce(ctx, 'user', 'news~user');
     const rows = session.rows.get('news~user')!;
-    expect(rows).toHaveLength(2); // user 侧一次快照即稳；若误认 news 锚（S=4>H=1）会反复全量重定基线
+    expect(rows).toHaveLength(2);
     expect(rows[1].agent_id).toBe('user');
-    // news 侧稳态复跑（user 锚 seq=1 在场——S=1<H=4 若误认会注入 3 条重复 delta）
+    // news 侧稳态复跑（user 的注入行在场——news 水位不受影响，稳态不注入）
     await runOnce(ctx, 'news', 'news~user');
     expect(rows).toHaveLength(2); // H=S=4 稳态不注入
+  });
+
+  it('cr-1154 锚持久化（persist 模式）：跨 Context 重启水位存活——重启后稳态不重注', async () => {
+    const root = tmpRoot();
+    const first = await boot({ memoryConfig: { root, migrate: false }, fakeSession: true });
+    for (let i = 1; i <= 3; i++) first.ctx.memory.write('a1', { content: `条目${i}` });
+    const s1 = first.ctx.get('session') as unknown as FakeSession;
+    const run1 = async () => first.ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: USER, conversationId: 'alice~a1' });
+    await run1(); // 快照 + 锚落盘
+    await run1(); // 稳态
+    expect(s1.rows.get('alice~a1')).toHaveLength(1);
+    // 新 Context（新 MemoryService 实例读同一数据根）：锚从盘上恢复
+    const ctx2 = new Context();
+    const fibers2: Fiber[] = [];
+    for (const row of [toolsRow, llmRow, {
+      name: 'mock-provider',
+      inject: ['llm'],
+      apply(c: Context) { c.llm.register('mock', scriptedProvider(), { models: ['mock-1'] }); },
+    }, loopRow] as any[]) {
+      const fiber = ctx2.plugin(row);
+      await fiber;
+      fibers2.push(fiber);
+    }
+    const fiber = ctx2.plugin(FakeSession as any);
+    await fiber;
+    fibers2.push(fiber);
+    const fiber2 = ctx2.plugin(memoryRow, { root, migrate: false });
+    await fiber2;
+    fibers2.push(fiber2);
+    booted.push({ ctx: ctx2, fibers: fibers2 });
+    const s2 = ctx2.get('session') as unknown as FakeSession;
+    await ctx2.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: USER, conversationId: 'alice~a1' });
+    expect(s2.rows.get('alice~a1')).toBeUndefined(); // 锚存活 → H=S 稳态，不注入
+    // 锚文件确实在盘上
+    expect(existsSync(join(root, 'files', 'a1', 'memory', '.anchors.json'))).toBe(true);
   });
 
   it('空时间线不注入', async () => {
@@ -303,6 +327,46 @@ describe('ac-memory 注入协议（loop/before-run seam + 锚检测状态机—�
     expect(session.rows.get('alice~a1')).toBeUndefined();
   });
 
+});
+
+describe('cr-1154 锚健壮性（脏输入自愈）', () => {
+  const runOnce = (ctx: Context, agent: string, conversationId: string) =>
+    ctx.agentLoop.run({ agent, model: 'mock-1', system: 'BASE', messages: USER, conversationId });
+
+  it('锚文件损坏/缺席 → fail-soft：按无锚处理，快照自愈一次后恢复稳态', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false }, fakeSession: true });
+    ctx.memory.write('a1', { content: '条目一' });
+    await runOnce(ctx, 'a1', 'alice~a1'); // 快照 + 锚落盘
+    // 损坏锚文件（半写 JSON）
+    writeFileSync(join(root, 'files', 'a1', 'memory', '.anchors.json'), '{"alice~a1": 1', 'utf-8');
+    const session = ctx.get('session') as unknown as FakeSession;
+    const before = (session.rows.get('alice~a1') ?? []).length;
+    await runOnce(ctx, 'a1', 'alice~a1'); // 按无锚 → 再注一次快照（幂等自愈，非震荡）
+    const rows = session.rows.get('alice~a1')!;
+    expect(rows.length).toBe(before + 1);
+    expect(rows.at(-1)!.source).toBe('memory-snapshot');
+    await runOnce(ctx, 'a1', 'alice~a1'); // 锚已重写 → 稳态
+    expect(session.rows.get('alice~a1')!.length).toBe(before + 1);
+  });
+
+  it('时间线被人工缩短（H<S）→ 快照重定基线 + 锚回落到 H（单调不降只对合法推进）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false }, fakeSession: true });
+    for (let i = 1; i <= 3; i++) ctx.memory.write('a1', { content: `条目${i}` });
+    await runOnce(ctx, 'a1', 'alice~a1'); // S=3
+    // 人工删行：直接重写 timeline 只留 1 条
+    const file = ctx.memory.timelineFileOf('a1');
+    const first = ctx.memory.entries('a1')[0];
+    writeFileSync(file, `<!-- at:${first.at} | origin:${first.origin ?? 'a1'} -->\n[2026-11-18] [事实] 条目1\n`, 'utf-8');
+    const session = ctx.get('session') as unknown as FakeSession;
+    await runOnce(ctx, 'a1', 'alice~a1');
+    const rows = session.rows.get('alice~a1')!;
+    expect(rows.at(-1)!.source).toBe('memory-snapshot'); // H<S → 快照重定基线
+    // 且锚回落（否则永久卡在 H<S 循环快照）——再跑一次应稳态
+    await runOnce(ctx, 'a1', 'alice~a1');
+    expect(session.rows.get('alice~a1')!.length).toBe(rows.length);
+  });
 });
 
 describe('system 静态指引（字节恒定）', () => {

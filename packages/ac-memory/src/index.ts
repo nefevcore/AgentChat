@@ -11,7 +11,8 @@
 //   · 工具面：memory_write（append-only）/ memory_grep（检索）——
 //     requiredTags ['memory']（与 fs 正交）；needPermission false。
 //   · 跨会话可见是有意语义（人格连续性）：本会话写入的 delta 不重复注入
-//     （tool-call 历史已有副本），他源 delta 注入。
+//     （tool-call 历史已有副本），他源 delta 注入。注入水位归时间线私有
+//     （.anchors.json，cr-1154）——账本注入行是纯回放材料，不承载水位。
 // ============================================================
 import * as fs from 'node:fs';
 import { wrapSystemReminder } from 'ac-core-utils';
@@ -93,69 +94,54 @@ export class MemoryService extends Service {
     // ---- checkpoint/delta 注入协议（loop/before-run seam——cr-1102 迁移） ----
     // 原挂 conversation/before-start（主线 ac-conversation 事件）：生产壳树
     // ConversationService 从不 emit 该事件（主线行不在壳装配），注入协议
-    // 整体失效；且锚检测依赖 session.records() 读面，壳侧 SessionShim 原
-    // 缺该方法（cr-1102 补齐）。迁移到 loop/before-run waterfall——两树
-    // （主线 host / 生产壳）唯一共有的 run 前 seam（ac-skill 手势注入同款
-    // 先例），注入双写同源：
+    // 整体失效。迁移到 loop/before-run waterfall——两树（主线 host / 生产
+    // 壳）唯一共有的 run 前 seam（ac-skill 手势注入同款先例），注入双写：
     //   · session.recordContext 落账（壳内活跃 run → journalInject 事件，
     //     injectSource=memory-snapshot/delta；主线 → context 行）；
     //   · 同字节 user 消息 append 进 request.messages（当前 run 即刻可见；
     //     下一轮回放取自落账行——字节一致，无双计）。
-    // 水位锚检测走 session.records() 统一读面（context 行〔存量〕+ inject
-    // 行〔v2 现行〕同口径）。cr-1107 水位显式化：新行 payload.memoryBaseline
-    //（recordsFor 投影随行）；存量行回落 content 正则兼容。
+    // cr-1154 水位归时间线私有：注入水位不再寄居账本注入行（cr-46 串台 /
+    // cr-1102 读面迁移 / cr-1107 payload 显式化——三轮补丁仍随账本层演化
+    // 反复炸：v1 无 seq 行永踞 recordsFor 投影尾部 → 锚永命中旧行 → S 冻结
+    // → 每 run 重注）。水位状态 = files/<agentId>/memory/.anchors.json
+    // （{会话键: 已注入条目水位}，per-Agent×会话粒度——每个会话桶各自看
+    // 到它还没见过的跨会话记忆，多桶各注各的是产品语义而非重复；真正的
+    // 病灶是同一桶重复注）。判定退化为纯函数：
+    //   无锚 或 S>H → 快照重定基线；H>S → delta=(S,H] 过滤本会话 origin；
+    //   H=S → 稳态不注入。
+    // 账本注入行降级为纯回放材料——recordContext 失败 fail-soft（只丢该次
+    // 回放行），不影响水位推进；锚文件 tmp+rename 原子写，崩溃窗口最坏
+    // = 注入成功但锚未落 → 下次重注同 delta 一次（幂等收敛）。
     this.ctx.on('loop/before-run', async (call, next) => {
       const req = call.request;
       if (req.conversationId === undefined || req.agent === undefined) return next();
       const session = this.ctx.get('session', false) as
-        | { records(id: string): Promise<Array<{ role: string; source?: string; content: string; agent_id?: string; payload?: unknown }>>; recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string; payload?: unknown }): string }
+        | { recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string; payload?: unknown }): string }
         | undefined;
       if (session === undefined) return next(); // session 行未装——无落账面，不注入
       const agentId = req.agent;
       const conversationId = req.conversationId;
       const entries = this.entries(agentId);
       const H = entries.length;
-      // 锚检测：流尾向后扫最近一条记忆行（cr-46：只认 agent_id === 本
-      // Agent 的注入行——1v1 双人格共桶（如 news~user）里对方人格的锚
-      // seq 是对方时间线的高度，误认会导致 S>H 走「文件缩短」全量快照、
-      // S<H 走大批「新 delta」重复注入，双方每次开口互相打掉对方基线震荡）。
-      // 读失败按无历史可判处理：跳过注入（fail-closed——盲快照重定基线会
-      // 与既有锚产生重复注入震荡）
-      let records: Array<{ role: string; source?: string; content: string; agent_id?: string; payload?: unknown }>;
-      try {
-        records = await session.records(conversationId);
-      } catch {
+      const S = this.anchorOf(agentId, conversationId);
+      const maxTokens = this.maxTokensFor(agentId);
+      /** 落账（裸正文）+ 工作数组双写（包裹后 = 回放投影同字节，cr-1101；
+       * wrapSystemReminder 与 ac-ledger 回放同源）+ 锚推进（S 单调不降——
+       * cr-1154：水位归本服务私有，账本行不再承载） */
+      const inject = (text: string, source: string, label: string): void => {
+        session.recordContext(conversationId, agentId, text, { source, label });
+        req.messages = [...req.messages, { role: 'user', content: wrapSystemReminder(text) }];
+        this.setAnchor(agentId, conversationId, H);
+      };
+      if (S > H) {
+        // H<S（文件被人工缩短）→ 全量快照重定基线（自愈语义沿袭）
+        inject(renderSnapshot(entries, { maxTokens }), MEMORY_SNAPSHOT_SOURCE, '长期记忆快照注入');
         return next();
       }
-      let S = -1;
-      for (let i = records.length - 1; i >= 0; i--) {
-        const r = records[i];
-        if (r.role !== 'context') continue;
-        if (r.agent_id !== undefined && r.agent_id !== agentId) continue;
-        if (r.source !== MEMORY_SNAPSHOT_SOURCE && r.source !== MEMORY_DELTA_SOURCE) continue;
-        // cr-1107 水位显式化:payload.memoryBaseline 优先(现行),存量行
-        // 回落 content 正则(「记忆基线 seq=N」寄生正文的历史形态)
-        const p = (r.payload ?? null) as { memoryBaseline?: unknown } | null;
-        if (p !== null && typeof p.memoryBaseline === 'number') S = p.memoryBaseline;
-        else {
-          const m = /记忆基线 seq=(\d+)/.exec(r.content);
-          S = m ? Number(m[1]) : 0;
-        }
-        break;
-      }
-      const maxTokens = this.maxTokensFor(agentId);
-      /** 落账（裸正文——Plan B）+ 工作数组双写（包裹后 = 回放投影同字节，
-       * cr-1101 live 注入对齐；wrapSystemReminder 与 ac-ledger 回放同源） */
-      const inject = (text: string, source: string, label: string, baseline: number): void => {
-        // cr-1107:水位走 payload.memoryBaseline(公共数据面),content 不再
-        // 寄生「记忆基线 seq=N」——注入正文对模型是纯记忆内容,无水位噪声
-        session.recordContext(conversationId, agentId, text, { source, label, payload: { memoryBaseline: baseline } });
-        req.messages = [...req.messages, { role: 'user', content: wrapSystemReminder(text) }];
-      };
-      if (S === -1 || S > H) {
-        // 无锚（新会话/压缩裁锚）或 H<S（文件被缩短）→ 全量快照重定基线
-        if (H === 0) return next(); // 空时间线不注入（静态指引已告知 memory_write）
-        inject(renderSnapshot(entries, { maxTokens }), MEMORY_SNAPSHOT_SOURCE, '长期记忆快照注入', H);
+      if (S === 0 && H === 0) return next(); // 空时间线不注入（静态指引已告知 memory_write）
+      if (S === 0) {
+        // 无锚（新会话）→ 全量快照重定基线
+        inject(renderSnapshot(entries, { maxTokens }), MEMORY_SNAPSHOT_SOURCE, '长期记忆快照注入');
         return next();
       }
       if (H > S) {
@@ -163,12 +149,65 @@ export class MemoryService extends Service {
         const delta = entries.filter((e) => e.seq > S && e.origin !== conversationId);
         const text = renderDelta(delta, { from: S, to: H });
         if (text !== undefined) {
-          inject(text, MEMORY_DELTA_SOURCE, '长期记忆增量注入', H);
+          inject(text, MEMORY_DELTA_SOURCE, '长期记忆增量注入');
         }
       }
       // H === S：正常稳态，不注入
       return next();
-    }, { description: '记忆 checkpoint/delta 注入（loop/before-run：锚检测 + 落账/工作数组双写）' });
+    }, { description: '记忆 checkpoint/delta 注入（loop/before-run：私有水位判定 + 落账/工作数组双写 + 锚推进）' });
+  }
+
+  // ---- 注入水位（cr-1154：时间线私有状态，per-Agent×会话） ----
+
+  /** persist=false 纯内存后端的锚映射（persist=true 时恒空——读写走文件） */
+  private anchorStore = new Map<string, number>();
+
+  /** 锚文件路径：与 timeline.md 同目录（.anchors.json） */
+  private anchorFileOf(agentId: string): string {
+    return path.join(path.dirname(this.timelineFileOf(agentId)), '.anchors.json');
+  }
+
+  /** 读水位：无锚 = 0（新会话语义）。读失败/坏文件 = 0（fail-soft：
+   * 最坏重注一次快照收敛，无震荡——锚文件损坏不阻断注入链） */
+  private anchorOf(agentId: string, conversationId: string): number {
+    if (!this.persist) return this.anchorStore.get(agentId + '\u0000' + conversationId) ?? 0;
+    try {
+      const raw = fs.readFileSync(this.anchorFileOf(agentId), 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const v = parsed[conversationId];
+      return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  /** 写水位（S 单调不降）：tmp+rename 原子写。多会话并发写 = read-modify-write
+   * 竞态，last-write-wins 且每会话只写自己的键——丢的是对方会话尚未推进的
+   * 锚（下次注入重算），无损全局收敛；单会话内 run 串行化门保证无自竞态。 */
+  private setAnchor(agentId: string, conversationId: string, seq: number): void {
+    if (!this.persist) {
+      const cur = this.anchorStore.get(agentId + '\u0000' + conversationId) ?? 0;
+      if (seq > cur) this.anchorStore.set(agentId + '\u0000' + conversationId, seq);
+      return;
+    }
+    const file = this.anchorFileOf(agentId);
+    let anchors: Record<string, number> = {};
+    try {
+      anchors = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, number>;
+    } catch {
+      // 缺席/坏文件 → 覆盖重建（本会话键起步，其余会话下次注入时快照自愈）
+    }
+    if (typeof anchors !== 'object' || anchors === null) anchors = {};
+    if ((anchors[conversationId] ?? 0) >= seq) return; // 单调不降
+    anchors[conversationId] = seq;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = file + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(anchors), 'utf-8');
+      fs.renameSync(tmp, file);
+    } catch {
+      // 写失败 = 下次重注同 delta 一次（幂等收敛），不阻断注入链
+    }
   }
 
   private maxTokensFor(agentId: string): number {
@@ -357,7 +396,7 @@ export const extension: ExtensionMeta = {
   ],
   listeners: [
     { event: 'loop/before-run', role: '静态指引注入（段注册制）', description: '字节恒定的 memory-guide（内容走 context 行协议）' },
-    { event: 'loop/before-run', role: 'checkpoint/delta 注入（cr-1102）', description: '锚检测（H>S delta / H=S 稳态 / H<S 或无锚快照重定基线）+ 落账/工作数组双写' },
+    { event: 'loop/before-run', role: 'checkpoint/delta 注入（cr-1154）', description: '私有水位判定（.anchors.json：H>S delta / H=S 稳态 / 无锚或 H<S 快照重定基线）+ 落账/工作数组双写 + 锚推进' },
   ],
 };
 
