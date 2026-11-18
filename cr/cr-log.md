@@ -1167,4 +1167,12 @@
 - 【cr-1146 2026-11-17 未读服务端权威源实施：读位持久化 meta/unread.json + session/mark-read RPC + 首屏/批量对账 + 前端 localStorage 退役（unread-authority-plan 落地）】
 - 【cr-1147 2026-11-17 定时器脚本化重做：检测逻辑下沉为可擦除 TS 判定脚本（worker containment），旧 5 模式条目一次性编译迁移 #timer #host-rows】
 - 【cr-1148 2026-11-17 ask_questions 无人值守会话两道防线：无人桶无超时兜底（C：超龄 pending 定时关闭+重启对账）与 peer 提问路由（B：agent~agent 桶 ask 通知对端 Agent 代答，interactionReply 标记信封复用）】
+- 【cr-1149 2026-11-17 fix(timer): 判定脚本契约硬化——verdict 校验（next 须 Date/过去值钳制提示）+ u.after 入参归一 + set 首检即投递告警与 active:false 拒落盘】
+- 【cr-1150 2026-11-17 前端进入会话未读徽章不消：无已见行锚时服务端读位不推进 + 首屏旁带覆盖本地清零】
+- 【cr-1151 2026-11-17 perf(session-index): 未读批量对账改索引 SQL 聚合——session/unread 逐会话全量装配（cr-1146，启动 11s 事件循环阻塞）退役】
+- 【cr-1152 2026-11-17 unread 功能面暂时下线：注销 session/unread 与 session/mark-read RPC、退役 session/group history 首屏未读旁带与前端对账/读位写穿（cr-1146 服务端权威源消费面全停）——性能影响过大，待重新设计；live 帧计数与 core-utils/session-index 未读派生原料保留】
+- 【cr-1153 2026-11-17 临时关闭 memory 注入：数据根 profile/shell.patch.yml 停用 memory 能力行（记忆增量注入重复异常止血） --status doing】
+- 【cr-1154 2026-11-18 记忆模块 V2 水位重构：注入锚从账本行寄生迁移时间线私有 .anchors.json（per-Agent×会话水位映射，tmp+rename 原子写），删锚扫描/cr-46 串台防御/payload.memoryBaseline，账本行回归纯回放材料 →cr-1153】
+- 【cr-1155 2026-11-18 ledger 读面两修：recordsFor 投影无 seq v1 行从 MAX_SAFE_INTEGER 尾部改归位最旧 + archive 归档对无 seq v1 行按文件位置出清（僵尸行免疫根治）】
+- 【cr-1156 2026-11-18 回放压缩边界过滤修复：seq 空间倒挂（compaction 重写后 B1 尾窗播种重启小 seq）致 boundarySeq 遮蔽当前会话全部行——admin~user/news~user 用户消息静默不可见；边界过滤加 compaction 事件时刻维度（事件后落账行恒放行）→cr-1155】
 
