@@ -19,6 +19,8 @@ export {
   projectLedgerAppend, RUN_SETTLED_FRAME, STEP_JOURNALED_FRAME, TOOL_RESULT_FRAME,
   type ProjectedFrame, type ProjectionMeta,
 } from './ledger-projection.ts';
+// cr-1157：未读轴键归一（frame → 计数器轴键的投影；宿主 tap 桥与 webui 前端同源）
+export { unreadAxisKeyOf, userPairAxisKey } from './unread-axis.ts';
 
 /** llm/delta 线帧的 input 投影（瘦身：剥 messages/tools 等全量上下文） */
 export function wireLlmInput(input: unknown): unknown {

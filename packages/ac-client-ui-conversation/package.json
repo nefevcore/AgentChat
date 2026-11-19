@@ -56,6 +56,7 @@
     "ac-client-ui-tool": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
     "ac-edit-core": "workspace:*",
+    "ac-wire-format": "workspace:*",
     "pinia": "^2.1.7",
     "vue": "^3.4.0"
   },

@@ -92,6 +92,9 @@ export function readUnread(dataRoot: string): Record<string, UnreadEntry> {
   return read(dataRoot);
 }
 
+//（cr-1157：未读轴键归一判据不住本包——前端行需同源消费而本包带 Node 依赖，
+//  判据落 ac-wire-format/src/unread-axis.ts。）
+
 /**
  * 事件计数 +1（源挂点写口）。幂等：同 key 重复事件（邮局 at-least-once
  * 重投 / tap 重连重放）不双计——key 缺席时不做幂等（源挂点尽量给键；

@@ -11,6 +11,7 @@
 // ============================================================
 import { ref, computed, type Ref } from 'vue';
 import type { RpcClientFace } from 'ac-client-runtime';
+import { unreadAxisKeyOf, userPairAxisKey } from 'ac-wire-format';
 import { SINGLE_SESSION_ID_RE } from './dialogIdLex.ts';
 
 /** 徽章轴键 → Agent/群行键：对桶取对端（非 viewer 端），群/ single 直用 */
@@ -31,21 +32,13 @@ function axisKeyOfFrame(type: string, args: unknown[]): string | undefined {
   if (type === 'router/message-received') {
     const agentId = args[0];
     if (typeof agentId !== 'string' || !agentId) return undefined;
-    // 私信轴 = pairKey(agent, viewer) 对桶
-    return [agentId, 'user'].sort().join('~');
+    // 私信轴 = viewer⇄agent 对桶（判据单源 ac-wire-format）
+    return userPairAxisKey(agentId, VIEWER);
   }
   if (type === 'run/settled') {
     const [p] = args as [{ agent?: string; conversationId?: string }?];
-    const agent = p?.agent;
-    const conv = p?.conversationId;
-    if (!agent || !conv) return undefined;
-    // viewer 参与会话口径（与 host 侧同款门控——修二）：自会话 a~a 与
-    // agent⇄agent 对不计（防与 user 对桶合流双倍）；g- 群轴不计
-    //（group/message-posted 单源）；uuid single 直用；其余直答对桶。
-    if (conv.includes('~')) return conv.split('~').includes('user') ? conv : undefined;
-    if (SINGLE_SESSION_ID_RE.test(conv)) return conv;
-    if (conv.startsWith('g-')) return undefined;
-    return [agent, 'user'].sort().join('~');
+    // 轴键归一判据单源（ac-core-utils 纯库——host tap 桥同款消费）
+    return unreadAxisKeyOf(p?.agent, p?.conversationId, VIEWER);
   }
   return undefined;
 }

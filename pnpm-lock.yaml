@@ -1250,6 +1250,9 @@ importers:
       ac-edit-core:
         specifier: workspace:*
         version: link:../ac-edit-core
+      ac-wire-format:
+        specifier: workspace:*
+        version: link:../ac-wire-format
       pinia:
         specifier: ^2.1.7
         version: 2.3.1(typescript@5.9.3)(vue@3.5.41(typescript@5.9.3))
@@ -2731,6 +2734,9 @@ importers:
       ac-webui-core:
         specifier: workspace:*
         version: link:../ac-webui-core
+      ac-wire-format:
+        specifier: workspace:*
+        version: link:../ac-wire-format
       ac-workspace:
         specifier: workspace:*
         version: link:../ac-workspace

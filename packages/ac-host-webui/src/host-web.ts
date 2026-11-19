@@ -28,7 +28,9 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makeWebuiRowV3 } from 'ac-ui-app/v3';
 import { tapShellStream, ShellStreamBridge, type StreamTapHandle } from 'ac-post-office';
-import { bumpUnread, pairKey } from 'ac-core-utils';
+import { bumpUnread } from 'ac-core-utils';
+// 未读轴键判据单源（ac-wire-format 纯库——webui 前端同源消费）
+import { unreadAxisKeyOf, userPairAxisKey } from 'ac-wire-format';
 
 /** 宿主 web 面装配结果（独立形态） */
 export interface HostWebResult {
@@ -140,8 +142,8 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
       args: [agentId, { role: 'user', content: text, message_id: requestId }, uuid, agentId, 'agent'],
     });
     // cr-1157 独立私信未读计数：幂等键 = requestId（邮局重投不双计）。
-    // 会话键 = pairKey(agentId, 'user') 对桶（与前端 feed 分区键同构）。
-    bumpUnread(options.dataRoot, pairKey(agentId, 'user'), requestId);
+    // 会话键 = viewer⇄agent 对桶轴（与前端 feed 分区键同构，判据单源）。
+    bumpUnread(options.dataRoot, userPairAxisKey(agentId), requestId);
   });
   user.start();
 
@@ -209,15 +211,9 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
               const agent = typeof s.agent === 'string' && s.agent !== '' ? s.agent : undefined;
               const conv = typeof s.conversationId === 'string' && s.conversationId !== '' ? s.conversationId : undefined;
               const run = typeof s.run === 'string' && s.run !== '' ? s.run : undefined;
-              if (agent !== undefined && conv !== undefined) {
-                const single = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conv);
-                const key = conv.includes('~')
-                  ? (conv.split('~').includes('user') ? conv : undefined)
-                  : single ? conv
-                    : conv.startsWith('g-') ? undefined
-                      : pairKey(agent, 'user');
-                if (key !== undefined) bumpUnread(options.dataRoot, key, run);
-              }
+              // 轴键归一判据单源（ac-core-utils unreadAxisKeyOf——前端同款消费）
+              const key = unreadAxisKeyOf(agent, conv);
+              if (key !== undefined) bumpUnread(options.dataRoot, key, run);
             }
           }
         },
