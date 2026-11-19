@@ -10,6 +10,9 @@
 // 索引可重建即聚合自愈）；「零语义」指不做内容解释，行内元数据列本就
 // 为定位/判别而索引，统计是其只读投影。
 //
+//（cr-1157：cr-1151 未读谓词列与 SQL 派生面已随计数器方案整体退役——
+//  未读不再从索引派生，见 ac-core-utils/unread.ts。）
+//
 // 增量协议（files 表 size/mtimeMs/consumed 三键对账，方案 §1.1）：
 //   · 无行 / size < consumed / mtimeMs 倒退 / size 变小（compact 重写）
 //     → 全量重建该文件（DELETE 后整读重插）；
@@ -191,7 +194,7 @@ export class SessionIndex {
     this.stmts.clear();
   }
 
-  /** 刷新某会话全部域 × 三源文件的指针行（重建/增量对账见文件头） */
+  /** 刷新某会话全部域 × 三源文件的指针行（重建/增量对账见文件头）。 */
   refreshConversation(dataRoot: string, convId: string): RefreshReport {
     const report: RefreshReport = { appended: 0, rebuilt: [] };
     for (const dir of sessionDirs(dataRoot, convId)) {

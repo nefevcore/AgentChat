@@ -7,7 +7,6 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { useClientContext, VIEWER_ID } from 'ac-client-runtime';
 import { Avatar, Icon } from '@agentchat/webui-kit';
 import { useActivityBarActions, type ActivityBarActionDef } from './activityBarActions.ts';
-import { useUnreadBadges } from 'ac-client-ui-conversation/client/useUnreadBadges.ts';
 import { createBackupRunner, checkUpdateOnce } from './systemActions.ts';
 
 const emit = defineEmits<{
@@ -26,14 +25,11 @@ defineProps<{
 const clientCtx = useClientContext();
 const roster = clientCtx?.roster;
 const themeSvc = clientCtx?.theme;
+// 未读聚合（cr-1157 计数器方案；缺服务 = 无徽章降级）
+const unread = (clientCtx?.sessions ?? null)?.unread ?? null;
 
 const currentAvatar = computed(() => roster?.getAgentAvatar(VIEWER_ID.value) ?? null);
 const currentAgentName = computed(() => roster?.getAgentName(VIEWER_ID.value) || 'User');
-
-// ── 未读聚合徽章（Agent 列表 / 会话列表按钮）──
-// 口径与实现迁 layout 共享模块 useUnreadBadges（cr-29：MobileTabBar 同源消费，
-// 不复制实现）；口径注释见该模块头注。
-const { agentsUnreadTotal, singlesUnreadTotal, agentsUnreadLabel, singlesUnreadLabel } = useUnreadBadges();
 
 // activity-bar:plugin-actions 贡献面（ctx 参数化解析——order 升序稳定）
 const sortedActivityBarActions = useActivityBarActions(clientCtx);
@@ -114,14 +110,14 @@ onUnmounted(() => {
          （direct 私信 + 群聊；single 会话时名册不可见，Agent 私信仍经此按钮提示） -->
     <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'agents' }" aria-label="Agent 列表" title="Agent 列表" @click="emit('openPrimaryPanel', 'agents')">
       <Icon name="users" :size="22" />
-      <span v-if="agentsUnreadTotal > 0" class="ui-avatar-badge unread-badge">{{ agentsUnreadLabel }}</span>
+      <span v-if="unread && unread.agentsTotal() > 0" class="activity-badge">{{ unread.agentsTotal() > 99 ? '99+' : unread.agentsTotal() }}</span>
     </button>
 
     <!-- 会话列表（独立会话页，与 Agent 列表同级）；徽章 = single 分区未读聚合
          （single 无名册行，SessionList 是其归属面板——本按钮为唯一未读提示位） -->
     <button class="activity-bar-btn" :class="{ active: primaryVisible && primaryPanel === 'sessions' }" aria-label="会话列表" title="会话列表" @click="emit('openPrimaryPanel', 'sessions')">
       <Icon name="message-circle" :size="22" />
-      <span v-if="singlesUnreadTotal > 0" class="ui-avatar-badge unread-badge">{{ singlesUnreadLabel }}</span>
+      <span v-if="unread && unread.sessionsTotal() > 0" class="activity-badge">{{ unread.sessionsTotal() > 99 ? '99+' : unread.sessionsTotal() }}</span>
     </button>
 
     <!-- 运行跟踪入口已迁辅助活动栏（aux 'tracking' 选区 rail 按钮，A5）——
@@ -211,13 +207,16 @@ onUnmounted(() => {
   width: 2px; background: var(--primary); border-radius: 0 2px 2px 0;
 }
 
-/* 未读聚合徽章配方 = kit badge.css .ui-avatar-badge（cr-157 归一——#ef4444 字面值退役，
-   「跨包单源待裁决 A」就此收口）；.unread-badge 锚点类保留（webui 测试锁），
-   本地只补定位：右上限位在按钮内（cr-196 描边退役） */
-.unread-badge { top: 3px; right: 3px; z-index: 1; }
-
 .activity-bar-spacer { flex: 1; }
 .more-wrapper { position: relative; z-index: 10; }
+
+/* 未读角标（cr-1157：AgentList .unread-badge 同配方；--err-status 状态色系） */
+.activity-badge {
+  position: absolute; top: 2px; right: 2px; min-width: 15px; height: 15px; padding: 0 4px;
+  border-radius: 8px; background: var(--err-status); color: #fff;
+  font-size: 10px; line-height: 15px; text-align: center; font-weight: 600;
+  pointer-events: none; box-sizing: border-box;
+}
 
 /* 更新可用提示点（cr-332：#ef4444 字面值归一 --err-status 图形档令牌——
    状态点取 3.0 线状态色，与 .ms-dot 同步归一） */

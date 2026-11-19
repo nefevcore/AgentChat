@@ -28,6 +28,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { makeWebuiRowV3 } from 'ac-ui-app/v3';
 import { tapShellStream, ShellStreamBridge, type StreamTapHandle } from 'ac-post-office';
+import { bumpUnread, pairKey } from 'ac-core-utils';
 
 /** 宿主 web 面装配结果（独立形态） */
 export interface HostWebResult {
@@ -138,6 +139,9 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
     ctx.webServer.broadcast('router/message-received', {
       args: [agentId, { role: 'user', content: text, message_id: requestId }, uuid, agentId, 'agent'],
     });
+    // cr-1157 独立私信未读计数：幂等键 = requestId（邮局重投不双计）。
+    // 会话键 = pairKey(agentId, 'user') 对桶（与前端 feed 分区键同构）。
+    bumpUnread(options.dataRoot, pairKey(agentId, 'user'), requestId);
   });
   user.start();
 
@@ -188,7 +192,30 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
         taps.delete(agentId);
       }
       const bridge = new ShellStreamBridge({
-        send: (frame) => ctx.webServer.broadcast(frame.type, frame.data),
+        send: (frame) => {
+          ctx.webServer.broadcast(frame.type, frame.data);
+          // cr-1157 run 收束未读计数：一轮回复 = 1（幂等键 = runId；tap
+          // 重连重放不双计）。会话键与前端 feed 分区键同构：含 ~ = 对桶
+          // 直用；=== agent = 自会话对角线；uuid 形 = single 分区键直用；
+          // 其余（agent 名直答旧形态）= pairKey(agent,'user')。
+          if (frame.type === 'run/settled' && typeof frame.data === 'object') {
+            const p = frame.data as { args?: unknown };
+            const a = Array.isArray(p.args) ? p.args[0] : undefined;
+            if (a !== null && typeof a === 'object') {
+              const s = a as { agent?: unknown; conversationId?: unknown; run?: unknown };
+              const agent = typeof s.agent === 'string' && s.agent !== '' ? s.agent : undefined;
+              const conv = typeof s.conversationId === 'string' && s.conversationId !== '' ? s.conversationId : undefined;
+              const run = typeof s.run === 'string' && s.run !== '' ? s.run : undefined;
+              if (agent !== undefined && conv !== undefined) {
+                // 分区键归一（与前端 routeDialog 词法同构）：含 ~ = 对桶；
+                // uuid 形 = single 分区键直用；其余 = agent~user 直答对桶。
+                const single = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conv);
+                const key = conv.includes('~') || single ? conv : pairKey(agent, 'user');
+                bumpUnread(options.dataRoot, key, run);
+              }
+            }
+          }
+        },
       });
       const tap = await tapShellStream(transportHint, (frame) => bridge.ingest(frame));
       taps.set(agentId, { tap, bridge });

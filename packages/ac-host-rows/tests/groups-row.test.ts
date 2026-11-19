@@ -122,7 +122,8 @@ describe('宿主群存储行（send 扇出 + history 合并）', () => {
     expect(sent.map((e) => e.uuid).sort()).toEqual([gid + '~alpha', gid + '~beta'].sort());
     expect(sent.every((e) => e.sender === 'user' && (e.payload as { text?: string }).text === '大家好')).toBe(true);
     expect(new Set(sent.map((e) => e.requestId)).size).toBe(1); // 同一消息共享 requestId（history 去重键）
-    expect(frames.at(-1)).toMatchObject({ type: 'group/message-posted', args: [gid] });
+    // cr-1157：post 帧载荷带 message（id = 扇出 requestId——前端 live 帧/未读锚）
+    expect(frames.at(-1)).toMatchObject({ type: 'group/message-posted', args: [gid, { id: expect.any(String), groupId: gid, from: 'user' }] });
     // 成员发言：跳过发送者
     sent.length = 0;
     const out2 = await handlers.get('group/send')!({ groupId: gid, from: 'alpha', content: '收到' }) as { triggered: string[] };

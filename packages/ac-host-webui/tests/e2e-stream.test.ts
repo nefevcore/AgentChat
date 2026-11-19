@@ -146,6 +146,34 @@ describe('8.5d ws-bridge 旁带接线（壳 → 宿主 → webui 流式全链）
       expect(frames.some((f) => f.type === 'session/run-settled')).toBe(false);
       // step/journaled 投影帧在场（帧序 ≡ 事件行序的全链体现）
       expect(frames.some((f) => f.type === 'step/journaled')).toBe(true);
+
+      // cr-1157 未读计数器（settled 源 → bump → take/mark-read RPC）：run
+      // 收束即计数 +1；take 取走并清零；重投同 runId 不双计（幂等键）。
+      const { readUnread } = await import('ac-core-utils');
+      await new Promise((r2) => setTimeout(r2, 100)); // bump 与广播同步——帧已到即已计
+      expect(readUnread(ROOT)[uuid]?.n).toBe(1);
+      // rpc 往返（e2e-host-web 同款帧协议：rpc/call → rpc/result）
+      const rpc = (method: string, params: Record<string, unknown>) => new Promise<unknown>((resolve, reject) => {
+        const requestId = 'unread-' + method;
+        ws.send(JSON.stringify({ type: 'rpc/call', data: { method, requestId, params } }));
+        const onMsg = (d: WebSocket.RawData): void => {
+          try {
+            const m = JSON.parse(String(d)) as { type?: string; data?: { requestId?: string; ok?: boolean; result?: unknown; error?: string } };
+            if (m.type === 'rpc/result' && m.data?.requestId === requestId) {
+              ws.off('message', onMsg);
+              if (m.data.ok) resolve(m.data.result); else reject(new Error(m.data.error ?? 'rpc 失败'));
+            }
+          } catch { /* 非 JSON 忽略 */ }
+        };
+        ws.on('message', onMsg);
+        setTimeout(() => { ws.off('message', onMsg); reject(new Error('RPC 超时：' + method)); }, 5000);
+      });
+      const taken = await rpc('session/unread', {}) as { entries: Record<string, { n: number }> };
+      expect(taken.entries[uuid]?.n).toBe(1);
+      expect(readUnread(ROOT)).toEqual({}); // take 即清零
+      // take 后 mark-read 幂等（空表上定向清零无副作用）
+      await rpc('session/mark-read', { conversationId: uuid });
+      expect(readUnread(ROOT)).toEqual({});
     } finally {
       ws.close();
       await host.close();

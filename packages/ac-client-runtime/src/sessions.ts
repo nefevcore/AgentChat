@@ -26,19 +26,36 @@ export interface SessionsChatFace {
   clearSingleContext(): void;
 }
 
+/** 未读徽章面（cr-1157 计数器方案——轴键 = host 计数器键词法域） */
+export interface UnreadBadgeFace {
+  /** 轴键 → n（响应式；对桶 a~b / 群 gid / single uuid） */
+  readonly counts: Ref<Record<string, number>>;
+  /** Agent/群行键聚合（AgentList 行徽章——对桶轴折算到 Agent 键） */
+  countOfAgent(agentKey: string): number;
+  /** 总数（全部轴） */
+  total(): number;
+  /** 名册行口径聚合（对桶 + 群轴——Agent 列表按钮徽章） */
+  agentsTotal(): number;
+  /** single 口径聚合（uuid 轴——会话列表按钮徽章） */
+  sessionsTotal(): number;
+  /** 定向清（点开即清——本地即时 + mark-read RPC） */
+  markRead(axisKey: string): void;
+  /** 生命周期（幂等）：take 对齐 + live 订阅 + 慢周期 */
+  init(): void;
+}
+
 /** conversation 基础件会话服务契约（结构子集——富类型见 webui 实现） */
 export interface SessionsClientFace {
   readonly feed: SessionsFeedFace;
   readonly chat: SessionsChatFace;
+  /** 未读徽章状态（cr-1157——行 client/组件消费角标） */
+  readonly unread: UnreadBadgeFace;
   /** 生命周期（幂等）：wire 订阅 + 名册启动链（装配序列显式发起） */
   init(): void;
   /** groups 域：重建群 presence 集（帧路由 group 会话键判别） */
   setKnownGroups(ids: string[]): void;
   /** singles 域：登记/摘除单个会话 presence（single~sid 帧路由判别） */
   trackKnownSingle(id: string, removed?: boolean): void;
-  /** singles 域：single 分区未读对账（列表刷新后——非 active 会话的
-   *  未读 = 孤儿〔删/归档后无行可点〕，清除写穿；实现归 conversation） */
-  pruneSingleUnread(activeIds: string[]): void;
 }
 
 declare module './context.ts' {
