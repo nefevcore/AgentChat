@@ -174,9 +174,11 @@ export class ConversationService extends Service {
     }
     return m;
   }
-  /** 安全重启挂起标记（cr-629：restart_shell 置位——当前 run 收束点消费，
-   * 不中断（cr-658 自然收束语义） */
-  private restartPending = false;
+  /** 安全重启挂起意图（cr-629：restart_shell 置位——收束点消费，不中断
+   * 〔cr-658 自然收束语义〕）。cr-1159：单布尔改发起方键集——多会话并
+   * 发各调 restart_shell 时通知链按发起方多键投递（此前单槽 = 后收束
+   * 会话顶替发起方，另一发起方永等不到「已重启」）。 */
+  private readonly restartOrigins: Set<string> = new Set();
   /** 最近收束尾巴（cr-748 状态对账批）：run 收束即记——runState 携带，宿主
    * 轮询对拍「活跃集消失但从未见 settled 帧」的短命 run；纯内存，容量 8，
    * 旧条目随新收束挤出（活壳视角的对齐面，非持久面——壳死即蒸发，崩溃
@@ -808,8 +810,9 @@ export class ConversationService extends Service {
         //（续跑上下文 = 轨迹读面，不依赖信封回投）。
         // 多 run 重启语义（cr-746）：等所有门收束——本 run 收束后仍有其他
         // 在途 run 则继续等（它们的收束点会再次检查）；全闲才兑现重启。
-        if (this.restartPending && this.activeRuns.size <= 1) {
-          this.restartPending = false;
+        // cr-1159：restart-ready 携发起方键集（marker 多键注入的依据——
+        // 收束者不一定是发起方）。
+        if (this.restartOrigins.size > 0 && this.activeRuns.size <= 1) {
           restartNow = true;
           break;
         }
@@ -849,10 +852,13 @@ export class ConversationService extends Service {
       this.activeRuns.delete(this.gateKey(uuid));
     }
     // 安全重启通知（finally 后——链跑已 break，busy 已收口）：不回队在途
-    // 信封（cr-658——本轮已自然消费），只携会话键通知 boot 退 42（新壳按
-    // marker 注入「已重启」续跑轮）。
+    // 信封（cr-658——本轮已自然消费），只携发起方键集通知 boot 退 42
+    // （新壳按 marker 多键注入「已重启」续跑轮）。cr-1159：清意图须与
+    // 发出同点——收束点孤儿化（reviewRun 最后收束）由 4 的检查兜底。
     if (restartNow) {
-      this.ctx.emit('conversation/restart-ready', { agentId: this.agentId, conversationId: uuid });
+      const origins = [...this.restartOrigins];
+      this.restartOrigins.clear();
+      this.ctx.emit('conversation/restart-ready', { agentId: this.agentId, conversationIds: origins });
     }
     return 'settled';
   }
@@ -911,6 +917,15 @@ export class ConversationService extends Service {
       // driveRun（无新信时不再滞留到下次事件）。finally 内 await：门先占
       // 后回执；唤醒失败不掩 reviewRun 结果（留 boot 恢复面收敛）。
       try { await this.drainQueuedTurn(machine, uuid); } catch { /* 唤醒失败不掩回执 */ }
+      // cr-1159：机制 run 收束的全闲检查——与 driveRun 收束点同构（此前
+      // 缺席 = reviewRun 最后收束时 restartPending 孤儿化：无 restart-ready、
+      // 无 marker、不退 42，重启静默蒸发）。drainQueuedTurn 唤醒的链跑若
+      // 已在其收束点兑现（键集清零），此处幂等跳过。
+      if (this.restartOrigins.size > 0 && this.activeRuns.size === 0) {
+        const origins = [...this.restartOrigins];
+        this.restartOrigins.clear();
+        this.ctx.emit('conversation/restart-ready', { agentId: this.agentId, conversationIds: origins });
+      }
     }
   }
 
@@ -958,15 +973,19 @@ export class ConversationService extends Service {
    * 安全重启请求（cr-629/658，restart_shell 工具消费面）：busy → 只挂起
    * 标记、**不中断 run**（自然收束语义——本轮恰好 settle/回信/清行一次；
    * 模型已在工具返回里被引导收尾，终稿即重启后的接力上下文）；收束点
-   * 发 conversation/restart-ready（携会话键）。空闲 → 直接发。返回 true =
-   * 有在途 run（restart-ready 在收束后到达）；false = 已发出。
+   * 发 conversation/restart-ready（携发起方键集）。空闲 → 直接发。返回
+   * true = 有在途 run（restart-ready 在收束后到达）；false = 已发出。
+   * cr-1159：conversationId = 发起方会话键（多会话并发各调各记，通知链
+   * 不再被后收束会话顶替）；缺席 = 无会话上下文（测试/外部调用）——空
+   * 键集直发，marker 兜多键注入。
    */
-  requestRestart(): boolean {
-    if (this.activeRuns.size > 0) {
-      this.restartPending = true;
-      return true;
-    }
-    this.ctx.emit('conversation/restart-ready', { agentId: this.agentId });
+  requestRestart(conversationId?: string): boolean {
+    if (conversationId !== undefined) this.restartOrigins.add(conversationId);
+    if (this.activeRuns.size > 0) return true;
+    // 空闲直发（与收束点同构：键集清零 + emit——单一兑现形态）
+    const origins = [...this.restartOrigins];
+    this.restartOrigins.clear();
+    this.ctx.emit('conversation/restart-ready', { agentId: this.agentId, ...(origins.length > 0 ? { conversationIds: origins } : {}) });
     return false;
   }
 

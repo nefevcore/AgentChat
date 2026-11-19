@@ -636,7 +636,7 @@ export async function bootShell(
   // cr-651：本壳即 restart_shell 的换代结果——复活标记已兑现，自清（宿主
   // boot 扫标记兜底重拉时，标记在我们 boot 完成后不再需要）。自清前读出
   // 会话键（cr-658）——恢复面据此注入「已重启」续跑通知。
-  let restartedConversation: string | undefined;
+  let restartedConversations: string[] = [];
   try {
     // cr-663：标记可能已被宿主原子领取成 <agentId>.<pid>.claimed——两种名
     // 形态都认（领者宿主只 rename 不删，兑现与自清仍归本壳）。多标记同名
@@ -649,8 +649,15 @@ export async function bootShell(
     if (candidates.length > 0) {
       const markerPath = path.join(markerDir, candidates[0]!.n);
       try {
-        const raw = JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as { conversationId?: unknown };
-        if (typeof raw.conversationId === 'string' && raw.conversationId !== '') restartedConversation = raw.conversationId;
+        // cr-1159：键集读取（conversationIds[]）+ 旧单值形态兼容（存代壳
+        // 写的 marker）——去重去空。
+        const raw = JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as { conversationId?: unknown; conversationIds?: unknown };
+        const keys = new Set<string>();
+        if (typeof raw.conversationId === 'string' && raw.conversationId !== '') keys.add(raw.conversationId);
+        if (Array.isArray(raw.conversationIds)) {
+          for (const k of raw.conversationIds) if (typeof k === 'string' && k !== '') keys.add(k);
+        }
+        restartedConversations = [...keys];
       } catch { /* 坏标记——仍清文件 */ }
       for (const c of candidates) fs.rmSync(path.join(markerDir, c.n), { force: true });
     }
@@ -1207,22 +1214,29 @@ export async function bootShell(
   // 对端，timer/goal 的 KV 前缀裁决同款），开续跑轮（续跑上下文 = 轨迹
   // 读面，模型按上一轮终稿继续）。兜在 inbox 恢复之后：排队信先消费，
   // 注入不插队。
-  if (restartedConversation !== undefined && typeof convSvc?.receiveEnvelope === 'function') {
+  if (restartedConversations.length > 0 && typeof convSvc?.receiveEnvelope === 'function') {
+    // cr-1159：逐发起方注入（多会话并发各调 restart_shell 时各收各的
+    // 「已重启」——单键注入 = 非发起方或后收束者永等不到）。串行逐封：
+    // 注入不插队语义保持（inboxes 先消费排队信）。
     void inboxRecovery
-      .then(() => convSvc.receiveEnvelope!(makeEnvelope({
-        uuid: restartedConversation,
-        requestId: 'restarted-' + issueRequestId(),
-        sender: restartNoteSender(restartedConversation, args.agentId),
-        to: args.agentId,
-        kind: 'message',
-        budget: 1,
-        // cr-946：机制通知标记——壳自身合成的催办信不是会话发言：壳按机制行
-        //（context+event）落账，webui 投为事件分隔符（同时是两轮 run 的边界）。
-        payload: {
-          text: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。上一轮 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤、勿再次 restart_shell。',
-          mechanism: true,
-        },
-      }), { fresh: true }))
+      .then(async () => {
+        for (const uuid of restartedConversations) {
+          await convSvc.receiveEnvelope!(makeEnvelope({
+            uuid,
+            requestId: 'restarted-' + issueRequestId(),
+            sender: restartNoteSender(uuid, args.agentId),
+            to: args.agentId,
+            kind: 'message',
+            budget: 1,
+            // cr-946：机制通知标记——壳自身合成的催办信不是会话发言：壳按机制行
+            //（context+event）落账，webui 投为事件分隔符（同时是两轮 run 的边界）。
+            payload: {
+              text: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。上一轮 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤、勿再次 restart_shell。',
+              mechanism: true,
+            },
+          }), { fresh: true });
+        }
+      })
       .catch((err: unknown) => {
         process.stderr.write('[shell] 「已重启」注入失败：' + String(err) + '\n');
       });
@@ -1281,14 +1295,15 @@ export async function bootShell(
  * cr-651：请求可能撞宿主换代窗口（restart_host 的 exit 42 与新壳拉起之间）而
  * 丢失——先落盘复活标记（dataRoot/.runtime/restart-shell/<agent>.json），新
  * 宿主 boot 扫标记兜底重拉；宿主收信成功则由钩子删除标记。 */
-async function notifyHostRestartShell(args: ShellBootArgs, conversationId?: string): Promise<void> {
+async function notifyHostRestartShell(args: ShellBootArgs, conversationIds: string[]): Promise<void> {
   if (args.postOffice === undefined) return;
   const marker = path.join(path.resolve(args.dataRoot), '.runtime', 'restart-shell', args.agentId + '.json');
   try {
     fs.mkdirSync(path.dirname(marker), { recursive: true });
-    // cr-658：conversationId 随 marker 落盘——新壳 boot 兑现标记后据此
-    // 注入「已重启」续跑通知（宿主扫描面只认文件名，零改动）。
-    fs.writeFileSync(marker, JSON.stringify({ agentId: args.agentId, at: new Date().toISOString(), ...(conversationId !== undefined ? { conversationId } : {}) }), 'utf-8');
+    // cr-658/cr-1159：发起方键集随 marker 落盘——新壳 boot 兑现标记后逐键
+    // 注入「已重启」续跑通知（宿主扫描面只认文件名，零改动）。空集照写
+    // （无发起方语义 = 旧空闲直发形态，新壳不注入仅换代）。
+    fs.writeFileSync(marker, JSON.stringify({ agentId: args.agentId, at: new Date().toISOString(), conversationIds }), 'utf-8');
   } catch (err) {
     process.stderr.write('[shell] restart_shell 复活标记写入失败：' + String(err) + '\n');
   }
@@ -1415,8 +1430,8 @@ export async function main(argv: string[]): Promise<number> {
     // 恰好缺席」边缘的保险面。
     const exitCode = await new Promise<number>((resolve) => {
       gracefulExit = resolve;
-      result.ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => {
-        void notifyHostRestartShell(args, p.conversationId).finally(() => decideExit(42));
+      result.ctx.on('conversation/restart-ready', (p: { conversationIds?: string[] }) => {
+        void notifyHostRestartShell(args, p.conversationIds ?? []).finally(() => decideExit(42));
       });
       // 锁路径同源 bootShell（影子形态 = children 域；main 作用域无 agentDir）
       const lockFile = path.join(

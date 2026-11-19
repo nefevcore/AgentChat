@@ -23,12 +23,14 @@ declare module '@agentchat/cordis' {
     /**
      * 安全重启就绪（emit；cr-629 restart_shell / cr-658 自然收束语义）：
      * 在途 run 已自然收束（终稿/回信恰好一次，无回队面）——boot 收到即
-     * 以重启码 42 优雅退出；conversationId 随 marker 落盘，新壳 boot 兑现
-     * 后注入「已重启」通知开续跑轮。空闲时请求则立即发出（无会话键）。
+     * 以重启码 42 优雅退出；conversationIds（发起方键集，cr-1159 多会话
+     * 并发各记各的——此前单槽被后收束会话顶替）随 marker 落盘，新壳
+     * boot 兑现后逐键注入「已重启」通知开续跑轮。空闲时请求则立即发出
+     * （无发起方 = 无 conversationIds 字段）。
      * @mode emit
      * @scope run
      */
-    'conversation/restart-ready'(payload: { agentId: string; conversationId?: string }): void;
+    'conversation/restart-ready'(payload: { agentId: string; conversationIds?: string[] }): void;
     // 'conversation/queue-changed' 不在此声明——主线 ac-conversation/src/
     // events.ts 已是 owning 声明（四参序 + ConversationQueuedItem[]），
     // 本包按其签名 emit（cr-579）。

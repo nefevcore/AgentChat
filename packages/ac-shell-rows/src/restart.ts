@@ -45,7 +45,7 @@ export interface RestartRowOptions {
 
 /** conversation 服务的安全重启面（preview ConversationService 结构子集） */
 interface RestartFace {
-  requestRestart(): boolean;
+  requestRestart(conversationId?: string): boolean;
 }
 
 export function makeRestartRow(options: RestartRowOptions): Plugin {
@@ -59,13 +59,15 @@ export function makeRestartRow(options: RestartRowOptions): Plugin {
 
       // cr-664 D4：同轮重复调用硬防——行内旗标，二次起直接返回已排程态
       //（不再触服务面；requestRestart 虽幂等，工具回执须让模型明确「无需再刷」）。
-      let shellRestartScheduled = false;
+      // cr-1159：旗标改 per-conversation——多会话并发各调 restart_shell 时
+      // 各自登记发起方键（此前壳级单槽：第二发起方被吞，通知链丢一半）。
+      const shellRestartScheduled = new Set<string>();
       const restartShellTool = {
         name: 'restart_shell',
         description:
           '改了本壳装载的代码或装配、且需要它在运行时生效（继续开发/验证/交付）时才调本工具——壳不热更新，不重启则本壳一直跑旧代码（测试全绿 ≠ 本壳已生效；只改码不跑即无需重启）。触发判据（满足即调，无需用户指示）：① install_plugin 定型插件后——新插件行需新壳装配进直调面；② 改动了壳侧装载行源码——壳基座（apps/catalog/profile/shell.yml）或你的行集点名的包（如 ac-shell-rows、ac-agent-loop、ac-tools）；③ 壳内状态坏自愈。时序：调用即排程但壳仍在运行——行集/内存状态本轮内不会更新；请立即停止不必要的工具调用、收尾并给出终稿（写明当前进度与重启后的下一步——终稿是重启后的接力上下文）。壳以重启码 42 优雅退出（不丢消息、不计崩溃熔断），宿主自动重拉；重启完成收到「已重启」通知后按终稿继续，勿重做已完成步骤。同一轮内只调一次。改的是宿主侧代码（host.yml 点名的包 / apps/host）→ 用 restart_host。',
         parameters: { type: 'object', properties: {}, required: [] },
-        execute: async (): Promise<ToolResult> => {
+        execute: async (_args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> => {
           // cr-664 D5：CLI 直连形态（无邮局）无宿主重拉面——退 42 无人拉回，
           // fail-loud 拒绝（与 restart_host 同款守卫）。
           if (options.postOfficeAddress === undefined) {
@@ -75,14 +77,15 @@ export function makeRestartRow(options: RestartRowOptions): Plugin {
           if (face === undefined || typeof face.requestRestart !== 'function') {
             return { ok: false, error: 'conversation 服务缺席或不支持安全重启——行集不含 conversation 行' };
           }
-          if (shellRestartScheduled) {
+          const conversationId = call.conversationId;
+          if (conversationId !== undefined && shellRestartScheduled.has(conversationId)) {
             return {
               ok: true,
-              output: { restarting: true, alreadyScheduled: true, note: '重启已排程（本轮早前已调用）——无需重复调用。请收尾并给出终稿。' },
+              output: { restarting: true, alreadyScheduled: true, note: '重启已排程（本会话本轮早前已调用）——无需重复调用。请收尾并给出终稿。' },
             };
           }
-          shellRestartScheduled = true;
-          const inFlight = face.requestRestart();
+          if (conversationId !== undefined) shellRestartScheduled.add(conversationId);
+          const inFlight = face.requestRestart(conversationId);
           return {
             ok: true,
             output: {

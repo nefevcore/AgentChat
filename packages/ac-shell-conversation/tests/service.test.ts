@@ -929,12 +929,12 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
     const gate = new Promise<void>((r) => { release = r; });
     const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
     const restartReady: string[] = [];
-    ctx.on('conversation/restart-ready', (p2: { conversationId?: string }) => { restartReady.push(p2.conversationId ?? ''); });
+    ctx.on('conversation/restart-ready', (p2: { conversationIds?: string[] }) => { restartReady.push((p2.conversationIds ?? []).join('+')); });
     try {
       const first = conv.receiveEnvelope(msg('conv-a', 'a1', '慢问题'), { fresh: true });
       await new Promise((r) => setTimeout(r, 80));
       await conv.receiveEnvelope(msg('conv-a', 'b1', '排队信', 'user', 'next-turn'), { fresh: true }); // 同会话排队
-      expect(conv.requestRestart()).toBe(true); // 收束点将 break（restart 兑现）
+      expect(conv.requestRestart('conv-a')).toBe(true); // 收束点将 break（restart 兑现）
       release();
       await first;
       expect(restartReady).toEqual(['conv-a']);
@@ -987,16 +987,16 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
     const gate = new Promise<void>((r) => { release = r; });
     const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
     const events: Array<string | undefined> = [];
-    ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => { events.push(p.conversationId); });
+    ctx.on('conversation/restart-ready', (p: { conversationIds?: string[] }) => { events.push((p.conversationIds ?? []).join('+')); });
     try {
       const first = conv.receiveEnvelope(msg('conv-r', 'rr1', '慢问题'), { fresh: true });
       await new Promise((r) => setTimeout(r, 80));
       expect(conv.isBusy()).toBe(true);
-      expect(conv.requestRestart()).toBe(true); // busy → 挂起（不中断）
+      expect(conv.requestRestart('conv-r')).toBe(true); // busy → 挂起（不中断）
       expect(conv.isBusy()).toBe(true); // run 仍在途
       release();
       await first;
-      expect(events).toEqual(['conv-r']); // 通知携会话键
+      expect(events).toEqual(['conv-r']); // 通知携发起方键
       // 不回队：inbox 已清（消息自然消费）、队列空
       const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-r', 'inbox');
       expect(fs.readdirSync(inboxDir)).toEqual([]);
@@ -1019,7 +1019,7 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
     const gate = new Promise<void>((r) => { release = r; });
     const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
     const events: Array<string | undefined> = [];
-    ctx.on('conversation/restart-ready', (p: { conversationId?: string }) => { events.push(p.conversationId); });
+    ctx.on('conversation/restart-ready', (p: { conversationIds?: string[] }) => { events.push((p.conversationIds ?? []).join('+')); });
     try {
       // 跨代 pending 形态：inbox 先有信 → 恢复面（recovered=true）起 run
       const ledger = ctx.get('ledger', false) as unknown as { inboxStore(uuid: string, env: unknown): void };
@@ -1029,13 +1029,103 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
       const recovery = conv.recoverPendingInbox();
       for (let i = 0; i < 100 && !conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 20));
       expect(conv.isBusy()).toBe(true);
-      expect(conv.requestRestart()).toBe(true);
+      expect(conv.requestRestart('conv-q')).toBe(true);
       release();
       await recovery;
       expect(events).toEqual(['conv-q']);
       // 消息已自然消费：清行照常（不再有回队面）
       const inboxDir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-q', 'inbox');
       expect(fs.readdirSync(inboxDir)).toEqual([]);
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  // cr-1159 多会话并发：两会话各自调用 restart_shell——通知链按发起方键集
+  // 投递，不再被后收束会话顶替（修复前单槽：marker 只带最后收束者键，
+  // 另一发起方永等不到「已重启」，滞留到下一条外部消息）。
+  it('requestRestart 多会话并发（cr-1159）：两会话各记各键 → restart-ready 携键集', async () => {
+    seedAgent('alpha');
+    const gates = [0, 1].map(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => { resolve = r; });
+      return { promise, resolve };
+    });
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, undefined, undefined, gates.map((g) => g.promise));
+    const events: string[] = [];
+    ctx.on('conversation/restart-ready', (p: { conversationIds?: string[] }) => { events.push((p.conversationIds ?? []).join('+')); });
+    try {
+      const first = conv.receiveEnvelope(msg('conv-a', 'a1', '慢问题'), { fresh: true });
+      const second = conv.receiveEnvelope(msg('conv-b', 'b1', '并行问题'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(conv.runState().runs.map((r: { conversationId: string }) => r.conversationId).sort()).toEqual(['conv-a', 'conv-b']);
+      expect(conv.requestRestart('conv-a')).toBe(true);
+      expect(conv.requestRestart('conv-b')).toBe(true);
+      gates[1]!.resolve(); // B 先收束——A 仍在途，全闲未到
+      await second;
+      expect(events).toEqual([]);
+      gates[0]!.resolve(); // A 最后收束 → 兑现
+      await first;
+      expect(events).toEqual(['conv-a+conv-b']); // 键集 = 两发起方（插入序）
+      expect(conv.isBusy()).toBe(false);
+    } finally {
+      gates[0]!.resolve();
+      gates[1]!.resolve();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  // cr-1159 场景 2：非发起方最后收束——通知按发起方键集投递（修复前
+  // restart-ready 携最后收束者键：非发起方收到多余开跑轮，发起方反而等不到）。
+  it('requestRestart 非发起方最后收束（cr-1159）：通知仍归发起方键', async () => {
+    seedAgent('alpha');
+    const gates = [0, 1].map(() => {
+      let resolve!: () => void;
+      const promise = new Promise<void>((r) => { resolve = r; });
+      return { promise, resolve };
+    });
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, undefined, undefined, gates.map((g) => g.promise));
+    const events: string[] = [];
+    ctx.on('conversation/restart-ready', (p: { conversationIds?: string[] }) => { events.push((p.conversationIds ?? []).join('+')); });
+    try {
+      const first = conv.receiveEnvelope(msg('conv-a', 'a1', '发起方问题'), { fresh: true });
+      const second = conv.receiveEnvelope(msg('conv-b', 'b1', '路人问题'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 200));
+      expect(conv.requestRestart('conv-a')).toBe(true); // 仅 A 发起
+      gates[0]!.resolve(); // A（发起方）先收束——B 仍在途
+      await first;
+      expect(events).toEqual([]);
+      gates[1]!.resolve(); // B（非发起方）最后收束 → 兑现
+      await second;
+      expect(events).toEqual(['conv-a']); // 只携发起方键——不错投 B
+      expect(conv.isBusy()).toBe(false);
+    } finally {
+      gates[0]!.resolve();
+      gates[1]!.resolve();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  // cr-1159 reviewRun 收束孤儿化收口：机制 run 最后收束也兑现重启意图
+  // （修复前 reviewRun 无 restartPending 检查 → 无 restart-ready、无 marker、
+  // 不退 42，重启静默蒸发至 idle-exit）。
+  it('requestRestart 后 reviewRun 收束（cr-1159）：全闲检查补位 → restart-ready 照发', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
+    const events: string[] = [];
+    ctx.on('conversation/restart-ready', (p: { conversationIds?: string[] }) => { events.push((p.conversationIds ?? []).join('+')); });
+    try {
+      const review = conv.reviewRun('conv-a', '整理提示', { runId: 'review-1' });
+      await new Promise((r) => setTimeout(r, 80));
+      expect(conv.isBusy()).toBe(true);
+      expect(conv.requestRestart('conv-a')).toBe(true); // 挂起意图（reviewRun 在途）
+      release();
+      await review;
+      expect(events).toEqual(['conv-a']); // 修复前：意图孤儿化（永不发）
+      expect(conv.isBusy()).toBe(false);
     } finally {
       release();
       await dispose(fibers);

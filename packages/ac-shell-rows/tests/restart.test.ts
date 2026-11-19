@@ -23,10 +23,10 @@ class StubToolsService extends Service {
 }
 
 class StubConversationService extends Service {
-  readonly calls: string[] = [];
+  readonly calls: Array<string | undefined> = [];
   constructor(ctx: Context) { super(ctx, 'conversation'); }
-  requestRestart(): boolean {
-    this.calls.push('requestRestart');
+  requestRestart(conversationId?: string): boolean {
+    this.calls.push(conversationId);
     return true;
   }
 }
@@ -58,7 +58,7 @@ describe('安全重启行（cr-629）', () => {
       const out = await h.tools.tools.get('restart_shell')!.execute!({}, { agentId: 'alpha', conversationId: 'c1' }) as { ok: boolean; output: { restarting: boolean; inFlight: boolean } };
       expect(out.ok).toBe(true);
       expect(out.output).toMatchObject({ restarting: true, inFlight: true });
-      expect(h.conv.calls).toEqual(['requestRestart']);
+      expect(h.conv.calls).toEqual(['c1']); // 发起方键透传服务面（cr-1159）
     } finally {
       for (const f of h.fibers) if (f.uid !== null) await f.dispose();
     }
@@ -122,7 +122,24 @@ describe('安全重启行（cr-629）', () => {
       const second = await tool.execute!({}, call) as { ok: boolean; output: { alreadyScheduled?: boolean } };
       expect(second.ok).toBe(true);
       expect(second.output.alreadyScheduled).toBe(true);
-      expect(h.conv.calls).toEqual(['requestRestart']); // 二次调用不触服务面
+      expect(h.conv.calls).toEqual(['c1']); // 二次调用不触服务面
+    } finally {
+      for (const f of h.fibers) if (f.uid !== null) await f.dispose();
+    }
+  });
+
+  it('restart_shell：多会话并发各记各键（cr-1159）——两会话首调都登记，同会话二调才 alreadyScheduled', async () => {
+    const h = await boot(socketPathFor(ROOT, 'po-1159'));
+    try {
+      const tool = h.tools.tools.get('restart_shell')!;
+      const first = await tool.execute!({}, { agentId: 'alpha', conversationId: 'conv-a' }) as { ok: boolean; output: { alreadyScheduled?: boolean } };
+      const second = await tool.execute!({}, { agentId: 'alpha', conversationId: 'conv-b' }) as { ok: boolean; output: { alreadyScheduled?: boolean } };
+      expect(first.ok && second.ok).toBe(true);
+      expect(first.output.alreadyScheduled).toBeUndefined();
+      expect(second.output.alreadyScheduled).toBeUndefined(); // 修复前：壳级单槽吞第二发起方
+      const repeat = await tool.execute!({}, { agentId: 'alpha', conversationId: 'conv-b' }) as { ok: boolean; output: { alreadyScheduled?: boolean } };
+      expect(repeat.output.alreadyScheduled).toBe(true);
+      expect(h.conv.calls).toEqual(['conv-a', 'conv-b']); // 同会话二调不触服务面
     } finally {
       for (const f of h.fibers) if (f.uid !== null) await f.dispose();
     }
