@@ -1,6 +1,6 @@
 {
- "scannedHead": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
- "generatedAt": "2026-11-17T08:29:38.191Z",
+ "scannedHead": "032dc201054b50743710c25c4d6cbcf2f5cd044a",
+ "generatedAt": "2026-11-19T02:45:12.226Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5253,6 +5253,11 @@
     "sha": "8fb629ba8de7aa10f5b9917e595d07032bff2774",
     "date": "2026-11-16",
     "subject": "fix(session): cr-1137/1138/1139 unread 徽章错位三级修复 + session-index 聚合读面"
+   },
+   {
+    "sha": "49e93253bffc61c9bb65683e3782f716e7598169",
+    "date": "2026-11-19",
+    "subject": "revert(unread): cr-1152 未读功能面下线——mark-read/unread RPC 注销、首屏旁带与前端对账退役、cr-1139 徽章面整块删除（feed-core 未读态/useUnreadBadges/五组件角标/pruneSingleUnread 契约）——性能影响过大待重设计"
    }
   ],
   "1140": [
@@ -5281,6 +5286,11 @@
     "sha": "1f9788cdb2ac5f582b20b012f0d789561bcd15fe",
     "date": "2026-11-17",
     "subject": "fix(webui): cr-1143 live 会话 todo/goal dock 卡不刷新——刷新帧族迁 cr-976 新帧（tool/result·run/settled）+ ledger 工具结果行 name 恒落（直调帧有名可路由，goal 匹配去 subcall 条件）"
+   },
+   {
+    "sha": "e068fee27b1f981995037a235e18b5a968ab21fd",
+    "date": "2026-11-17",
+    "subject": "chore(cr): 台账同步 cr-1143/cr-1146（投影重建）"
    }
   ],
   "1144": [
@@ -5322,6 +5332,11 @@
     "sha": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
     "date": "2026-11-17",
     "subject": "feat(unread): cr-1146 未读服务端权威源实施——读位持久化 meta/unread.json（水位单调）+ session/mark-read 与首屏/批量对账 RPC + 前端 localStorage 退役（cr-1145 计划落地）"
+   },
+   {
+    "sha": "e068fee27b1f981995037a235e18b5a968ab21fd",
+    "date": "2026-11-17",
+    "subject": "chore(cr): 台账同步 cr-1143/cr-1146（投影重建）"
    }
   ],
   "1147": [
@@ -5336,6 +5351,63 @@
     "sha": "114c89c04123d5632fd0e503f6ebc79b75f00bdb",
     "date": "2026-11-17",
     "subject": "feat(ask): cr-1148 无人值守会话 ask_questions 两道防线——超时兜底 + peer 代答路由"
+   }
+  ],
+  "1149": [
+   {
+    "sha": "2acc24a612c8b54405aa0800b466046ea2d46824",
+    "date": "2026-11-18",
+    "subject": "chore(cr): 台账同步 cr-1153~1156（含 cr-1149~1152 在途行）"
+   },
+   {
+    "sha": "032dc201054b50743710c25c4d6cbcf2f5cd044a",
+    "date": "2026-11-19",
+    "subject": "chore(cr): 台账同步 cr-1149/1152/1157 收口（cr-1154~1157 行 + commits 投影）"
+   },
+   {
+    "sha": "38d34ada5d7e4cbd07210ab60d3831e6c61d1dbb",
+    "date": "2026-11-19",
+    "subject": "fix(timer): cr-1149 判定脚本契约硬化——干跑即首检（set 不投递、seed 落初值）+ 过期 next 分档（刚到期按地板排、超容差错误退避）"
+   }
+  ],
+  "1152": [
+   {
+    "sha": "49e93253bffc61c9bb65683e3782f716e7598169",
+    "date": "2026-11-19",
+    "subject": "revert(unread): cr-1152 未读功能面下线——mark-read/unread RPC 注销、首屏旁带与前端对账退役、cr-1139 徽章面整块删除（feed-core 未读态/useUnreadBadges/五组件角标/pruneSingleUnread 契约）——性能影响过大待重设计"
+   }
+  ],
+  "1153": [
+   {
+    "sha": "2acc24a612c8b54405aa0800b466046ea2d46824",
+    "date": "2026-11-18",
+    "subject": "chore(cr): 台账同步 cr-1153~1156（含 cr-1149~1152 在途行）"
+   }
+  ],
+  "1154": [
+   {
+    "sha": "ccf7ff392b66d929437438ac0966dfa46d5b67d5",
+    "date": "2026-11-18",
+    "subject": "fix(memory): cr-1154/1155/1156 记忆水位私有化 + ledger 读面三修——注入锚迁时间线私有 .anchors.json（per-Agent×会话，账本行回归纯回放材料）；recordsFor 无 seq v1 行归位最旧 + archive 僵尸行按位置出清；回放压缩边界加时刻维度（seq 空间倒挂期事件后落账行恒放行——admin~user 用户消息静默不可见根治）"
+   },
+   {
+    "sha": "032dc201054b50743710c25c4d6cbcf2f5cd044a",
+    "date": "2026-11-19",
+    "subject": "chore(cr): 台账同步 cr-1149/1152/1157 收口（cr-1154~1157 行 + commits 投影）"
+   }
+  ],
+  "1157": [
+   {
+    "sha": "bf55c95b0fa7b415bbb9d03c5e8eb6da3e615621",
+    "date": "2026-11-19",
+    "subject": "feat(unread): cr-1157 计数器方案——三源事件计数（run 收束/独立私信/群消息，lastKey 幂等）+ session/unread take 与 mark-read 定向清 + 前端徽章面重建（unreadStore + AgentList/ActivityBar 角标）+ session-index 未读派生面退役（hint 语义，精准对账路线终结）"
+   }
+  ],
+  "1158": [
+   {
+    "sha": "16fe34176731e5f387a939766b90fff31faaebd3",
+    "date": "2026-11-19",
+    "subject": "feat(net): cr-1158 网络状态监控——离线时禁止远程模型调用"
    }
   ]
  }

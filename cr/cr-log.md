@@ -1175,4 +1175,6 @@
 - 【cr-1154 2026-11-18 记忆模块 V2 水位重构：注入锚从账本行寄生迁移时间线私有 .anchors.json（per-Agent×会话水位映射，tmp+rename 原子写），删锚扫描/cr-46 串台防御/payload.memoryBaseline，账本行回归纯回放材料 →cr-1153】
 - 【cr-1155 2026-11-18 ledger 读面两修：recordsFor 投影无 seq v1 行从 MAX_SAFE_INTEGER 尾部改归位最旧 + archive 归档对无 seq v1 行按文件位置出清（僵尸行免疫根治）】
 - 【cr-1156 2026-11-18 回放压缩边界过滤修复：seq 空间倒挂（compaction 重写后 B1 尾窗播种重启小 seq）致 boundarySeq 遮蔽当前会话全部行——admin~user/news~user 用户消息静默不可见；边界过滤加 compaction 事件时刻维度（事件后落账行恒放行）→cr-1155】
+- 【cr-1157 2026-11-19 unread 计数器方案实施：三源事件 bump（run/settled/独立私信/群消息，可扩展源注册表）+ 幂等键 + session/unread take 全量清零 + mark-read 定向清 + 前端徽章面重建——cr-1152 下线后的重设计落地（未读语义降级为 hint，精准对账方案彻底退役）】
+- 【cr-1158 2026-11-19 网络状态监控：ac-net-core 纯库 + ac-net-monitor 壳侧行（网卡/DNS 探测状态机 + 离线时 llm/before-chat 闸门）】
 
