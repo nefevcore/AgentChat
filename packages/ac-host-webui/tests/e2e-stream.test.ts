@@ -182,6 +182,42 @@ describe('8.5d ws-bridge 旁带接线（壳 → 宿主 → webui 流式全链）
     }
   }, 45_000);
 
+  it('cr-1157 负路径真链：自会话 a~a 的 run 收束不计未读（用户实测双倍根因）', async () => {
+    fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
+    writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' });
+    const host: HostWebResult = await bootHostWeb({ dataRoot: ROOT });
+    const { ws, frames } = await connectEvents(host.port);
+    try {
+      const child = spawn(process.execPath, ['--experimental-strip-types', BOOT,
+        '--data-root', path.resolve(ROOT), '--agent-id', 'alpha', '--catalog', CATALOG,
+        '--mock-provider', '1', '--post-office', socketPathFor(path.resolve(ROOT), 'post-office')],
+        { stdio: ['pipe', 'pipe', 'pipe'] });
+      child.stderr.on('data', () => {});
+      spawned.push(child);
+      child.stdout.on('data', () => {});
+      const hint = (await waitForShellReady(path.join(ROOT, 'agents', 'alpha'), 25_000)).transportHint;
+      await host.tapAgent('alpha', hint);
+      host.po.reach.markReachable('alpha', hint);
+
+      // 自会话投递（机制 run 形态：定时推送/复盘都是 a~a）——uuid 显式指定
+      const selfKey = 'alpha~alpha';
+      await host.user.send('alpha', '自会话探针', { uuid: selfKey });
+      // 等该 run durable 收束（settled 帧在场 = run-end 已落盘）
+      await waitFor(frames, (f) => f.type === 'run/settled'
+        && (f.data.args[0] as { conversationId?: string })?.conversationId === selfKey, 25_000);
+      await new Promise((r2) => setTimeout(r2, 200)); // bump 同步在广播同一 tick
+      const { readUnread } = await import('ac-core-utils');
+      const entries = readUnread(ROOT);
+      // 判据：自会话无 viewer 参与 → 不计（修复前会落 alpha~alpha 轴，
+      // 徽章按 Agent 聚合时与 alpha~user 合流 = 一次推送亮两次）
+      expect(entries[selfKey]).toBeUndefined();
+      expect(Object.keys(entries).some((k) => k === 'alpha~alpha')).toBe(false);
+    } finally {
+      ws.close();
+      await host.close();
+    }
+  }, 45_000);
+
   it('桥接收束：close 清在途批不丢帧（untapAgent / host.close 共用面）', async () => {
     const framesSink: Array<{ type: string; data: { args: unknown[] } }> = [];
     const host: HostWebResult = await bootHostWeb({ dataRoot: ROOT, });
