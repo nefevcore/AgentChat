@@ -171,6 +171,8 @@ describe('8.5d ws-bridge 旁带接线（壳 → 宿主 → webui 流式全链）
       const taken = await rpc('session/unread', {}) as { entries: Record<string, { n: number }> };
       expect(taken.entries[uuid]?.n).toBe(1);
       expect(readUnread(ROOT)).toEqual({}); // take 即清零
+      // 负路径（自会话/agent 对/群轴）不在本链注入——判据单测锁
+      //（ac-wire-format cr1157-unread-axis 7 例）；本 e2e 锁正路径真链。
       // take 后 mark-read 幂等（空表上定向清零无副作用）
       await rpc('session/mark-read', { conversationId: uuid });
       expect(readUnread(ROOT)).toEqual({});

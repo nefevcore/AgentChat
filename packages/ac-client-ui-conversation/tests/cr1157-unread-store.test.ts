@@ -94,6 +94,37 @@ describe('unreadStore（cr-1157 前端面）', () => {
     expect(store.counts.value['alpha~user']).toBe(1);
   });
 
+  it('take 竞争窗：RPC 在途帧先暂存，响应后叠加不丢不重', async () => {
+    let resolveTake: ((v: unknown) => void) | null = null;
+    const calls: string[] = [];
+    const handlers: Array<(t: string, a: unknown[]) => void> = [];
+    const rpc = {
+      call: vi.fn((method: string) => {
+        calls.push(method);
+        if (method === 'session/unread') {
+          // 首调立即返回空表；次调挂起（模拟在途窗）
+          if (calls.filter((c) => c === 'session/unread').length === 1) return Promise.resolve({ entries: {} });
+          return new Promise((res) => { resolveTake = res; });
+        }
+        return Promise.resolve({});
+      }),
+      onEvent: (h: (t: string, a: unknown[]) => void) => { handlers.push(h); return () => {}; },
+      onOpen: () => () => {},
+    } as unknown as RpcClientFace;
+    const store = createUnreadStore(rpc);
+    store.init();
+    await vi.advanceTimersByTimeAsync(10);
+    // 触发第二次 take（慢周期）→ 在途
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    // 在途窗内到达 live 帧
+    handlers[0]!('run/settled', [{ agent: 'alpha', conversationId: 'alpha~user', run: 'r1' }]);
+    expect(store.counts.value['alpha~user']).toBeUndefined(); // 暂存中
+    // 响应回来（快照已含同一事件 n=1）→ 叠加暂存应为 2（快照 1 + 窗内 1）
+    resolveTake!({ entries: { 'alpha~user': { n: 1 } } });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(store.counts.value['alpha~user']).toBe(2);
+  });
+
   it('修二回归：正在看的会话不计数（活跃轴门控）', async () => {
     const s = stubRpc({});
     const store = createUnreadStore(s.rpc);

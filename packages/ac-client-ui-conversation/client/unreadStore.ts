@@ -69,24 +69,39 @@ export function createUnreadStore(rpc: RpcClientFace): UnreadStore {
   let initialized = false;
   let timer: ReturnType<typeof setInterval> | undefined;
   let activeAxis: () => string | undefined = () => undefined;
+  /** take 在途标记 + 窗内 live 增量（防「快照含同事件 + live 再计」双计） */
+  let taking = false;
+  const pend = new Map<string, number>();
 
   const bump = (axisKey: string): void => {
     // 正在看的会话不计数（cr-1057 语义——live 已可见，计了即「人在看还亮角标」）
     if (activeAxis() === axisKey) return;
+    if (taking) {
+      pend.set(axisKey, (pend.get(axisKey) ?? 0) + 1);
+      return;
+    }
     counts.value = { ...counts.value, [axisKey]: (counts.value[axisKey] ?? 0) + 1 };
   };
 
   async function syncTake(): Promise<void> {
     try {
+      // take 在途窗：期间到达的 live 帧先记增量（take 快照含同一事件，
+      // 直接叠加即双计），响应回来后叠加到快照上——不丢也不重。
+      taking = true;
       const res = await rpc.call<{ entries: Record<string, { n: number }> }>('session/unread', {});
-      // take 已清零 host 面：本地以 take 结果为基线重放（live 键在 take 后
-      // 到达的帧重新 +1——先取快照再替换，竞争窗内的帧不丢）
       const base: Record<string, number> = {};
       for (const [k, v] of Object.entries(res.entries)) {
         if (v.n > 0) base[k] = v.n;
       }
+      for (const [k, n] of pend) base[k] = (base[k] ?? 0) + n;
+      pend.clear();
+      taking = false;
       counts.value = base;
-    } catch { /* RPC 失败静默——下次重连/周期兜底 */ }
+    } catch {
+      taking = false;
+      pend.clear();
+      /* RPC 失败静默——下次重连/周期兜底 */
+    }
   }
 
   function markRead(axisKey: string): void {
