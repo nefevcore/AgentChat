@@ -1,0 +1,29 @@
+{
+  "name": "ac-net-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "网络状态监控行（cr-1158）：网卡/DNS 探测循环（ac-net-core 状态机——在线期零探测，仅断网时 DNS 兜底，EWMA 慢即停用）+ net/* 事件 + 离线时 llm/before-chat 闸门（远程端点禁止发起网络模型调用；本地/私网端点豁免）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-net-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "ac-llm": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

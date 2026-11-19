@@ -1,4 +1,4 @@
-# ac-base-version: 7
+# ac-base-version: 8
 # shell 进程基座源文档（cr-902 / cr-1022 批2 双区化 / cr-1033 B3 能力
 # 定义归包后单区化）：本档只承载骨架区——会话循环结构性前提 + 平台设施
 #（恒装面，投影 zone=skeleton）。能力定义事实源 = 各能力包 package.json
@@ -43,6 +43,11 @@
   requires:
     - llm
     - config
+- id: net-monitor
+  name: link:packages/ac-net-monitor
+  description: 网络状态监控：网卡轮询 + 断网 DNS 兜底（在线期零探测）+ 离线时禁止远程模型调用（本地/私网端点豁免；cr-1158）
+  requires:
+    - llm
 - id: agent-loop
   name: link:packages/ac-agent-loop
   description: ReAct 编排

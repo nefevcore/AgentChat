@@ -1,0 +1,20 @@
+{
+  "name": "ac-net-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "网络状态判定纯库（零 cordis 依赖，cr-1158）：analyzeInterfaces 网卡信号（滤 loopback/链路本地）+ probeDns 有界 DNS 探测 + nextNetState 翻转状态机（在线 1 轮即翻、离线连续轮确认 + DNS 兜底 EWMA 慢即停用）+ isLocalBaseUrl 本地/私网端点判定（闸门豁免）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

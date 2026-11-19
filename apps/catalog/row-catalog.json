@@ -238,6 +238,16 @@
       "path": "packages/ac-llm-pool"
     },
     {
+      "id": "net-monitor",
+      "tree": "shell",
+      "zone": "skeleton",
+      "description": "网络状态监控：网卡轮询 + 断网 DNS 兜底（在线期零探测）+ 离线时禁止远程模型调用（本地/私网端点豁免；cr-1158）",
+      "requires": [
+        "llm"
+      ],
+      "path": "packages/ac-net-monitor"
+    },
+    {
       "id": "agent-loop",
       "tree": "shell",
       "zone": "skeleton",

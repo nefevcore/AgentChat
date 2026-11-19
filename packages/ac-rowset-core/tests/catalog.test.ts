@@ -2,7 +2,7 @@
 // 行集目录对账单测（M3.1 验收 / cr-1022 批3 收口）：两树行数恒等式 +
 // 命名域唯一 + 目录可派生（骨架面 mergeMenu——存量差量换算面已迁
 // migrate 脚本，见 ac-agents-core/tests/migrate-agent-patch.test）。
-// 行数史：62 = 23+39（cr-881）；cr-973：session-index 宿主新增（65 = 25+40）；cr-1066：permission-gate 骨架新增（66 = 25+41）；cr-1121：host-face 贡献行 timer-face/profile-face（68 = 27+41）。
+// 行数史：62 = 23+39（cr-881）；cr-973：session-index 宿主新增（65 = 25+40）；cr-1066：permission-gate 骨架新增（66 = 25+41）；cr-1121：host-face 贡献行 timer-face/profile-face（68 = 27+41）；cr-1158：net-monitor 壳骨架新增（69 = 27+42）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -26,10 +26,10 @@ const skeletonDefs = skeletonRows.map(toDef);
 const capabilityDefs = capabilityRows.map(toDef);
 
 describe('行集目录对账（manifest R8 恒等式）', () => {
-  it('总行数 68 = 宿主 27 + 壳 41（cr-1121：host-face 贡献行 +2；cr-1066：permission-gate 骨架新增）', () => {
-    expect(catalog.rows).toHaveLength(68);
+  it('总行数 69 = 宿主 27 + 壳 42（cr-1121：host-face 贡献行 +2；cr-1066：permission-gate 骨架新增；cr-1158 net-monitor）', () => {
+    expect(catalog.rows).toHaveLength(69);
     expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(27);
-    expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(41);
+    expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(42);
   });
 
   it('每树内 id 唯一（跨树同名 = 基座双计，合法）', () => {

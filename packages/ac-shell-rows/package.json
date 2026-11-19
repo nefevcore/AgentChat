@@ -61,6 +61,7 @@
     "ac-credentials-core": "workspace:*",
     "ac-llm": "workspace:*",
     "ac-llm-pool": "workspace:*",
+    "ac-net-monitor": "workspace:*",
     "ac-agent-loop": "workspace:*",
     "ac-fs-tools": "workspace:*",
     "ac-file-snapshots": "workspace:*",

@@ -39,6 +39,7 @@ import * as todoRow from 'ac-todo';
 // 第二批：模型编排 3 行
 import * as llmRow from 'ac-llm';
 import * as llmPoolRow from 'ac-llm-pool';
+import * as netMonitorRow from 'ac-net-monitor'; // cr-1158 网络监控（离线闸）
 import * as agentLoopRow from 'ac-agent-loop';
 // 第二批：工具面行
 import * as fsToolsRow from 'ac-fs-tools';
@@ -85,6 +86,7 @@ export const IMPORTED_ROWS: Record<string, Plugin> = {
   // 模型编排
   'llm': llmRow as unknown as Plugin,
   'llm-pool': llmPoolRow as unknown as Plugin,
+  'net-monitor': netMonitorRow as unknown as Plugin, // cr-1158
   'agent-loop': agentLoopRow as unknown as Plugin,
   // 工具面
   'fs-tools': fsToolsRow as unknown as Plugin,

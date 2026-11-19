@@ -50,7 +50,7 @@ describe('投影等价（cr-1033 B2 合并语义：骨架归基座 / 能力归�
     expect(new Set(host.entries.map((e) => e.id)).size).toBe(host.entries.length);
     const shell = readBaseDoc(baseDocFile(PROFILE_DIR, 'shell'), 'shell');
     expect(shell.version).toBeGreaterThanOrEqual(6);
-    expect(shell.entries.map((e) => e.id)).toHaveLength(15); // 骨架单区（menu-assembly §三；cr-1118 archive 回归骨架）
+    expect(shell.entries.map((e) => e.id)).toHaveLength(16); // 骨架单区（menu-assembly §三；cr-1118 archive 回归骨架；cr-1158 net-monitor）
     expect(new Set(shell.entries.map((e) => e.id)).size).toBe(shell.entries.length);
   });
 
@@ -69,10 +69,11 @@ describe('投影等价（cr-1033 B2 合并语义：骨架归基座 / 能力归�
     }
   });
 
-  it('shell v7 单区骨架 15 行 + 投影派生 zone（能力行归包——cr-1033 B3；cr-1066 permission-gate；cr-1118 archive 回归）', () => {
+  it('shell v8 单区骨架 16 行 + 投影派生 zone（能力行归包——cr-1033 B3；cr-1066 permission-gate；cr-1118 archive 回归；cr-1158 net-monitor）', () => {
     const doc = readBaseDoc(baseDocFile(PROFILE_DIR, 'shell'), 'shell');
     expect(doc.entries.map((e) => e.id)).toEqual([
       'logger-console', 'config', 'ledger', 'archive', 'conversation', 'tools', 'permission-gate', 'llm', 'llm-pool',
+      'net-monitor',
       'agent-loop', 'persona', 'conduct', 'host-face-client', 'durable-interaction', 'jobs',
     ]);
     const projected = doc.entries.map((e) => projectBaseEntry(e, 'shell'));
