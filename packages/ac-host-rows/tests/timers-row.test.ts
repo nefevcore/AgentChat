@@ -199,6 +199,62 @@ describe('宿主 timers 行（探测循环 v2）', () => {
     }
   }, 15_000);
 
+  it('dryRun 校验（cr-1149）：next 非 Date 拒 / 过期超容差拒 / 刚过期放行 / state 注入', async () => {
+    seedAgent('alpha', []);
+    const h = await boot();
+    try {
+      const bad = await h.timers.dryRun('alpha', "(a, u) => ({ next: '2027-01-01' })");
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) expect(bad.error).toContain('next 须为 Date');
+      const past = await h.timers.dryRun('alpha', '(a, u) => ({ next: new Date(0) })');
+      expect(past.ok).toBe(false);
+      if (!past.ok) expect(past.error).toContain('反复投递');
+      const justLate = await h.timers.dryRun('alpha', '(a, u) => ({ next: new Date(Date.now() - 3000) })');
+      expect(justLate.ok).toBe(true);
+      if (justLate.ok) expect(justLate.notes.join()).toContain('刚过期');
+      const injected = await h.timers.dryRun('alpha', '(a, u) => ({ next: u.after(\'1h\'), state: a.state })', { seen: 'x' });
+      expect(injected.ok).toBe(true);
+      if (injected.ok) expect((injected.verdict as { state?: unknown }).state).toEqual({ seen: 'x' });
+    } finally {
+      await h.dispose();
+    }
+  }, 15_000);
+
+  it('运行期 next 过期超容差 → 错误退避、不投递（cr-1149 v2 防投递风暴）', async () => {
+    seedAgent('alpha', [{ id: 'past', enabled: true, kind: 'script', code: '(a, u) => ({ action: \'boom\', next: new Date(0) })' }]);
+    const h = await boot();
+    try {
+      await new Promise((r) => setTimeout(r, 2_500));
+      expect(h.received.length).toBe(0); // 整轮不处置：不投递
+      const st = h.timers.scheduleState('alpha', 'past');
+      expect(st.lastError).toContain('在过去');
+      expect(st.errorStreak ?? 0).toBeGreaterThanOrEqual(1);
+    } finally {
+      await h.dispose();
+    }
+  }, 15_000);
+
+  it('save seed：首检初值落盘 → arm 直排未来值，不跑脚本不投递（cr-1149 v2）', async () => {
+    seedAgent('alpha', []);
+    const h = await boot();
+    try {
+      const nextAt = new Date(Date.now() + 60_000);
+      const code = '(a, u) => ({ action: \'now\', next: u.after(\'1h\') })';
+      const res = h.timers.save('alpha', [{ id: 's1', enabled: true, kind: 'script', code }], {
+        s1: { state: { started: true }, nextAt },
+      });
+      expect(res.ok).toBe(true);
+      await new Promise((r) => setTimeout(r, 2_000));
+      expect(h.received.length).toBe(0); // set 不投递
+      const st = h.timers.scheduleState('alpha', 's1');
+      expect(st.nextAt).toBeTruthy();
+      const state = JSON.parse(fs.readFileSync(path.join(ROOT, 'meta', 'timer', 'state.json'), 'utf-8')) as Record<string, { scriptState?: unknown }>;
+      expect(state['alpha/s1']?.scriptState).toEqual({ started: true });
+    } finally {
+      await h.dispose();
+    }
+  }, 15_000);
+
   it('gate 预检：silent 跳过（lastSkipReason=gate + state 已持久化）', async () => {
     seedAgent('alpha', [{ id: 'g1', enabled: true, kind: 'script', code: '(a, u) => ({ action: \'hi\', state: { n: 7 }, next: u.after(\'2h\') })', gate: 'exit 20' }]);
     const h = await boot();

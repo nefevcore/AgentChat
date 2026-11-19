@@ -31,12 +31,16 @@ export interface TimerUtils {
   dow(date: Date): number;
   /** 时刻是否工作日（农历+配置判定；按 owner 时区） */
   workday(date: Date): boolean;
-  /** 间隔串（'30m'/'2h30m'/'7d'）→ 毫秒 */
+  /** 间隔串（'30m'/'2h30m'/'7d'）→ 毫秒数（不是 Date——要 Date 用 after 或 new Date(...) 算术） */
   ms(interval: string): number | null;
-  /** 下一个钟面时刻（'09:00' 每日顺延 / '周日 12:00' 每周 / ISO 指定）→ Date */
+  /** 下一个钟面时刻（'09:00' 每日顺延 / '周日 12:00' 每周 / '2026-11-20T09:00' 定点）→ Date；解析不出抛错 */
   at(spec: string): Date;
-  /** from（缺省 now）后推 interval → Date（探测节奏常用） */
-  after(interval: string, from?: Date): Date;
+  /**
+   * from 后推 interval → Date（探测节奏常用）。from 可为 Date 或 ISO 串
+   * （a.now 可直接传）；锚点/间隔串解析不出一律抛错——cr-1149 前静默退化
+   * 为 now（错时刻无提示），现 fail-loud。
+   */
+  after(interval: string, from?: Date | string): Date;
 }
 
 /** 周几独立求值（en-US short weekday） */
@@ -45,6 +49,25 @@ function zonedDow(date: Date, tz: string): number {
   const v = parts.find((x) => x.type === 'weekday')?.value ?? 'Sun';
   const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
   return map[v] ?? 0;
+}
+
+/** u.after 锚点归一（cr-1149）：Date / ISO 串两形态，其它 fail-loud */
+function toAnchor(from: unknown): Date {
+  const d = from instanceof Date ? from : typeof from === 'string' ? new Date(from) : null;
+  if (d === null) {
+    throw new Error('u.after 第二参须为 Date 或 ISO 字符串（收到 ' + typeof from + '）——a.now 可直接传，或传 new Date(a.now)');
+  }
+  if (isNaN(d.getTime())) throw new Error('u.after 第二参无法解析为时刻：' + String(from));
+  return d;
+}
+
+/** u.after 间隔串解析——解析不出 fail-loud（cr-1149 前静默当 0） */
+function anchorInterval(iv: unknown): number {
+  const ms = typeof iv === 'string' ? parseInterval(iv) : null;
+  if (ms === null) {
+    throw new Error('u.after 间隔串无法解析（' + JSON.stringify(String(iv)) + "）——用 '30m'/'2h30m'/'7d' 形态");
+  }
+  return ms;
 }
 
 /**
@@ -60,8 +83,14 @@ export function makeTimerUtils(options: { tz?: string; holidays?: string[]; make
     dow: (d) => zonedDow(d, tz),
     workday: (d) => holidays.isWorkday(d),
     ms: (iv) => parseInterval(iv),
-    at: (spec) => new Date(Date.now() + (msUntilTime(spec, new Date(), tz) ?? 0)),
-    after: (iv, from) => new Date((from ?? new Date()).getTime() + (parseInterval(iv) ?? 0)),
+    at: (spec) => {
+      const ms = msUntilTime(spec, new Date(), tz);
+      if (ms === null) {
+        throw new Error('u.at 时刻串无法解析或已过（' + JSON.stringify(String(spec)) + "）——支持 '09:00' / '周日 12:00' / '2026-11-20T09:00'（未来）");
+      }
+      return new Date(Date.now() + ms);
+    },
+    after: (iv, from) => new Date((from === undefined ? new Date() : toAnchor(from)).getTime() + anchorInterval(iv)),
   };
 }
 
@@ -153,8 +182,6 @@ export type TimerCheckFn = (args: TimerCheckArgs, utils: TimerUtils) => TimerChe
 
 /** 探测间隔地板（防忙循环——探测循环定位下唯一的节奏防线） */
 export const CHECK_FLOOR_MS = 10_000;
-/** verdict 无 next 时的缺省探测间隔（1h） */
-export const DEFAULT_RECHECK_MS = 3_600_000;
 
 /**
  * verdict.next（Date）→ 距 now 的等待毫秒（宿主排程唯一入口）。
@@ -166,6 +193,74 @@ export function nextWaitMs(next: Date | undefined, now = new Date()): number | n
   const wait = next.getTime() - now.getTime();
   if (wait <= 0) return CHECK_FLOOR_MS;
   return wait;
+}
+
+/** verdict 字段值的人读描述（错误提示用） */
+function showValue(v: unknown): string {
+  if (typeof v === 'string') return JSON.stringify(v);
+  if (v instanceof Date) return 'Date(' + (isNaN(v.getTime()) ? 'Invalid' : v.toISOString()) + ')';
+  if (Array.isArray(v)) return '数组';
+  if (v !== null && typeof v === 'object') return '对象';
+  return typeof v + ' ' + String(v);
+}
+
+/** inspectVerdict 结果：error = 类型层不合法（拒）；notes = 可运行但可疑（提示） */
+export interface VerdictInspection {
+  error?: string;
+  notes: string[];
+}
+
+/** next 过期容差（超出的过去值按错误处置——cr-1149 v2） */
+const LATE_TOLERANCE_MS = CHECK_FLOOR_MS;
+
+/**
+ * verdict 校验（cr-1149；干跑与运行期共用一份判据）：
+ *   · error —— 不合法（干跑直接拒，运行期整轮不处置 + 退避）；
+ *   · notes —— 可运行但可疑（next 刚过期等）。
+ * active:false 是完成态：不排下次，故不校验 next。
+ *
+ * next 过期分档（cr-1149 v2）：过去 ≤ LATE_TOLERANCE_MS = 刚到期（执行耗时/
+ * 边界竞态），按到期排地板；超出 = 锚点算错的信号——带 action 时会按地板
+ * 间隔反复投递（10s 一条刷屏风暴），故升级为 error 整轮不处置。
+ */
+export function inspectVerdict(verdict: unknown, now = new Date()): VerdictInspection {
+  const notes: string[] = [];
+  if (verdict === null || typeof verdict !== 'object' || Array.isArray(verdict)) {
+    return { error: '脚本须 return 纯数据对象 { action?, next?, state?, active? }（收到 ' + showValue(verdict) + '）', notes };
+  }
+  const v = verdict as Record<string, unknown>;
+  if (v.active !== undefined && typeof v.active !== 'boolean') {
+    return { error: 'verdict.active 须为 boolean（false = 完成归档）——收到 ' + showValue(v.active), notes };
+  }
+  if (v.action !== undefined && typeof v.action !== 'string') {
+    return { error: 'verdict.action 须为字符串（唤醒文本）——收到 ' + showValue(v.action), notes };
+  }
+  if (v.active === false) return { notes };
+  if (v.next === undefined) {
+    return { error: 'verdict.next 缺失（须返回下次探测时刻；active:false 才可省）', notes };
+  }
+  if (!(v.next instanceof Date) || isNaN(v.next.getTime())) {
+    return {
+      error:
+        'verdict.next 须为 Date（u.at()/u.after() 构造或 new Date(epoch 毫秒)）——收到 ' + showValue(v.next) +
+        '；u.ms() 只返回毫秒数，要 Date 得 u.after(iv) 或 new Date(Date.now() + u.ms(iv))',
+      notes,
+    };
+  }
+  const late = now.getTime() - v.next.getTime();
+  if (late > LATE_TOLERANCE_MS) {
+    return {
+      error:
+        'verdict.next 在过去 ' + Math.round(late / 1000) + 's（' + v.next.toISOString() + '）——排程地板 ' +
+        CHECK_FLOOR_MS + 'ms，带 action 时会按地板间隔反复投递（10s 一条）；多半是锚点算错（new Date(0)、' +
+        '忘加偏移、u.after 传了 a.now 却没解析）',
+      notes,
+    };
+  }
+  if (late > 0) {
+    notes.push('verdict.next 刚过期 ' + Math.round(late / 1000) + 's（容差 ' + LATE_TOLERANCE_MS + 'ms 内）——按到期处理，钳地板排下一轮');
+  }
+  return { notes };
 }
 
 /**

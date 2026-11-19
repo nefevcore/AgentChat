@@ -1,12 +1,14 @@
 // ============================================================
 // ac-timer-core 单测（cr-1147 v2 探测循环）：utils 纯函数包 /
-// validateScriptEntries / nextWaitMs / compileEntry 全模式（不炸不丢）。
+// validateScriptEntries / nextWaitMs / inspectVerdict（cr-1149 verdict 校验）/
+// compileEntry 全模式（不炸不丢）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import {
   CHECK_FLOOR_MS,
   compileEntry,
   createHolidayResolver,
+  inspectVerdict,
   isLegacyEntryShape,
   localISO,
   makeTimerUtils,
@@ -61,6 +63,55 @@ describe('makeTimerUtils', () => {
   it('after 显式锚点', () => {
     const d = u.after('30m', new Date('2026-11-17T08:00:00Z'));
     expect(d.toISOString()).toBe('2026-11-17T08:30:00.000Z');
+  });
+  it('after：from 收 ISO 串（a.now 可直传）——cr-1149', () => {
+    const d = u.after('30m', '2026-11-17T08:00:00Z');
+    expect(d.toISOString()).toBe('2026-11-17T08:30:00.000Z');
+  });
+  it('after：锚点/间隔串解析不出一律抛错（不再静默退化为 now）', () => {
+    expect(() => u.after('30m', 123 as unknown as Date)).toThrow('第二参');
+    expect(() => u.after('30m', 'not-a-date')).toThrow('无法解析');
+    expect(() => u.after('nonsense')).toThrow('间隔串');
+  });
+  it('at：非法时刻串抛错', () => {
+    expect(() => u.at('2027-01-01')).toThrow('u.at');
+  });
+});
+
+describe('inspectVerdict（cr-1149 干跑/运行期共用判据）', () => {
+  const now = new Date('2026-11-17T09:05:00+08:00');
+  const later = new Date(now.getTime() + 60_000);
+  it('合法 verdict：无 error 无 notes', () => {
+    const r = inspectVerdict({ action: 'hi', next: later }, now);
+    expect(r.error).toBeUndefined();
+    expect(r.notes).toEqual([]);
+  });
+  it('next 非 Date → error（带 u.ms 不是 Date 的提示）', () => {
+    const r = inspectVerdict({ next: '2027-01-01' }, now);
+    expect(r.error).toContain('next 须为 Date');
+    expect(r.error).toContain('u.ms()');
+  });
+  it('next 过期超容差（Date(0)）→ error（带 action 会按地板反复投递）', () => {
+    const r = inspectVerdict({ next: new Date(0) }, now);
+    expect(r.error).toContain('在过去');
+    expect(r.error).toContain('反复投递');
+  });
+  it('next 刚过期（容差内）→ 放行 + 到期提示', () => {
+    const r = inspectVerdict({ next: new Date(now.getTime() - 3_000) }, now);
+    expect(r.error).toBeUndefined();
+    expect(r.notes.join()).toContain('刚过期');
+  });
+  it('缺 next → error；active:false 不需要 next', () => {
+    expect(inspectVerdict({}, now).error).toContain('next');
+    expect(inspectVerdict({ active: false }, now).error).toBeUndefined();
+  });
+  it('action/active 类型不合法 → error', () => {
+    expect(inspectVerdict({ action: 1, next: later }, now).error).toContain('action');
+    expect(inspectVerdict({ active: 'no', next: later }, now).error).toContain('active');
+  });
+  it('非对象 verdict → error', () => {
+    expect(inspectVerdict(undefined, now).error).toBeTruthy();
+    expect(inspectVerdict([], now).error).toBeTruthy();
   });
 });
 

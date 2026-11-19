@@ -1,7 +1,7 @@
 # 定时器脚本化重做（timer-scripting）
 
 > 性质：域深设计——定时域 cr-1147 重做的终态规格与代码映射
-> 状态：现行 · cr-1147 2026-11-17
+> 状态：现行 · cr-1147 2026-11-17（cr-1149 2026-11-17 契约硬化补注）
 > 读者：改定时域（ac-timer-core / ac-host-rows timers 行 / timer-face / Timer UI）的人
 
 ## 一、定位（探测循环，非排定时刻）
@@ -27,10 +27,18 @@
 { at(spec), after(iv, from?), minute(t), day(t), dow(t), workday(t), ms(iv) }
 //   墙钟判定一律经 u——脚本内禁 new Date 墙钟操作（进程时区陷阱，
 //   cr-1053 单源纪律：时区知识只在宿主侧）
+//   after(iv, from?)：from 收 Date 或 ISO 串（a.now 可直传）；ms(iv) 只返回
+//   毫秒数（不是 Date）。锚点/间隔串解析不出一律抛错——cr-1149 前静默退化
+//   （after 当 0、at 当 now），错时刻无提示。
 
 // verdict：正交四轴
 { action?: string, next?: Date, state?: unknown, active?: boolean }
-//   next = Date 唯一形态（意图时刻可持久化——重启断点；过去值钳 10s 地板）
+//   next = Date 唯一形态（意图时刻可持久化——重启断点）
+//   契约硬化（cr-1149）：next 非 Date / action 非串 / active 非布 / 缺 next
+//   → 干跑直接拒、运行期整轮不处置 + 退避（干跑与运行期同一份判据
+//   inspectVerdict）。next 过期分档（v2）：过期 ≤10s = 刚到期（执行耗时/边界
+//   竞态）按到期排地板；过期更久 = 锚点算错的信号 → error（带 action 时
+//   会按 10s 地板反复投递，必须断）。
 ```
 
 ## 三、执行环境（worker containment）
@@ -47,6 +55,7 @@
 ```
 arm → check(owner, entry)
   → worker 求值 (a, u) → verdict
+  → inspectVerdict 校验（不合法 → 整轮不处置 + 退避；刚过期等可疑项 → lastNote）
   → 状态前置持久化：state + persistNextAt 立即落盘（gate 跳过轮不丢记忆）
   → active:false → 记账 + (action? fire) + 归档
   → action 有值 → gate（存量兼容）→ conversationAlive → fire + 记账
@@ -75,9 +84,24 @@ u.workday 门控 / count 阈值终结），锚点精确性不再追求——Agen
 
 ## 六、LLM 面（timer-face）
 
-set（code 落盘前 dryRun 自检）/ test（干跑）/ list（v3 诊断字段：
-lastAt/nextAt/lastSkip*/lastGate*/lastError*/errorStreak/triggeredCount）/ cancel。
-工具描述即契约文档（探测循环语言 + (a,u) 签名 + u 方法集 + Date 唯一）。
+set（code 落盘前 dryRun 自检）/ test（干跑，可注入 state 验分支）/ list
+（v3 诊断字段：lastAt/nextAt/lastSkip*/lastGate*/lastError*/errorStreak/
+lastNote*/triggeredCount）/ cancel。
+工具描述即契约文档（探测循环语言 + (a,u) 签名 + u 方法集 + Date 唯一 + 易错点）。
+
+- **干跑即首检**（cr-1149 v2）：set 时的 dryRun 结果不再只是自检——其
+  `state` + `next` 经 save(seed) 落为初值（scriptState + persistNextAt），
+  arm 见未来断点直排，**set 本身不投递**。首条唤醒信由下一次真实探测
+  （返回体 scheduledAt）发出。脚本首个真实轮次看到的 a.state 已是首检
+  state——「设置即投递」这条路径从宿主侧消除，不依赖脚本纪律。
+  （v1 只做告警：条目落盘即首检、首检带 action 就当场投，实测仍咬人。）
+- **过期 next 防投递风暴**（cr-1149 v2）：v1 把过去 next 一律钳 10s 地板并
+  提示——带 action 的脚本会每 10s 投一条。v2 分档：过期 ≤10s 视作刚到期；
+  更久 → error 整轮不处置 + 退避（不投递），list 见 lastError。
+- **首检即 active:false 拒落盘**（cr-1149）：这类脚本不会产生任何探测轮次，
+  旧行为白建条目（落盘 → 首轮才归档，期间 list 仍可见）——现直接报错不写盘。
+- **判据单源**：dryRun 与运行期共用 inspectVerdict——test 通过即同一类错误
+  不会在运行期才炸（类型、过期、缺 next 的处置一致）。
 
 ## 七、与代码的映射点
 
