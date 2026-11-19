@@ -25,7 +25,9 @@ export function userPairAxisKey(agent: string, viewer = 'user'): string {
  *   · `g-` 群轴不计——群消息由 `group/message-posted` 单源计，群成员 run
  *     的 conversationId 就是 gid，在此再计即双计/串台；
  *   · uuid 形 = single 会话，直用；
- *   · 其余（agent 名直答旧形态）= userPairAxisKey(agent)。
+ *   · conv === agent（旧形态直答）= userPairAxisKey(agent)；
+ *   · 其余形态（历史脏键/探测残留/未知键）**不计**——线索不足时不猜：
+ *     误猜即把别人的动静记到 agent⇄user 轴（用户实测的串台形态）。
  * 返回 undefined = 该事件不计未读。
  */
 export function unreadAxisKeyOf(
@@ -39,5 +41,7 @@ export function unreadAxisKeyOf(
   }
   if (SINGLE_KEY_RE.test(conversationId)) return conversationId;
   if (conversationId.startsWith('g-')) return undefined;
-  return userPairAxisKey(agent, viewer);
+  // 旧形态直答：conversationId 就是 agent 名
+  if (conversationId === agent) return userPairAxisKey(agent, viewer);
+  return undefined; // 未知形态不猜（防串台）
 }

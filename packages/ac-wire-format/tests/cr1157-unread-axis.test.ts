@@ -24,6 +24,13 @@ describe('unreadAxisKeyOf（run 收束轴键判据）', () => {
     expect(unreadAxisKeyOf('alpha', 'user~alpha')).toBe('user~alpha');
   });
 
+  it('未知形态不计（不猜——防历史脏键/探测残留串台到 agent⇄user 轴）', () => {
+    // 真实数据实证：probe-conflict-* 这类残留曾被回落猜成 news~user
+    expect(unreadAxisKeyOf('news', 'probe-conflict-1794528561148')).toBeUndefined();
+    expect(unreadAxisKeyOf('news', 'sub_abc')).toBeUndefined();
+    expect(unreadAxisKeyOf('news', 'admin~news')).toBeUndefined();
+  });
+
   it('uuid single 直用；agent 名直答旧形态归 userPairAxisKey；缺参不计', () => {
     expect(unreadAxisKeyOf('__creator__', UUID)).toBe(UUID);
     expect(unreadAxisKeyOf('alpha', 'alpha')).toBe('alpha~user');
