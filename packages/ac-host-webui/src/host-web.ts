@@ -194,10 +194,13 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
       const bridge = new ShellStreamBridge({
         send: (frame) => {
           ctx.webServer.broadcast(frame.type, frame.data);
-          // cr-1157 run 收束未读计数：一轮回复 = 1（幂等键 = runId；tap
-          // 重连重放不双计）。会话键与前端 feed 分区键同构：含 ~ = 对桶
-          // 直用；=== agent = 自会话对角线；uuid 形 = single 分区键直用；
-          // 其余（agent 名直答旧形态）= pairKey(agent,'user')。
+          // cr-1157 run 收束未读计数：一轮回复 = 1（幂等键 = runId）。只计
+          // viewer 参与会话（修二口径）：含 ~ 对桶须一端为 user——自会话
+          // a~a 机制 run（news~news 定时推送等）与 agent⇄agent 对不计
+          //（其动静走 roster 活动面，计入即在徽章聚合里与 user 对桶合流
+          // = 双倍/串台）；g- 群轴不计（群消息由 group/message-posted 单源
+          // 计，settled 落群 run 再计即双计）；uuid single 直用；其余
+          //（agent 名直答形态）= pairKey(agent,'user')。
           if (frame.type === 'run/settled' && typeof frame.data === 'object') {
             const p = frame.data as { args?: unknown };
             const a = Array.isArray(p.args) ? p.args[0] : undefined;
@@ -207,11 +210,13 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
               const conv = typeof s.conversationId === 'string' && s.conversationId !== '' ? s.conversationId : undefined;
               const run = typeof s.run === 'string' && s.run !== '' ? s.run : undefined;
               if (agent !== undefined && conv !== undefined) {
-                // 分区键归一（与前端 routeDialog 词法同构）：含 ~ = 对桶；
-                // uuid 形 = single 分区键直用；其余 = agent~user 直答对桶。
                 const single = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conv);
-                const key = conv.includes('~') || single ? conv : pairKey(agent, 'user');
-                bumpUnread(options.dataRoot, key, run);
+                const key = conv.includes('~')
+                  ? (conv.split('~').includes('user') ? conv : undefined)
+                  : single ? conv
+                    : conv.startsWith('g-') ? undefined
+                      : pairKey(agent, 'user');
+                if (key !== undefined) bumpUnread(options.dataRoot, key, run);
               }
             }
           }

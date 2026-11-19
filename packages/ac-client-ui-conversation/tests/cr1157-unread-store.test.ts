@@ -74,4 +74,35 @@ describe('unreadStore（cr-1157 前端面）', () => {
     // 周期 take 返回空表（host 已被首次 take 清）→ 基线重放为 0
     expect(store.counts.value['alpha~user']).toBeUndefined();
   });
+
+  it('修二回归：自会话/agent⇄agent 对/群 run 不计数（防串台双倍）', async () => {
+    const s = stubRpc({});
+    const store = createUnreadStore(s.rpc);
+    store.init();
+    await vi.advanceTimersByTimeAsync(10);
+    // news 定时 run 在自会话收束——不计（动静走 roster；计入即与私信合流双倍）
+    s.emit('run/settled', [{ agent: 'news', conversationId: 'news~news', run: 'r1' }]);
+    // agent⇄agent 对桶——不计
+    s.emit('run/settled', [{ agent: 'alpha', conversationId: 'alpha~beta', run: 'r2' }]);
+    // 群成员 run（conversationId = gid）——不计（群由 group/message-posted 单源计）
+    s.emit('run/settled', [{ agent: 'alpha', conversationId: 'g-1', run: 'r3' }]);
+    // 对照：user 参与的对桶照计
+    s.emit('run/settled', [{ agent: 'alpha', conversationId: 'alpha~user', run: 'r4' }]);
+    expect(store.counts.value['news~news']).toBeUndefined();
+    expect(store.counts.value['alpha~beta']).toBeUndefined();
+    expect(store.counts.value['g-1']).toBeUndefined();
+    expect(store.counts.value['alpha~user']).toBe(1);
+  });
+
+  it('修二回归：正在看的会话不计数（活跃轴门控）', async () => {
+    const s = stubRpc({});
+    const store = createUnreadStore(s.rpc);
+    store.setActiveAxis(() => 'alpha~user');
+    store.init();
+    await vi.advanceTimersByTimeAsync(10);
+    s.emit('run/settled', [{ agent: 'alpha', conversationId: 'alpha~user', run: 'r1' }]);
+    s.emit('group/message-posted', ['g-1', { id: 'm1', from: 'beta' }]);
+    expect(store.counts.value['alpha~user']).toBeUndefined();
+    expect(store.counts.value['g-1']).toBe(1); // 非活跃轴照计
+  });
 });

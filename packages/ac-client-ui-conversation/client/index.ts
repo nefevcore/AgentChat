@@ -18,6 +18,7 @@ import { defineAsyncComponent, reactive, watch } from 'vue';
 import { createFeedCore, type FeedCore, type FeedView } from './feed-core.ts';
 import { parseDialogId } from './feed.ts';
 import { createUnreadStore, type UnreadStore } from './unreadStore.ts';
+import type { DialogId } from './feed.ts';
 import { createChatCore, type ChatCore } from './chat-core.ts';
 import { createQueuedDockStore } from './useQueuedMessages.ts';
 import { chatPresence } from './chatOps.ts';
@@ -128,18 +129,22 @@ export class ConversationService extends Service {
     this.feed = createFeedCore(rpc);
     this.chat = createChatCore(reactive(this.feed) as unknown as FeedView, rpc);
     this.unread = createUnreadStore(rpc);
+    // DialogId → host 计数器轴键（进入即清与活跃轴判定共用的单源映射）
+    const axisOf = (id: DialogId | null): string | undefined => {
+      if (id === null) return undefined;
+      const { kind, key } = parseDialogId(id);
+      if (kind === 'group' || kind === 'single') return key;
+      // pair：轴键 = bucketKey(两端)——a|b → a~b（host 计数器键词法）
+      const [a, b] = key.split('|');
+      return a && b ? [a, b].sort().join('~') : undefined;
+    };
+    // 正在看的会话不计数（cr-1057 语义——live 已可见）
+    this.unread.setActiveAxis(() => axisOf(this.feed.activeDialogId.value));
     // 进入会话即清（activeDialogId 变化 = 用户切到该分区——本地即时 +
     // mark-read RPC 定向清 host 计数器）
     watch(() => this.feed.activeDialogId.value, (id) => {
-      if (id === null) return;
-      const { kind, key } = parseDialogId(id);
-      if (kind === 'group') this.unread.markRead(key);
-      else if (kind === 'single') this.unread.markRead(key);
-      else {
-        // pair：轴键 = bucketKey(两端)——a|b → a~b（host 计数器键词法）
-        const [a, b] = key.split('|');
-        if (a && b) this.unread.markRead([a, b].sort().join('~'));
-      }
+      const axis = axisOf(id);
+      if (axis !== undefined) this.unread.markRead(axis);
     });
   }
 

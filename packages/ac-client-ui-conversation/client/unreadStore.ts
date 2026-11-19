@@ -39,9 +39,13 @@ function axisKeyOfFrame(type: string, args: unknown[]): string | undefined {
     const agent = p?.agent;
     const conv = p?.conversationId;
     if (!agent || !conv) return undefined;
-    if (conv.includes('~')) return conv;
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(conv)) return conv; // single
-    return [agent, 'user'].sort().join('~'); // 直答对桶
+    // viewer 参与会话口径（与 host 侧同款门控——修二）：自会话 a~a 与
+    // agent⇄agent 对不计（防与 user 对桶合流双倍）；g- 群轴不计
+    //（group/message-posted 单源）；uuid single 直用；其余直答对桶。
+    if (conv.includes('~')) return conv.split('~').includes('user') ? conv : undefined;
+    if (SINGLE_SESSION_ID_RE.test(conv)) return conv;
+    if (conv.startsWith('g-')) return undefined;
+    return [agent, 'user'].sort().join('~');
   }
   return undefined;
 }
@@ -59,6 +63,8 @@ export interface UnreadStore {
   sessionsTotal: () => number;
   /** 点开即清（axisKey = host 计数器键；本地即时 + mark-read RPC fire-and-forget） */
   markRead: (axisKey: string) => void;
+  /** 活跃轴取值器（正在看的会话不计数——cr-1057 语义；装配方注入） */
+  setActiveAxis: (fn: () => string | undefined) => void;
   /** 启动/重连对齐（take 水合）；幂等 */
   init: () => void;
 }
@@ -69,8 +75,11 @@ export function createUnreadStore(rpc: RpcClientFace): UnreadStore {
   const counts = ref<Record<string, number>>({});
   let initialized = false;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let activeAxis: () => string | undefined = () => undefined;
 
   const bump = (axisKey: string): void => {
+    // 正在看的会话不计数（cr-1057 语义——live 已可见，计了即「人在看还亮角标」）
+    if (activeAxis() === axisKey) return;
     counts.value = { ...counts.value, [axisKey]: (counts.value[axisKey] ?? 0) + 1 };
   };
 
@@ -132,6 +141,7 @@ export function createUnreadStore(rpc: RpcClientFace): UnreadStore {
     agentsTotal: () => agentTotals.value.agents,
     sessionsTotal: () => agentTotals.value.sessions,
     markRead,
+    setActiveAxis: (fn) => { activeAxis = fn; },
     init,
   };
 }
