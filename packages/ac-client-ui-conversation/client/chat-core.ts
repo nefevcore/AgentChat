@@ -1018,9 +1018,6 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     // 视图状态
     contextBusy,
     turnInProgress, loadingHistory, hasMoreHistory, lastStepEndAt, lastRunSettledAt, archivePending,
-    // 未读：进入会话时清除；获取指定 Agent 未读数
-    clearUnread: (agentId: string) => feed.clearUnread(directDialog(agentId)),
-    getUnreadCount: feed.getUnreadCount,
     copyFeedback,
     // 压缩/反馈（tone 语义态随文案设置——FeedbackNotice 派生图标/配色）
     compressPending, compressFeedback, compressTone, busyFeedback, busyTone,

@@ -37,7 +37,6 @@ export const HOST_MODULE_SPECS = Object.freeze([
   "ac-client-ui-conversation/client/switchTrace.ts",
   "ac-client-ui-conversation/client/types.ts",
   "ac-client-ui-conversation/client/useTurnDisplayItems.ts",
-  "ac-client-ui-conversation/client/useUnreadBadges.ts",
   "ac-client-ui-conversation/client/viewer.ts",
   "ac-client-ui-jobs/client",
   "ac-client-ui-layout/client",

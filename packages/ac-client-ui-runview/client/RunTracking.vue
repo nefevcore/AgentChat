@@ -260,7 +260,7 @@ function openCell(mr: RowView, v: CellView) {
   const { row, col } = v.cell;
 
   // viewer 参与的 pair → 直接对话（右气泡 = 用户侧）。
-  // 矩阵入口没有经过列表中转，必须显式加载 direct 历史 + 清未读 + 订阅流式
+  // 矩阵入口没有经过列表中转，必须显式加载 direct 历史 + 订阅流式
   // （此前只切 activeAgentId 不加载历史 → 进入空白会话的 bug）
   const viewer = VIEWER_ID.value;
   if (row.id === viewer || col.id === viewer) {
@@ -269,7 +269,6 @@ function openCell(mr: RowView, v: CellView) {
     groupSvc?.deselectGroup();
     singlesBoard?.deselectSingle();
     if (roster.activeAgentId.value !== other) roster.selectAgent(other); // selectAgent 是 toggle，同 id 不重复调
-    chatStore.clearUnread(other);
     chatStore.loadHistory(viewer, other);
     const a = roster.agents.value.find(x => x.id === other);
     if (a?.hasActiveSession) chatStore.subscribeAgent(other);

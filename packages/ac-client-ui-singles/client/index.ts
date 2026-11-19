@@ -374,9 +374,6 @@ export class SingleBoardService extends Service {
       if (pid !== undefined && d.singles.some(s => s.id === pid)) {
         this.retireDraft(); // 真值接管：哨兵正文位同步清键（cr-937 串台防线）
       }
-      // single 未读对账（cr-290）：active 集外分区的未读 = 会话已删/归档——
-      // 无行可点无清除路径（tab 聚合徽章永久残留），顺手清 + 写穿
-      this.own.sessions.pruneSingleUnread(this.activeSingles.value.map(s => s.id));
     } catch (err: unknown) {
       console.warn('[SingleBoard] 拉取独立会话列表失败:', (err as { message?: string }).message ?? String(err));
     }

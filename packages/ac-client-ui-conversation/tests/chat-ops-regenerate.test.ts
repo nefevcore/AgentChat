@@ -16,7 +16,6 @@ function mockFeed(raws: Record<string, ChatMessage[]>) {
     hasMoreHistory: ref(false),
     lastStepEndAt: ref(0),
     archivePending: ref(false),
-    unreadAgents: ref(new Set<string>()),
     activeDialogId: 'single:s1' as const,
     activeSingleId: 's1' as string | null,
     getRaw: (id: string) => store[id] ?? [],

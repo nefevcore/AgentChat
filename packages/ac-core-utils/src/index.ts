@@ -47,8 +47,8 @@
 //     timer-core 函数缺省 / timers-row 行基线 / ac-datetime 注入行
 //     三层同源——此前进程本地与 Asia/Shanghai 字面量并存，部署即漂移）
 //   · ReadMark / markRead / readMarks / unreadOf / mergeMark —— 未读读位
-//     读写面与未读派生（cr-1146 下沉：宿主 web-api 行（mark-read RPC）与
-//     face-ops（批量对账）两处共用——各写一份水位合并语义必走散）
+//     读写面与未读派生（cr-1146 下沉；cr-1152 起运行时消费面下线——纯库与
+//     单测保留作未读重设计的原料，消费方回归时再接线）
 // 下沉后 session 与 group 互相零 import：协作只经 ctx.get 服务面
 // （D11 跨域读写口），两行可独立停用。
 // ============================================================

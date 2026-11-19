@@ -259,7 +259,6 @@ async function jumpTo(r: RunsRunningEntry) {
     groupSvc?.deselectGroup();
     singlesBoard?.deselectSingle();
     if (roster.activeAgentId.value !== t.id) roster.selectAgent(t.id);
-    chatStore.clearUnread(t.id);
     chatStore.loadHistory(VIEWER_ID.value, t.id);
     const a = roster.agents.value.find(x => x.id === t.id);
     if (a?.hasActiveSession) chatStore.subscribeAgent(t.id);

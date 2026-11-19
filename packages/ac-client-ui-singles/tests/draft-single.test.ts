@@ -37,7 +37,6 @@ function makeBoard() {
     feed: { activeSingleId },
     chat: { setSingleContext: (id: string, agent: string) => { activeSingleId.value = id; }, clearSingleContext: () => { activeSingleId.value = ''; } },
     trackKnownSingle: () => undefined,
-    pruneSingleUnread: () => undefined,
   };
   ctx.roster = { defaultPresetId: ref('__standard__') };
   ctx.rpc = {

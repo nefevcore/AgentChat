@@ -831,6 +831,8 @@ export function groupMessageToChatMessage(m: {
   role: string;
   content: string | null;
   agent_id: string;
+  /** 落盘锚（group/history 行 id = 群读位键）——读位位置锚（cr-1150） */
+  id?: string;
   name?: string;
   tool_calls?: any[];
   tool_call_id?: string;
@@ -851,6 +853,8 @@ export function groupMessageToChatMessage(m: {
     agent_id: m.agent_id,
     name: m.name,
     label: m.label,
+    // 落盘消息锚（群历史行身份——去重/编辑门控；mark-read 读位面已随 cr-1152 下线）
+    ...(m.id !== undefined && m.id !== '' ? { persistedMsgId: m.id } : {}),
     ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
     timestamp: new Date(m.timestamp).getTime(),
     ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),

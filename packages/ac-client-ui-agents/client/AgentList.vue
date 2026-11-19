@@ -13,7 +13,9 @@ import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useThemeStore } from 'ac-client-ui-theme/client/themeStore.ts';
 import { Button, Icon, Input, Modal, PullToRefresh, SearchInput, Select, StarAvatar } from '@agentchat/webui-kit';
 import { starColor } from '@agentchat/webui-kit';
-import { directDialog, groupDialog } from 'ac-client-ui-conversation/client/feed.ts';
+import { directDialog } from 'ac-client-ui-conversation/client/feed.ts';
+// 未读徽章（cr-1157 计数器方案——sessions 服务面；缺服务 = 0 徽章降级）
+const unreadStore = (useClientContext()?.sessions ?? null)?.unread ?? null;
 import { traceSwitch } from 'ac-client-ui-conversation/client/switchTrace.ts';
 import type { AgentInfo, GroupInfo } from 'ac-client-ui-conversation/client/types.ts';
 
@@ -31,6 +33,12 @@ function colorOf(id: string) { return starColor(id, themeStore.theme === 'dark' 
 
 /** Agent 是否正在回复（其 direct 对话处于流式运行中 → 头像显示流转光环） */
 function isAgentRunning(id: string): boolean { return feedStore.getDialog(directDialog(id))?.streaming ?? false; }
+
+/** 未读数（cr-1157：Agent 行 = 其 direct 对桶轴 + single 会话聚合；群行 = gid 轴） */
+function unreadCountOf(type: 'agent' | 'group', id: string): number {
+  if (!unreadStore) return 0;
+  return type === 'group' ? (unreadStore.counts.value[id] ?? 0) : unreadStore.countOfAgent(id);
+}
 
 /* ── 群聊不显示运行光环（设计决定，非遗漏）──
  * 群聊里 Agent 是否发言由其自行调用 send_group 工具决定：发送前的过程流式
@@ -152,13 +160,6 @@ const filteredItems = computed(() => {
   return unifiedList.value.filter(i => i.name.toLowerCase().includes(q));
 });
 
-/** 未读数量（进入会话后清除，徽章显示具体数字）。direct = chatStore 未读
- *  （viewer⇄agent 对桶）；group = feed 群分区未读（group/message-posted 增量、
- *  setActiveGroup 进入清零——与 direct 同源同语义） */
-function unreadCountOf(id: string): number {
-  return chatStore.getUnreadCount(id) || feedStore.getDialog(groupDialog(id))?.unread || 0;
-}
-function unreadLabel(id: string): string { const n = unreadCountOf(id); return n > 99 ? '99+' : String(n); }
 const listScrollRef = ref<{ $el: HTMLElement }>();
 function onListEnter() { listScrollRef.value?.$el.classList.add('scroll-visible'); }
 function onListLeave() { listScrollRef.value?.$el.classList.remove('scroll-visible'); }
@@ -181,7 +182,6 @@ function selectAgent(id: string) {
   singlesBoard?.deselectSingle();
   const overlayOpen = ui.trackingViewVisible || !!ui.pairView;
   if (!overlayOpen || roster.activeAgentId.value !== id) roster.selectAgent(id);
-  chatStore.clearUnread(id);
   // 历史加载由 ConversationView 的 activeAgentId watch 统一负责（与 single 模式对齐）
   const a = roster.agents.value.find(a => a.id === id);
   if (a?.hasActiveSession) chatStore.subscribeAgent(id);
@@ -234,9 +234,9 @@ async function refreshAll() {
       <div v-for="item in filteredItems" :key="item.type + '-' + item.id" class="list-item ui-row"
         :class="{ 'is-selected': item.type === 'agent' ? roster.activeAgentId.value === item.id : activeGroupId === item.id }"
         @click="item.type === 'agent' ? selectAgent(item.id) : selectGroup(item.id)">
-        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" fallback-icon="bot" plain-fallback :running="isAgentRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="ui-avatar-badge">{{ unreadLabel(item.id) }}</span></div>
-        <!-- 群组头像：无运行光环（是否发言由 Agent 自行调用 send_group 决定，无法预判运行态；见 script 内注释）；未读徽章与 Agent 行同款 -->
-        <div v-else-if="item.type === 'group' && item.group" class="group-avatar-wrap"><div class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div><span v-if="unreadCountOf(item.id) > 0" class="ui-avatar-badge">{{ unreadLabel(item.id) }}</span></div>
+        <div v-if="item.type === 'agent'" class="item-avatar-wrap"><StarAvatar :src="item.agent?.avatar" :name="item.name" :size="36" :color="colorOf(item.id)" fallback-icon="bot" plain-fallback :running="isAgentRunning(item.id)" /><span v-if="unreadCountOf('agent', item.id) > 0" class="unread-badge">{{ unreadCountOf('agent', item.id) > 99 ? '99+' : unreadCountOf('agent', item.id) }}</span></div>
+        <!-- 群组头像：无运行光环（是否发言由 Agent 自行调用 send_group 决定，无法预判运行态；见 script 内注释） -->
+        <div v-else-if="item.type === 'group' && item.group" class="group-avatar-wrap"><div class="group-avatar" :style="{ display: 'grid', gridTemplateColumns: `repeat(${gridLayout(getGroupAvatars(item.group).length).cols}, 1fr)`, gridTemplateRows: `repeat(${gridLayout(getGroupAvatars(item.group).length).rows}, 1fr)` }"><template v-for="(p, idx) in getGroupAvatars(item.group)" :key="idx"><img v-if="p.avatar" :src="p.avatar" :alt="p.name" class="group-avatar-cell" /><span v-else class="group-avatar-cell group-avatar-placeholder">{{ p.name.charAt(0).toUpperCase() }}</span></template><svg v-if="getGroupAvatars(item.group).length === 0" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg></div><span v-if="unreadCountOf('group', item.id) > 0" class="unread-badge">{{ unreadCountOf('group', item.id) > 99 ? '99+' : unreadCountOf('group', item.id) }}</span></div>
         <div class="item-info"><div class="item-name">{{ item.name }}</div><div v-if="item.type === 'agent' && item.agent" class="item-last-msg">{{ formatLastMessage(item.agent.lastMessage) }}</div><div v-else-if="item.type === 'group' && item.group" class="item-last-msg">{{ item.group.participants.length }} 个参与者</div></div>
       </div>
       <div v-if="filteredItems.length === 0 && unifiedList.length > 0" class="empty">无匹配项</div><div v-else-if="unifiedList.length === 0" class="empty">暂无 Agent / 群组</div>
@@ -282,6 +282,8 @@ html.dark .list-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 /* hover 亮底由 .ui-row 承担（cr-122：hover 去边框、去微影） */
 /* 选中态 = .ui-row.is-selected（--role-selected-bg 角色底 + 主色描边） */
 .item-avatar-wrap{position:relative;flex-shrink:0}
+/* 未读角标（cr-1157 徽章重建；cr-196 ui-avatar-badge 14px 配方谱系） */
+.unread-badge{position:absolute;top:-4px;right:-6px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--danger,#e5484d);color:#fff;font-size:10px;line-height:14px;text-align:center;font-weight:600;pointer-events:none;box-sizing:border-box}
 .group-avatar-wrap{position:relative;flex-shrink:0}
 /* 通知计数色保留字面值（#ef4444 底 + #fff 字）：非语义状态色、kit 无计数徽章原语，
    已归一 kit badge.css .ui-avatar-badge（cr-157——err 令牌族替代 #ef4444 硬编码；

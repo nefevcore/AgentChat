@@ -29,7 +29,6 @@ import * as convInjectCardViews from 'ac-client-ui-conversation/client/injectCar
 import * as convSwitchTrace from 'ac-client-ui-conversation/client/switchTrace.ts';
 import * as convTypes from 'ac-client-ui-conversation/client/types.ts';
 import * as convUseTurnDisplayItems from 'ac-client-ui-conversation/client/useTurnDisplayItems.ts';
-import * as convUseUnreadBadges from 'ac-client-ui-conversation/client/useUnreadBadges.ts';
 import * as convViewer from 'ac-client-ui-conversation/client/viewer.ts';
 import * as jobsClient from 'ac-client-ui-jobs/client';
 import * as layoutAuxSidebarViews from 'ac-client-ui-layout/client/auxSidebarViews.ts';
@@ -101,7 +100,6 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-conversation/client/switchTrace.ts': convSwitchTrace,
     'ac-client-ui-conversation/client/types.ts': convTypes,
     'ac-client-ui-conversation/client/useTurnDisplayItems.ts': convUseTurnDisplayItems,
-    'ac-client-ui-conversation/client/useUnreadBadges.ts': convUseUnreadBadges,
     'ac-client-ui-conversation/client/viewer.ts': convViewer,
     'ac-client-ui-jobs/client': jobsClient,
     'ac-client-ui-layout/client/auxSidebarViews.ts': layoutAuxSidebarViews,

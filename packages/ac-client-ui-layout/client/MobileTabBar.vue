@@ -3,7 +3,7 @@
 
 root 页专属（会话页 push 态不渲染——键盘弹出不与 tab 栏打架）。四 tab：
   会话（sessions）/ Agent（agents）/ 运行（tracking）/ 更多（sheet）。
-未读徽章单源 useUnreadBadges（与 ActivityBar 同源）；面板切换复用
+面板切换复用
 ui.openPrimaryPanel（tab 语义 = 整页切换 primaryPanel，窄屏停在 root 层）。
 「更多」= MobileMoreSheet（头像配置/主题/全局设置/备份/版本/插件动作）。
 桌面不渲染（AppFrame v-if narrow 分支控制）。
@@ -13,21 +13,18 @@ import { computed, ref } from 'vue';
 import { Icon, Avatar } from '@agentchat/webui-kit';
 import { useClientContext, VIEWER_ID } from 'ac-client-runtime';
 import { useUiStore } from './uiStore.ts';
-import { useUnreadBadges } from 'ac-client-ui-conversation/client/useUnreadBadges.ts';
 import MobileMoreSheet from './MobileMoreSheet.vue';
 
 const ui = useUiStore();
 const clientCtx = useClientContext();
 const roster = clientCtx?.roster;
 
-const { agentsUnreadTotal, singlesUnreadTotal, agentsUnreadLabel, singlesUnreadLabel } = useUnreadBadges();
-
 const moreOpen = ref(false);
 
 const tabs = computed(() => [
-  { id: 'sessions', icon: 'message-circle', label: '会话', badge: singlesUnreadTotal.value, badgeLabel: singlesUnreadLabel.value },
-  { id: 'agents', icon: 'users', label: 'Agent', badge: agentsUnreadTotal.value, badgeLabel: agentsUnreadLabel.value },
-  { id: 'tracking', icon: 'activity', label: '运行', badge: 0, badgeLabel: '' },
+  { id: 'sessions', icon: 'message-circle', label: '会话' },
+  { id: 'agents', icon: 'users', label: 'Agent' },
+  { id: 'tracking', icon: 'activity', label: '运行' },
 ]);
 
 function onTab(id: string) {
@@ -46,7 +43,7 @@ function onTab(id: string) {
       :aria-current="ui.primaryPanel === t.id ? 'page' : undefined"
       @click="onTab(t.id)"
     >
-      <span class="mtab-icon"><Icon :name="t.icon" :size="22" /><span v-if="t.badge > 0" class="ui-avatar-badge mtab-badge-pos">{{ t.badgeLabel }}</span></span>
+      <span class="mtab-icon"><Icon :name="t.icon" :size="22" /></span>
       <span class="mtab-label">{{ t.label }}</span>
     </button>
 
@@ -75,7 +72,4 @@ function onTab(id: string) {
 .mtab.active { color: var(--primary); }
 .mtab-icon { position: relative; display: grid; place-items: center; height: 24px; }
 .mtab-label { line-height: 1.2; }
-/* 计数角标配方 = kit badge.css .ui-avatar-badge（cr-157 归一，#ef4444 字面值退役）；
-   此处仅定位修饰（22px 图标右上外缘） */
-.mtab-badge-pos { top: -3px; right: -14px; }
 </style>

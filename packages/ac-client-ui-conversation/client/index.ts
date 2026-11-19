@@ -14,8 +14,10 @@
 // ============================================================
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
-import { defineAsyncComponent, reactive } from 'vue';
+import { defineAsyncComponent, reactive, watch } from 'vue';
 import { createFeedCore, type FeedCore, type FeedView } from './feed-core.ts';
+import { parseDialogId } from './feed.ts';
+import { createUnreadStore, type UnreadStore } from './unreadStore.ts';
 import { createChatCore, type ChatCore } from './chat-core.ts';
 import { createQueuedDockStore } from './useQueuedMessages.ts';
 import { chatPresence } from './chatOps.ts';
@@ -114,20 +116,38 @@ export class ConversationService extends Service {
 
   static inject = ['rpc'];
 
+  /** 未读徽章状态（cr-1157 计数器方案：take 对齐 + live bump + 点开即清） */
+  readonly unread: UnreadStore;
+
   constructor(ctx: Context, options: ConversationClientOptions = {}) {
     super(ctx, 'sessions');
     void options;
     const rpc = (ctx as ClientContext).rpc;
-    // cr-1146：未读读位归服务端（mark-read + 对账）——localStorage 快照
-    // 持久化选项随 unreadStore 退役，生产/测试同构（对账失败静默降级）
+    // cr-1152：未读纯本地态（服务端权威源消费面下线；localStorage 快照
+    // 不回潮）——持久化选项不复活，生产/测试同构
     this.feed = createFeedCore(rpc);
     this.chat = createChatCore(reactive(this.feed) as unknown as FeedView, rpc);
+    this.unread = createUnreadStore(rpc);
+    // 进入会话即清（activeDialogId 变化 = 用户切到该分区——本地即时 +
+    // mark-read RPC 定向清 host 计数器）
+    watch(() => this.feed.activeDialogId.value, (id) => {
+      if (id === null) return;
+      const { kind, key } = parseDialogId(id);
+      if (kind === 'group') this.unread.markRead(key);
+      else if (kind === 'single') this.unread.markRead(key);
+      else {
+        // pair：轴键 = bucketKey(两端)——a|b → a~b（host 计数器键词法）
+        const [a, b] = key.split('|');
+        if (a && b) this.unread.markRead([a, b].sort().join('~'));
+      }
+    });
   }
 
   /** 生命周期（幂等）：wire 订阅 + 名册启动链（装配序列显式发起——
    *  chat 核心名册链经 roster 取用口 useRosterCore → ctx.roster.core） */
   init(): void {
     this.chat.init();
+    this.unread.init();
   }
 
   // ---- 域行 client 协调面（M27 S3-1b：跨域写走服务方法——行 client
@@ -149,11 +169,6 @@ export class ConversationService extends Service {
     else if (SINGLE_SESSION_ID_RE.test(id)) chatPresence.knownSingles.add(id);
   }
 
-  /** singles 域：single 分区未读对账（孤儿清除——会话已删/归档后未读
-   *  无清除路径，聚合徽章永久残留；feed 状态归本件，原语住 feed-core） */
-  pruneSingleUnread(activeIds: string[]): void {
-    this.feed.pruneSingleUnread(activeIds);
-  }
 }
 
 // ctx.sessions 契约面归 ac-client-runtime（SessionsClientFace——行

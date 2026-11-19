@@ -126,11 +126,15 @@ interface PairHistoryMessage {
 export function toHistoryMessages(records: PSessionRecord[], conversationId: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   for (const r of records) {
-    // B1 行级 seq 透传：本记录展开的所有行带同一 seq（水位锚随行携带；
-    // 存量行无 seq → 不带，前端回落现有行为）
-    const seqStart = out.length;
+    // B1 行级 seq 透传（cr-1150 修正可达性）：本记录展开的所有行统一打标。
+    // 此前打标语句在末尾 context 分支——agent/user/tool/error 分支各自
+    // continue 早退，回复行的 seq 从未到达客户端（水位恒缺、读位只能凭
+    // messageId）。存量行无 seq → 不带（前端回落位置锚）。
+    const pushRow = (row: Record<string, unknown>): void => {
+      out.push(r.seq !== undefined ? { ...row, seq: r.seq } : row);
+    };
     if (r.role === 'user') {
-      out.push({ role: 'agent', content: r.content, agent_id: r.agent_id ?? r.name ?? 'user', message_id: r.message_id, timestamp: r.timestamp, ...(r.attachments?.length ? { attachments: r.attachments } : {}) });
+      pushRow({ role: 'agent', content: r.content, agent_id: r.agent_id ?? r.name ?? 'user', message_id: r.message_id, timestamp: r.timestamp, ...(r.attachments?.length ? { attachments: r.attachments } : {}) });
       continue;
     }
     if (r.role === 'agent' || r.role === 'assistant') {
@@ -166,7 +170,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             ...(tc.subcall === true ? { subcall: true } : {}),
             ...(tc.durationMs !== undefined ? { durationMs: tc.durationMs } : {}),
           }));
-          out.push({
+          pushRow({
             role: 'agent',
             content: s.content || '',
             thinking: stepThinking || undefined,
@@ -203,7 +207,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             timestamp: stepTs,
           });
           for (const tc of (s.toolCalls ?? []).filter((tc) => tc.id || tc.name)) {
-            out.push({
+            pushRow({
               role: 'tool',
               content: tc.result ?? '',
               agent_id: agentId,
@@ -221,7 +225,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         }
         continue;
       }
-      out.push({
+      pushRow({
         role: 'agent',
         content: r.content,
         agent_id: agentId,
@@ -243,11 +247,11 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
     }
     if (r.role === 'error' || (r.role === 'context' && r.source === 'error')) {
       // run 错误收束（D12/F7；词汇 v2：context+source:error 同形态）：错误分隔符
-      out.push({ role: 'error', content: r.content, agent_id: 'system', message_id: r.message_id, timestamp: r.timestamp });
+      pushRow({ role: 'error', content: r.content, agent_id: 'system', message_id: r.message_id, timestamp: r.timestamp });
       continue;
     }
     if (r.role === 'tool') {
-      out.push({ role: 'tool', content: r.content, agent_id: r.agent_id ?? r.name ?? conversationId, name: r.name, tool_call_id: r.message_id, message_id: r.message_id, timestamp: r.timestamp });
+      pushRow({ role: 'tool', content: r.content, agent_id: r.agent_id ?? r.name ?? conversationId, name: r.name, tool_call_id: r.message_id, message_id: r.message_id, timestamp: r.timestamp });
       continue;
     }
     // 词汇 v2：context 行（source:event 机制行 / source:skill 技能注入）与
@@ -259,7 +263,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
     // (注册声明 > 兜底启发式);裸 event(无数据面)维持分隔符,parity 不变。
     const hasDataPlane = r.payload !== undefined || typeof r.bytes === 'number'
       || (r.label !== undefined && r.label !== '' && r.content.trim() !== '');
-    out.push({
+    pushRow({
       role: 'event',
       content: r.label ?? r.content,
       agent_id: r.agent_id ?? r.name ?? 'system',
@@ -272,10 +276,6 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       // cr-1112:kind 开放 string 后 as never 宽化退役——存储 source 决策词原样透传
       ...(r.source !== undefined ? { source: { summary: r.label ?? '', ...(typeof r.source === 'string' ? { kind: r.source } : {}) } } : {}),
     });
-    // B1 行级 seq 透传：本记录展开的全部行统一打标（展开前记录了 seqStart）
-    if (r.seq !== undefined) {
-      for (let i = seqStart; i < out.length; i++) out[i].seq = r.seq;
-    }
   }
   // 稳定时间排序（步级 ts 展开后恢复与落盘事件序一致的渲染序；等时刻
   // 保持输入序）。缺时刻行继承前驱时刻（cr-716）：不可解析时刻按 0 排序
@@ -326,6 +326,9 @@ export async function fetchPairHistory(from: string, to: string, limit: number, 
 
 /** 群历史行（feed.groupMessageToChatMessage 的宽松输入形状） */
 interface GroupHistoryMessage {
+  /** 落盘锚（群行的 readMark 键：requestId 优先，缺席 = 成员:message_id）——
+   *  读位位置锚（cr-1150：群未读按此消） */
+  id?: string;
   role: string;
   content: string | null;
   agent_id: string;
@@ -375,6 +378,8 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
     agent_id: m.from ?? '',
     name: m.from,
     timestamp: new Date(m.at ?? Date.now()).toISOString(),
+    // 行锚透传（cr-1150）：同 record 展开的多行共享该锚（读到该行即整条已读）
+    ...(m.id !== undefined ? { id: m.id } : {}),
   };
   if (!m.steps || m.steps.length === 0) {
     return [
@@ -437,11 +442,11 @@ export async function fetchGroupHistory(
   offset: number,
   limit: number,
   rpc: Rpc,
-): Promise<{ messages: GroupHistoryMessage[]; unreadCount?: number }> {
-  const r = await rpc.call<{ messages?: PGroupRecord[]; unreadCount?: number }>('group/history', {
+): Promise<{ messages: GroupHistoryMessage[] }> {
+  const r = await rpc.call<{ messages?: PGroupRecord[] }>('group/history', {
     groupId,
     ...(Number.isFinite(limit) ? { limit } : {}),
     ...(offset > 0 ? { offset } : {}),
   });
-  return { messages: (r.messages ?? []).flatMap(expandGroupRecord), ...(r.unreadCount !== undefined ? { unreadCount: r.unreadCount } : {}) };
+  return { messages: (r.messages ?? []).flatMap(expandGroupRecord) };
 }
