@@ -1,6 +1,6 @@
 {
- "scannedHead": "032dc201054b50743710c25c4d6cbcf2f5cd044a",
- "generatedAt": "2026-11-19T02:45:12.226Z",
+ "scannedHead": "838012adae3dd9e63a0dfd683c2904674f287b5d",
+ "generatedAt": "2026-11-19T03:25:21.282Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4211,6 +4211,11 @@
   ],
   "976": [
    {
+    "sha": "1f9788cdb2ac5f582b20b012f0d789561bcd15fe",
+    "date": "2026-11-17",
+    "subject": "fix(webui): cr-1143 live 会话 todo/goal dock 卡不刷新——刷新帧族迁 cr-976 新帧（tool/result·run/settled）+ ledger 工具结果行 name 恒落（直调帧有名可路由，goal 匹配去 subcall 条件）"
+   },
+   {
     "sha": "65fd922ccb297b644de15545552aea5cfdec8b90",
     "date": "2026-11-10",
     "subject": "fix(webui): cr-988 goal useGoalTracking 可空守卫补漏——p?.subcall（cr-976/977 引入的 webui:typecheck 存量红）"
@@ -4219,11 +4224,6 @@
     "sha": "f3fb88470d30b96e7f0a9dc4f3fb26bf86d253ad",
     "date": "2026-11-10",
     "subject": "feat(pipeline): cr-976/977 直播管线 B 案 Phase 3——事件投影转发 + feed-core 一次性重构"
-   },
-   {
-    "sha": "1f9788cdb2ac5f582b20b012f0d789561bcd15fe",
-    "date": "2026-11-17",
-    "subject": "fix(webui): cr-1143 live 会话 todo/goal dock 卡不刷新——刷新帧族迁 cr-976 新帧（tool/result·run/settled）+ ledger 工具结果行 name 恒落（直调帧有名可路由，goal 匹配去 subcall 条件）"
    }
   ],
   "978": [
@@ -5190,14 +5190,14 @@
   ],
   "1134": [
    {
-    "sha": "8077da8f4228cf0adc937bfabef95dbbf9ffae5a",
-    "date": "2026-11-16",
-    "subject": "chore(cr): 投影重建(cr-1134 提交后 sync)"
-   },
-   {
     "sha": "a7d2f2e492bacbb0a6893fb7c23f0e7b88dc39d2",
     "date": "2026-11-17",
     "subject": "fix(ledger): cr-1134 续——已收束无 ts 事实的孤儿 run 不盲区投出（迁移 journal 存量步无 ts：无锚不去重+排序守尾，与真实终稿双投成 live agent 侧幻影；正主由带锚终稿行承载，在途 run 活投影不受限）"
+   },
+   {
+    "sha": "8077da8f4228cf0adc937bfabef95dbbf9ffae5a",
+    "date": "2026-11-16",
+    "subject": "chore(cr): 投影重建(cr-1134 提交后 sync)"
    }
   ],
   "1135": [
@@ -5250,14 +5250,14 @@
   ],
   "1139": [
    {
-    "sha": "8fb629ba8de7aa10f5b9917e595d07032bff2774",
-    "date": "2026-11-16",
-    "subject": "fix(session): cr-1137/1138/1139 unread 徽章错位三级修复 + session-index 聚合读面"
-   },
-   {
     "sha": "49e93253bffc61c9bb65683e3782f716e7598169",
     "date": "2026-11-19",
     "subject": "revert(unread): cr-1152 未读功能面下线——mark-read/unread RPC 注销、首屏旁带与前端对账退役、cr-1139 徽章面整块删除（feed-core 未读态/useUnreadBadges/五组件角标/pruneSingleUnread 契约）——性能影响过大待重设计"
+   },
+   {
+    "sha": "8fb629ba8de7aa10f5b9917e595d07032bff2774",
+    "date": "2026-11-16",
+    "subject": "fix(session): cr-1137/1138/1139 unread 徽章错位三级修复 + session-index 聚合读面"
    }
   ],
   "1140": [
@@ -5283,14 +5283,14 @@
   ],
   "1143": [
    {
-    "sha": "1f9788cdb2ac5f582b20b012f0d789561bcd15fe",
-    "date": "2026-11-17",
-    "subject": "fix(webui): cr-1143 live 会话 todo/goal dock 卡不刷新——刷新帧族迁 cr-976 新帧（tool/result·run/settled）+ ledger 工具结果行 name 恒落（直调帧有名可路由，goal 匹配去 subcall 条件）"
-   },
-   {
     "sha": "e068fee27b1f981995037a235e18b5a968ab21fd",
     "date": "2026-11-17",
     "subject": "chore(cr): 台账同步 cr-1143/cr-1146（投影重建）"
+   },
+   {
+    "sha": "1f9788cdb2ac5f582b20b012f0d789561bcd15fe",
+    "date": "2026-11-17",
+    "subject": "fix(webui): cr-1143 live 会话 todo/goal dock 卡不刷新——刷新帧族迁 cr-976 新帧（tool/result·run/settled）+ ledger 工具结果行 name 恒落（直调帧有名可路由，goal 匹配去 subcall 条件）"
    }
   ],
   "1144": [
@@ -5312,6 +5312,11 @@
   ],
   "1145": [
    {
+    "sha": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
+    "date": "2026-11-17",
+    "subject": "feat(unread): cr-1146 未读服务端权威源实施——读位持久化 meta/unread.json（水位单调）+ session/mark-read 与首屏/批量对账 RPC + 前端 localStorage 退役（cr-1145 计划落地）"
+   },
+   {
     "sha": "c8d004132f73c1a5603f2f733d0d88786a6044f1",
     "date": "2026-11-17",
     "subject": "chore(cr): 台账同步 cr-1144/cr-1145"
@@ -5320,23 +5325,18 @@
     "sha": "a22eb85f0b57b5b8047e77564091ca6062957f9c",
     "date": "2026-11-17",
     "subject": "docs(session): cr-1145 未读服务端权威源实施计划（cr-1144 遗留缺口终态设计）"
-   },
-   {
-    "sha": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
-    "date": "2026-11-17",
-    "subject": "feat(unread): cr-1146 未读服务端权威源实施——读位持久化 meta/unread.json（水位单调）+ session/mark-read 与首屏/批量对账 RPC + 前端 localStorage 退役（cr-1145 计划落地）"
    }
   ],
   "1146": [
    {
-    "sha": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
-    "date": "2026-11-17",
-    "subject": "feat(unread): cr-1146 未读服务端权威源实施——读位持久化 meta/unread.json（水位单调）+ session/mark-read 与首屏/批量对账 RPC + 前端 localStorage 退役（cr-1145 计划落地）"
-   },
-   {
     "sha": "e068fee27b1f981995037a235e18b5a968ab21fd",
     "date": "2026-11-17",
     "subject": "chore(cr): 台账同步 cr-1143/cr-1146（投影重建）"
+   },
+   {
+    "sha": "be3bde20b39c5b57436a92c5d23095b0022cccf0",
+    "date": "2026-11-17",
+    "subject": "feat(unread): cr-1146 未读服务端权威源实施——读位持久化 meta/unread.json（水位单调）+ session/mark-read 与首屏/批量对账 RPC + 前端 localStorage 退役（cr-1145 计划落地）"
    }
   ],
   "1147": [
@@ -5355,19 +5355,19 @@
   ],
   "1149": [
    {
-    "sha": "2acc24a612c8b54405aa0800b466046ea2d46824",
-    "date": "2026-11-18",
-    "subject": "chore(cr): 台账同步 cr-1153~1156（含 cr-1149~1152 在途行）"
-   },
-   {
-    "sha": "032dc201054b50743710c25c4d6cbcf2f5cd044a",
+    "sha": "ed016dd11692eaf73363891383923986321d7430",
     "date": "2026-11-19",
-    "subject": "chore(cr): 台账同步 cr-1149/1152/1157 收口（cr-1154~1157 行 + commits 投影）"
+    "subject": "chore(cr): cr-commits 投影同步（cr-1149/1152/1157 反向引用）"
    },
    {
     "sha": "38d34ada5d7e4cbd07210ab60d3831e6c61d1dbb",
     "date": "2026-11-19",
     "subject": "fix(timer): cr-1149 判定脚本契约硬化——干跑即首检（set 不投递、seed 落初值）+ 过期 next 分档（刚到期按地板排、超容差错误退避）"
+   },
+   {
+    "sha": "2acc24a612c8b54405aa0800b466046ea2d46824",
+    "date": "2026-11-18",
+    "subject": "chore(cr): 台账同步 cr-1153~1156（含 cr-1149~1152 在途行）"
    }
   ],
   "1152": [
@@ -5389,14 +5389,24 @@
     "sha": "ccf7ff392b66d929437438ac0966dfa46d5b67d5",
     "date": "2026-11-18",
     "subject": "fix(memory): cr-1154/1155/1156 记忆水位私有化 + ledger 读面三修——注入锚迁时间线私有 .anchors.json（per-Agent×会话，账本行回归纯回放材料）；recordsFor 无 seq v1 行归位最旧 + archive 僵尸行按位置出清；回放压缩边界加时刻维度（seq 空间倒挂期事件后落账行恒放行——admin~user 用户消息静默不可见根治）"
-   },
-   {
-    "sha": "032dc201054b50743710c25c4d6cbcf2f5cd044a",
-    "date": "2026-11-19",
-    "subject": "chore(cr): 台账同步 cr-1149/1152/1157 收口（cr-1154~1157 行 + commits 投影）"
    }
   ],
   "1157": [
+   {
+    "sha": "838012adae3dd9e63a0dfd683c2904674f287b5d",
+    "date": "2026-11-19",
+    "subject": "fix(unread): cr-1157 判据收紧——非标准会话键不再回落猜成 agent⇄user 轴（真实数据实证：probe 残留曾被猜进 news~user，与用户报的串台同族）；只有 conv===agent 的旧形态直答才归对桶"
+   },
+   {
+    "sha": "f0d323c79242d1701f35c3a7c968ba6059aa65f0",
+    "date": "2026-11-19",
+    "subject": "refactor(unread): cr-1157 轴键判据单源化——unreadAxisKeyOf/userPairAxisKey 归位 ac-wire-format 纯库（host tap 桥与 webui 前端同源消费，消除修二的两份拷贝；ac-core-utils 带 Node 依赖不可供前端，build:channel 实证）"
+   },
+   {
+    "sha": "91d32f10a67ef2769a6f6d20abe364a85ebe0745",
+    "date": "2026-11-19",
+    "subject": "fix(unread): cr-1157 修二——settled 源补 viewer 参与会话门控（自会话 a~a 与 agent⇄agent 对不计〔双倍根因〕、群轴不计〔串台根因〕）+ 正在看的会话不计数（setActiveAxis 活跃轴）"
+   },
    {
     "sha": "bf55c95b0fa7b415bbb9d03c5e8eb6da3e615621",
     "date": "2026-11-19",
