@@ -1,6 +1,6 @@
 {
- "scannedHead": "838012adae3dd9e63a0dfd683c2904674f287b5d",
- "generatedAt": "2026-11-19T03:25:21.282Z",
+ "scannedHead": "bf8673159cbde5e6c9434cfd56df0712d30676f3",
+ "generatedAt": "2026-11-19T03:36:27.973Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5411,6 +5411,21 @@
     "sha": "bf55c95b0fa7b415bbb9d03c5e8eb6da3e615621",
     "date": "2026-11-19",
     "subject": "feat(unread): cr-1157 计数器方案——三源事件计数（run 收束/独立私信/群消息，lastKey 幂等）+ session/unread take 与 mark-read 定向清 + 前端徽章面重建（unreadStore + AgentList/ActivityBar 角标）+ session-index 未读派生面退役（hint 语义，精准对账路线终结）"
+   },
+   {
+    "sha": "bf8673159cbde5e6c9434cfd56df0712d30676f3",
+    "date": "2026-11-19",
+    "subject": "test(unread): cr-1157 负路径真链回归——沙箱真壳跑 a~a 自会话 run，断言 settled 后无自会话轴；变异测试证明用例能捕捉修复前行为（非假阴性）"
+   },
+   {
+    "sha": "9132c15abc4ac196366781d1ffc0b8a35a889cba",
+    "date": "2026-11-19",
+    "subject": "fix(unread): cr-1157 修三——前端 take 在途窗 live 帧暂存（快照已含同事件时再 bump = 偶发双计）；e2e 注释归位（负路径由判据单测锁，e2e 锁正路径真链）"
+   },
+   {
+    "sha": "cd03c501a59fc59723cd4c7deba5bbdb6e3764d2",
+    "date": "2026-11-19",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1157 修二/判据单源/判据收紧）"
    }
   ],
   "1158": [
