@@ -13,3 +13,4 @@ export * from './outbox.ts';
 export * from './post-office.ts';
 export * from './stream.ts';
 export * from './stream-bridge.ts';
+export * from './service-verbs.ts';

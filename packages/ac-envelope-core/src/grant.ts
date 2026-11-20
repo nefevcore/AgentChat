@@ -1,10 +1,10 @@
 // ============================================================
-// grant.ts —— 授权信 payload schema（协议规格 E：grant/revoke 事务载体）
+// grant.ts —— 授权请求 payload schema（协议规格 E：grant/revoke 事务载体）
 //
-// 域外唯一动作类（D3 修订/R-4）：agent → 邮局 → 宿主 auth-registry 行。
-// 回执 kind=receipt 新 subject（grant-applied / grant-rejected）进 agent
-// 经验流——与 upgrade 回执同构（静默生效是反自治的）。回执与受理信
-// uuid/requestId 同值（agent 侧按原 requestId 对账——payload 不回显）。
+// 域外唯一动作类（D3 修订/R-4；cr-1175 批 2 起经 grant.apply 服务帧）：
+// agent → 服务台 → 宿主 auth-registry 行。回执 kind=receipt 新 subject
+//（grant-applied / grant-rejected）经邮局投 agent 经验流——与 upgrade
+// 回执同构（静默生效是反自治的）。回执与受理帧对账键见回执构造器。
 //
 // 受理边界（宿主侧语义收窄——用户域动作不经信封）：
 //   · 资产面：credential（轮换）/ mcp-server（放行）；
@@ -46,23 +46,7 @@ export interface GrantReceiptPayload {
   reason?: string;
 }
 
-/** 构造授权信信封（agent → host） */
-export function makeGrantEnvelope(input: {
-  uuid: string;
-  requestId: string;
-  sender: EndpointId;
-  payload: GrantPayload;
-}): Envelope {
-  return {
-    uuid: input.uuid,
-    requestId: input.requestId,
-    sender: input.sender,
-    to: 'host',
-    kind: input.payload.action,
-    budget: 0,
-    payload: input.payload,
-  };
-}
+// makeGrantEnvelope 已随 cr-1175 批 3b 退役（grant 请求走 grant.apply 服务帧）。
 
 /** 构造受理回执信封（host → agent；uuid/requestId = 受理信原值——按 requestId 对账） */
 export function makeGrantReceiptEnvelope(input: {

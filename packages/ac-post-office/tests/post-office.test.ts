@@ -80,6 +80,23 @@ describe('M4.1 router：三通道决策', () => {
     expect(o[0]).toMatchObject({ channel: 'outbox', reason: 'no-hint' });
   });
 
+  it('cr-1177：保留端点（host）回投已登记会话——放行不重算 participants（uuid 精确定位）', () => {
+    const reach = new ReachabilityTable();
+    reach.markReachable('creator-1', 'sock-c');
+    const registry = new ConversationRegistry();
+    // 用户会话先登记 [creator-1, user]
+    routeEnvelope(msg({ uuid: 'user~creator-1', requestId: 'u-1', sender: 'user', to: 'creator-1' }), { registry, reach });
+    // 宿主回投（sender=host、uuid=同会话键、to=creator-1）——修复前：近似 [creator-1, host] 撞 conflict
+    const receipt = msg({ uuid: 'user~creator-1', requestId: 'plugin-r1', sender: 'host', to: 'creator-1' });
+    expect(() => routeEnvelope(receipt, { registry, reach })).not.toThrow();
+    // 未登记 uuid 的保留端点信仍走登记面（fail-loud 保真——不放宽冒用防线）
+    const fresh = new ConversationRegistry();
+    routeEnvelope(msg({ uuid: 'fresh-conv', requestId: 'r1', sender: 'host', to: 'creator-1' }), { registry: fresh, reach });
+    expect(fresh.lookup('fresh-conv')?.participants).toEqual(['creator-1', 'host']);
+    // 普通参与者冒用已登记会话键照旧 conflict
+    expect(() => routeEnvelope(msg({ uuid: 'user~creator-1', requestId: 'bad', sender: 'intruder', to: 'creator-1' }), { registry, reach })).toThrow(/uuid 登记冲突/);
+  });
+
   it('多播扇出：群地址展开逐成员，跳过发送方；登记面 = 全员集合', () => {
     const reach = new ReachabilityTable();
     reach.markReachable('alpha', 's-a');

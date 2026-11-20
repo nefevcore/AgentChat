@@ -3,11 +3,10 @@
 // 模板工具面的信封面——8.9 前置余件②）
 //
 // 形态依据（gr-540 遗留② + cr-543 插件治理面）：新架构装载 = 授权动作
-//（A7/A10）——安装态唯一写者 = 宿主 plugin-registry 行，壳侧工具只有
-// 插件装卸请求信封（工具 execute 内即时投递——cr-866 起不经语义化中断）。install（定型驻留）
-// 与 uninstall（永久卸载）走本信封：壳 → 邮局 → 宿主 HostInbox 受理
-//（grant 同构）；register（会话级试跑）零宿主参与——壳进程内 ctx.plugin，
-// 重启即失天然成立，不走信封。
+//（A7/A10）——安装态唯一写者 = 宿主 plugin-registry 行，壳侧工具经
+// plugin.request 服务帧请求（cr-1175 批 2 起迁；工具 execute 内即时投递）。
+// install（定型驻留）与 uninstall（永久卸载）走服务帧；register（会话级
+// 试跑）零宿主参与——壳进程内 ctx.plugin，重启即失天然成立。
 //
 // kind 语义：『域外唯一动作类』与 grant 同族——但动作本体是宿主文件域
 // 写（安装/卸载），回执后需驱动 agent 下一轮（主线 receiptAndRetrigger
@@ -59,23 +58,7 @@ export interface PluginReceiptPayload {
   warnings?: string[];
 }
 
-/** 构造插件装卸请求信封（壳 → host；kind=message 进宿主收信面） */
-export function makePluginRequestEnvelope(input: {
-  uuid: string;
-  requestId: string;
-  sender: EndpointId;
-  payload: PluginRequestPayload;
-}): Envelope {
-  return makeEnvelope({
-    uuid: input.uuid,
-    requestId: input.requestId,
-    sender: input.sender,
-    to: 'host',
-    kind: 'message',
-    budget: 1, // 宿主动作完成后回执 + 续跑各一跳——1 跳预算内闭环
-    payload: input.payload,
-  });
-}
+// makePluginRequestEnvelope 已随 cr-1175 批 3b 退役（装卸请求走 plugin.request 服务帧）。
 
 /** 构造受理回执信封（host → agent；uuid/requestId = 请求信原值） */
 export function makePluginReceiptEnvelope(input: {
@@ -115,12 +98,4 @@ export function validatePluginRequestPayload(payload: unknown): string[] {
   }
   if (typeof p.conversationId !== 'string' || p.conversationId.length === 0) issues.push('conversationId 缺席');
   return issues;
-}
-
-/** 信封是否插件装卸请求（宿主收信面分流——payload.action 词汇判别） */
-export function isPluginRequest(env: Envelope): boolean {
-  return env.kind === 'message'
-    && (env.payload as { action?: unknown; conversationId?: unknown } | null)?.conversationId !== undefined
-    && ((env.payload as { action?: unknown } | null)?.action === 'install'
-      || (env.payload as { action?: unknown } | null)?.action === 'uninstall');
 }

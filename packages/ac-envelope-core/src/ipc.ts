@@ -15,6 +15,7 @@
 // ============================================================
 import * as net from 'node:net';
 import { encodeFrame, FrameDecoder } from './frame.ts';
+import { isServiceAck, makeServiceReport, makeServiceRequest } from './service-frame.ts';
 import { readActivationLock, type ActivationLockInfo } from './lock.ts';
 
 /** 传输层错误回帧（onFrame reject 的 wire 形——发送方 IpcClient 转 reject） */
@@ -64,7 +65,7 @@ export function probeIpc(address: string, timeoutMs = 2_000): Promise<boolean> {
  */
 export function listenIpc(
   address: string,
-  onFrame: (payload: unknown) => unknown | undefined | Promise<unknown | undefined>,
+  onFrame: (payload: unknown, senderSocket: net.Socket) => unknown | undefined | Promise<unknown | undefined>,
 ): Promise<IpcServer> {
   return listenIpcConns(address, onFrame).then((r) => r.server);
 }
@@ -76,7 +77,7 @@ export function listenIpc(
  */
 export function listenIpcConns(
   address: string,
-  onFrame: (payload: unknown) => unknown | undefined | Promise<unknown | undefined>,
+  onFrame: (payload: unknown, senderSocket: net.Socket) => unknown | undefined | Promise<unknown | undefined>,
 ): Promise<{ server: IpcServer; conns: Set<net.Socket> }> {
   return new Promise((resolve, reject) => {
     // 连接跟踪：close 时强制销毁（对端常驻连接〔壳 postReply 池〕不主动
@@ -101,7 +102,7 @@ export function listenIpcConns(
           // 炸 socket data handler（uncaught exception）。
           let handled: Promise<unknown>;
           try {
-            handled = Promise.resolve(onFrame(frame));
+            handled = Promise.resolve(onFrame(frame, socket));
           } catch (err) {
             handled = Promise.reject(err);
           }
@@ -267,6 +268,36 @@ export class IpcClient {
   /** 单帧即回（旧语义——谓词恒真的 request） */
   send(payload: unknown): Promise<unknown> {
     return this.request(payload, () => true);
+  }
+
+  /**
+   * 服务帧 request 档（cr-1175）：发送 {svc, reqId, payload} 等 ServiceAck
+   *（reqId 配对；超时/连接失败/ok:false 均 reject——调用方收错）。单飞约束
+   * 同 request（同连接至多一个在途请求）。
+   */
+  serviceCall(verb: string, payload: unknown, timeoutMs = 15_000): Promise<unknown> {
+    return this.request(
+      makeServiceRequest(verb, 'svc-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36), payload),
+      isServiceAck,
+      timeoutMs,
+    ).then((ack) => {
+      const a = ack as { reqId: string; ok: boolean; result?: unknown; error?: string };
+      if (a.ok) return a.result;
+      throw new Error('服务调用失败（' + verb + '）：' + (a.error ?? ''));
+    });
+  }
+
+  /**
+   * 服务帧 report 档（cr-1175）：fire-and-forget——写入即 resolve，不等回执
+   *（连接已断即 reject，stderr 诊断归调用方）。不占 request 单飞位。
+   */
+  serviceReport(verb: string, payload: unknown): void {
+    if (this.socket === null) throw new Error('ipc 未连接');
+    this.socket.write(encodeFrame(makeServiceReport(verb, payload)), (err) => {
+      if (err != null) {
+        process.stderr.write('[ipc] serviceReport 写入失败（' + verb + '）：' + String(err) + '\n');
+      }
+    });
   }
 
   close(): void {

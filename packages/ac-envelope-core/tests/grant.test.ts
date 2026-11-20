@@ -1,12 +1,11 @@
 // ============================================================
-// grant.ts 单测（cr-545）：schema 校验（资产面/指纹必填/scope 门）
-// + 信封构造（kind=action、budget=0、to=host）。
+// grant.ts 单测（cr-545；cr-1175 批 3b 起去请求信封面）：schema 校验
+//（资产面/指纹必填/scope 门）+ 回执信封构造。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import {
   validateGrantPayload,
   validateGrantReceiptPayload,
-  makeGrantEnvelope,
   makeGrantReceiptEnvelope,
 } from '../src/grant.ts';
 
@@ -38,15 +37,8 @@ describe('validateGrantReceiptPayload', () => {
   });
 });
 
-describe('信封构造', () => {
-  it('grant 信：kind=action、to=host、budget=0；回执 uuid/requestId 原值', () => {
-    const env = makeGrantEnvelope({
-      uuid: 'u1', requestId: 'r1', sender: 'alpha',
-      payload: { action: 'grant', asset: { kind: 'mcp-server', name: 'wiki' }, scope: 'per-agent', priorFingerprint: 'f' },
-    });
-    expect(env.kind).toBe('grant');
-    expect(env.to).toBe('host');
-    expect(env.budget).toBe(0);
+describe('回执信封构造（host → agent，经邮局投经验流）', () => {
+  it('kind=receipt / sender=host / requestId 对账原值', () => {
     const rc = makeGrantReceiptEnvelope({
       uuid: 'u1', requestId: 'r1', to: 'alpha',
       payload: { subject: 'grant-applied', agent: 'alpha', ok: true, newFingerprint: 'nf' },

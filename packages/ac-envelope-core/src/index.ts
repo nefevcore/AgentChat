@@ -25,6 +25,7 @@ export * from './stream.ts';
 export * from './manage.ts';
 export * from './socket.ts';
 export * from './ipc.ts';
+export * from './service-frame.ts';
 export * from './deliver.ts';
 export * from './lock.ts';
 export * from './boot-progress.ts';

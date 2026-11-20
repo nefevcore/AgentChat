@@ -3158,6 +3158,9 @@ importers:
 
   packages/ac-post-office:
     dependencies:
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../ac-agents-core
       ac-envelope-core:
         specifier: workspace:*
         version: link:../ac-envelope-core

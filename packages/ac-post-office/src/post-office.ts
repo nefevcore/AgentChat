@@ -13,7 +13,8 @@ import { socketPathFor } from 'ac-envelope-core';
 import { ConversationRegistry, ReachabilityTable } from './registry.ts';
 import { routeEnvelope, type MulticastTable, type RouteTarget } from './router.ts';
 import { Outbox, type OutboxEntry } from './outbox.ts';
-import { listenIpc, IpcClient, type IpcServer } from 'ac-envelope-core';
+import { listenIpc, IpcClient, isServiceFrame, type IpcServer, type ServiceRequestFrame } from 'ac-envelope-core';
+import type { ServiceDeskLike } from './service-verbs.ts';
 
 /** 端点收信面（进程内直调通道——hint local:<endpointId> 的落点） */
 export type LocalReceiver = (envelope: Envelope) => Promise<{ ack: string; fresh: boolean }>;
@@ -60,6 +61,9 @@ export class PostOffice {
   private readonly pool = new Map<string, IpcClient>();
   private ensureHook: ((target: RouteTarget) => void) | undefined;
   private server: IpcServer | null = null;
+  /** 宿主服务台（cr-1175：svc 帧通道受理面——HostServiceDesk（ac-host-rows）
+   *  经 boot 装配注入；未注入 = svc 帧 W 日志即弃（纯信封形态） */
+  private desk: ServiceDeskLike | null = null;
 
   constructor(options: PostOfficeOptions) {
     this.outbox = new Outbox(options.dataRoot);
@@ -82,6 +86,16 @@ export class PostOffice {
   /** 端点拉起钩子注册（编排面——boot 后接线；构造期注入同形） */
   setEnsureHook(hook: (target: RouteTarget) => void): void {
     this.ensureHook = hook;
+  }
+
+  /** 服务台注入（cr-1175：boot 装配 HostServiceDesk 后接线——svc 帧分派目标） */
+  setServiceDesk(desk: ServiceDeskLike): void {
+    this.desk = desk;
+  }
+
+  /** 服务台读面（诊断/测试——注入后原对象引用） */
+  get serviceDesk(): ServiceDeskLike | null {
+    return this.desk;
   }
 
   /** 单 hint 投递：local 直调 / ipc 帧（连接池——失败逐出，下次重连） */
@@ -200,9 +214,20 @@ export class PostOffice {
     return delivered;
   }
 
-  /** ipc 监听（外部发送方帧投递面——壳 postReply 回链用）：信封帧 → dispatch → 回执帧 */
+  /** ipc 监听（外部发送方帧投递面）：svc 服务帧 → desk 分派；信封帧 → dispatch；
+   *  两者皆非（形坏帧）→ undefined 直过（与信封收面同容错口径） */
   async listen(): Promise<IpcServer> {
-    this.server = await listenIpc(this.address, async (payload) => {
+    this.server = await listenIpc(this.address, async (payload, senderSocket) => {
+      if (isServiceFrame(payload)) {
+        if (this.desk === null) {
+          this.onLog?.('W', 'svc 帧到达但服务台未注入（' + String((payload as { svc?: unknown }).svc) + '）——已回 ok:false');
+          const frame = payload as ServiceRequestFrame;
+          return typeof frame.reqId === 'string'
+            ? { reqId: frame.reqId, ok: false, error: '服务台未注入（纯信封形态邮局）' }
+            : undefined;
+        }
+        return this.desk.handle(payload as ServiceRequestFrame, senderSocket);
+      }
       const env = payload as Envelope | null;
       if (typeof env !== 'object' || env === null
         || typeof env.requestId !== 'string' || typeof env.sender !== 'string') {

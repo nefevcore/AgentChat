@@ -1,21 +1,12 @@
 // ============================================================
-// title-request.ts —— 会话标题请求信 payload schema（cr-672）
+// title-request.ts —— 标题落盘请求 payload schema（cr-672；cr-1175 批 2
+// 起经服务帧 title.set——request 档，落盘即推前端 live 帧〔D7〕）
 //
-// 形态依据（plugin-request / grant 同族）：标题写权归宿主 singles 行
-//（meta/sessions/<sid>.json 单写者——数据分层第二层；cr-998 起单源，
-// 旧位置 viewer/sessions/<sid>/session.json），标题生成要 LLM——LLM 只住
-// 壳（llm / llm-pool 行在壳树）。故壳侧 auto-title 行生成后经邮局发本请求：
-// 壳 → 邮局 → 宿主 HostInbox 受理（singles 行 write-if-absent 落盘 +
-// singles/updated 广播）。
-//
-// uuid 键 = 'title-' + 会话键（host 请求域独立键，cr-641 同款：直接用会话键
-// 会撞 R-1 登记集 [user, agent]——to=host 的 participants 近似 [agent, host]
-// 非其子集 → conflict fail-loud，信被邮局静默吞掉）。kind=message +
-// budget=0：宿主写面动作，不需要回执也不续跑（标题是装饰性面，失败降级
-// 为派生标题，绝不放大成 run 失败）。
+// 标题写权归宿主 singles 行（meta/sessions/<sid>.json 单写者），标题生成
+// 要 LLM——LLM 只住壳。故壳侧 auto-title 行生成后经服务帧通道发宿主：
+// write-if-absent 落盘 + singles/updated 广播。信封构造器与判定器已随
+// cr-1175 批 3b 退役。
 // ============================================================
-import type { Envelope, EndpointId } from './envelope.ts';
-import { makeEnvelope } from './envelope.ts';
 
 /** 标题请求 payload（壳 → host） */
 export interface TitleRequestPayload {
@@ -27,24 +18,6 @@ export interface TitleRequestPayload {
   agent: string;
 }
 
-/** 构造标题请求信封（壳 → host；uuid 见文件头——host 请求域独立键） */
-export function makeTitleRequestEnvelope(input: {
-  conversationId: string;
-  requestId: string;
-  sender: EndpointId;
-  payload: TitleRequestPayload;
-}): Envelope {
-  return makeEnvelope({
-    uuid: 'title-' + input.conversationId,
-    requestId: input.requestId,
-    sender: input.sender,
-    to: 'host',
-    kind: 'message',
-    budget: 0,
-    payload: input.payload,
-  });
-}
-
 /** payload 结构校验（纯函数 fail-closed：只收集不修复） */
 export function validateTitleRequestPayload(payload: unknown): string[] {
   const issues: string[] = [];
@@ -54,12 +27,4 @@ export function validateTitleRequestPayload(payload: unknown): string[] {
   if (typeof p.title !== 'string' || p.title.trim().length === 0) issues.push('title 缺席或空白');
   if (typeof p.agent !== 'string' || p.agent.length === 0) issues.push('agent 缺席');
   return issues;
-}
-
-/** 信封是否标题请求（宿主收信面分流——payload 词形判别） */
-export function isTitleRequest(env: Envelope): boolean {
-  if (env.kind !== 'message' || env.to !== 'host') return false;
-  const p = env.payload as { conversationId?: unknown; title?: unknown } | null;
-  if (p === null || typeof p !== 'object') return false;
-  return typeof p.conversationId === 'string' && typeof p.title === 'string';
 }

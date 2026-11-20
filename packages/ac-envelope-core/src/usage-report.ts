@@ -1,17 +1,11 @@
 // ============================================================
-// usage-report.ts —— usage 自报信 payload schema（cr-538；R2 ledger 行
-//「usage 自报（journal 计量 + 事件信）」的事件信半边）
+// usage-report.ts —— usage 计量帧 payload schema（cr-538；cr-1175 批 2 起
+// 经服务帧通道 usage.report——report 档 fire-and-forget，丢失由宿主 boot
+// 对账回填兜底〔journal 事实源〕）
 //
-// run 收束时壳 → host 观察信（kind=receipt：不进 inbox 不激活——A4；
-// per-agent D3 修订「宿主不再物理必经敏感操作，计量 = 子树自记 journal
-// + 事件信投递（at-least-once + 幂等）」）。投递 = 邮局 ipc 帧
-//（postReply 同款通道）；宿主收信面 requestId 幂等去重。
-// uuid 键 = usage-<agentId>（每 agent 一条计量流——不复用会话 uuid：
-// 邮局登记校验 participants 集合一致性，计量流接收方 host 非会话
-// 参与者）。
+// payload 双态：usage-run（run 收束聚合）/ usage-step（步级缓存实时段）。
+// 信封构造器与判定器已随 cr-1175 批 3b 退役（服务帧不走信封）。
 // ============================================================
-import type { Envelope } from './envelope.ts';
-import { makeEnvelope } from './envelope.ts';
 
 /** run 级用量聚合（主线 LoopRunUsage 形状——双轨制；两侧 type-only 认识，
  * owning 归 ac-agent-loop 契约，此处本地声明保持纯库零依赖） */
@@ -67,28 +61,7 @@ export interface UsageStepPayload {
   prompt?: number;
 }
 
-/** usage 计量流键（每 agent 一条流——宿主聚合并合并键） */
-export function usageStreamKey(agentId: string): string {
-  return 'usage-' + agentId;
-}
-
-/** 构造 usage 自报信封（壳 → host；run 收束信与步级缓存信共用通道） */
-export function makeUsageEnvelope(input: {
-  requestId: string;
-  payload: UsageReportPayload | UsageStepPayload;
-}): Envelope {
-  return makeEnvelope({
-    uuid: usageStreamKey(input.payload.agent),
-    requestId: input.requestId,
-    sender: input.payload.agent,
-    to: 'host',
-    kind: 'receipt',
-    budget: 0,
-    payload: input.payload,
-  });
-}
-
-/** payload 结构校验（纯函数 fail-closed——宿主收信面用） */
+/** payload 结构校验（纯函数 fail-closed——宿主服务台 handler 用） */
 export function validateUsagePayload(payload: unknown): string[] {
   const issues: string[] = [];
   const p = payload as Partial<UsageReportPayload> & Partial<UsageStepPayload> | null;
@@ -114,11 +87,4 @@ export function validateUsagePayload(payload: unknown): string[] {
     issues.push('usage 聚合字段缺失');
   }
   return issues;
-}
-
-/** 信封是否 usage 自报（宿主收信面分流——run 收束信与步级缓存信） */
-export function isUsageReport(env: Envelope): boolean {
-  if (env.kind !== 'receipt') return false;
-  const s = (env.payload as { subject?: unknown } | null)?.subject;
-  return s === 'usage-run' || s === 'usage-step';
 }
