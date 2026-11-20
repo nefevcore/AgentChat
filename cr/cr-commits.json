@@ -1,6 +1,6 @@
 {
- "scannedHead": "bf8673159cbde5e6c9434cfd56df0712d30676f3",
- "generatedAt": "2026-11-19T03:36:27.973Z",
+ "scannedHead": "bd3b5dcde19be845417ef183bc288bae277297d2",
+ "generatedAt": "2026-11-20T16:07:46.389Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -3761,6 +3761,13 @@
     "subject": "feat(repo): cr-705~800 批量落地——重组收尾、subagent 全链、会话并行化、run-status UI"
    }
   ],
+  "734": [
+   {
+    "sha": "f587201af4d8f5e9a7720d2dd365ec1d35cfe9c7",
+    "date": "2026-11-21",
+    "subject": "fix(host): cr-1176 interaction/reply 无活壳即抛错根修——盘上定位持有 Agent（interactionTopOwnerOf 按 agents/<id>/interactions.jsonl 目录名定位——owner 可缺席目录恒在）→ ensureAgent 拉起后重投；壳按需拉起是常态（重启后无活壳 ≠ 死信），此前 reply 是唯一漏拉起语义的写面（与 shellCall 写面按需拉壳同纪律补齐）；枚举段逐壳容错（boot 窗口单壳不应答不拖垮——reply 幂等 duplicate 回原回答）；children 域不进本面（cr-734 boot 扫描拉父、父壳代答走 subagents.answer）——重启后回复 ask_questions 无声失败的根因"
+   }
+  ],
   "740": [
    {
     "sha": "73674a3cdb15e8b6c31b558c9d9d2074faa19e07",
@@ -5050,6 +5057,11 @@
     "sha": "1f7cea8f37b895cac46ba37a7f845cec047f1d62",
     "date": "2026-11-15",
     "subject": "feat(tools): cr-1114 工具源统一批1+2——host-face boot 静态承诺面(spec 下沉 core+段拆承诺/补位)+prepare 缝对账重建(emit tools/source-changed)+rowTools 活查询化(listWithOwner+fiberNames 桥,boot 反查退役审计面)+前缀快照正文域漂移升③重算(diff 句退役)+ToolSource 契约与两源实现+MCP 发现缓存(meta/mcp-discovery def-hash 键)与发现对账(redetect)——修 timer 三面失明"
+   },
+   {
+    "sha": "149b41804ae6ca6418c9261a8c014f7c30258b45",
+    "date": "2026-11-21",
+    "subject": "fix(test): cr-1174 vitest setup 摘 AGENTCHAT_DEV_MODE 环境渗漏（同 DATA_ROOT 先例：在场即 warn+delete）——六次踩坑（cr-1114/1121/1142/1149/1165/1166）根断：开发者 shell 渗漏继承致系统域双禁默认表解除 → sandbox-core 两例假红；dev mode 语义测试显式自设 env 不受影响"
    }
   ],
   "1115": [
@@ -5426,6 +5438,11 @@
     "sha": "cd03c501a59fc59723cd4c7deba5bbdb6e3764d2",
     "date": "2026-11-19",
     "subject": "chore(cr): cr-commits 投影同步（cr-1157 修二/判据单源/判据收紧）"
+   },
+   {
+    "sha": "28db4b617c1c4ccc0a7a10320024c774c980cbc2",
+    "date": "2026-11-19",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1157 修三/负路径真链回归）"
    }
   ],
   "1158": [
@@ -5433,6 +5450,214 @@
     "sha": "16fe34176731e5f387a939766b90fff31faaebd3",
     "date": "2026-11-19",
     "subject": "feat(net): cr-1158 网络状态监控——离线时禁止远程模型调用"
+   }
+  ],
+  "1159": [
+   {
+    "sha": "d66481aeebb68683eeb4555eed03f3e7c0351d4a",
+    "date": "2026-11-20",
+    "subject": "chore(cr): 台账同步 cr-1161/1164/1165/1166（含 cr-1159~1163 在途行）"
+   },
+   {
+    "sha": "15a44e3bac5ba0b003727c330242749bc16f05e8",
+    "date": "2026-11-19",
+    "subject": "fix(session): cr-1159 restart_shell 多会话并发单槽修复——通知链四层改多键（行旗标 per-conversation / 服务意图 restartOrigins 键集 / marker conversationIds / boot 逐键注入「已重启」，兼容读旧单值 marker）+ reviewRun 收束补全闲检查（机制 run 最后收束时 restartPending 孤儿化——重启静默蒸发缺口收口）"
+   }
+  ],
+  "1160": [
+   {
+    "sha": "bd3b5dcde19be845417ef183bc288bae277297d2",
+    "date": "2026-11-21",
+    "subject": "chore(cr): 台账批量登记——cr-1160/1162/1172/1173/1174/1176/1178 批次索引与详情落档，cr-1175/1177 状态补录"
+   },
+   {
+    "sha": "5c320ea46be263dc03e89e7a487e20b5c6c0155a",
+    "date": "2026-11-21",
+    "subject": "feat(compaction): cr-1160 压缩+概要 V2——逻辑压缩与物理回收解耦（compaction 单事件纯追加 + rowShadowedBy 双维边界谓词：时刻放行→seq→ts→文件位置三级裁决）；ledger 概要多轮叠加（compactions[]）与旧三连归并状态机；session-index 增 generation/est_tokens 列 + compactions 表 + 口径版本对账（v4，估算语义演进自动弃重建不迁数据）；archive 概要形态校验（summaryCommittable）+ 壳内分代估算（estimateOf activeOnly——跨进程软取死代码根除，rowShadowedBy 两进程同判据不共享实例）+ 物理回收解耦（shadowed>keep 水位×2 才搬段）；webui 压缩历史弹层（session/tokens 先建面后读值 + 摘要头计账 summary_tokens）；三口径收敛终验：注入/阈值/仪表 639=摘要头，news~news 701,653 对照真实 prompt 767,206"
+   }
+  ],
+  "1161": [
+   {
+    "sha": "d66481aeebb68683eeb4555eed03f3e7c0351d4a",
+    "date": "2026-11-20",
+    "subject": "chore(cr): 台账同步 cr-1161/1164/1165/1166（含 cr-1159~1163 在途行）"
+   },
+   {
+    "sha": "4fb51b58b50a647a44e6a1dfbb2416b8511a041c",
+    "date": "2026-11-20",
+    "subject": "docs(timer): cr-1161 timer v3 设计稿（哑触发层：采集分离 source 行、砍 code 执行面、when 静态推导）+ 旧稿 timer-scripting.md 归档"
+   }
+  ],
+  "1162": [
+   {
+    "sha": "282a39769dfb9bfd6db824fccaf8b6b9de2fb5ad",
+    "date": "2026-11-21",
+    "subject": "fix(ui): cr-1162 TokenGauge 会话切换读数不跟随——开销归属键判定根修：gaugeViewKeyOf 视图键单源（group→gid/single→sid/direct: 前缀防撞键），overheadKey/overheadFresh 只并入属于当前视图的开销（不碰 chatStore 共享单例——就地清空会作废 SystemPromptPanel 在飞响应致面板空白不重试，共享状态各消费方只判自己的读数）；chat-core 开销面请求代 overheadSeq 竞态守卫（发起新请求抬号，迟到响应按号丢弃）"
+   }
+  ],
+  "1163": [
+   {
+    "sha": "989ffd8bcbc1b8190de77c003311623df5a6d0ef",
+    "date": "2026-11-20",
+    "subject": "fix(shell): cr-1163 restart_shell 退出与 boot「已重启」注入竞态根修——注入从漂浮任务改带取消契约的本代在途工作（restartedNoteDelivery + ShellBootResult.restartedNoteTake）：退出路径同步 take 未投键并入本次重启 marker 由下代投递（通知跨代恰好一次），take 排除在途头（restart-ready 在注入 run 收束点同步发射、shift 未执行的窗口不可重复注入）——根除注入撞 exit-42 关闭窗被杀留 error 假红"
+   }
+  ],
+  "1164": [
+   {
+    "sha": "a84bc1590b7eab3672a864db12428b6753362944",
+    "date": "2026-11-20",
+    "subject": "feat(timer): cr-1164/1165/1166 timer v3 实施——哑触发层 + source 采集层 + 视图读授权"
+   }
+  ],
+  "1165": [
+   {
+    "sha": "5bef1dc54caf6480e0777d86a22125c2fe089c94",
+    "date": "2026-11-20",
+    "subject": "fix(config): cr-1168 fs-source 配置写面收口——CONFIG_KEY_PREFIXES 补 source 域（cr-1165 实施遗漏：读面在写面缺）+ news 手写 auth 转正 + 探针清理"
+   },
+   {
+    "sha": "a84bc1590b7eab3672a864db12428b6753362944",
+    "date": "2026-11-20",
+    "subject": "feat(timer): cr-1164/1165/1166 timer v3 实施——哑触发层 + source 采集层 + 视图读授权"
+   }
+  ],
+  "1166": [
+   {
+    "sha": "a84bc1590b7eab3672a864db12428b6753362944",
+    "date": "2026-11-20",
+    "subject": "feat(timer): cr-1164/1165/1166 timer v3 实施——哑触发层 + source 采集层 + 视图读授权"
+   }
+  ],
+  "1167": [
+   {
+    "sha": "c83ebad1f5f575b2c764195eeec98a181d5b7c36",
+    "date": "2026-11-20",
+    "subject": "fix(timer): cr-1167 复查修补——test 分支漏传 until/gates/missed 致预览截断失效（真机验证发现）+ 补 timer-face 行为测试三例（真 ipc loopback）"
+   },
+   {
+    "sha": "a6e3ea08cfbe5d9ebdd69e12920b42d57fb59e93",
+    "date": "2026-11-20",
+    "subject": "fix(timer): cr-1167 体验修补——previewFires 诚实性（once 去重/until.count 截断/过期空列）+ set 对 v2 遗留参数 fail-loud + test 源缺位 dormant 预警"
+   }
+  ],
+  "1168": [
+   {
+    "sha": "11e04e3e2166f5a7413ec97c72cf82c996d20a00",
+    "date": "2026-11-21",
+    "subject": "feat(config): cr-1173 config/merge RPC——patch 语义写入（mergeConfigDomains：只写 payload 在场白名单域，逐键 assertConfigKey fail-closed，未涉及域幸存；sanitize/池凭据侧信道与 config/save 同源）；cr-1168 备案的 config/save replace 陷阱收口（只送一个域会删其余域）；两动词各司其职：save=全量保存，merge=探针/局部改；不做深合并（部分覆盖嵌套层的语义惊讶比 replace 更隐蔽）"
+   },
+   {
+    "sha": "211e67009d6e377b0e3d52ef34360c1f3af52866",
+    "date": "2026-11-20",
+    "subject": "docs(cr): cr-1168 补记验证事故复盘——config/save replace 语义部分 payload 致三域误删 + 经备份正规恢复 + 接口改进建议"
+   },
+   {
+    "sha": "5bef1dc54caf6480e0777d86a22125c2fe089c94",
+    "date": "2026-11-20",
+    "subject": "fix(config): cr-1168 fs-source 配置写面收口——CONFIG_KEY_PREFIXES 补 source 域（cr-1165 实施遗漏：读面在写面缺）+ news 手写 auth 转正 + 探针清理"
+   }
+  ],
+  "1169": [
+   {
+    "sha": "f02c5142d7649a10b2abf91fdde91e112d37067d",
+    "date": "2026-11-21",
+    "subject": "feat(timer): cr-1172 timer-v3 收尾——scheduleState 补源健康投影（sources[] 现读 exports/<source>/<view>/meta.json：generatedAt/seq/stale，stale 判据与 staleSweep 同口径；meta 缺席不进数组——dormantReason: source-unavailable 已单源表达）+ LIST_VERSION 5→6 纯增量诊断字段；设计稿 §十一回勾（cooldown 缺省 5m / pull 兜底声明位如实标注）；源条目排障不再手读 meta.json（cr-1169 痛点）"
+   },
+   {
+    "sha": "899ab023f5803441c877575672f5cc73249b6b91",
+    "date": "2026-11-20",
+    "subject": "docs(cr): cr-1169 补记升级迁移路径——旧 state 无 lastSeq 字段致首次启动重投一次（当场自愈，影响面 1 次）"
+   },
+   {
+    "sha": "9ac24879171b84fde78c8d95a335bb909519e57f",
+    "date": "2026-11-20",
+    "subject": "fix(timer): cr-1169 源触发 lastSeq 持久化——宿主重启内存丢失致 pull 首扫判落后同 seq 重投（news 实测 seq10 双触发）+ matchAndFire 读后即占位防并发双投窗口"
+   }
+  ],
+  "1170": [
+   {
+    "sha": "5f3bdd954aa943c0919158e5dfd83aa83d9c7de8",
+    "date": "2026-11-20",
+    "subject": "docs(cr): cr-1170 补记真机验证（自会话放行/越界拒/缺省回归三态 + 探针清理）"
+   },
+   {
+    "sha": "39308ba9d88bd51354aa5e2c38c1c54cfe4dd77a",
+    "date": "2026-11-20",
+    "subject": "feat(timer): cr-1170 set 补 conversationId 参数（v1 语义回归——定时任务指向 agent~* 自会话与用户线程解耦）+ 归属闸防跨 Agent 注入"
+   }
+  ],
+  "1171": [
+   {
+    "sha": "7b4f168f574d19bc288b95a4baca92d17ba76e8a",
+    "date": "2026-11-20",
+    "subject": "docs(cr): cr-1171 补记真机验证（update 继承 / list 平铺 / cancel 归档全链）"
+   },
+   {
+    "sha": "34d4b8e6c0d13700708f4acf3db0d820b0532646",
+    "date": "2026-11-20",
+    "subject": "feat(timer): cr-1171 LLM 面补全——update 幂等改写（继承未传字段+记账保留）/ list 平铺 text+conversationId（投递目标可见）/ cancel 归档留痕（timer-archive status=cancelled）"
+   }
+  ],
+  "1172": [
+   {
+    "sha": "f02c5142d7649a10b2abf91fdde91e112d37067d",
+    "date": "2026-11-21",
+    "subject": "feat(timer): cr-1172 timer-v3 收尾——scheduleState 补源健康投影（sources[] 现读 exports/<source>/<view>/meta.json：generatedAt/seq/stale，stale 判据与 staleSweep 同口径；meta 缺席不进数组——dormantReason: source-unavailable 已单源表达）+ LIST_VERSION 5→6 纯增量诊断字段；设计稿 §十一回勾（cooldown 缺省 5m / pull 兜底声明位如实标注）；源条目排障不再手读 meta.json（cr-1169 痛点）"
+   }
+  ],
+  "1173": [
+   {
+    "sha": "11e04e3e2166f5a7413ec97c72cf82c996d20a00",
+    "date": "2026-11-21",
+    "subject": "feat(config): cr-1173 config/merge RPC——patch 语义写入（mergeConfigDomains：只写 payload 在场白名单域，逐键 assertConfigKey fail-closed，未涉及域幸存；sanitize/池凭据侧信道与 config/save 同源）；cr-1168 备案的 config/save replace 陷阱收口（只送一个域会删其余域）；两动词各司其职：save=全量保存，merge=探针/局部改；不做深合并（部分覆盖嵌套层的语义惊讶比 replace 更隐蔽）"
+   }
+  ],
+  "1174": [
+   {
+    "sha": "149b41804ae6ca6418c9261a8c014f7c30258b45",
+    "date": "2026-11-21",
+    "subject": "fix(test): cr-1174 vitest setup 摘 AGENTCHAT_DEV_MODE 环境渗漏（同 DATA_ROOT 先例：在场即 warn+delete）——六次踩坑（cr-1114/1121/1142/1149/1165/1166）根断：开发者 shell 渗漏继承致系统域双禁默认表解除 → sandbox-core 两例假红；dev mode 语义测试显式自设 env 不受影响"
+   }
+  ],
+  "1175": [
+   {
+    "sha": "bd3b5dcde19be845417ef183bc288bae277297d2",
+    "date": "2026-11-21",
+    "subject": "chore(cr): 台账批量登记——cr-1160/1162/1172/1173/1174/1176/1178 批次索引与详情落档，cr-1175/1177 状态补录"
+   },
+   {
+    "sha": "05f3fe0eb35c26cdac19b8ed76238c83b7476e05",
+    "date": "2026-11-20",
+    "subject": "docs(platform): cr-1175 全案收口回勾——批表 1-5+3a/3b 状态与验收清单全勾（真机闭环：host.restart 送达确认→换代 pid 9904→机制信注入原会话）；session-design D1 信封纯会话语义；裁决簿〈宿主服务通道〉段；manifest 行表 auth/singles 现行态改服务帧；migration-chain 补 cr-1175 行；cr-1175/1177 详情落档（含事故记录与 R-1 修复裁决）"
+   },
+   {
+    "sha": "75b018cee334c77bd984d7de38566369014d8b1d",
+    "date": "2026-11-20",
+    "subject": "feat(host): cr-1175 全批迁移——六类宿主寄居通信迁服务帧（host.restart/host.respawn-shell/usage.report/title.set〔D7 live 通知〕/plugin.request/grant.apply）；HostServiceDesk 宿主收面（D4 不进可达表/registry/ensureHook）+ boot rowOptionsFor desk 注入；HostInbox shim 与 registerLocal(host) 随批 3b 退役；保留字三闸（sanitize/ensureAgent/createFromTemplate 拒 host/user/@ 前缀）；壳侧 restart/auto-title/plugin-dev/ledger 全迁服务帧——grep to:host 全仓零命中"
+   },
+   {
+    "sha": "b1ab8a2f84f265ea0c5b813768d1a9417f66f00d",
+    "date": "2026-11-20",
+    "subject": "feat(post-office): cr-1175 服务帧通道传输层 + cr-1177 R-1 保留端点严格定位——ServiceFrame 协议位（svc 键）/ IpcClient serviceCall·serviceReport 两档 / listenIpc 扩 senderSocket；邮局 listen 按协议位分派（desk 缺席 request 回 ok:false）；router 对保留端点回投按 uuid 登记集放行不重算 participants（修 plugin/grant 回执撞 conflict 滞留 outbox 的存量缺陷）；四请求信封构造器与判定器随批 3b 退役（payload schema/validate/receipt 保留）"
+   },
+   {
+    "sha": "944e529001bdb1d74dc59d827ac1a97bbbcdbd07",
+    "date": "2026-11-20",
+    "subject": "docs(platform): cr-1175 宿主服务通道设计稿（A 案）——会话信封与服务通信解耦：邮局 socket 扩服务帧（request/report 两档 + D7 前端 live 通知原则），六类 to:'host' 机制信迁出会话管道，HostInbox shim 过渡后退役 + 保留字双闸与存量清理（Q1/Q3 裁决已落档）"
+   }
+  ],
+  "1176": [
+   {
+    "sha": "f587201af4d8f5e9a7720d2dd365ec1d35cfe9c7",
+    "date": "2026-11-21",
+    "subject": "fix(host): cr-1176 interaction/reply 无活壳即抛错根修——盘上定位持有 Agent（interactionTopOwnerOf 按 agents/<id>/interactions.jsonl 目录名定位——owner 可缺席目录恒在）→ ensureAgent 拉起后重投；壳按需拉起是常态（重启后无活壳 ≠ 死信），此前 reply 是唯一漏拉起语义的写面（与 shellCall 写面按需拉壳同纪律补齐）；枚举段逐壳容错（boot 窗口单壳不应答不拖垮——reply 幂等 duplicate 回原回答）；children 域不进本面（cr-734 boot 扫描拉父、父壳代答走 subagents.answer）——重启后回复 ask_questions 无声失败的根因"
+   }
+  ],
+  "1177": [
+   {
+    "sha": "b1ab8a2f84f265ea0c5b813768d1a9417f66f00d",
+    "date": "2026-11-20",
+    "subject": "feat(post-office): cr-1175 服务帧通道传输层 + cr-1177 R-1 保留端点严格定位——ServiceFrame 协议位（svc 键）/ IpcClient serviceCall·serviceReport 两档 / listenIpc 扩 senderSocket；邮局 listen 按协议位分派（desk 缺席 request 回 ok:false）；router 对保留端点回投按 uuid 登记集放行不重算 participants（修 plugin/grant 回执撞 conflict 滞留 outbox 的存量缺陷）；四请求信封构造器与判定器随批 3b 退役（payload schema/validate/receipt 保留）"
    }
   ]
  }

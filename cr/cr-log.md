@@ -1190,4 +1190,11 @@
 - 【cr-1169 2026-11-20 源触发 lastSeq 持久化缺失修复：宿主重启内存丢失致同 seq 重投（news 实测 seq10 双触发）+ matchAndFire 读后即占位防并发窗口】
 - 【cr-1170 2026-11-20 timer set 补 conversationId 参数：允许指定 agent~* 任意归属会话（v1 语义回归——自会话定时任务）+ 归属校验防跨 Agent 注入】
 - 【cr-1171 2026-11-20 timer LLM 面补全：update 语义（幂等改写单条）+ list 回显 conversationId（投递目标可见）+ cancel 归档留痕（撤条入 timer-archive）】
+- 【cr-1172 2026-11-20 timer-v3 收尾：list 补源健康投影（scheduleState sourceHealth——meta 现读 generatedAt/seq/stale）+ 设计稿 §十一 cooldown 缺省回勾】
+- 【cr-1173 2026-11-20 config/merge RPC：patch 语义写入（浅合并顶层域，未涉及域幸存）——cr-1168 备案的 config/save replace 陷阱收口】
+- 【cr-1174 2026-11-20 vitest setup 摘 AGENTCHAT_DEV_MODE 环境渗漏（同 DATA_ROOT 先例，跨 6 CR 反复踩）】
+- 【cr-1175 2026-11-20 信封投递架构重设计（A 案设计稿）——宿主控制通信与会话信封解耦：邮局 socket 增服务帧通道（control/report），to:'host' 六类机制信迁出会话管道，HostInbox 退役为服务收面，根除虚拟端点与 agent 命名空间撞车（restart_host 被同名 agent 吃信事故根修）】
+- 【cr-1176 2026-11-20 修复 interaction/reply 无活壳即抛错：盘上定位持有 Agent、按需拉起后重投（重启后回复 ask_questions 无声失败的根因）】
+- 【cr-1177 2026-11-20 plugin/grant 回投链 R-1 冲突：uuid=会话键的信 participants 近似 [agent,host] 撞已登记 [user,agent]——回执滞留 outbox 静默 #bug】
+- 【cr-1178 2026-11-20 timer-v3 退役代码清理复查：v2 残留死代码判死（全仓求证含测试）与扫尾移除】
 
