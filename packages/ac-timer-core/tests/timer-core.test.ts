@@ -145,6 +145,17 @@ describe('previewFires（静态预览）', () => {
     expect(fires[0]!.at).toBe(iso('2026-11-24T00:00:00+08:00'));
     expect(fires[1]!.at).toBe(iso('2026-12-01T00:00:00+08:00'));
   });
+  it('诚实性（cr-1167）：once 单条不重复 / until.count 截断 / 过期 once 空列', () => {
+    // once 只进一条（v3 换轨首版曾同刻重复 3 条——预览谎报触点数）
+    const once = previewFires(entry([{ kind: 'once', at: '2026-11-18T09:00:00+08:00' }]), NOW, ctx(), 3);
+    expect(once).toHaveLength(1);
+    // until.count 2 → 最多 2 条（首版仍给 3——超出终结点的投递不存在）
+    const capped = previewFires(entry([{ kind: 'every', iv: '1h' }], { until: { count: 2 } }), NOW, ctx(), 3);
+    expect(capped).toHaveLength(2);
+    // 过期 once（at < now 且无 catchup 语义）：未来无点可期——空列
+    const expired = previewFires(entry([{ kind: 'once', at: '2026-11-16T09:00:00+08:00' }]), NOW, ctx(), 3);
+    expect(expired).toHaveLength(0);
+  });
 });
 
 describe('matchRow（v1 算子）', () => {

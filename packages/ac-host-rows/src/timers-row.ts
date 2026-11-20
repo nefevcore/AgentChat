@@ -619,6 +619,15 @@ export class HostTimersService extends Service {
     return hasSourceView(this.dataRoot, owner, source, view);
   }
 
+  /** 源在场（cr-1167 test 预警用）：物化 meta 在场 = 源行已产数据（与 arm 的 dormant 判据同口径） */
+  sourcePresent(source: string, view: string): boolean {
+    try {
+      return readMeta(path.join(this.dataRoot, 'exports', source, view)) !== null;
+    } catch {
+      return false; // sourceViewDir 同款路径组件拒绝——判不在场
+    }
+  }
+
   /**
    * source/updated 分发（push 主通道）：对每个订阅该 source/view 的条目
    * 做增量匹配。读物化面 rows（readRowsSince lastSeq）——事件只带 seq，

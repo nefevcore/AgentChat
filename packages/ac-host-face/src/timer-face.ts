@@ -50,6 +50,8 @@ interface TimersFace {
   preview?(owner: string, entry: TimerEntry): { fires: Array<{ at: string; trigger: string; chained: boolean }> };
   /** 源视图授权查询（cr-1166——set 校验用；timers 行 dataRoot 在手） */
   maySubscribe?(owner: string, source: string, view: string): boolean;
+  /** 源在场查询（cr-1167——test 预警用：物化 meta 在场 = 源行已产数据） */
+  sourcePresent?(source: string, view: string): boolean;
 }
 
 /** 触发点预览（tz 求值走 timers 行——owner 时区归它管） */
@@ -126,15 +128,33 @@ async function executeTimer(
           };
         })
       : [];
+    // 源在场预警（cr-1167）：纯源触发器指向未安装/未产数据的源时 fires 恒空——
+    // 不提示的话调用者无从区分「词汇错」与「源缺位」。
+    const dormantSources = timers.sourcePresent !== undefined && Array.isArray(when)
+      ? [...new Set((when as WhenTrigger[]).filter((t) => t.kind === 'source').map((t) => {
+          const s = t as Extract<WhenTrigger, { kind: 'source' }>;
+          return { source: s.source, view: s.view };
+        }))].filter((sv) => !timers.sourcePresent!(sv.source, sv.view))
+      : [];
     return {
       ok: true,
       result: {
         fires: fires.fires,
         ...(matched.length > 0 ? { matched } : {}),
+        ...(dormantSources.length > 0
+          ? { warning: '源未就绪（条目将 dormant，直到源行安装并产出数据）：' + dormantSources.map((sv) => sv.source + '/' + sv.view).join('、') }
+          : {}),
       },
     };
   }
   if (action === 'set') {
+    // v2 遗留参数显式报错（cr-1167）：v2 的 set({code/mode/time/hint/delay/...}) 在
+    // v3 schema 下会静默丢失——迁移者会误判已生效。fail-loud 指引正确词汇。
+    const v2Keys = ['code', 'mode', 'time', 'hint', 'delay', 'delayMin', 'delayMax', 'repeatCount', 'activeHours'];
+    const hit = v2Keys.filter((k) => args[k] !== undefined);
+    if (hit.length > 0) {
+      return err('参数 ' + hit.join('/') + ' 是 v2 定时器词汇（已随 cr-1164 换轨退役）——本调用未生效。v3 用法：when 触发器数组（once/daily/weekly/every/source）+ text 唤醒文本；用 test(action) 可预览触发点');
+    }
     const text = String(args.text ?? '').trim();
     const label = String(args.label ?? '').trim();
     if (!text) return err('set 需要 text（唤醒文本——到点投给你的消息内容）');

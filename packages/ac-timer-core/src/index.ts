@@ -404,16 +404,25 @@ export interface PreviewFire { at: number; trigger: TimeTrigger; chained: boolea
 /**
  * 静态预览（test / set 返回体）：未来 n 个严格网格点（不 jitter——扰动是
  * 运行期取点；after-last 标注 chained 且从 max(lastFired, armedAt)+iv 起链）。
+ * 预览是诚实快照而非机械填满 n 条：once 到点即出局（同一时刻不重复入列，
+ * 无推进可言）、until.count 截断（只到终结前的投递点）、once/date 已过
+ * 终结的条目给空列——预览不可当语义证据，但至少不说谎。
  */
 export function previewFires(entry: TimerEntry, now: number, ctx: DeriveCtx, n = 3): PreviewFire[] {
+  const cap = entry.until !== undefined && 'count' in entry.until ? Math.min(n, entry.until.count) : n;
   const out: PreviewFire[] = [];
   const virtual: DeriveCtx = { ...ctx };
-  for (let k = 0; k < n; k++) {
+  for (let k = 0; k < cap; k++) {
     let best: PreviewFire | undefined;
     for (const t of entry.when) {
       if (!isTimeTrigger(t)) continue;
-      const chained = t.kind === 'every' && (t.base ?? 'wall') === 'after-last';
       const at = nextGridStrict(t, now, virtual);
+      // once 推进无意义（下一刻恒同值）——首次入列后出局，不参与后续轮
+      if (t.kind === 'once' && out.some((f) => f.trigger === t)) continue;
+      const chained = t.kind === 'every' && (t.base ?? 'wall') === 'after-last';
+      // 未来点才可期：过期 once（missed skip 语义）无点可给；after-last 链式
+      // 例外——链到期即投（max(lastFired, armedAt)+iv 可为过去，是运行语义）
+      if (!chained && at <= now) continue;
       if (best === undefined || at < best.at) best = { at, trigger: t, chained };
     }
     if (best === undefined) break;
