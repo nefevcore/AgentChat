@@ -55,6 +55,15 @@ if (process.env.AGENTCHAT_SUPERVISED !== undefined) {
   );
   delete process.env.AGENTCHAT_SUPERVISED;
 }
+// AGENTCHAT_DEV_MODE 渗漏防线（cr-1174）：开发者 shell 以该 env 运行时，
+// 测试进程继承后系统域双禁默认表被解除——sandbox 断言两例假红（cr-1114/
+// 1121/1142/1149/1165/1166 六次踩坑）。测试环境不测开发者模式语义，摘除。
+if (process.env.AGENTCHAT_DEV_MODE !== undefined) {
+  console.warn(
+    `[vitest-setup-chdir] 摘除渗漏的 AGENTCHAT_DEV_MODE=${process.env.AGENTCHAT_DEV_MODE}（系统域双禁默认表须在场——cr-1174）`,
+  );
+  delete process.env.AGENTCHAT_DEV_MODE;
+}
 // 孤儿对账清扫默认关闭（cr-382）：测试进程会真枚举/真杀机器上的进程
 // ——非密封动作，测试环境一律不做；生产 boot 路径不受影响。
 process.env.AGENTCHAT_ORPHAN_REAP = 'off';
