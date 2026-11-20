@@ -27,8 +27,11 @@ import {
 } from 'ac-credentials-core';
 
 /** 全局配置可写键白名单（主线 settings 面板词汇）：点路径首段命中即放行。
- *  其余键（app 内部键）由各域服务自行拥有，设置面板不可触。 */
-export const CONFIG_KEY_PREFIXES = new Set(['llm', 'llmProviders', 'searchProviders', 'timer', 'tool', 'ui', 'session', 'settings']);
+ *  其余键（app 内部键）由各域服务自行拥有，设置面板不可触。
+ *  source（cr-1168）：fs-source 行的 roots 声明域——读面在 ac-source-core
+ *  （config?.get('source.fs')），写面在此补齐；缺它 = 配置只能手改文件
+ *  （news 实测踩坑：平台自己规定的配置键，平台自己的写接口写不进去）。 */
+export const CONFIG_KEY_PREFIXES = new Set(['llm', 'llmProviders', 'searchProviders', 'source', 'timer', 'tool', 'ui', 'session', 'settings']);
 
 /** 掩码值（与主线 API_KEY_MASK 同款：回传即「已设置」，回写则不动） */
 export const API_KEY_MASK = '••••••••';

@@ -1186,4 +1186,5 @@
 - 【cr-1165 2026-11-20 source 采集层实施：ac-source-core 纯库 + fs-source 行 + timers 行源触发接线（timer-v3 再下一批）】
 - 【cr-1166 2026-11-20 source 视图读授权：InlineAsset source-view 词汇 + timer set 校验/分发双查 + fs 读白名单（timer-v3 §五/§七分期项）】
 - 【cr-1167 2026-11-20 timer-v3 体验修补：set 对 v2 遗留参数显式报错 + previewFires once 去重/until.count 截断/过期 once 不进预览 + test 对未安装源给 dormant 预警】
+- 【cr-1168 2026-11-20 fs-source 配置写面收口：config 可写白名单补 source 域 + news 手写 auth 转正走正规写者面 + 探针清理】
 

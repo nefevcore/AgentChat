@@ -99,6 +99,11 @@ describe('config-face：池 api_key 侧信道（config/set）', () => {
     expect(() => removeConfigKey(face, 'sessions')).toThrow(/白名单/);
     expect(() => assertConfigKey('llmProviders')).not.toThrow();
     expect(() => assertConfigKey('settings.plugin')).not.toThrow();
+    // cr-1168：source 域入白名单（fs-source roots 声明——读面在 ac-source-core）
+    expect(() => assertConfigKey('source')).not.toThrow();
+    expect(() => assertConfigKey('source.fs')).not.toThrow();
+    write(face, creds, 'source', { fs: { roots: [{ id: 'docs', root: 'D:/x' }], cadence: '60s' } });
+    expect((face.data.source as { fs: { roots: unknown[] } }).fs.roots).toHaveLength(1);
   });
 
   it('value 缺失 fail（不静默删键）', () => {
