@@ -45,6 +45,7 @@ import {
   createPoolCredentials,
   lockedCredentialWarning,
   maskSecrets,
+  mergeConfigDomains,
   poolProviderKey,
   removeConfigKey,
   saveConfigDomains,
@@ -485,6 +486,14 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       web.registerRpc('config/save', (params) => {
         const warnings = saveConfigDomains(config(), creds, obj(params).config);
         return { saved: true, ...(warnings.length > 0 ? { warnings } : {}) };
+      });
+
+      // patch 写面（cr-1173）：只动 payload 在场的白名单域——探针/局部
+      // 改配置的正路（config/save 是 replace 语义，只送一个域会删掉其余域
+      // ——cr-1168 实测事故面）。
+      web.registerRpc('config/merge', (params) => {
+        const warnings = mergeConfigDomains(config(), creds, obj(params).config);
+        return { merged: true, ...(warnings.length > 0 ? { warnings } : {}) };
       });
 
       // 池凭据写口（前端删连接时同步清凭据——残留会让内置种子名的发现回写

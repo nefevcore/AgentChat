@@ -14,6 +14,7 @@ import {
   extractPoolCredentials,
   poolProviderKey,
   removeConfigKey,
+  mergeConfigDomains,
   saveConfigDomains,
   sanitizeConfigValue,
   writeConfigKey,
@@ -201,6 +202,39 @@ describe('config-face：config/save 白名单域 replace 语义', () => {
     const creds = new MemoryCredentials();
     expect(() => saveConfigDomains(face, creds, 'not-an-object')).toThrow(/config/);
     expect(() => saveConfigDomains(face, creds, [])).toThrow(/config/);
+  });
+});
+
+describe('config-face：config/merge patch 语义（cr-1173——replace 陷阱收口）', () => {
+  it('只动 payload 在场的域：未涉及域幸存（cr-1168 事故面断根）', () => {
+    const face = new MemoryConfig();
+    const creds = new MemoryCredentials();
+    face.set('llmProviders', { openai: { base_url: 'https://x' } });
+    face.set('settings', { devMode: true });
+    face.set('source', { fs: { roots: [{ id: 'docs', root: 'C:/x' }] } });
+    // 只送 source 域——其余域必须幸存（config/save 同 payload 会删掉它们）
+    const warnings = mergeConfigDomains(face, creds, { source: { fs: { roots: [{ id: 'news', root: 'C:/y' }] } } });
+    expect(warnings).toEqual([]);
+    expect(face.data.source).toEqual({ fs: { roots: [{ id: 'news', root: 'C:/y' }] } });
+    expect(face.data.llmProviders).toEqual({ openai: { base_url: 'https://x' } });
+    expect(face.data.settings).toEqual({ devMode: true });
+  });
+
+  it('白名单外键 fail-closed；非对象 fail', () => {
+    const face = new MemoryConfig();
+    const creds = new MemoryCredentials();
+    expect(() => mergeConfigDomains(face, creds, { appInternal: { x: 1 } })).toThrow(/白名单/);
+    expect(() => mergeConfigDomains(face, creds, 'nope')).toThrow(/config/);
+  });
+
+  it('池域 api_key 侧信道与 sanitize 同源（掩码 = 不动 / 新值 = 存 / config 不落 key）', () => {
+    const face = new MemoryConfig();
+    const creds = new MemoryCredentials();
+    creds.set('POOL:glm', 'sk-old');
+    mergeConfigDomains(face, creds, { llmProviders: { glm: { api_key: API_KEY_MASK, model: 'm' }, ds: { api_key: 'sk-new' } } });
+    expect(creds.get('POOL:glm')).toBe('sk-old');
+    expect(creds.get('POOL:ds')).toBe('sk-new');
+    expect(face.data.llmProviders).toEqual({ glm: { model: 'm' }, ds: {} });
   });
 });
 

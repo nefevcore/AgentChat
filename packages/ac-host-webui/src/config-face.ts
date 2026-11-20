@@ -251,3 +251,21 @@ export function saveConfigDomains(face: ConfigFace, creds: PoolCredentialFace, n
   }
   return warnings;
 }
+
+/**
+ * config/merge patch 写面（cr-1173——cr-1168 备案的 replace 陷阱收口）：
+ * 只写 payload 在场的白名单域，**未涉及的域一律幸存**（与 config/save 的
+ * 「缺键即删」互补）。探针/局部改配置的正路：读现值 → 改一个域 → merge，
+ * 绝无「半个 config.json 顶掉全量」的事故面。域内语义仍是整域替换
+ * （浅合并顶层——深合并的语义惊讶比 replace 更隐蔽，不做）。
+ */
+export function mergeConfigDomains(face: ConfigFace, creds: PoolCredentialFace, patch: unknown): string[] {
+  if (!isEntry(patch)) throw new Error('参数 config 须为对象');
+  for (const key of Object.keys(patch)) assertConfigKey(key);
+  const current = face.all();
+  const warnings: string[] = [];
+  for (const [key, value] of Object.entries(sanitizeConfigValue(patch) as Record<string, unknown>)) {
+    face.set(key, extractPoolCredentials(current, creds, key, value, warnings));
+  }
+  return warnings;
+}
