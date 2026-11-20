@@ -200,6 +200,27 @@ describe('timer-face 行为（cr-1167）', () => {
     await po.close();
   });
 
+  it('set conversationId（cr-1170）：归属放行 / 越界拒 / 落条目', async () => {
+    const root = tmpRoot();
+    const { po } = await bootWithTimers(root);
+    const client = new HostFaceClient();
+    await client.connect(pipeOf(root));
+    // 越界：nana~user 不属于 a1 → 拒
+    const bad = await client.execute('timer', { action: 'set', when: [{ kind: 'daily', at: '09:00' }], text: 'x', conversationId: 'nana~user' }, { agentId: 'a1' } as never);
+    expect(bad.error).toContain('不属于本 Agent');
+    // 归属：a1~a1 自会话 → 落条目
+    const ok1 = await client.execute('timer', { action: 'set', when: [{ kind: 'daily', at: '09:00' }], text: 'x', conversationId: 'a1~a1' }, { agentId: 'a1' } as never);
+    expect((ok1.result as { conversationId?: string }).conversationId).toBe('a1~a1');
+    // a1~other（一侧为己方）→ 放行
+    const ok2 = await client.execute('timer', { action: 'set', when: [{ kind: 'daily', at: '09:00' }], text: 'x', conversationId: 'a1~other' }, { agentId: 'a1' } as never);
+    expect((ok2.result as { conversationId?: string }).conversationId).toBe('a1~other');
+    // 缺省 = 发起会话（回归：identity.conversationId 烘焙不变）
+    const def = await client.execute('timer', { action: 'set', when: [{ kind: 'daily', at: '09:00' }], text: 'x' }, { agentId: 'a1', conversationId: 'user~a1' } as never);
+    expect((def.result as { conversationId?: string }).conversationId).toBe('user~a1');
+    client.close();
+    await po.close();
+  });
+
   it('test 纯源指向未就绪源 → warning 提示 dormant', async () => {
     const root = tmpRoot();
     const { po } = await bootWithTimers(root);

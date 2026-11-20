@@ -624,6 +624,23 @@ export class HostTimersService extends Service {
     return hasSourceView(this.dataRoot, owner, source, view);
   }
 
+  /**
+   * 会话键归属判定（cr-1170 set 校验用）：唤醒信投到 owner 的哪条会话线程
+   * 由 conversationId 决定——必须属于本 owner，防跨 Agent 注入（news 指定
+   * nana~user = 向 nana 的会话线程投信）。合法形态：
+   *   · a~b 键 owner 为任一侧（含 owner~owner 对角线自会话——v1 语义回归，
+   *     会话线程按需物化，不要求已存在）；
+   *   · 单段键（用户会话 / 群 gid）须已存在于 owner 的 sessions 目录。
+   */
+  mayAddress(owner: string, conversationId: string): boolean {
+    if (owner === GLOBAL_TIMER_OWNER) return true; // 全局条目扇出面是 target 白名单
+    if (conversationId.includes('~')) {
+      const [a, b] = conversationId.split('~');
+      return a === owner || b === owner;
+    }
+    return fs.existsSync(path.join(this.dataRoot, 'agents', owner, 'sessions', conversationId));
+  }
+
   /** 源在场（cr-1167 test 预警用）：物化 meta 在场 = 源行已产数据（与 arm 的 dormant 判据同口径） */
   sourcePresent(source: string, view: string): boolean {
     try {

@@ -52,6 +52,8 @@ interface TimersFace {
   maySubscribe?(owner: string, source: string, view: string): boolean;
   /** 源在场查询（cr-1167——test 预警用：物化 meta 在场 = 源行已产数据） */
   sourcePresent?(source: string, view: string): boolean;
+  /** 会话键归属查询（cr-1170 set 校验用：唤醒信只能投 owner 自己的会话线程） */
+  mayAddress?(owner: string, conversationId: string): boolean;
 }
 
 /** 触发点预览（tz 求值走 timers 行——owner 时区归它管） */
@@ -170,6 +172,12 @@ async function executeTimer(
     const label = String(args.label ?? '').trim();
     if (!text) return err('set 需要 text（唤醒文本——到点投给你的消息内容）');
     const id = 't-' + Math.random().toString(36).slice(2, 8);
+    // conversationId（cr-1170 v1 语义回归）：显式指定优先（agent~* 任意归属
+    // 会话——定时任务常指向 owner~owner 自会话，与用户聊天线程解耦）；
+    // 缺省 = 发起本条目的会话（v3 换轨时误收窄为仅此一途）。
+    const conversationId = args.conversationId !== undefined
+      ? String(args.conversationId)
+      : identity.conversationId;
     let entry: TimerEntry;
     try {
       entry = validateTimerEntries([{
@@ -181,11 +189,19 @@ async function executeTimer(
         ...(args.missed !== undefined ? { missed: args.missed } : {}),
         action: {
           text,
-          ...(identity.conversationId !== undefined ? { conversationId: identity.conversationId } : {}),
+          ...(conversationId !== undefined ? { conversationId } : {}),
         },
       }])[0]!;
     } catch (e: unknown) {
       return err('条目非法（未落盘）：' + (e instanceof Error ? e.message : String(e)));
+    }
+    // 会话键归属闸（cr-1170）：显式指定 conversationId 时必须归属本 owner——
+    // 防跨 Agent 注入（news 指定 nana~user = 向 nana 的会话线程投信）。
+    if (args.conversationId !== undefined && timers.mayAddress !== undefined) {
+      const cid = String(args.conversationId);
+      if (!timers.mayAddress(owner, cid)) {
+        return err('conversationId ' + cid + ' 不属于本 Agent（唤醒信只能投到自己的会话线程：a~b 键需一侧为 ' + owner + '，或用自己名下已存在的会话键）；缺省 = 发起本条目的会话');
+      }
     }
     // 源视图授权闸（cr-1166 §七「未授权视图校验拒」）：订阅的每个源视图都须
     // 有 inline grant（hasSourceView 单源）。运行时分发另有二道闸（防直改 timer.json）。
@@ -204,6 +220,7 @@ async function executeTimer(
       result: {
         entry_id: id,
         label: label || undefined,
+        conversationId: entry.action.conversationId,
         schedule: describeEntry(entry),
         preview: previewOf(timers, owner, entry).fires,
       },
@@ -223,7 +240,7 @@ export function makeTimerFaceRow(): Plugin {
           description:
             '管理定时任务（cr-1164 哑触发层：到点唤醒 = 声明式触发词汇，无脚本无代码执行）。set 安排一条定时（when = 触发器数组 OR 语义）；test 静态预览未来触发点；list 查看条目（nextAt/lastAt/triggeredCount/dormantReason）；cancel 按 id 取消。会话维度：在哪个会话设置就回哪个会话。'
             + ' when 触发词汇：{kind:"once", at:"ISO"} 单次；{kind:"daily", at:"HH:mm"}；{kind:"weekly", dow:0-6(0=周日), at:"HH:mm"}；{kind:"every", iv:"30m", base?, jitter?} 间隔网格（base 缺省 wall=墙钟网格对齐 cron 心智；{at:"HH:mm"} 显式锚如「每小时的 :20」= iv:"1h"+base:{at:"00:20"}；"after-last" 链式=上次投递起算）；{kind:"source", source, view, on:"rows-added"|"stale", match?, cooldown?} 源事件（需对应 source 行已安装，否则条目 dormant；且需该视图的读授权——未授权会被拒，请让用户在授权面板授予 inline grant {kind:"source-view",source,view}）。'
-            + ' gates 时间门（AND）：{kind:"workday"}/{kind:"holiday"}/{kind:"hours", from, to}（from>to 为跨午夜形）。until 终结：{count:n}（按投递次数）或 {date:ISO}。missed 停机策略："skip"（缺省，周期触发错过直跳未来）或 "catchup-once"（once 缺省——错过补投一次）。'
+            + ' gates 时间门（AND）：{kind:"workday"}/{kind:"holiday"}/{kind:"hours", from, to}（from>to 为跨午夜形）。until 终结：{count:n}（按投递次数）或 {date:ISO}。missed 停机策略："skip"（缺省，周期触发错过直跳未来）或 "catchup-once"（once 缺省——错过补投一次）。conversationId：唤醒信投递的会话键（缺省 = 发起会话；定时任务建议用 <agent>~<agent> 自会话与用户聊天解耦，须归属本 Agent）。'
             + ' 语义判断归你：唤醒信只是「时间到/有事件」，值不值得做、做什么由 run 内判定。test 可验证 when 词汇与 match 求值（传 simulate_row 模拟源行）。时区按 owner（agent）配置。',
           parameters: {
             type: 'object',
@@ -235,6 +252,7 @@ export function makeTimerFaceRow(): Plugin {
               gates: { type: 'array', description: '[set] 时间门数组（AND：workday/holiday/hours）', items: { type: 'object' } },
               until: { type: 'object', description: '[set] 终结条件（{count:n} 按投递次数 / {date:ISO}）' },
               missed: { type: 'string', enum: ['skip', 'catchup-once'], description: '[set] 停机策略（周期缺省 skip；once 缺省 catchup-once）' },
+              conversationId: { type: 'string', description: '[set] 唤醒信投递的会话键（缺省 = 发起本条目的会话）。定时任务建议指向自己的自会话 <agent>~<agent>（与用户聊天线程解耦）；须归属本 Agent：a~b 键一侧为己方，或自己名下已存在的会话键' },
               entry_id: { type: 'string', description: '[cancel] 条目 id（list 可见）' },
               simulate_row: { type: 'object', description: '[test] 模拟源行（求值 source 触发器的 match）' },
             },
