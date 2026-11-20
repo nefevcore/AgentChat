@@ -28,7 +28,8 @@
     "ac-agents": "workspace:*",
     "ac-edit-core": "workspace:*",
     "ac-sandbox-core": "workspace:*",
-    "ac-text-budget": "workspace:*"
+    "ac-text-budget": "workspace:*",
+    "ac-auth-core": "workspace:*"
   },
   "devDependencies": {
     "ac-agent-loop": "workspace:*",

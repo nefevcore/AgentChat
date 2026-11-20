@@ -104,6 +104,8 @@ describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-
     const d = denyOf({ agentId: 'a1' });
     // 第二层用户域源数据整树 + 派生面（data-root-layers §二）
     expect(d.accessDeny).toContain(path.join('C:/data', 'meta'));
+    // cr-1165：source 物化面入双禁表（读 = 绕过视图 ACL；写 = 投喂触发层）
+    expect(d.accessDeny).toContain(path.join('C:/data', 'exports'));
     expect(d.accessDeny).toContain(path.join('C:/data', 'credentials'));
     expect(d.accessDeny).toContain(path.join('C:/data', 'index'));
     expect(d.accessDeny).toContain(path.join('C:/data', 'outbox'));
@@ -163,6 +165,20 @@ describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-
   it('无 agentId（无执行身份）不读 settings；无 onDegraded 不炸', () => {
     const denyOf = createDenyListsFactory({}, mkSource(undefined)); // 无 onDegraded
     expect(() => denyOf({})).not.toThrow();
+  });
+
+  it('cr-1166：source 视图白名单——授权目录前缀产出，未授权/无 workspace 为空', () => {
+    const src = mkSource('C:/data');
+    const withGrant = createDenyListsFactory({}, { ...src, sourceViewsOf: (id: string) => (id === 'a1' ? ['fs/docs', 'wechat/news'] : []) });
+    expect(withGrant({ agentId: 'a1' }).sourceAllowed).toEqual([
+      path.join('C:/data', 'exports', 'fs/docs'),
+      path.join('C:/data', 'exports', 'wechat/news'),
+    ]);
+    // 未授权 agent / 无执行身份 → 空（exports 双禁全量生效）
+    expect(withGrant({ agentId: 'a2' }).sourceAllowed).toEqual([]);
+    expect(withGrant({}).sourceAllowed).toEqual([]);
+    // 装配面不提供 sourceViewsOf（旧三姊妹形态）→ 空，不炸
+    expect(createDenyListsFactory({}, src)({ agentId: 'a1' }).sourceAllowed).toEqual([]);
   });
 });
 

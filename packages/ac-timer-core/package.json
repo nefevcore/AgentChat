@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "定时算法纯库（零 cordis 依赖）：cr-1147 脚本化——检测脚本契约（TimerCheckArgs/Verdict/TimerScriptEntry + validateScriptEntries + resolveNextMs）+ 旧 5 模式条目编译器 compileEntry + next 词汇内核（parseInterval/msUntilTime）/ 节假日判定（workday 注入）/ 时区墙上时钟与时区 ISO（DEFAULT_TZ 单源——cr-1053）。排程循环在宿主 timers 行",
+  "description": "定时算法纯库（零 cordis 依赖）：cr-1164 timer v3 哑触发层——条目契约 TimerEntry（when/gates/until/missed/jitter 声明式词汇）+ 推导纯函数（nextGridMs/lastDueMs 墙钟网格 base 三形态/gatesPass/previewFires）+ match v1 算子 + 旧 5 模式迁移编译器 migrateLegacyEntry + 节假日判定 / 时区墙上时钟与时区 ISO（DEFAULT_TZ 单源——cr-1053）。排程循环在宿主 timers 行",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"

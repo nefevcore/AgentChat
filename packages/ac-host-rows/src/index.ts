@@ -76,6 +76,11 @@ import type { EntriesEditFace } from './timers-row.ts';
 export { makeTimersHostRow, HostTimersService, GLOBAL_TIMER_OWNER };
 export type { TimersHostRowOptions, EntriesEditFace } from './timers-row.ts';
 
+// —— fs-source 行（cr-1165 采集层）：ac-source-core 万能适配器的宿主装配 ——
+import { FsSourceService, type FsSourceRowOptions } from 'ac-source-core';
+export { FsSourceService };
+export type { FsSourceRowOptions };
+
 // —— 身份编辑面（cr-540）：agents 编辑面行（写口）+ preset-builtin 模板读面 ——
 import { makeAgentsHostRow, AgentsEditService } from './agents-row.ts';
 export { makeAgentsHostRow, AgentsEditService };
@@ -160,10 +165,11 @@ import { makeHostFaceRow, makeTimerFaceRow, makeProfileFaceRow } from 'ac-host-f
 export type { HostFaceRowOptions, HostFaceContribution } from 'ac-host-face';
 export { makeTimerFaceRow, makeProfileFaceRow };
 
-/** 行 id → options 形工厂（宿主 boot 按 rowOptionsFor 产物分流装配） */
+/** 行 id → options 形工厂（宿主 boot 按 rowOptionsFor 产物分流装配；fs-source = ac-source-core 直装 cr-1165） */
 export const HOST_ROW_FACTORIES: Record<string, ((options: never) => Plugin) | undefined> = {
   usage: makeUsageHostRow as unknown as (options: never) => Plugin,
   timers: makeTimersHostRow as unknown as (options: never) => Plugin,
+  'fs-source': ((o: FsSourceRowOptions) => ({ name: 'ac-source-core', apply(c: Context) { c.plugin(FsSourceService, o); } })) as unknown as (options: never) => Plugin,
   'host-face': makeHostFaceRow as unknown as (options: never) => Plugin,
   // cr-1121 真动态化贡献行：boot 面对齐（timer-face 先于 timers 装配——executor
   // use-time 软取 timers，注册面无激活序依赖）
@@ -204,6 +210,9 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     'host-face': { dataRoot: opts.dataRoot },
     // 档案写口贡献行（cr-1121）：数据根锚定（agents 树读改写）
     'profile-face': { dataRoot: opts.dataRoot },
+    // fs-source 行（cr-1165）：数据根锚定（物化落 exports/fs/）——配置面
+    // source.fs.roots 在 config（行内热重载，改源不重启）
+    'fs-source': { dataRoot: opts.dataRoot },
   };
   // usage 行（cr-538 宿主自有形态）：UsageHostRowOptions = 数据根 + 收信扇出面
   if (opts.inbox !== undefined) {

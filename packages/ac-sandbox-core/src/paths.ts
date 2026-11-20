@@ -78,6 +78,11 @@ export const PERSISTENCE_TREES: readonly string[] = [
   'index',
   'outbox',
   '.runtime',
+  // cr-1165：source 物化面（exports/<source>/<view>/rows.jsonl——timer 源触发的
+  // 输入）。读写双禁防两条静默通道：读 = 绕过视图 ACL 直读全量行；写 = 追加
+  // 伪造行让 rows-added+match 命中，向另一 Agent 语境投喂（timer-v3 §五明令
+  // 「不放 agents/<id>/files/」的同款威胁）。读授权走 inline asset 白名单（后续批）。
+  'exports',
   // 会话文件首见快照（ac-file-snapshots owning 数据目录；实测复盘
   // 4cd1a90d：glob **/*run*code* 返回 48 条中约 40 条是快照路径——检索面
   // 纯噪音且量随会话数无界增长，收录标准与本表其余条目一致）
@@ -172,6 +177,12 @@ export interface DenyListsSource {
   workspaceOf(): { root?: unknown } | undefined;
   /** agents 注册表（settingsOf 读取器——追加项来源） */
   agentsOf(): { settingsOf?(id: string, name?: string): unknown } | undefined;
+  /**
+   * source 视图读授权（cr-1166）：agentId → 已授权物化目录前缀（绝对路径）。
+   * 缺席 = 无授权面（exports/ 双禁全量生效）。软依赖——ac-auth-core 消费方
+   * 注入；纯库不 import 它（保持零依赖，测试可不注）。
+   */
+  sourceViewsOf?(agentId: string): string[];
 }
 
 /**
@@ -187,7 +198,7 @@ export function createDenyListsFactory(
   options: DenyRowOptions,
   source: DenyListsSource,
   onDegraded?: () => void,
-): (call: { agentId?: string }) => { accessDeny: string[]; readDeny: string[] } {
+): (call: { agentId?: string }) => { accessDeny: string[]; readDeny: string[]; sourceAllowed: string[] } {
   let warned = false;
   return (call) => {
     // root 防御性校验：mock/部分实现可能无 root（非 string = 视同未装）
@@ -202,9 +213,15 @@ export function createDenyListsFactory(
       warned = true;
       onDegraded?.();
     }
+    // source 视图读授权（cr-1166）：授权目录仅豁免【读】——白名单不是
+    // allowlist 语义（accessDeny 照常全量），消费方在读路径先查它再查 deny。
+    const sourceAllowed = root !== undefined && call.agentId !== undefined && source.sourceViewsOf !== undefined
+      ? source.sourceViewsOf(call.agentId).map((rel) => path.join(root, 'exports', rel))
+      : [];
     return {
       accessDeny: root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra,
       readDeny: readDenyPatterns(readExtra),
+      sourceAllowed,
     };
   };
 }

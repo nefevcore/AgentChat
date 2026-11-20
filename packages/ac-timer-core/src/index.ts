@@ -1,124 +1,462 @@
 // ============================================================
 // ac-timer-core —— 定时算法纯库（零 cordis 依赖）
 //
-// cr-1147 脚本化重做（探测循环定位）：定时器 = 探测循环 + 判定函数。
-// next 不是业务触发时刻，是下次探测时刻；触发与否由脚本当轮判定。
-// 面向 Agent 自管理（人类经 Agent 间接设置）——无模式、无排定锚点。
-// 本库承载：
-//   · 脚本契约 —— TimerCheckArgs / TimerCheckVerdict / TimerScriptEntry
-//     + validateScriptEntries + nextWaitMs（Date 唯一形态）
-//   · makeTimerUtils —— utils 纯函数包（per-owner 构造、方法纯）
-//   · compileEntry —— 旧 5 模式条目编译器（存量迁移单源，等价性降级
-//     为「不炸、不丢」——Agent 后续自会重写成原生形态）
-//   · 算法半边留存 —— parseInterval / msUntilTime（utils.at/after 内核）、
-//     createHolidayResolver（utils.workday 消费）、localISO（args.now）
+// cr-1164 timer v3 换轨（哑触发层，取代 cr-1147 探测循环）：触发器是
+// 数据不是代码——when[]（OR 语义触发词汇）+ gates[]（AND 时间门）+
+// until / missed / jitter 声明式词汇，本库承载：
+//   · 条目契约 —— TimerEntry（entries/timer.json v3 形态）+
+//     validateTimerEntries（set 时静态校验单源）
+//   · 推导纯函数 —— nextGridMs / lastDueMs（owner 时区墙钟网格，
+//     base 三形态 wall / anchor / after-last）、gatesPass、previewFires
+//   · match v1 算子 —— eq/ne/gt/lt/in/contains 单层字段（源触发配套）
+//   · 迁移编译器 —— migrateLegacyEntry（旧 5 模式 → v3，§八映射表）
+//   · 留存内核 —— parseInterval / createHolidayResolver / localISO /
+//     时区墙上时钟算术（zonedParts / zonedWallToUtc）
+// v2 脚本面（TimerCheckFn 族 / compileEntry / inspectVerdict）随换轨
+// 退役——timer 无代码执行面。
 // ============================================================
 import * as lunar from 'chinese-lunar';
 import { DEFAULT_TZ, resolveTimezone } from 'ac-core-utils'; // 缺省时区单源（cr-1053）
 
 // ============================================================
-// utils 纯函数包（cr-1147 v2：判定逻辑所需时间词汇——方法对传入时刻
-// 求值，同参恒值可单测；墙钟类操作禁入脚本〔进程时区陷阱〕，经 utils
-// 走 owner 时区）
+// 条目契约（timer.json v3：整表 { version: 3, entries: [...] }）
 // ============================================================
 
-export interface TimerUtils {
-  /** 时刻墙上分钟（0-1439；按 owner 时区） */
-  minute(date: Date): number;
-  /** 时刻墙上日期（'YYYY-MM-DD'；按 owner 时区） */
-  day(date: Date): string;
-  /** 时刻墙上周几（0=周日；按 owner 时区） */
-  dow(date: Date): number;
-  /** 时刻是否工作日（农历+配置判定；按 owner 时区） */
-  workday(date: Date): boolean;
-  /** 间隔串（'30m'/'2h30m'/'7d'）→ 毫秒数（不是 Date——要 Date 用 after 或 new Date(...) 算术） */
-  ms(interval: string): number | null;
-  /** 下一个钟面时刻（'09:00' 每日顺延 / '周日 12:00' 每周 / '2026-11-20T09:00' 定点）→ Date；解析不出抛错 */
-  at(spec: string): Date;
-  /**
-   * from 后推 interval → Date（探测节奏常用）。from 可为 Date 或 ISO 串
-   * （a.now 可直接传）；锚点/间隔串解析不出一律抛错——cr-1149 前静默退化
-   * 为 now（错时刻无提示），现 fail-loud。
-   */
-  after(interval: string, from?: Date | string): Date;
+/** 单次触发（missed 缺省 catchup-once：错过补投一次再归档） */
+export interface OnceTrigger {
+  kind: 'once';
+  /** ISO 时刻（含偏移或 Z） */
+  at: string;
 }
 
-/** 周几独立求值（en-US short weekday） */
-function zonedDow(date: Date, tz: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short' }).formatToParts(date);
-  const v = parts.find((x) => x.type === 'weekday')?.value ?? 'Sun';
-  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return map[v] ?? 0;
+/** 每日触发 */
+export interface DailyTrigger {
+  kind: 'daily';
+  /** 'HH:mm'（owner 时区墙钟） */
+  at: string;
 }
 
-/** u.after 锚点归一（cr-1149）：Date / ISO 串两形态，其它 fail-loud */
-function toAnchor(from: unknown): Date {
-  const d = from instanceof Date ? from : typeof from === 'string' ? new Date(from) : null;
-  if (d === null) {
-    throw new Error('u.after 第二参须为 Date 或 ISO 字符串（收到 ' + typeof from + '）——a.now 可直接传，或传 new Date(a.now)');
-  }
-  if (isNaN(d.getTime())) throw new Error('u.after 第二参无法解析为时刻：' + String(from));
-  return d;
-}
-
-/** u.after 间隔串解析——解析不出 fail-loud（cr-1149 前静默当 0） */
-function anchorInterval(iv: unknown): number {
-  const ms = typeof iv === 'string' ? parseInterval(iv) : null;
-  if (ms === null) {
-    throw new Error('u.after 间隔串无法解析（' + JSON.stringify(String(iv)) + "）——用 '30m'/'2h30m'/'7d' 形态");
-  }
-  return ms;
+/** 每周触发（dow: 0=周日 … 6=周六） */
+export interface WeeklyTrigger {
+  kind: 'weekly';
+  dow: number;
+  at: string;
 }
 
 /**
- * 构造 utils 包（per-owner：闭包捕获 tz + 节假日配置——配置不随检测变，
- * 构造一次复用）。方法纯：对传入时刻求值，同参恒值。
+ * every 的 base 三形态（cr-1161 三裁决：统一形状、不开放——v1 仅 every 消费）：
+ *   'wall'（缺省）——当日 00:00 起的墙钟网格（cron 心智）
+ *   { at: 'HH:mm' } 或 ISO 串——显式锚（最近锚日起的网格）
+ *   'after-last'——链式：max(lastFired, armedAt) + iv（v2 delay 语义）
  */
-export function makeTimerUtils(options: { tz?: string; holidays?: string[]; makeupWorkdays?: string[] } = {}): TimerUtils {
-  const tz = resolveTimezone(options.tz);
-  const holidays = createHolidayResolver({ holidays: options.holidays, makeupWorkdays: options.makeupWorkdays }, tz);
-  return {
-    minute: (d) => { const w = zonedParts(d, tz); return w.h * 60 + w.mi; },
-    day: (d) => localISO(d, tz).slice(0, 10),
-    dow: (d) => zonedDow(d, tz),
-    workday: (d) => holidays.isWorkday(d),
-    ms: (iv) => parseInterval(iv),
-    at: (spec) => {
-      const ms = msUntilTime(spec, new Date(), tz);
-      if (ms === null) {
-        throw new Error('u.at 时刻串无法解析或已过（' + JSON.stringify(String(spec)) + "）——支持 '09:00' / '周日 12:00' / '2026-11-20T09:00'（未来）");
-      }
-      return new Date(Date.now() + ms);
-    },
-    after: (iv, from) => new Date((from === undefined ? new Date() : toAnchor(from)).getTime() + anchorInterval(iv)),
-  };
+export type EveryBase = 'wall' | 'after-last' | { at: string } | (string & Record<never, never>);
+
+/** 间隔网格触发 */
+export interface EveryTrigger {
+  kind: 'every';
+  /** 间隔串（'30m' / '2h30m' / '7d'） */
+  iv: string;
+  base?: EveryBase;
+  /** 网格刻度 ± jitter 内随机取点，每刻重抖（扰动不累积）；不与 after-last 组合 */
+  jitter?: string;
 }
 
-export function validateScriptEntries(raw: unknown): TimerScriptEntry[] {
-  if (!Array.isArray(raw)) throw new Error('参数 entries 须为 TimerScriptEntry 数组');
-  return raw.map((item, i) => {
-    if (item === null || typeof item !== 'object') throw new Error('entries[' + i + '] 非对象');
-    const e = item as Record<string, unknown>;
-    const at = (k: string): string => 'entries[' + i + '].' + k;
-    if (typeof e.id !== 'string' || e.id === '') throw new Error(at('id') + ' 缺失');
-    if (e.kind !== undefined && e.kind !== 'script') throw new Error(at('kind') + ' 非法（' + String(e.kind) + '）');
-    if (typeof e.code !== 'string' || e.code.trim() === '') throw new Error(at('code') + ' 缺失（判定脚本源码）');
-    if (e.enabled !== undefined && typeof e.enabled !== 'boolean') throw new Error(at('enabled') + ' 须为 boolean');
-    if (e.conversationId !== undefined && (typeof e.conversationId !== 'string' || !e.conversationId)) {
-      throw new Error(at('conversationId') + ' 须为非空字符串');
+/** match v1 算子条件（单层字段——嵌套路径与正则不进 v1） */
+export interface MatchCond {
+  field: string;
+  op: 'eq' | 'ne' | 'gt' | 'lt' | 'in' | 'contains';
+  value: unknown;
+}
+
+/** 源事件触发（事件驱动，无时刻；采集层 = source 行，cr-1161 再下一步批） */
+export interface SourceTrigger {
+  kind: 'source';
+  source: string;
+  view: string;
+  on: 'rows-added' | 'stale';
+  match?: MatchCond;
+  cooldown?: string;
+}
+
+/** 触发器词汇（when 数组 OR 语义——任一命中即投递） */
+export type WhenTrigger = OnceTrigger | DailyTrigger | WeeklyTrigger | EveryTrigger | SourceTrigger;
+
+/** 时间门（gates 数组 AND 语义） */
+export type TimerGate = { kind: 'workday' } | { kind: 'holiday' } | { kind: 'hours'; from: string; to: string };
+
+/** 终结条件（count 按投递次数记账） */
+export type TimerUntil = { count: number } | { date: string };
+
+/** 投递面（宿主安全面持有——v2 原样词汇） */
+export interface TimerAction {
+  text: string;
+  conversationId?: string;
+  task?: 'archive-all' | 'backup-all';
+  /** 仅全局条目：目标 Agent（',' 分隔；'*'/缺席 = 全部常规 Agent） */
+  target?: string;
+}
+
+/** v3 条目（entries/timer.json 唯一持久形态） */
+export interface TimerEntry {
+  id: string;
+  enabled: boolean;
+  label?: string;
+  when: WhenTrigger[];
+  gates?: TimerGate[];
+  until?: TimerUntil;
+  /** 停机策略：周期触发缺省 skip，once 缺省 catchup-once */
+  missed?: 'skip' | 'catchup-once';
+  action: TimerAction;
+}
+
+/** 源触发 cooldown 缺省值（§十一倾向：5m） */
+export const DEFAULT_COOLDOWN = '5m';
+
+const HHMM = /^(\d{1,2}):(\d{2})$/;
+
+function isHhmm(v: unknown): v is string {
+  if (typeof v !== 'string') return false;
+  const m = v.match(HHMM);
+  if (m === null) return false;
+  const h = Number(m[1]), mi = Number(m[2]);
+  return h >= 0 && h <= 23 && mi >= 0 && mi <= 59;
+}
+
+function errAt(i: number, field: string, msg: string): never {
+  throw new Error('entries[' + i + '].' + field + ' ' + msg);
+}
+
+function validateWhen(i: number, raw: unknown): WhenTrigger {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) errAt(i, 'when[]', '须为触发器对象');
+  const t = raw as Record<string, unknown>;
+  switch (t.kind) {
+    case 'once':
+      if (typeof t.at !== 'string' || isNaN(new Date(t.at).getTime())) errAt(i, 'when[].at', '须为可解析的 ISO 时刻');
+      return { kind: 'once', at: t.at };
+    case 'daily':
+      if (!isHhmm(t.at)) errAt(i, 'when[].at', "须为 'HH:mm' 墙钟时刻");
+      return { kind: 'daily', at: t.at };
+    case 'weekly':
+      if (typeof t.dow !== 'number' || t.dow < 0 || t.dow > 6 || !Number.isInteger(t.dow)) errAt(i, 'when[].dow', '须为 0-6（0=周日）');
+      if (!isHhmm(t.at)) errAt(i, 'when[].at', "须为 'HH:mm' 墙钟时刻");
+      return { kind: 'weekly', dow: t.dow, at: t.at };
+    case 'every': {
+      if (typeof t.iv !== 'string' || parseInterval(t.iv) === null) errAt(i, 'when[].iv', "须为可解析的间隔串（'30m'/'2h30m'/'7d'）");
+      let base: EveryBase | undefined;
+      if (t.base !== undefined) {
+        if (t.base === 'wall' || t.base === 'after-last') base = t.base;
+        else if (typeof t.base === 'string') {
+          if (isNaN(new Date(t.base).getTime())) errAt(i, 'when[].base', 'ISO 串须可解析');
+          base = t.base as string;
+        } else if (typeof t.base === 'object' && !Array.isArray(t.base) && isHhmm((t.base as { at?: unknown }).at)) {
+          base = { at: (t.base as { at: string }).at };
+        } else errAt(i, 'when[].base', "须为 'wall' | 'after-last' | { at: 'HH:mm' } | ISO 串");
+      }
+      let jitter: string | undefined;
+      if (t.jitter !== undefined) {
+        if (typeof t.jitter !== 'string' || parseInterval(t.jitter) === null) errAt(i, 'when[].jitter', '须为可解析的间隔串');
+        if (base === 'after-last') errAt(i, 'when[].jitter', '不与 after-last 组合（链式起算的抖动会越漂越远）');
+        jitter = t.jitter;
+      }
+      return { kind: 'every', iv: t.iv, ...(base !== undefined ? { base } : {}), ...(jitter !== undefined ? { jitter } : {}) };
     }
-    if (e.target !== undefined && typeof e.target !== 'string') throw new Error(at('target') + ' 须为字符串');
-    if (e.task !== undefined && e.task !== 'archive-all' && e.task !== 'backup-all') throw new Error(at('task') + ' 非法');
-    if (e.gate !== undefined && typeof e.gate !== 'string') throw new Error(at('gate') + ' 须为字符串');
-    if (e.gateOnError !== undefined && e.gateOnError !== 'skip' && e.gateOnError !== 'run') throw new Error(at('gateOnError') + ' 非法');
-    if (e.label !== undefined && typeof e.label !== 'string') throw new Error(at('label') + ' 须为字符串');
-    return e as unknown as TimerScriptEntry;
+    case 'source': {
+      if (typeof t.source !== 'string' || !t.source) errAt(i, 'when[].source', '须为非空字符串');
+      if (typeof t.view !== 'string' || !t.view) errAt(i, 'when[].view', '须为非空字符串');
+      if (t.on !== 'rows-added' && t.on !== 'stale') errAt(i, 'when[].on', "须为 'rows-added' | 'stale'");
+      let match: MatchCond | undefined;
+      if (t.match !== undefined) {
+        const m = t.match as Record<string, unknown> | null;
+        if (m === null || typeof m !== 'object') errAt(i, 'when[].match', '须为 { field, op, value } 对象');
+        if (typeof m.field !== 'string' || !m.field) errAt(i, 'when[].match.field', '须为非空字符串（单层字段）');
+        if (m.op !== 'eq' && m.op !== 'ne' && m.op !== 'gt' && m.op !== 'lt' && m.op !== 'in' && m.op !== 'contains') {
+          errAt(i, 'when[].match.op', '须为 eq/ne/gt/lt/in/contains（v1 算子集）');
+        }
+        if (m.op === 'in' && !Array.isArray(m.value)) errAt(i, 'when[].match.value', 'in 算子须为数组');
+        match = { field: m.field as string, op: m.op as MatchCond['op'], value: m.value };
+      }
+      let cooldown: string | undefined;
+      if (t.cooldown !== undefined) {
+        if (typeof t.cooldown !== 'string' || parseInterval(t.cooldown) === null) errAt(i, 'when[].cooldown', '须为可解析的间隔串');
+        cooldown = t.cooldown;
+      }
+      return { kind: 'source', source: t.source, view: t.view, on: t.on, ...(match !== undefined ? { match } : {}), ...(cooldown !== undefined ? { cooldown } : {}) };
+    }
+    default:
+      errAt(i, 'when[].kind', '非法（' + String(t.kind) + "）——once/daily/weekly/every/source");
+  }
+}
+
+function validateGate(i: number, raw: unknown): TimerGate {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) errAt(i, 'gates[]', '须为门对象');
+  const g = raw as Record<string, unknown>;
+  if (g.kind === 'workday' || g.kind === 'holiday') return { kind: g.kind };
+  if (g.kind === 'hours') {
+    if (!isHhmm(g.from) || !isHhmm(g.to)) errAt(i, 'gates[]', "hours 门须带 'HH:mm' 形 from/to（from > to 为跨午夜形）");
+    return { kind: 'hours', from: g.from, to: g.to };
+  }
+  errAt(i, 'gates[].kind', '非法（' + String(g.kind) + '）——workday/holiday/hours');
+}
+
+/** v3 条目静态校验（set / boot 装载 / UI 保存共用单源；非法整表拒） */
+export function validateTimerEntries(raw: unknown): TimerEntry[] {
+  if (!Array.isArray(raw)) throw new Error('参数 entries 须为 TimerEntry 数组');
+  return raw.map((item, i) => {
+    if (item === null || typeof item !== 'object' || Array.isArray(item)) errAt(i, '', '非对象');
+    const e = item as Record<string, unknown>;
+    if (typeof e.id !== 'string' || e.id === '') errAt(i, 'id', '须为非空字符串');
+    if (e.kind !== undefined) errAt(i, 'kind', '字段已退役（v3 无 kind）');
+    if (typeof e.enabled !== 'boolean') errAt(i, 'enabled', '须为 boolean');
+    if (e.label !== undefined && typeof e.label !== 'string') errAt(i, 'label', '须为字符串');
+    if (!Array.isArray(e.when) || e.when.length === 0) errAt(i, 'when', '须为非空触发器数组（OR 语义）');
+    const when = e.when.map((t) => validateWhen(i, t));
+    let gates: TimerGate[] | undefined;
+    if (e.gates !== undefined) {
+      if (!Array.isArray(e.gates)) errAt(i, 'gates', '须为门数组（AND 语义）');
+      gates = e.gates.map((g) => validateGate(i, g));
+    }
+    let until: TimerUntil | undefined;
+    if (e.until !== undefined) {
+      const u = e.until as Record<string, unknown> | null;
+      if (u === null || typeof u !== 'object') errAt(i, 'until', '须为 { count } 或 { date }');
+      if (u.count !== undefined) {
+        if (typeof u.count !== 'number' || !Number.isInteger(u.count) || u.count < 1) errAt(i, 'until.count', '须为正整数');
+        until = { count: u.count };
+      } else if (u.date !== undefined) {
+        if (typeof u.date !== 'string' || isNaN(new Date(u.date).getTime())) errAt(i, 'until.date', '须为可解析的 ISO 时刻');
+        until = { date: u.date };
+      } else errAt(i, 'until', '须为 { count } 或 { date }');
+    }
+    if (e.missed !== undefined && e.missed !== 'skip' && e.missed !== 'catchup-once') errAt(i, 'missed', "须为 'skip' | 'catchup-once'");
+    const a = e.action as Record<string, unknown> | null;
+    if (a === null || typeof a !== 'object') errAt(i, 'action', '须为 { text } 对象');
+    if (typeof a.text !== 'string' || a.text.trim() === '') errAt(i, 'action.text', '须为非空字符串（唤醒文本）');
+    if (a.conversationId !== undefined && (typeof a.conversationId !== 'string' || !a.conversationId)) errAt(i, 'action.conversationId', '须为非空字符串');
+    if (a.task !== undefined && a.task !== 'archive-all' && a.task !== 'backup-all') errAt(i, 'action.task', '非法');
+    if (a.target !== undefined && (typeof a.target !== 'string' || !a.target)) errAt(i, 'action.target', '须为非空字符串');
+    return {
+      id: e.id, enabled: e.enabled,
+      ...(typeof e.label === 'string' ? { label: e.label } : {}),
+      when,
+      ...(gates !== undefined ? { gates } : {}),
+      ...(until !== undefined ? { until } : {}),
+      ...(e.missed !== undefined ? { missed: e.missed as 'skip' | 'catchup-once' } : {}),
+      action: {
+        text: a.text as string,
+        ...(a.conversationId !== undefined ? { conversationId: a.conversationId as string } : {}),
+        ...(a.task !== undefined ? { task: a.task as 'archive-all' | 'backup-all' } : {}),
+        ...(a.target !== undefined ? { target: a.target as string } : {}),
+      },
+    };
   });
 }
 
+// ============================================================
+// 推导纯函数（owner 时区墙钟网格；恒 24h——DST 偏差视为噪声，cr-1161 裁决 1）
+// ============================================================
+
+/** 时间触发器（有网格刻度可推导；source 事件驱动不在列） */
+export type TimeTrigger = OnceTrigger | DailyTrigger | WeeklyTrigger | EveryTrigger;
+
+export function isTimeTrigger(t: WhenTrigger): t is TimeTrigger {
+  return t.kind === 'once' || t.kind === 'daily' || t.kind === 'weekly' || t.kind === 'every';
+}
+
+/** 推导上下文：tz = owner 时区；armedAt = 条目首次装载时刻（持久——after-last 锚与 catchup 下界）；
+ * lastFiredAt = 上次投递时刻（after-last 链式起点 / catchup 判据）；
+ * rand = jitter 随机源（可注入定点测试）。 */
+export interface DeriveCtx {
+  tz: string;
+  armedAt: number;
+  lastFiredAt?: number;
+  rand?: () => number;
+}
+
+function hhmmToMin(s: string): number {
+  const m = s.match(HHMM)!;
+  return Number(m[1]) * 60 + Number(m[2]);
+}
+
+/** tz 墙上日期的某墙钟时刻 → 纪元毫秒 */
+function wallEpoch(y: number, mo: number, d: number, min: number, tz: string): number {
+  return zonedWallToUtc(y, mo, d, Math.floor(min / 60), min % 60, tz);
+}
+
+/** now 的 tz 墙上 parts */
+interface WallNow { y: number; m: number; d: number; min: number; dow: number }
+function wallNow(now: number, tz: string): WallNow {
+  const p = zonedParts(new Date(now), tz);
+  const wd = new Date(p.y, p.m - 1, p.d).getDay(); // 墙上日历无 tz 歧义（恒 24h 裁决）
+  return { y: p.y, m: p.m, d: p.d, min: p.h * 60 + p.mi, dow: wd };
+}
+
+function addDaysEpoch(epoch: number, days: number): number {
+  return epoch + days * 86_400_000;
+}
+
+/** every 锚点纪元：wall = 当日 00:00；{at:'HH:mm'} / 'HH:mm' = 最近锚日该时刻（≤ now，
+ * 锚随日 recession——网格永不耗尽）；ISO 串 = 定锚。 */
+function anchorEpoch(t: EveryTrigger, now: number, ctx: DeriveCtx): number {
+  const base = t.base ?? 'wall';
+  if (base === 'wall') {
+    const w = wallNow(now, ctx.tz);
+    return wallEpoch(w.y, w.m, w.d, 0, ctx.tz);
+  }
+  const at = typeof base === 'object' ? base.at : base;
+  if (HHMM.test(at)) {
+    const w = wallNow(now, ctx.tz);
+    const min = hhmmToMin(at);
+    let anchor = wallEpoch(w.y, w.m, w.d, min, ctx.tz);
+    if (anchor > now) anchor = addDaysEpoch(anchor, -1);
+    return anchor;
+  }
+  return new Date(at).getTime();
+}
+
 /**
- * 旧 5 模式条目（cr-1147 前持久形态；现为 compileEntry 输入 + 迁移判据）。
- * 磁盘上仍可能是此形状——宿主 boot 时经 compileEntry 一次性编译为脚本条目。
+ * 严格未来的下一刻（epoch ms）。after-last 链式：max(lastFired, armedAt) + iv
+ * ——可为过去（链到期该投，调用方立即触发）；jitter 仅网格刻度应用（每刻重抖，
+ * 扰动不累积），链式不抖（越漂越远）。
+ */
+export function nextGridMs(t: TimeTrigger, now: number, ctx: DeriveCtx): number {
+  const jitterMs = t.kind === 'every' && t.jitter !== undefined ? parseInterval(t.jitter)! : 0;
+  const grid = nextGridStrict(t, now, ctx);
+  if (jitterMs === 0) return grid;
+  const rand = ctx.rand ?? Math.random;
+  return grid + Math.floor(rand() * (2 * jitterMs)) - jitterMs;
+}
+
+function nextGridStrict(t: TimeTrigger, now: number, ctx: DeriveCtx): number {
+  if (t.kind === 'once') return new Date(t.at).getTime();
+  if (t.kind === 'daily') {
+    const w = wallNow(now, ctx.tz);
+    const min = hhmmToMin(t.at);
+    let at = wallEpoch(w.y, w.m, w.d, min, ctx.tz);
+    if (at <= now) at = addDaysEpoch(at, 1);
+    return at;
+  }
+  if (t.kind === 'weekly') {
+    const w = wallNow(now, ctx.tz);
+    const min = hhmmToMin(t.at);
+    const offset = (t.dow - w.dow + 7) % 7;
+    let at = wallEpoch(w.y, w.m, w.d + offset, min, ctx.tz);
+    if (at <= now) at = wallEpoch(w.y, w.m, w.d + offset + 7, min, ctx.tz);
+    return at;
+  }
+  // every
+  const iv = parseInterval(t.iv)!;
+  if ((t.base ?? 'wall') === 'after-last') {
+    return Math.max(ctx.lastFiredAt ?? -Infinity, ctx.armedAt) + iv;
+  }
+  const anchor = anchorEpoch(t, now, ctx);
+  return anchor + (Math.floor((now - anchor) / iv) + 1) * iv;
+}
+
+/**
+ * 最近一个已到刻度（≤ now 且 > max(lastFiredAt, armedAt)——错过未投的那
+ * 个；catchup-once 判据）。armedAt = 条目首次装载时刻：新条目不回补历史
+ * 刻（set 后首个已过刻不算错过）。after-last 恒 null（链式无网格可补：
+ * 到期即投，无「错过」概念）。once：at ≤ now 即到刻。
+ */
+export function lastDueMs(t: TimeTrigger, now: number, ctx: DeriveCtx): number | null {
+  const last = Math.max(ctx.lastFiredAt ?? -Infinity, ctx.armedAt);
+  if (t.kind === 'once') {
+    const at = new Date(t.at).getTime();
+    return at <= now && at > last ? at : null;
+  }
+  if (t.kind === 'every' && (t.base ?? 'wall') === 'after-last') return null;
+  const due = nextGridStrict(t, now, { ...ctx, lastFiredAt: undefined, armedAt: -Infinity });
+  // nextGridStrict 对 calendar/every 返回严格未来刻；往前退一刻即最近已到刻
+  const prev = t.kind === 'every' ? due - parseInterval(t.iv)! : t.kind === 'daily' ? addDaysEpoch(due, -1) : addDaysEpoch(due, -7);
+  return prev <= now && prev > last ? prev : null;
+}
+
+/** gatesAND 求值（at 时刻；workday/holiday 需 resolver——per-owner 配置构造） */
+export function gatesPass(
+  gates: TimerGate[] | undefined,
+  at: number,
+  tz: string,
+  resolver: { isWorkday(date: Date): boolean },
+): boolean {
+  if (gates === undefined || gates.length === 0) return true;
+  const w = wallNow(at, tz);
+  for (const g of gates) {
+    if (g.kind === 'workday' && !resolver.isWorkday(new Date(at))) return false;
+    if (g.kind === 'holiday' && resolver.isWorkday(new Date(at))) return false;
+    if (g.kind === 'hours') {
+      const f = hhmmToMin(g.from), to = hhmmToMin(g.to);
+      const inWin = f < to ? w.min >= f && w.min < to : w.min >= f || w.min < to; // from > to 跨午夜形
+      if (!inWin) return false;
+    }
+  }
+  return true;
+}
+
+/** until 终结判定（now 已过 date / firedCount 已达 count） */
+export function untilReached(until: TimerUntil | undefined, firedCount: number, now: number): boolean {
+  if (until === undefined) return false;
+  if ('count' in until) return firedCount >= until.count;
+  return now >= new Date(until.date).getTime();
+}
+
+export interface PreviewFire { at: number; trigger: TimeTrigger; chained: boolean }
+
+/**
+ * 静态预览（test / set 返回体）：未来 n 个严格网格点（不 jitter——扰动是
+ * 运行期取点；after-last 标注 chained 且从 max(lastFired, armedAt)+iv 起链）。
+ */
+export function previewFires(entry: TimerEntry, now: number, ctx: DeriveCtx, n = 3): PreviewFire[] {
+  const out: PreviewFire[] = [];
+  const virtual: DeriveCtx = { ...ctx };
+  for (let k = 0; k < n; k++) {
+    let best: PreviewFire | undefined;
+    for (const t of entry.when) {
+      if (!isTimeTrigger(t)) continue;
+      const chained = t.kind === 'every' && (t.base ?? 'wall') === 'after-last';
+      const at = nextGridStrict(t, now, virtual);
+      if (best === undefined || at < best.at) best = { at, trigger: t, chained };
+    }
+    if (best === undefined) break;
+    out.push(best);
+    // 虚拟推进：把命中的触发器推到下一刻（链式按 lastFired 推进）
+    if (best.chained) virtual.lastFiredAt = best.at;
+    else now = best.at;
+  }
+  return out;
+}
+
+// ============================================================
+// match v1 算子（源触发配套；timers 行同步求值，微秒级）
+// ============================================================
+
+/** 单条件求值（row 单层字段；字段缺席 = 不命中，gt/lt 仅数值与数值串） */
+export function matchRow(match: MatchCond, row: Record<string, unknown>): boolean {
+  if (!(match.field in row)) return false; // 字段缺席不命中
+  const v = row[match.field];
+  switch (match.op) {
+    case 'eq': return v === match.value;
+    case 'ne': return v !== match.value;
+    case 'gt': case 'lt': {
+      const a = typeof v === 'number' ? v : typeof v === 'string' && v.trim() !== '' && !isNaN(Number(v)) ? Number(v) : null;
+      const b = typeof match.value === 'number' ? match.value : typeof match.value === 'string' && match.value.trim() !== '' && !isNaN(Number(match.value)) ? Number(match.value) : null;
+      if (a === null || b === null) return false;
+      return match.op === 'gt' ? a > b : a < b;
+    }
+    case 'in': return Array.isArray(match.value) && match.value.includes(v as never);
+    case 'contains':
+      if (typeof v === 'string' && typeof match.value === 'string') return v.includes(match.value);
+      if (Array.isArray(v)) return v.includes(match.value as never);
+      return false;
+  }
+}
+
+// ============================================================
+// 迁移编译器（旧 5 模式 → v3，cr-1161 §八映射表；数据 → 数据直译）
+// ============================================================
+
+/**
+ * 旧 5 模式条目（cr-1147 前持久形态）。磁盘上仍可能是此形状——宿主 boot 时
+ * 经 migrateLegacyEntry 一次性转 v3。
  */
 export interface LegacyTimerEntry {
   id: string;
@@ -134,9 +472,6 @@ export interface LegacyTimerEntry {
   target?: string;
   conversationId?: string;
   activeHours?: string;
-  /** 预检门命令（存量兼容件：新条目不再宣传——判定逻辑归脚本） */
-  gate?: string;
-  gateOnError?: 'skip' | 'run';
 }
 
 export function isLegacyEntryShape(e: unknown): e is LegacyTimerEntry {
@@ -145,260 +480,119 @@ export function isLegacyEntryShape(e: unknown): e is LegacyTimerEntry {
   return r.kind === undefined && typeof r.mode === 'string';
 }
 
-/**
- * 检测入参（宿主记账快照——纯数据，四字段零派生量）。
- */
-export interface TimerCheckArgs {
-  /** 本轮检测时刻（owner 时区 ISO——localISO 产出；Date 可直接构造） */
-  now: string;
-  /** 上次投递时刻（owner 时区 ISO；从未触发 = 缺席）——防重/补偿判据 */
-  last?: string;
-  /** 历史投递次数（宿主权威——gate 跳过轮不计数；「跑满 N 次收工」用） */
-  count: number;
-  /** 脚本私有持久状态（上次 verdict 带回；结构由脚本自定义） */
-  state?: unknown;
+/** v2 脚本条目判据（code 形态——换轨退役，boot 迁移丢弃归档） */
+export function isScriptEntryShape(e: unknown): boolean {
+  if (typeof e !== 'object' || e === null) return false;
+  return (e as Record<string, unknown>).kind === 'script';
 }
+
+const DOW_NAMES: Record<string, number> = { 周日: 0, 周一: 1, 周二: 2, 周三: 3, 周四: 4, 周五: 5, 周六: 6 };
 
 /**
- * 检测脚本 verdict：正交四轴——触发（action）/ 排程（next）/ 记忆（state）/
- * 生死（active）。探测循环定位：next = 下次探测时刻，非业务触发时刻。
+ * 旧 5 模式 → v3 条目（迁移单源）：
+ *   · time HH:mm → daily；time 周X → weekly；time 定点 ISO → once（missed 缺省补投）
+ *   · workday/holiday 模式 → daily + gates
+ *   · delay → every after-last（显式链式保行为等价）
+ *   · random min~max → every iv:min jitter:max−min（近似——不炸不丢口径）
+ *   · activeHours → gates hours；repeatCount → until count
+ *   · gate / gateOnError 丢弃（语义判断归 Agent / 源侧）
  */
-export interface TimerCheckVerdict {
-  /** 本轮投递的唤醒文本（undefined = 静默检测轮）。有值即投唤醒信。 */
-  action?: string;
-  /**
-   * 下次探测时刻（Date 唯一形态）。用 utils.at()/after() 构造（宿主 tz
-   * 解析）或 epoch 算术；过去值钳到 CHECK_FLOOR_MS 地板。
-   */
-  next?: Date;
-  /** 脚本私有持久状态（宿主原样存取——跨检测记忆，gate 跳过轮也保存） */
-  state?: unknown;
-  /** false = 任务完成：不排下次、条目摘除归档。缺省 true。与 action 正交。 */
-  active?: boolean;
-}
+export function migrateLegacyEntry(legacy: LegacyTimerEntry): TimerEntry {
+  const when: WhenTrigger[] = [];
+  const gates: TimerGate[] = [];
+  let until: TimerUntil | undefined;
+  let missed: 'skip' | 'catchup-once' | undefined;
 
-/** 检测脚本签名（双参：args 快照 + utils 纯函数包） */
-export type TimerCheckFn = (args: TimerCheckArgs, utils: TimerUtils) => TimerCheckVerdict | Promise<TimerCheckVerdict>;
-
-/** 探测间隔地板（防忙循环——探测循环定位下唯一的节奏防线） */
-export const CHECK_FLOOR_MS = 10_000;
-
-/**
- * verdict.next（Date）→ 距 now 的等待毫秒（宿主排程唯一入口）。
- * 非 Date/NaN 按 null（调用方按脚本错误处置）；过去值 → 地板（脚本 bug
- * 防线，不静默吞——nextWaitMs 返回地板而非 0，配合 scheduleCheck 双保险）。
- */
-export function nextWaitMs(next: Date | undefined, now = new Date()): number | null {
-  if (!(next instanceof Date) || isNaN(next.getTime())) return null;
-  const wait = next.getTime() - now.getTime();
-  if (wait <= 0) return CHECK_FLOOR_MS;
-  return wait;
-}
-
-/** verdict 字段值的人读描述（错误提示用） */
-function showValue(v: unknown): string {
-  if (typeof v === 'string') return JSON.stringify(v);
-  if (v instanceof Date) return 'Date(' + (isNaN(v.getTime()) ? 'Invalid' : v.toISOString()) + ')';
-  if (Array.isArray(v)) return '数组';
-  if (v !== null && typeof v === 'object') return '对象';
-  return typeof v + ' ' + String(v);
-}
-
-/** inspectVerdict 结果：error = 类型层不合法（拒）；notes = 可运行但可疑（提示） */
-export interface VerdictInspection {
-  error?: string;
-  notes: string[];
-}
-
-/** next 过期容差（超出的过去值按错误处置——cr-1149 v2） */
-const LATE_TOLERANCE_MS = CHECK_FLOOR_MS;
-
-/**
- * verdict 校验（cr-1149；干跑与运行期共用一份判据）：
- *   · error —— 不合法（干跑直接拒，运行期整轮不处置 + 退避）；
- *   · notes —— 可运行但可疑（next 刚过期等）。
- * active:false 是完成态：不排下次，故不校验 next。
- *
- * next 过期分档（cr-1149 v2）：过去 ≤ LATE_TOLERANCE_MS = 刚到期（执行耗时/
- * 边界竞态），按到期排地板；超出 = 锚点算错的信号——带 action 时会按地板
- * 间隔反复投递（10s 一条刷屏风暴），故升级为 error 整轮不处置。
- */
-export function inspectVerdict(verdict: unknown, now = new Date()): VerdictInspection {
-  const notes: string[] = [];
-  if (verdict === null || typeof verdict !== 'object' || Array.isArray(verdict)) {
-    return { error: '脚本须 return 纯数据对象 { action?, next?, state?, active? }（收到 ' + showValue(verdict) + '）', notes };
-  }
-  const v = verdict as Record<string, unknown>;
-  if (v.active !== undefined && typeof v.active !== 'boolean') {
-    return { error: 'verdict.active 须为 boolean（false = 完成归档）——收到 ' + showValue(v.active), notes };
-  }
-  if (v.action !== undefined && typeof v.action !== 'string') {
-    return { error: 'verdict.action 须为字符串（唤醒文本）——收到 ' + showValue(v.action), notes };
-  }
-  if (v.active === false) return { notes };
-  if (v.next === undefined) {
-    return { error: 'verdict.next 缺失（须返回下次探测时刻；active:false 才可省）', notes };
-  }
-  if (!(v.next instanceof Date) || isNaN(v.next.getTime())) {
-    return {
-      error:
-        'verdict.next 须为 Date（u.at()/u.after() 构造或 new Date(epoch 毫秒)）——收到 ' + showValue(v.next) +
-        '；u.ms() 只返回毫秒数，要 Date 得 u.after(iv) 或 new Date(Date.now() + u.ms(iv))',
-      notes,
-    };
-  }
-  const late = now.getTime() - v.next.getTime();
-  if (late > LATE_TOLERANCE_MS) {
-    return {
-      error:
-        'verdict.next 在过去 ' + Math.round(late / 1000) + 's（' + v.next.toISOString() + '）——排程地板 ' +
-        CHECK_FLOOR_MS + 'ms，带 action 时会按地板间隔反复投递（10s 一条）；多半是锚点算错（new Date(0)、' +
-        '忘加偏移、u.after 传了 a.now 却没解析）',
-      notes,
-    };
-  }
-  if (late > 0) {
-    notes.push('verdict.next 刚过期 ' + Math.round(late / 1000) + 's（容差 ' + LATE_TOLERANCE_MS + 'ms 内）——按到期处理，钳地板排下一轮');
-  }
-  return { notes };
-}
-
-/**
- * 脚本条目（cr-1147 起唯一持久形态；entries/timer.json）。
- * 检测 = code（判定脚本）；投递 = conversationId/target/task/gate（宿主安全面）。
- */
-export interface TimerScriptEntry {
-  id: string;
-  enabled: boolean;
-  kind: 'script';
-  /** 判定脚本源码（可擦除 TS 双参谓词——TimerCheckFn 形状，须自包含） */
-  code: string;
-  /** 人读标签 */
-  label?: string;
-  conversationId?: string;
-  task?: 'archive-all' | 'backup-all';
-  target?: string;
-  gate?: string;
-  gateOnError?: 'skip' | 'run';
-}
-
-// ============================================================
-// compileEntry（存量迁移编译器——语义等价降级为「不炸、不丢」）
-// ============================================================
-
-
-/**
- * 旧 5 模式条目 → 脚本条目编译器（迁移单源；boot 与手工迁移共用）。
- * v2 语义等价降级为「不炸、不丢」：产物为 (a,u) 双参谓词，判定逻辑
- * 机械直译旧模式意图，锚点精确性不再追求（探测循环定位——Agent 后续
- * 自会重写为原生形态）。
- *   · time 每天/周几 → u.minute(a.now) 到点判定 + u.day(a.last) 防重 + next=u.at(time)
- *   · time 指定日期 → 过日终结；到点触发即完成
- *   · delay → 首轮静默排满周期（state.started）；次轮起 action + next=u.after(delay)
- *   · random → 每轮现抽 [rmin,rmax]
- *   · workday/holiday → u.workday(new Date(a.now)) 门控
- *   · activeHours → u.minute 窗口判定（跨午夜或形）
- *   · repeatCount → a.count+1 >= N 时 action + active:false
- * hint → 静态 action 文本。
- */
-export function compileEntry(legacy: LegacyTimerEntry): TimerScriptEntry {
-  const mode = legacy.mode;
-  const isCal = mode === 'time' || mode === 'workday' || mode === 'holiday';
-  const time = isCal ? (legacy.time ?? '') : '';
-  const daily = time.match(/^(\d{1,2}):(\d{2})$/);
+  const time = legacy.time ?? '';
+  const daily = time.match(HHMM);
   const weekly = time.match(/^(周日|周一|周二|周三|周四|周五|周六)\s+(\d{1,2}):(\d{2})$/);
   const full = time.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})$/);
-  const repeat = typeof legacy.repeatCount === 'number' && legacy.repeatCount > 0 ? legacy.repeatCount : 0;
-  const text = JSON.stringify(legacy.hint);
-  const dow: Record<string, number> = { 周日: 0, 周一: 1, 周二: 2, 周三: 3, 周四: 4, 周五: 5, 周六: 6 };
-  const win = (legacy.activeHours ?? '').match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
-  const winS = win ? parseInt(win[1], 10) * 60 + parseInt(win[2], 10) : 0;
-  const winE = win ? parseInt(win[3], 10) * 60 + parseInt(win[4], 10) : 0;
-  const inWin = win
-    ? winS < winE
-      ? 'u.minute(now) >= ' + winS + ' && u.minute(now) < ' + winE
-      : '(u.minute(now) >= ' + winS + ' || u.minute(now) < ' + winE + ')'
-    : '';
-  const workdayGate = mode === 'workday' ? ' && u.workday(now)' : mode === 'holiday' ? ' && !u.workday(now)' : '';
-  const repeatArm = repeat > 0
-    ? '  if (a.count + 1 >= ' + repeat + ') return { action: text, active: false };\n'
-    : '';
-  const head = '  const text = ' + text + ';\n  const now = new Date(a.now);\n';
-  const guard = inWin ? '  if (!(' + inWin + ')) return { next: u.after(\'1h\') };\n' : '';
-  let body = '';
-  if (!isCal && mode === 'delay' && !legacy.delay) {
-    body = head + '  return { active: false };';
-  } else if (!isCal) {
-    const nextLit = mode === 'delay' ? 'u.after(' + JSON.stringify(legacy.delay ?? '30m') + ')' : 'd';
-    const draw = mode === 'random'
-      ? (() => {
-          const min = legacy.delayMin ? (parseInterval(legacy.delayMin) ?? 30_000) : 30_000;
-          const max = legacy.delayMax ? (parseInterval(legacy.delayMax) ?? 300_000) : 300_000;
-          const lo = Math.min(min, max), hi = Math.max(min, max);
-          return '  const d = new Date(Date.now() + ' + lo + ' + Math.floor(Math.random() * ' + (hi - lo + 1) + '));\n';
-        })()
-      : '';
-    body = head
-      + draw
-      + guard
-      + '  if (!(a.state && a.state.started)) return { next: ' + nextLit + ', state: { started: true } };\n'
-      + repeatArm
-      + '  return { action: text, next: ' + nextLit + ' };';
-  } else if (full !== null) {
-    const day = full[1];
-    const targetMin = parseInt(full[2], 10) * 60 + parseInt(full[3], 10);
-    body = head
-      + '  if (u.day(now) > ' + JSON.stringify(day) + ') return { active: false };\n'
-      + '  const hit = u.day(now) === ' + JSON.stringify(day) + ' && u.minute(now) >= ' + targetMin + workdayGate + ' && !a.last;\n'
-      + '  return hit ? { action: text, active: false } : { next: u.at(' + JSON.stringify(day + 'T' + full[2] + ':' + full[3]) + ') };';
-  } else {
-    const specLit = JSON.stringify(time);
-    let hitCond = '';
-    if (weekly !== null) {
-      const wd = dow[weekly[1]] ?? 0;
-      const targetMin = parseInt(weekly[2], 10) * 60 + parseInt(weekly[3], 10);
-      hitCond = 'u.dow(now) === ' + wd + ' && u.minute(now) >= ' + targetMin;
+  if (legacy.mode === 'time' || legacy.mode === 'workday' || legacy.mode === 'holiday') {
+    if (full !== null) {
+      when.push({ kind: 'once', at: full[1] + 'T' + full[2].padStart(2, '0') + ':' + full[3] + ':00' });
+      missed = 'catchup-once';
+    } else if (weekly !== null) {
+      when.push({ kind: 'weekly', dow: DOW_NAMES[weekly[1]] ?? 0, at: weekly[2].padStart(2, '0') + ':' + weekly[3] });
     } else {
-      const m = daily !== null ? daily : ['0', '0', '0'] as unknown as RegExpMatchArray;
-      const targetMin = parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
-      hitCond = 'u.minute(now) >= ' + targetMin;
+      const at = daily !== null ? daily[1].padStart(2, '0') + ':' + daily[2] : '09:00';
+      when.push({ kind: 'daily', at });
     }
-    const lastGuard = ' && (!a.last || u.day(new Date(a.last)) !== u.day(now))';
-    const repeatHit = repeat > 0
-      ? '  if (hit && a.count + 1 >= ' + repeat + ') return { action: text, active: false };\n'
-      : '';
-    body = head
-      + guard
-      + '  const hit = ' + hitCond + lastGuard + workdayGate + ';\n'
-      + repeatHit
-      + '  return hit ? { action: text, next: u.at(' + specLit + ') } : { next: u.at(' + specLit + ') };';
+    if (legacy.mode === 'workday') gates.push({ kind: 'workday' });
+    if (legacy.mode === 'holiday') gates.push({ kind: 'holiday' });
+  } else if (legacy.mode === 'delay') {
+    when.push({ kind: 'every', iv: legacy.delay ?? '30m', base: 'after-last' });
+  } else {
+    // random：min~max → every iv:min jitter:max−min（缺省 30s~5m）
+    const minMs = legacy.delayMin ? parseInterval(legacy.delayMin) ?? 30_000 : 30_000;
+    const maxMs = legacy.delayMax ? parseInterval(legacy.delayMax) ?? 300_000 : 300_000;
+    const lo = Math.min(minMs, maxMs), hi = Math.max(minMs, maxMs);
+    when.push({ kind: 'every', iv: fmtIv(lo), ...(hi > lo ? { jitter: fmtIv(hi - lo) } : {}) });
   }
+  const win = (legacy.activeHours ?? '').match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})$/);
+  if (win !== null) {
+    gates.push({ kind: 'hours', from: win[1].padStart(2, '0') + ':' + win[2], to: win[3].padStart(2, '0') + ':' + win[4] });
+  }
+  if (typeof legacy.repeatCount === 'number' && legacy.repeatCount > 0) until = { count: legacy.repeatCount };
+
+  const a = legacy as unknown as Record<string, unknown>;
+  const action: TimerAction = { text: legacy.hint };
+  if (typeof a.conversationId === 'string' && a.conversationId) action.conversationId = a.conversationId;
+  if (legacy.task !== undefined) action.task = legacy.task;
+  if (legacy.target !== undefined) action.target = legacy.target;
   return {
     id: legacy.id,
     enabled: legacy.enabled,
-    kind: 'script',
-    code: '(a, u) => {\n' + body + '\n}',
-    label: describeLegacy(legacy),
-    ...(legacy.conversationId !== undefined ? { conversationId: legacy.conversationId } : {}),
-    ...(legacy.task !== undefined ? { task: legacy.task } : {}),
-    ...(legacy.target !== undefined ? { target: legacy.target } : {}),
-    ...(legacy.gate !== undefined ? { gate: legacy.gate } : {}),
-    ...(legacy.gateOnError !== undefined ? { gateOnError: legacy.gateOnError } : {}),
+    when,
+    ...(gates.length > 0 ? { gates } : {}),
+    ...(until !== undefined ? { until } : {}),
+    ...(missed !== undefined ? { missed } : {}),
+    action,
   };
 }
 
-/** 旧条目人读标签（迁移 label 固化） */
-function describeLegacy(legacy: LegacyTimerEntry): string {
-  const sched = legacy.time ?? legacy.delay ?? (legacy.delayMin && legacy.delayMax ? legacy.delayMin + '~' + legacy.delayMax : '');
-  return '定时 ' + legacy.mode + (sched ? ' ' + sched : '');
+/** 毫秒 → 简明间隔串（迁移 random 用） */
+function fmtIv(ms: number): string {
+  if (ms % 86_400_000 === 0) return (ms / 86_400_000) + 'd';
+  if (ms % 3_600_000 === 0) return (ms / 3_600_000) + 'h';
+  if (ms % 60_000 === 0) return (ms / 60_000) + 'm';
+  return (ms / 1000) + 's';
 }
 
 // ============================================================
-// 间隔与目标时间（utils.at/after 解析内核）
+// 人读摘要（list / UI 展示单源）
+// ============================================================
+
+const DOW_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+export function describeTrigger(t: WhenTrigger): string {
+  switch (t.kind) {
+    case 'once': return '单次 ' + t.at;
+    case 'daily': return '每天 ' + t.at;
+    case 'weekly': return '每' + (DOW_CN[t.dow] ?? String(t.dow)) + ' ' + t.at;
+    case 'every': {
+      const base = t.base ?? 'wall';
+      const baseDesc = base === 'wall' ? '' : base === 'after-last' ? '（链式）' : typeof base === 'object' ? '（锚 ' + base.at + '）' : '（锚 ' + base + '）';
+      return '每 ' + t.iv + baseDesc + (t.jitter !== undefined ? ' ±' + t.jitter : '');
+    }
+    case 'source': {
+      const m = t.match !== undefined ? ' 匹配 ' + t.match.field + ' ' + t.match.op + ' ' + String(t.match.value) : '';
+      return '源 ' + t.source + '/' + t.view + ' ' + t.on + m + (t.cooldown !== undefined ? '（冷却 ' + t.cooldown + '）' : '');
+    }
+  }
+}
+
+export function describeEntry(e: TimerEntry): string {
+  const parts = e.when.map(describeTrigger);
+  const gates = e.gates?.map((g) => g.kind === 'hours' ? g.from + '-' + g.to : g.kind === 'workday' ? '工作日' : '节假日').join(' 且 ') ?? '';
+  return parts.join(' 或 ') + (gates ? '｜' + gates : '') + (e.until ? '｜' + ('count' in e.until ? '满 ' + e.until.count + ' 次' : '至 ' + e.until.date) : '');
+}
+
+// ============================================================
+// 间隔解析（every iv / jitter / cooldown 内核）
 // ============================================================
 
 /**
- * 解析间隔字符串为毫秒数（300ms/0s/5m/1h/2h30m；非法/零 → null）。
+ * 解析间隔字符串为毫秒数（300ms/0s/5m/1h/2h30m/7d；非法/零 → null）。
  * 正则交替序 ms 先于 m（否则 '30ms' 被吞成 30 分钟）。
  */
 export function parseInterval(input: string): number | null {
@@ -420,66 +614,8 @@ export function parseInterval(input: string): number | null {
   return total > 0 ? total : null;
 }
 
-/**
- * 计算到目标时间的毫秒数（已过 → null，除每日 HH:mm 顺延次日）。
- * tz = owner 生效时区（cr-1053 单源）。
- */
-export function msUntilTime(timeStr: string, now = new Date(), tz?: string): number | null {
-  const p = zonedParts(now, resolveTimezone(tz));
-  const pseudo = new Date(p.y, p.m - 1, p.d, p.h, p.mi, p.s);
-  const localMs = msUntilLocal(timeStr, pseudo);
-  if (localMs === null) return null;
-  const targetLocal = new Date(pseudo.getTime() + localMs);
-  const epoch = zonedWallToUtc(
-    targetLocal.getFullYear(), targetLocal.getMonth() + 1, targetLocal.getDate(),
-    targetLocal.getHours(), targetLocal.getMinutes(), resolveTimezone(tz),
-  );
-  return epoch - now.getTime();
-}
-
-/** msUntilTime 的墙上时钟算术内核（仅内部消费） */
-function msUntilLocal(timeStr: string, now: Date): number | null {
-  const s = timeStr.trim();
-
-  const fullMatch = s.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{1,2}):(\d{2})$/);
-  if (fullMatch) {
-    const target = new Date(fullMatch[1] + 'T' + fullMatch[2] + ':' + fullMatch[3]);
-    if (isNaN(target.getTime())) return null;
-    const ms = target.getTime() - now.getTime();
-    return ms > 0 ? ms : null;
-  }
-
-  const weekdayNames: Partial<Record<string, number>> = {
-    sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
-    '周日': 0, '周一': 1, '周二': 2, '周三': 3, '周四': 4, '周五': 5, '周六': 6,
-  };
-  const weekdayMatch = s.match(/^([A-Za-z\u4e00-\u9fff]+)\s+(\d{1,2}):(\d{2})$/);
-  if (weekdayMatch) {
-    const wd = weekdayNames[weekdayMatch[1]] ?? weekdayNames[weekdayMatch[1].toLowerCase()];
-    if (wd === undefined) return null;
-    const h = parseInt(weekdayMatch[2], 10), mi = parseInt(weekdayMatch[3], 10);
-    if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
-    const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, mi, 0, 0);
-    const dayDiff = (wd + 7 - now.getDay()) % 7;
-    if (dayDiff === 0 && target.getTime() <= now.getTime()) {
-      target.setDate(target.getDate() + 7);
-    } else {
-      target.setDate(target.getDate() + dayDiff);
-    }
-    return target.getTime() - now.getTime();
-  }
-
-  const dailyMatch = s.match(/^(\d{1,2}):(\d{2})$/);
-  if (!dailyMatch) return null;
-  const h = parseInt(dailyMatch[1], 10), mi = parseInt(dailyMatch[2], 10);
-  if (h < 0 || h > 23 || mi < 0 || mi > 59) return null;
-  const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, mi, 0, 0);
-  if (target.getTime() <= now.getTime()) target.setDate(target.getDate() + 1);
-  return target.getTime() - now.getTime();
-}
-
 // ============================================================
-// 时区墙上时钟（utils.minute/day 与 args.now 的内核）
+// 时区墙上时钟（推导与 localISO 内核）
 // ============================================================
 
 interface ZonedParts {
@@ -521,7 +657,7 @@ function zonedWallToUtc(y: number, m: number, d: number, h: number, mi: number, 
 }
 
 // ============================================================
-// 节假日判定（utils.workday 消费）
+// 节假日判定（gates workday/holiday 消费）
 // ============================================================
 
 export interface HolidayOptions {
@@ -586,7 +722,7 @@ export function createHolidayResolver(options: HolidayOptions = {}, tz?: string)
 
 /**
  * 指定时区的 ISO 时间串（墙上时钟在前 + 偏移尾——slice(0,10) 即该时区
- * 日期；args.now / args.last 的生产者）。
+ * 日期；诊断面时间字段生产者）。
  */
 export function localISO(date = new Date(), tz = DEFAULT_TZ): string {
   const wall = zonedParts(date, resolveTimezone(tz));

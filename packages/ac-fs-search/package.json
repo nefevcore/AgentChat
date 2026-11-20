@@ -27,7 +27,8 @@
     "@agentchat/cordis": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-sandbox-core": "workspace:*",
-    "ac-glob-core": "workspace:*"
+    "ac-glob-core": "workspace:*",
+    "ac-auth-core": "workspace:*"
   },
   "devDependencies": {
     "ac-agents": "workspace:*",

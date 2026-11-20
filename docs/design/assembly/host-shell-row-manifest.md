@@ -41,7 +41,7 @@
 判例五则（锁 / 指纹 / 授权投影 / 群拓扑 / Agent 在场性）与原理：裁决簿
 〈行资格判例〉。tag 机制解体判例（七职能归位）：裁决簿〈tag 机制解体〉。
 
-# R1. 宿主树（**27 行** = 基座 3 + 核心新增 3 + 身份编辑面 3 + 数据服务 6 + 传输/web 4 + 插件治理 3 + 远程 1 + host-face 4〔端点 + 贡献行 ×2 + timers 面宿主服务〕；cr-1121 host-face 真动态化 +2 贡献行〔timer-face/profile-face〕；cr-701 B4 撤 25 ui 域行——通道装载面恒在 webui 行 boot graph）
+# R1. 宿主树（**28 行** = 基座 3 + 核心新增 3 + 身份编辑面 3 + 数据服务 7 + 传输/web 4 + 插件治理 3 + 远程 1 + host-face 4〔端点 + 贡献行 ×2 + timers 面宿主服务〕；cr-1121 host-face 真动态化 +2 贡献行〔timer-face/profile-face〕；cr-1165 fs-source 采集行〔timer-v3 采集层〕；cr-701 B4 撤 25 ui 域行——通道装载面恒在 webui 行 boot graph）
 
 | 组 | 行 | 包 | 角色 | 来源 |
 |---|---|---|---|---|
@@ -52,7 +52,8 @@
 | 编辑面 | agents | ac-agents | 身份编辑面：config / entries / 文档唯一写口 + 模板目录（吸收 agent-store 写引擎 + agents-dir 布局 + agent-presets 目录）；活注册表解体——配置轴 = 文件文集、在场轴 = guardian 可达表；**preview 侧落地（cr-540，2026-10-19）= ac-host-rows/agents-row.ts（AgentsEditService：config/entries/文档/头像唯一写口 + 模板创建 + transient 合成）；cr-721（2026-10-27）裁决物化改「模板基座 + 盘上差异两层合成」，取代一次性 skip-if-present（落地状态待核，见裁决簿 cr-721 修订）** | 改造 |
 | 编辑面 | preset-builtin | ac-host-rows（templates/ + preset-builtin.ts 读面） | 内置模板数据行（包目录静态 Agent 配置文件集）；**preview 侧落地（cr-540）= ac-host-rows/templates/ 静态配置集 + preset-builtin.ts 读面（行缺席 = 模板面良定义降级）** | 改造——裁决簿〈注册表解体〉 |
 | 编辑面 | agent-admin | ac-host-rows（agent-admin-row.ts）+ ac-agents-core/write.ts | webui 写侧 RPC 编排（agent CRUD → agents 编辑面）；**preview 侧落地（cr-542，2026-10-19）= ac-host-rows/agent-admin-row.ts（六方法 agents/get-config·create·update-config·delete·save-doc·read-doc——写面词汇住 ac-agents-core/write.ts；cr-552 收口装配面三方法：agents/system-prompt 装配预览〔装配链住壳进程——经编排面控制帧往返壳内三档链干跑，boot control preview 帧〕+ agents/assembly 视图〔壳内工具目录投影 + 宿主 plugins/settings 合成〕+ agents/assembly/update 写口〔applyAssemblyPatch 纯函数住 ac-agents-core/write.ts，宿主本地落盘〕；编排面缺席 = 预览读面 fail-loud、六 CRUD 照常〔良定义降级〕）** | 沿用 |
-| 数据服务 | timers | ac-host-rows + ac-timer-core | 定时唤醒（唤醒 = 投递信） | 沿用 |
+| 数据服务 | timers | ac-host-rows + ac-timer-core | 定时唤醒（唤醒 = 投递信）；**cr-1164 v3 哑触发层**（when/gates/until/missed 声明式词汇）；**cr-1165 源触发接线**（订阅 source/updated + pull 兜底 + stale 唤醒） | 沿用 |
+| 数据服务 | fs-source | ac-source-core | **fs 采集行**（cr-1165 timer-v3 采集层）：目录快照物化 `exports/fs/<view>/` + source/updated 事件——外部工具写目录即可被 timer 触发，平台零执行；源配置 = config `source.fs.roots` | **新增** |
 | 数据服务 | usage | ac-usage | 计费聚合（对账 ledger 自报事件信；另收 job 观测快照镜像） | 改造 |
 | 数据服务 | ~~archive~~ | — | **已改树（cr-546，2026-10-19，裁决 D11「全壳内」）**：归档编排（阈值检测/整理 run/归档重建）全链住壳——整理 run = LLM 编排只能住壳（R0a 判据 1，与 session-query 同判据）、归档重建 = 写归属 agent 账本（D4 写权 = 账本所有权）；宿主零 archive 职责，timer 的 archive-all 机制任务改批量唤醒信（宿主只发信——A13/D11）。已移入 R2 域服务（宿主 46→45 / 壳 35→36，总数 81 恒等） | 改树（D11） |
 | 数据服务 | singles | ac-host-rows（singles-row.ts）+ ac-ledger | **独立会话元数据写面**（cr-566；cr-973 迁 `meta/sessions/<sid>.json`——清单身份源同迁，viewer 树停写）：owns `meta/sessions/<sid>.json` + `meta/sessions/.singles-registry.json`；摘要自 agent 域读时投影（projectUserReplay）。前身 owns `viewer/sessions/<sid>/session.json`（cr-609 前名 `users/user/sessions/`——viewer 投影轴与 agents 身份树平级且刻意异名；agentId / title / workspaceId / status / 时间戳——模型覆盖仍走 conv-settings，D12）；`singles/list|create|update|fork|archive|delete` 六方法 + `singles/updated` 帧广播（args=[session, created|updated|archived|removed]）；fork = 锚点前账本恒等拷贝（ac-ledger manage.ts）；删除 = 该会话全部账本 + 元数据 + 覆盖一并清 | **新增**（cr-566——会话工作面补全）；**cr-672 标题面**：生成归壳（auto-title 行）、写权归本行——标题请求信经 HostInbox 受理，write-if-absent 落盘（用户手改 / fork 继承不覆盖）；派生标题改「用户自己的首条发言」优先（旧实现取首条非空内容行：对端台词 / 定时触发词 / DSML 残片都会变标题），CRLF 剥尾、日期快照行跳过、材料行筛选（附件路径 / @ 引用 / URL 行不是发言）、上限与

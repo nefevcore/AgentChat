@@ -17,7 +17,8 @@
     "ac-core-utils": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-host-face-core": "workspace:*",
-    "ac-timer-core": "workspace:*"
+    "ac-timer-core": "workspace:*",
+    "ac-auth-core": "workspace:*"
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",

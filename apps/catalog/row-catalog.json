@@ -76,8 +76,14 @@
     {
       "id": "timers",
       "tree": "host",
-      "description": "定时唤醒（唤醒 = 投递信）",
+      "description": "定时唤醒（唤醒 = 投递信；源触发 = 订阅 source/updated + pull 兜底）",
       "path": "packages/ac-host-rows"
+    },
+    {
+      "id": "fs-source",
+      "tree": "host",
+      "description": "fs 采集行（目录快照物化 exports/fs/ + source/updated 事件——timer-v3 采集层）",
+      "path": "packages/ac-source-core"
     },
     {
       "id": "usage",

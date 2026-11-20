@@ -20,6 +20,7 @@ import * as fs from 'node:fs';
 const KNOWN_DIRS = new Set([
   'agents', // 第一层：真值账本（必须备份）
   'meta', // 第二层：小而珍贵、不可重建（必须备份）
+  'exports', // 第二层：source 物化面（cr-1165 timer 源触发——按视图重建，备份随源
   'credentials', // 第二层特殊成员：独立隔离（加密/备份策略不同）
   'viewer', // 第三层：纯投影（整树可删、boot 自愈）
   'usage', // 派生流水（半可重建）

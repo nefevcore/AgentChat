@@ -9,20 +9,20 @@
 // 全局定时任务（globalConfig.timer.tasks）= 全局配置域，读写在
 // settings api（getGlobalConfig/saveGlobalConfig）——不在此。
 // ============================================================
-import type { TimerScriptEntry } from 'ac-timer-core';
+import type { TimerEntry } from 'ac-timer-core';
 
 type Rpc = { call<T>(method: string, params?: Record<string, unknown>): Promise<T> };
 
-export type { TimerScriptEntry };
+export type { TimerEntry };
 
 /** Agent 定时任务清单（timer/entries） */
-export async function getAgentTimers(agentId: string, rpc: Rpc): Promise<{ entries: TimerScriptEntry[] }> {
-  const r = await rpc.call<{ entries?: TimerScriptEntry[] }>('timer/entries', { agentId });
+export async function getAgentTimers(agentId: string, rpc: Rpc): Promise<{ entries: TimerEntry[] }> {
+  const r = await rpc.call<{ entries?: TimerEntry[] }>('timer/entries', { agentId });
   return { entries: r.entries ?? [] };
 }
 
 /** 保存 Agent 定时任务（timer/save；回显保存值） */
-export async function saveAgentTimers(agentId: string, entries: TimerScriptEntry[], rpc: Rpc): Promise<{ entries: TimerScriptEntry[] }> {
+export async function saveAgentTimers(agentId: string, entries: TimerEntry[], rpc: Rpc): Promise<{ entries: TimerEntry[] }> {
   await rpc.call('timer/save', { agentId, entries });
   return { entries };
 }

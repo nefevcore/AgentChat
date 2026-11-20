@@ -11,7 +11,7 @@
 // ============================================================
 import { ref, computed } from 'vue';
 import type { AgentConfigViews, AssemblyData, AssemblyPatch } from 'ac-client-ui-settings/client/types.ts';
-import type { TimerScriptEntry } from 'ac-timer-core';
+import type { TimerEntry } from 'ac-timer-core';
 import { getAssembly, saveAssembly, getLlmSchemas, getPools } from 'ac-client-ui-settings/client/api.ts';
 import { fetchAgents, createAgent as createAgentRpc } from './index.ts';
 import { deleteAgent as deleteAgentRpc, getAgentConfig, saveAgentConfig } from './rosterApi.ts';
@@ -21,8 +21,8 @@ import { resyncRetry } from 'ac-client-runtime';
 /** 定时任务数据面注入口（M29 P1-3c：timerApi 归 ui-timer——本包 .ts 不直连
  *  domain 行数据面〔R6〕，由宿主 .vue 注入 ui-timer 的 timerApi） */
 export interface AgentTimerFace {
-  getAgentTimers(agentId: string, rpc: { call: unknown }): Promise<{ entries: TimerScriptEntry[] }>;
-  saveAgentTimers(agentId: string, entries: TimerScriptEntry[], rpc: { call: unknown }): Promise<{ entries: TimerScriptEntry[] }>;
+  getAgentTimers(agentId: string, rpc: { call: unknown }): Promise<{ entries: TimerEntry[] }>;
+  saveAgentTimers(agentId: string, entries: TimerEntry[], rpc: { call: unknown }): Promise<{ entries: TimerEntry[] }>;
 }
 
 /** Agent 基本信息（树节点/列表用——settings useSettings 旧词汇原样） */
@@ -73,7 +73,7 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
   const sysEnabled = ref(false);
   const agentContent = ref('');
   const agentEnabled = ref(false);
-  const agentTimers = ref<TimerScriptEntry[]>([]);
+  const agentTimers = ref<TimerEntry[]>([]);
   const agentSaved = ref('');
   const agentTimersSaved = ref('');
   const agentAssembly = ref<AssemblyData | null>(null);
@@ -280,7 +280,7 @@ export function useAgentSettings(timerApi: AgentTimerFace) {
   /** 保存定时任务（身份快照版：saveAgent 携带进入时的目标与数据调用）。
    *  回包仅在"本地未继续编辑"时应用——保存 in-flight 期间用户又动了条目的话，
    *  服务端回显会把新编辑冲掉（丢失更新）。 */
-  async function saveTimersFor(targetId: string, entries: TimerScriptEntry[]): Promise<boolean> {
+  async function saveTimersFor(targetId: string, entries: TimerEntry[]): Promise<boolean> {
     const sentSnapshot = JSON.stringify(entries);
     try {
       const data = await timerApi.saveAgentTimers(targetId, entries, defaultRpc);

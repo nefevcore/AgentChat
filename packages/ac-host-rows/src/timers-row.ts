@@ -1,22 +1,28 @@
 // ============================================================
-// timers-row.ts —— 宿主 timers 行（cr-1147 脚本化重做：检测逻辑
-// 下沉为可擦除 TS 判定脚本，宿主只剩 check/dispatch 极简循环）
+// timers-row.ts —— 宿主 timers 行（cr-1164 v3 换轨：哑触发层）
 //
-// 保留面（资产不是债务）：agents/<id>/entries/timer.json 数据面、
-//   agentsEdit 单写者口、邮局唤醒信投递（conversationId 烘焙/对角线缺省/
-//   机制任务直调）、乐观并发 storedSnapshot（ISSUE-24）、诊断面、心跳。
-// 换轨面：5 模式排程状态机（arm/fire/nextDelayOf/补偿三 case）→
-//   runCheck（worker 求值）→ verdict 分派。旧条目 boot 时 compileEntry
-//   一次性编译迁移（timer.json.bak 备份）。
-// cr-1149：verdict 校验前移为 inspectVerdict 单源判据（与干跑同一份）——
-//   类型不合法的轮整轮不处置 + 退避记账；可疑项（next 在过去等）记 lastNote
-//   诊断面（同提示不刷屏）。
+// timer = 哑的事件匹配器 + 排程器——不采集、不判定、不执行任何用户
+// 代码（cr-1161：v2 worker 求值面随三病灶全砍，timer-check-worker 删除）。
+// 本行承载：
+//   · 时间触发：setTimeout 自续链——下一刻由 ac-timer-core 纯函数推导
+//     （wall / anchor / after-last 三 base + jitter），触投后算下一个；
+//   · 门与终结：gates AND 求值（刻度不命中直接跳过）；until count/date
+//     （count 按投递次数记账）；missed（skip / catchup-once）停机策略；
+//   · 源触发（cr-1165 采集层上线）：订阅 source/updated 推送匹配（push
+//     为主）+ pull 兜底（10s 地板扫 meta.seq）+ stale 判定（generatedAt
+//     超 staleAfter → on:'stale' 条目唤醒）；条目级 cooldown 节流（lastSeq
+//     照常推进——判断不丢，投递节流）；源行缺席/无权限 → 条目 dormant；
+//   · 投递面原样保留：agents/<id>/entries/timer.json 数据面、agentsEdit
+//     单写者口、邮局唤醒信（conversationId 烘焙/对角线缺省/机制任务
+//     直调）、乐观并发 storedSnapshot（ISSUE-24）、诊断面、心跳。
+// 记账（state.json）：lastFiredAt / firedCount / armedAt（catchup 下界
+// 与 after-last 锚）/ nextAtCache（时钟跳变检测——nextAt 恒可由 entry +
+// now 重算，缓存只剩告警价值，断点不再承载排程语义）。审计行落
+// meta/timer/audit.jsonl（滚动）。投递失败退避 1m→5m→30m、连续 5 次
+// 停排 fail-loud（沿用 v2）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execFile } from 'node:child_process';
-import { Worker } from 'node:worker_threads';
-import { fileURLToPath } from 'node:url';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { listAgentIds, readAgentConfig, settingsOf, isPresetId } from 'ac-agents-core';
 import { DEFAULT_TZ } from 'ac-core-utils'; // 缺省时区基线（cr-1053 单源）
@@ -24,20 +30,26 @@ import { makeEnvelope, issueRequestId } from 'ac-envelope-core';
 import type { Envelope } from 'ac-envelope-core';
 import type { PostOffice } from 'ac-post-office';
 import {
-  CHECK_FLOOR_MS,
-  compileEntry,
   createHolidayResolver,
-  inspectVerdict,
+  gatesPass,
   isLegacyEntryShape,
+  isScriptEntryShape,
+  isTimeTrigger,
+  lastDueMs,
   localISO,
-  makeTimerUtils,
-  nextWaitMs,
-  validateScriptEntries,
-  type TimerCheckArgs,
-  type TimerCheckVerdict,
-  type TimerScriptEntry,
-  type TimerUtils,
+  matchRow,
+  migrateLegacyEntry,
+  nextGridMs,
+  parseInterval,
+  previewFires,
+  untilReached,
+  validateTimerEntries,
+  type SourceTrigger,
+  type TimeTrigger,
+  type TimerEntry,
 } from 'ac-timer-core';
+import { readMeta, readRowsSince } from 'ac-source-core';
+import { hasSourceView } from 'ac-auth-core';
 
 /** 全局条目 owner（sys.timer；target '*' = 全部常规 Agent） */
 export const GLOBAL_TIMER_OWNER = '__global__';
@@ -54,54 +66,42 @@ export interface TimersHostRowOptions {
   postOffice: PostOffice;
   timezone?: string;
   heartbeatMs?: number;
-  gateTimeoutMs?: number;
-  /** 单次检测墙钟上限（缺省 30s；worker 超时杀——死循环防线） */
-  checkWallMs?: number;
   agentsEdit?: EntriesEditFace;
 }
 
-/** 持久化运行时状态（meta/timer/state.json）。persistNextAt = 探测循环
- * 断点（verdict.next 的 ISO——重启 arm 直排未来值，不重跑脚本防风暴）。 */
+/** 持久化记账（meta/timer/state.json）。时刻字段一律纪元毫秒（数值）——
+ * 秒级 ISO 截断会让 catchup 判据（lastFired > due）在亚秒刻永真（实测
+ * once 7ms 循环重投）；显示层再经 localISO 转 owner 时区。nextAtCache
+ * 仅时钟跳变检测用。 */
 interface TimerPersistedState {
-  lastTriggeredAt?: string;
-  executedCount?: number;
-  scriptState?: unknown;
-  persistNextAt?: string;
+  /** 条目首次装载时刻（catchup 下界与 after-last 锚——一经写入不变） */
+  armedAt?: number;
+  lastFiredAt?: number;
+  firedCount?: number;
+  nextAtCache?: number;
+  dormantReason?: string;
+  /** 心跳存活信号（诊断面——不参与任何逻辑） */
+  heartbeatAt?: string;
 }
 
 /** 完成条目归档记录 */
-interface TimerArchiveRecord extends TimerScriptEntry {
-  status: 'completed';
+interface TimerArchiveRecord {
+  id: string;
+  status: 'completed' | 'dropped';
+  reason?: string;
   completedAt: string;
-  executedCount: number;
+  firedCount: number;
+  entry?: TimerEntry;
 }
 
-/** entries/timer.json 持久形态 */
-interface TimerStoreEntry { entries: TimerScriptEntry[]; }
+/** entries/timer.json 持久形态（v3：整表带 version） */
+interface TimerStoreEntry { version: 3; entries: TimerEntry[] }
 
 /** settings 分层形状 */
 interface TimerLayerSettings {
   timezone?: string;
   holidays?: string[];
   makeupWorkdays?: string[];
-}
-
-/**
- * gate 预检结果（ISSUE-22 语义原样——gate 归位投递侧）：
- *   run = 0 放行 / silent = 1(空 stderr) 或 20 / error = 其它非零。
- */
-type GateVerdict = 'run' | 'silent' | 'error';
-
-/** gate 无歧义静默退出码 */
-export const GATE_SILENT_EXIT = 20;
-
-/** gate stderr 末行（截 400 字符） */
-export function gateStderrTail(stderr: unknown): string {
-  if (typeof stderr !== 'string') return '';
-  const lines = stderr.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-  if (lines.length === 0) return '';
-  const last = lines[lines.length - 1];
-  return last.length > 400 ? last.slice(0, 400) + '…' : last;
 }
 
 /** 哨兵：磁盘无文件 */
@@ -122,73 +122,34 @@ function stableStringify(value: unknown): string {
   );
 }
 
-/** 错误退避阶梯（连续失败：1m → 5m → 30m → 30m…；CHECK_STOP_STREAK 次后停排） */
+/** 投递失败退避阶梯（连续失败：1m → 5m → 30m → 30m…；停排阈值次后停） */
 const BACKOFF_STEPS_MS = [60_000, 300_000, 1_800_000];
-/** 连续错误停排阈值（fail-loud：诊断面 lastErrorAt + list 透出） */
-const CHECK_STOP_STREAK = 5;
-const GATE_TIMEOUT_MS = 30_000;
-const CHECK_WALL_MS = 30_000;
+const DISPATCH_STOP_STREAK = 5;
 
-// ============================================================
-// check runner（worker containment——每检测即拉即弃）
-// ============================================================
+/** setTimeout 时长上限（2^30ms ≈ 12 天——远期目标排中继刻度，到点重算） */
+const MAX_TIMEOUT_MS = 2 ** 30;
 
-/** utilsConfig 形状（per-owner 配置随检测传 worker——makeTimerUtils 构造） */
-export interface UtilsConfig {
-  tz?: string;
-  holidays?: string[];
-  makeupWorkdays?: string[];
-}
+/** 审计滚动阈值（单文件 1MB → .old 覆盖） */
+const AUDIT_ROLL_BYTES = 1_000_000;
 
-/** worker 求值一次检测脚本（dev 形态直跑 .ts；墙钟超时杀） */
-function runCheckInWorker(code: string, args: TimerCheckArgs, utilsConfig: UtilsConfig, wallMs: number): Promise<{ ok: true; verdict: TimerCheckVerdict | undefined } | { ok: false; error: string; interrupted?: boolean }> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (r: { ok: true; verdict: TimerCheckVerdict | undefined } | { ok: false; error: string; interrupted?: boolean }): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(killTimer);
-      try { worker.terminate(); } catch { /* 已退出 */ }
-      resolve(r);
-    };
-    let worker: Worker;
-    const entryUrl = new URL('./timer-check-worker.ts', import.meta.url);
-    const STRIP_FLAG = '--experimental-strip-types';
-    const noWarn = process.execArgv.includes('--no-warnings') ? process.execArgv : [...process.execArgv, '--no-warnings'];
-    const execArgv = noWarn.includes(STRIP_FLAG) ? noWarn : [...noWarn, STRIP_FLAG];
-    try {
-      worker = new Worker(entryUrl, { execArgv });
-    } catch (err: unknown) {
-      resolve({ ok: false, error: '检测 worker 构造失败：' + (err instanceof Error ? err.message : String(err)) });
-      return;
-    }
-    if (typeof worker.unref === 'function') worker.unref();
-    const killTimer = setTimeout(() => {
-      finish({ ok: false, error: `检测脚本墙钟超时（${wallMs}ms）——疑似死循环，已杀`, interrupted: true });
-    }, wallMs);
-    if (typeof killTimer.unref === 'function') killTimer.unref();
-    const onMessage = (m: unknown): void => {
-      if (typeof m !== 'object' || m === null) return;
-      const r = m as { type?: string; ok?: boolean; verdict?: TimerCheckVerdict; error?: string; interrupted?: boolean };
-      if (r.type === 'ready') {
-        worker.postMessage({ type: 'init', code, args, utilsConfig });
-        return;
-      }
-      if (r.type === 'done') {
-        if (r.ok === true) finish({ ok: true, verdict: r.verdict });
-        else finish({ ok: false, error: r.error ?? '检测脚本失败', interrupted: r.interrupted });
-      }
-    };
-    worker.on('message', onMessage);
-    worker.on('error', (err: Error) => finish({ ok: false, error: '检测 worker 异常：' + err.message }));
-    worker.on('exit', (c: number) => {
-      if (!settled) finish({ ok: false, error: `检测 worker 提前退出（code=${c}）` });
-    });
-  });
+/** 时钟跳变告警阈值（重算 nextAt 与缓存偏差超过即记 lastNote） */
+const CLOCK_JUMP_MS = 10 * 60_000;
+
+/** 源触发 cooldown 缺省（§十一开放决策：5m） */
+const DEFAULT_SOURCE_COOLDOWN = '5m';
+
+/** pull 兜底扫描地板（防兜底扫描风暴——§六防线表） */
+const PULL_FLOOR_MS = 10_000;
+
+/** 一次排程计划（source 触发不预排程——事件到达时现构） */
+interface FirePlan {
+  due: number;
+  trigger: TimeTrigger | SourceTrigger;
+  cause: 'time' | 'catchup' | 'source';
 }
 
 // ============================================================
-// 宿主 timers 服务（check/dispatch 循环）
+// 宿主 timers 服务（哑排程引擎）
 // ============================================================
 
 export class HostTimersService extends Service {
@@ -199,24 +160,29 @@ export class HostTimersService extends Service {
   private readonly agentsEdit: EntriesEditFace | undefined;
   private readonly baseTz: string;
   private readonly heartbeatMs: number;
-  private readonly gateTimeoutMs: number;
-  private readonly checkWallMs: number;
   private stateFile: string;
-  private entriesByAgent = new Map<string, TimerScriptEntry[]>();
+  private auditFile: string;
+  private entriesByAgent = new Map<string, TimerEntry[]>();
   private schedules = new Map<string, () => void>();
+  private scheduledDue = new Map<string, FirePlan>();
   private heartbeatDispose?: () => void;
   private persisted = new Map<string, TimerPersistedState>();
   private nextAtMs = new Map<string, number>();
   private lastSkip = new Map<string, { at: string; reason: string; streak: number }>();
-  private lastGateErrorAt = new Map<string, string>();
-  private lastGateCode = new Map<string, number>();
-  private lastGateCodeAt = new Map<string, string>();
   private lastError = new Map<string, { at: string; message: string; streak: number }>();
-  /** verdict 非致命提示（next 在过去等，cr-1149）——同文本不重复记 */
+  /** 非致命提示（时钟跳变等）——同文本不重复记 */
   private lastNote = new Map<string, { at: string; text: string }>();
   private storedSnapshot = new Map<string, string>();
-  private legacyGateNotice = new Set<string>();
   private migrating = false;
+  // ── 源触发运行时（cr-1165）：lastSeq 记账 + cooldown 窗口 + pull 兜底 ──
+  /** 条目键 owner/id → 各源/视图的已消费 seq（断点续读基准） */
+  private lastSeqByEntry = new Map<string, Record<string, number>>();
+  /** 条目键 → 各源触发器 cooldown 窗口截止时刻（纪元毫秒） */
+  private cooldownUntil = new Map<string, Record<string, number>>();
+  /** pull 兜底扫描 interval dispose（10s 地板；仅源条目在场时活） */
+  private pullDispose?: () => void;
+  /** 源事件订阅 dispose（source/updated） */
+  private sourceSubDispose?: () => void;
 
   constructor(ctx: Context, options: TimersHostRowOptions) {
     super(ctx, 'timers');
@@ -224,11 +190,13 @@ export class HostTimersService extends Service {
     this.po = options.postOffice;
     this.baseTz = options.timezone ?? DEFAULT_TZ;
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
-    this.gateTimeoutMs = options.gateTimeoutMs ?? GATE_TIMEOUT_MS;
-    this.checkWallMs = options.checkWallMs ?? CHECK_WALL_MS;
     this.agentsEdit = options.agentsEdit;
     this.stateFile = path.join(this.dataRoot, 'meta', 'timer', 'state.json');
+    this.auditFile = path.join(this.dataRoot, 'meta', 'timer', 'audit.jsonl');
     ctx.fiber.effect(() => () => this.stopAll(), 'host-timers.stop');
+    this.ctx.on('source/updated', (p: { source: string; view: string; seq: number }) => {
+      this.onSourceUpdated(p.source, p.view, p.seq);
+    });
     this.reload();
   }
 
@@ -249,7 +217,7 @@ export class HostTimersService extends Service {
       return v;
     };
     const via = this.agentsEdit?.readEntry<TimerStoreEntry>(owner, 'timer');
-    if (via !== undefined) return finish(Array.isArray(via.entries) ? via : null);
+    if (via !== undefined) return finish(Array.isArray((via as { entries?: unknown }).entries) ? (via as TimerStoreEntry) : null);
     try {
       const file = path.join(this.dataRoot, 'agents', owner, 'entries', 'timer.json');
       const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as TimerStoreEntry;
@@ -313,7 +281,7 @@ export class HostTimersService extends Service {
     return typeof t === 'string' && t.trim() ? t.trim() : this.baseTz;
   }
 
-  private holidaysOf(owner: string): ReturnType<typeof createHolidayResolver> {
+  private resolverOf(owner: string): ReturnType<typeof createHolidayResolver> {
     const s = this.layerOf(owner);
     return createHolidayResolver(
       {
@@ -324,67 +292,96 @@ export class HostTimersService extends Service {
     );
   }
 
-  // ── 迁移（cr-1147：boot 时旧条目一次性编译） ──
+  // ── 迁移（cr-1164：boot 时旧形态一次性转 v3） ──
 
   /**
-   * 旧 5 模式条目 → 脚本条目（compileEntry 单源）。逐 owner：读盘 → 编译 →
-   * 备份 timer.json.bak → 写回。已跑条目连续性：executedCount/lastTriggeredAt
-   * 留在 meta/timer/state.json（key 不变——count 语义直译，无需转换）。
-   * 全局条目（config timer.tasks）同形编译，落 config。
+   * 旧条目 → v3（migrateLegacyEntry 单源，§八映射表）。三类旧形态：
+   *   · v1 5 模式（mode 字段）→ 直译；
+   *   · v2 脚本条目（kind:'script'）→ 丢弃归档（code 存量为零——执行面
+   *     砍除是换轨本体，脚本语义无法数据化直译）；
+   *   · 简化全局形状（{time,hint,targets}，GlobalTimerHost UI 产物）→ v3。
+   * 记账 key 迁移：executedCount→firedCount / lastTriggeredAt→lastFiredAt；
+   * scriptState / persistNextAt 丢弃。timer.json.bak 备份后写 {version:3}。
    */
   private migrateLegacy(): void {
     for (const agentId of listAgentIds(this.dataRoot)) {
       const file = path.join(this.dataRoot, 'agents', agentId, 'entries', 'timer.json');
-      let raw: { entries?: unknown[] } | null = null;
-      try { raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as { entries?: unknown[] }; } catch { continue; }
+      let raw: { version?: number; entries?: unknown[] } | null = null;
+      try { raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as { version?: number; entries?: unknown[] }; } catch { continue; }
       if (!Array.isArray(raw.entries)) continue;
-      const hasLegacy = raw.entries.some((e) => isLegacyEntryShape(e));
-      if (!hasLegacy) continue;
-      // 迁移即换判定实现：旧 scriptState（若有 v1 残留 started 旗标）清空——
-      // 编译产物首轮自带静默排期，旗标残留会导致迁移后立即触发。记账
-      // （executedCount/lastTriggeredAt/persistNextAt）保留——count 连续性。
+      if (raw.version === 3 && !raw.entries.some((e) => isLegacyEntryShape(e) || isScriptEntryShape(e) || isSimplifiedGlobalShape(e))) continue;
+      const dropped: TimerArchiveRecord[] = [];
+      const migrated: TimerEntry[] = [];
       for (const e of raw.entries) {
-        if (isLegacyEntryShape(e)) {
-          const k = agentId + '/' + e.id;
-          const ps = this.persisted.get(k);
-          if (ps !== undefined) {
-            const { scriptState: _drop, ...keep } = ps;
-            this.persisted.set(k, keep);
-          }
+        if (isLegacyEntryShape(e)) { migrated.push(migrateLegacyEntry(e)); continue; }
+        if (isSimplifiedGlobalShape(e)) { migrated.push(simplifiedToV3(e as { time: string; hint: string; targets?: string[]; builtin?: boolean })); continue; }
+        if (isScriptEntryShape(e)) {
+          dropped.push({ id: (e as { id: string }).id, status: 'dropped', reason: 'script-face-retired', completedAt: localISO(undefined, this.baseTz), firedCount: 0 });
+          continue;
+        }
+        // v3 条目原样保留（version 戳缺失的散装 v3）
+        try { migrated.push(...validateTimerEntries([e])); } catch {
+          dropped.push({ id: '<unknown>', status: 'dropped', reason: 'invalid', completedAt: localISO(undefined, this.baseTz), firedCount: 0 });
         }
       }
-      const compiled = raw.entries.map((e) =>
-        isLegacyEntryShape(e) ? compileEntry(e) : (e as TimerScriptEntry),
-      );
       try {
         fs.copyFileSync(file, file + '.bak');
-        fs.writeFileSync(file, JSON.stringify({ entries: validateScriptEntries(compiled) }, null, 2), 'utf-8');
-        this.ctx.logger.info('[timers] ' + agentId + ' 旧条目已迁移为脚本条目（' + compiled.length + ' 条，备份 timer.json.bak）');
+        fs.writeFileSync(file, JSON.stringify({ version: 3, entries: validateTimerEntries(migrated) }, null, 2), 'utf-8');
+        if (dropped.length > 0) {
+          this.writeArchive(agentId, [...this.readArchive(agentId), ...dropped]);
+          this.ctx.logger.warn('[timers] ' + agentId + ' v2 脚本/无效条目已丢弃归档（' + dropped.length + ' 条——执行面随 v3 砍除，备份 timer.json.bak）');
+        }
+        this.ctx.logger.info('[timers] ' + agentId + ' 条目已迁移 v3（' + migrated.length + ' 条，备份 timer.json.bak）');
       } catch (err: unknown) {
         this.ctx.logger.warn('[timers] ' + agentId + ' 迁移写盘失败：' + (err instanceof Error ? err.message : String(err)) + '——下次 boot 重试');
       }
     }
+    // 记账 key 迁移（executedCount→firedCount 等；scriptState/persistNextAt 丢弃）
+    for (const [key, ps] of [...this.persisted]) {
+      if (key.startsWith('_')) continue;
+      const legacy = ps as TimerPersistedState & { executedCount?: number; lastTriggeredAt?: string; scriptState?: unknown; persistNextAt?: string };
+      if (legacy.executedCount !== undefined || legacy.lastTriggeredAt !== undefined || legacy.scriptState !== undefined || legacy.persistNextAt !== undefined) {
+        const { executedCount, lastTriggeredAt, scriptState: _s, persistNextAt: _n, ...keep } = legacy;
+        const legacyFired = lastTriggeredAt !== undefined ? new Date(lastTriggeredAt).getTime() : undefined;
+        this.persisted.set(key, {
+          ...keep,
+          ...(Number.isFinite(legacyFired) && keep.lastFiredAt === undefined ? { lastFiredAt: legacyFired as number } : {}),
+          ...(executedCount !== undefined && keep.firedCount === undefined ? { firedCount: executedCount } : {}),
+        });
+      }
+    }
+    // 全局条目（config timer.tasks）：简化形状 / v1 / v2 → v3 落 config
     const cfg = this.configService();
     const rawTasks = cfg?.get<unknown[]>('timer.tasks');
-    if (Array.isArray(rawTasks) && rawTasks.some((e) => isLegacyEntryShape(e))) {
-      const compiled = rawTasks.map((e) => (isLegacyEntryShape(e) ? compileEntry(e) : e)) as TimerScriptEntry[];
-      cfg?.set('timer.tasks', validateScriptEntries(compiled));
-      this.ctx.logger.info('[timers] 全局条目已迁移为脚本条目（' + compiled.length + ' 条）');
+    if (Array.isArray(rawTasks) && rawTasks.some((e) => isLegacyEntryShape(e) || isScriptEntryShape(e) || isSimplifiedGlobalShape(e))) {
+      const dropped: unknown[] = [];
+      const migrated: TimerEntry[] = [];
+      for (const e of rawTasks) {
+        if (isLegacyEntryShape(e)) { migrated.push(migrateLegacyEntry(e)); continue; }
+        if (isSimplifiedGlobalShape(e)) { migrated.push(simplifiedToV3(e as { time: string; hint: string; targets?: string[]; builtin?: boolean })); continue; }
+        if (isScriptEntryShape(e)) { dropped.push(e); continue; }
+        try { migrated.push(...validateTimerEntries([e])); } catch { dropped.push(e); }
+      }
+      cfg?.set('timer.tasks', { version: 3, entries: validateTimerEntries(migrated) });
+      if (dropped.length > 0) this.ctx.logger.warn('[timers] 全局条目 ' + dropped.length + ' 条 v2 脚本/无效已丢弃（执行面随 v3 砍除）');
+      this.ctx.logger.info('[timers] 全局条目已迁移 v3（' + migrated.length + ' 条）');
     }
   }
 
   // ── 装载/排程 ──
 
   /**
-   * 重新加载全部条目 + 排程（启动/热重载共用）。脚本化后无停机补偿
-   * case 分析：nextCheckAt 已过 = 立即跑一次检测，脚本看 args.last/
-   * args.now 自决补触发还是跳下周期（补偿逻辑从宿主卸载）。
+   * 重新加载全部条目 + 排程（启动/热重载共用）。v3 哑层无断点语义：
+   * nextAt 恒可由 entry + now 重算——重启即重排；缓存值偏差过大（时钟
+   * 跳变）记 lastNote 告警。
    */
   reload(): void {
     this.stopAll();
     this.loadState();
     this.entriesByAgent.clear();
-    this.migrateLegacy();
+    this.migrating = true;
+    try { this.migrateLegacy(); } finally { this.migrating = false; }
+    this.saveState();
     for (const agentId of listAgentIds(this.dataRoot)) {
       const stored = this.readStored(agentId);
       const enabled = stored?.entries.filter((e) => e.enabled !== false) ?? [];
@@ -404,72 +401,55 @@ export class HostTimersService extends Service {
       for (const entry of entries) this.arm(owner, entry);
     }
     this.syncHeartbeat();
+    this.syncPull();
   }
 
-  private configEntries(): TimerScriptEntry[] {
+  private configEntries(): TimerEntry[] {
     const raw = this.configService()?.get<unknown>('timer.tasks');
-    if (!Array.isArray(raw)) return [];
-    const valid: TimerScriptEntry[] = [];
-    for (const item of raw) {
-      if (item === null || typeof item !== 'object') continue;
-      const e = item as Record<string, unknown>;
-      // 简化形状 {time, hint, targets}（GlobalTimerHost UI 产出）→ 旧条目 → 编译
-      if (e.kind === undefined && typeof e.time === 'string' && typeof e.hint === 'string') {
-        const MECH_HINTS: Record<string, 'archive-all' | 'backup-all'> = {
-          __archive_all__: 'archive-all',
-          __backup_all__: 'backup-all',
-        };
-        const hint = e.hint.trim();
-        const legacy = {
-          id: 'g-' + e.time + '-' + hint,
-          enabled: true,
-          mode: 'time' as const,
-          time: e.time,
-          hint,
-          ...(hint in MECH_HINTS ? { task: MECH_HINTS[hint] } : {}),
-          ...(Array.isArray(e.targets)
-            ? { target: e.targets.filter((t): t is string => typeof t === 'string' && t !== '').join(',') || undefined }
-            : {}),
-        };
-        valid.push(compileEntry(legacy));
+    const list = Array.isArray(raw)
+      ? raw
+      : raw !== null && typeof raw === 'object' && Array.isArray((raw as { entries?: unknown[] }).entries)
+        ? (raw as { entries: unknown[] }).entries
+        : [];
+    const valid: TimerEntry[] = [];
+    for (const item of list) {
+      if (isSimplifiedGlobalShape(item)) {
+        // 简化形状 {time, hint, targets}（GlobalTimerHost UI 产出）→ v3
+        valid.push(simplifiedToV3(item as { time: string; hint: string; targets?: string[]; builtin?: boolean }));
         continue;
       }
-      if (typeof e.id === 'string' && e.id !== '' && e.kind === 'script' && typeof e.code === 'string') {
-        valid.push(e as unknown as TimerScriptEntry);
-      }
+      try { valid.push(...validateTimerEntries([item])); } catch { /* 无效全局条目跳过（迁移期已告警） */ }
     }
     return valid;
   }
 
-  entries(owner: string): TimerScriptEntry[] {
+  entries(owner: string): TimerEntry[] {
     return [...(this.entriesByAgent.get(owner) ?? [])];
   }
 
-  list(): Array<{ owner: string; entries: TimerScriptEntry[] }> {
+  list(): Array<{ owner: string; entries: TimerEntry[] }> {
     return [...this.entriesByAgent].map(([owner, entries]) => ({ owner, entries }));
   }
 
   /**
-   * 排程态快照（诊断面——脚本型字段）。
+   * 排程态快照（诊断面）。
    *
-   * **时间字段一律用 owner 时区的带偏移 ISO**（`localISO`）：曾出现 `lastAt`
-   * 带 `+08:00` 而 `nextAt` 是 UTC `Z`，直接字符串相减差 8 小时——消费方
-   * （news 2026-11-17）据此差点把正常 30m 判成 7h30m 漂移。同类字段必须同格式，
-   * 否则「能算但算错」比「不能算」更危险。
+   * **时间字段一律用 owner 时区的带偏移 ISO**（localISO）：曾出现 lastAt 带
+   * +08:00 而 nextAt 是 UTC Z，直接字符串相减差 8 小时——同类字段必须同
+   * 格式，「能算但算错」比「不能算」更危险。
    *
-   * 惰性字段（lastSkip* / lastGate* / lastError* / lastNote*）**只在事件发生后才
-   * 出现**，且都是内存态（宿主重启即清空）。故「缺失」的含义是：本次启动以来
-   * 未发生该事件——前提是 `listVersion` 已达到引入该字段的版本（见 timer-face）。
+   * 惰性字段（lastSkip* / lastError* / lastNote*）只在事件发生后才出现，
+   * 且都是内存态（宿主重启即清空）——缺失 = 本次启动以来未发生该事件
+   * （前提 listVersion 达到引入版本，见 timer-face）。
    */
   scheduleState(owner: string, entryId: string): {
     lastAt?: string;
     nextAt?: string;
+    chained?: boolean;
+    dormantReason?: string;
     lastSkipAt?: string;
     lastSkipReason?: string;
     skipStreak?: number;
-    lastGateErrorAt?: string;
-    lastGateCode?: number;
-    lastGateCodeAt?: string;
     lastErrorAt?: string;
     lastError?: string;
     errorStreak?: number;
@@ -481,38 +461,35 @@ export class HostTimersService extends Service {
     const ps = this.persisted.get(key);
     const next = this.nextAtMs.get(key);
     const skip = this.lastSkip.get(key);
-    const gateErr = this.lastGateErrorAt.get(key);
-    const gateCode = this.lastGateCode.get(key);
-    const gateCodeAt = this.lastGateCodeAt.get(key);
     const err = this.lastError.get(key);
     const note = this.lastNote.get(key);
     const tz = this.tzOf(owner);
+    const entry = this.entriesByAgent.get(owner)?.find((e) => e.id === entryId);
+    const chained = entry?.when.some((t) => t.kind === 'every' && (t.base ?? 'wall') === 'after-last') ?? false;
     return {
-      ...(ps?.lastTriggeredAt ? { lastAt: ps.lastTriggeredAt } : {}),
+      ...(ps?.lastFiredAt !== undefined ? { lastAt: localISO(new Date(ps.lastFiredAt), tz) } : {}),
       ...(next !== undefined ? { nextAt: localISO(new Date(next), tz) } : {}),
+      ...(chained ? { chained: true } : {}),
+      ...(ps?.dormantReason ? { dormantReason: ps.dormantReason } : {}),
       ...(skip ? { lastSkipAt: skip.at, lastSkipReason: skip.reason, skipStreak: skip.streak } : {}),
-      ...(gateErr ? { lastGateErrorAt: gateErr } : {}),
-      ...(gateCode !== undefined ? { lastGateCode: gateCode } : {}),
-      ...(gateCodeAt ? { lastGateCodeAt: gateCodeAt } : {}),
       ...(err ? { lastErrorAt: err.at, lastError: err.message, errorStreak: err.streak } : {}),
       ...(note ? { lastNoteAt: note.at, lastNote: note.text } : {}),
-      ...(ps?.executedCount !== undefined ? { triggeredCount: ps.executedCount } : {}),
+      ...(ps?.firedCount !== undefined ? { triggeredCount: ps.firedCount } : {}),
     };
   }
 
   /**
-   * 写回条目表并重排。seed = 新条目的首检初值（cr-1149 v2：set 时干跑即首检，
-   * 其 state + next 直接落为记账/排程断点——arm 见未来断点直排，不再立即探测
-   * 投递；「设置即投递」这条路径由此从宿主侧消除，不依赖脚本纪律）。
+   * 写回条目表并重排（v3 纯数据写——校验单源 validateTimerEntries）。
+   * 新条目 armedAt 落现在（catchup 不回补 set 前的历史刻）。
    */
-  save(
-    owner: string,
-    entries: TimerScriptEntry[],
-    seed?: Record<string, { state?: unknown; nextAt?: Date }>,
-  ): { ok: boolean; error?: string } {
-    const stored: TimerStoreEntry = { entries };
+  save(owner: string, entries: TimerEntry[]): { ok: boolean; error?: string } {
+    let valid: TimerEntry[];
+    try { valid = validateTimerEntries(entries); } catch (err: unknown) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    const stored: TimerStoreEntry = { version: 3, entries: valid };
     if (owner === GLOBAL_TIMER_OWNER) {
-      this.configService()?.set('timer.tasks', entries);
+      this.configService()?.set('timer.tasks', stored);
     } else {
       const disk = this.readStored(owner, { remember: false });
       const diskSig = disk === null ? ABSENT : stableStringify(disk);
@@ -528,22 +505,20 @@ export class HostTimersService extends Service {
       this.writeStored(owner, stored);
     }
     this.stopAgent(owner);
-    const enabled = entries.filter((e) => e.enabled !== false);
+    const enabled = valid.filter((e) => e.enabled !== false);
     if (enabled.length > 0) this.entriesByAgent.set(owner, enabled);
     else this.entriesByAgent.delete(owner);
-    const valid = new Set(enabled.map((e) => `${owner}/${e.id}`));
+    const validKeys = new Set(enabled.map((e) => `${owner}/${e.id}`));
     for (const key of this.persisted.keys()) {
-      if (key.startsWith(`${owner}/`) && !valid.has(key)) this.forget(key);
+      if (key.startsWith(`${owner}/`) && !validKeys.has(key)) this.forget(key);
     }
-    if (seed !== undefined) {
-      for (const [id, s] of Object.entries(seed)) {
-        if (!valid.has(`${owner}/${id}`)) continue;
-        if (!(s.nextAt instanceof Date) || isNaN(s.nextAt.getTime())) continue;
-        this.persisted.set(`${owner}/${id}`, {
-          ...(s.state !== undefined ? { scriptState: s.state } : {}),
-          persistNextAt: s.nextAt.toISOString(),
-        });
-      }
+    // 新条目 armedAt = 现在（既有条目保留原 armedAt——catchup 下界稳定）
+    const now = Date.now();
+    for (const e of enabled) {
+      const key = `${owner}/${e.id}`;
+      const ps = this.persisted.get(key);
+      if (ps === undefined) this.persisted.set(key, { armedAt: now });
+      else if (ps.armedAt === undefined) this.persisted.set(key, { ...ps, armedAt: now });
     }
     this.saveState();
     for (const entry of enabled) this.arm(owner, entry);
@@ -560,9 +535,7 @@ export class HostTimersService extends Service {
   }
 
   private adoptStored(owner: string, disk: TimerStoreEntry | null): void {
-    this.stopAgent(owner);
     const enabled = disk?.entries.filter((e) => e.enabled !== false) ?? [];
-    this.storedSnapshot.set(owner, disk === null ? ABSENT : stableStringify(disk));
     if (enabled.length > 0) this.entriesByAgent.set(owner, enabled);
     else this.entriesByAgent.delete(owner);
     const valid = new Set(enabled.map((e) => `${owner}/${e.id}`));
@@ -573,33 +546,31 @@ export class HostTimersService extends Service {
     for (const entry of enabled) this.arm(owner, entry);
   }
 
-  /** 手动触发（测试/诊断；直接投递——不走脚本判定） */
+  /**
+   * 静态预览（timer 工具 test / set 返回体——owner 时区求值；after-last
+   * 从 armedAt=now 起链并标注 chained）。
+   */
+  preview(owner: string, entry: TimerEntry): { fires: Array<{ at: string; trigger: string; chained: boolean }> } {
+    const now = Date.now();
+    return {
+      fires: previewFires(entry, now, { tz: this.tzOf(owner), armedAt: now }).map((f) => ({
+        at: localISO(new Date(f.at), this.tzOf(owner)),
+        trigger: f.trigger.kind,
+        chained: f.chained,
+      })),
+    };
+  }
+
+  /** 手动触发（测试/诊断；直接投递——不走触发判定） */
   triggerNow(owner: string, entryId: string): boolean {
     const entry = this.entries(owner).find((e) => e.id === entryId);
     if (!entry) return false;
-    void this.fireEntry(owner, entry);
+    void this.fire(owner, entry, { due: Date.now(), trigger: { kind: 'once', at: new Date().toISOString() }, cause: 'time' }, true);
     return true;
   }
 
-  /**
-   * 干跑检测（timer 工具 test / set 自检——不触发不排程）。校验与运行期同一份
-   * 判据（inspectVerdict，cr-1149）：类型错误直接拒，可疑项经 notes 回话。
-   */
-  async dryRun(owner: string, code: string, state?: unknown): Promise<{ ok: true; verdict: TimerCheckVerdict; notes: string[] } | { ok: false; error: string }> {
-    const args = this.checkArgsOf(owner, { id: 'dry-run', enabled: true, kind: 'script', code }, state);
-    const r = await runCheckInWorker(code, args, this.utilsConfigOf(owner), this.checkWallMs);
-    if (!r.ok) return { ok: false, error: r.error };
-    const verdict = r.verdict;
-    if (typeof verdict !== 'object') {
-      return { ok: false, error: 'verdict 缺失（脚本须 return { action?, next?, state?, active? }）' };
-    }
-    const insp = inspectVerdict(verdict);
-    if (insp.error !== undefined) return { ok: false, error: insp.error };
-    return { ok: true, verdict, notes: insp.notes };
-  }
-
   // ============================================================
-  // check/dispatch 循环（排程引擎核心）
+  // 哑排程引擎（arm → fire → re-arm 自续链）
   // ============================================================
 
   private cancel(key: string): void {
@@ -608,6 +579,7 @@ export class HostTimersService extends Service {
       dispose();
       this.schedules.delete(key);
     }
+    this.scheduledDue.delete(key);
     this.nextAtMs.delete(key);
     this.syncHeartbeat();
   }
@@ -620,6 +592,202 @@ export class HostTimersService extends Service {
 
   private stopAll(): void {
     for (const key of [...this.schedules.keys()]) this.cancel(key);
+    this.stopSourceRuntime();
+  }
+
+  // ============================================================
+  // 源触发运行时（cr-1165：push 分发 + pull 兜底 + stale + cooldown）
+  // ============================================================
+
+  private stopSourceRuntime(): void {
+    if (this.pullDispose !== undefined) { this.pullDispose(); this.pullDispose = undefined; }
+  }
+
+  /** 条目的源触发器全集 */
+  private sourceTriggersOf(entry: TimerEntry): SourceTrigger[] {
+    return entry.when.filter((t): t is SourceTrigger => t.kind === 'source');
+  }
+
+  /**
+   * 源视图授权判定（cr-1166 双闸之一）：per-agent inline grant 投影
+   * （hasSourceView 单源——timer-face set 校验与本行分发共用口径）。
+   * 全局条目（GLOBAL_TIMER_OWNER）恒过——它的扇出面是用户配置的 target
+   * 白名单，不经 LLM 面。
+   */
+  maySubscribe(owner: string, source: string, view: string): boolean {
+    if (owner === GLOBAL_TIMER_OWNER) return true;
+    return hasSourceView(this.dataRoot, owner, source, view);
+  }
+
+  /**
+   * source/updated 分发（push 主通道）：对每个订阅该 source/view 的条目
+   * 做增量匹配。读物化面 rows（readRowsSince lastSeq）——事件只带 seq，
+   * 行数据以物化面为准（事件是「来读」的信号，不是数据载体）。
+   */
+  private onSourceUpdated(source: string, view: string, seq: number): void {
+    for (const [owner, entries] of this.entriesByAgent) {
+      for (const entry of entries) {
+        const trigs = this.sourceTriggersOf(entry).filter((t) => t.source === source && t.view === view);
+        if (trigs.length === 0) continue;
+        // 二道闸（cr-1166）：未授权条目不投——直改 timer.json 注入的订阅绕不过
+        // set 校验（磁盘文件在 Agent 双禁域内，此闸防将来任何旁路写入口）。
+        // 授权变更（吊销）后已存条目自动失效——每事件现查。
+        if (!this.maySubscribe(owner, source, view)) continue;
+        // dormant 解除：源行上线（物化出现）即重评估（arm 内 clearDormant）
+        if (this.persisted.get(owner + '/' + entry.id)?.dormantReason === 'source-unavailable') this.arm(owner, entry);
+        void this.matchAndFire(owner, entry, trigs, source, view, seq);
+      }
+    }
+    this.syncPull();
+  }
+
+  /**
+   * 增量匹配与投递：新行对触发器逐条求值（match 缺席 = 新行即命中）；
+   * cooldown 窗口内不投但 lastSeq 照常推进（判断不丢，投递节流）。
+   * 窗口外首次命中即投——本次事件的其余新行不再重复投递。
+   */
+  private async matchAndFire(
+    owner: string,
+    entry: TimerEntry,
+    trigs: SourceTrigger[],
+    source: string,
+    view: string,
+    seq: number,
+  ): Promise<void> {
+    const key = owner + '/' + entry.id;
+    const rows = readRowsSince(path.join(this.dataRoot, 'exports', source, view), this.lastSeqOf(key, source, view));
+    if (rows.length === 0) return;
+    for (const trig of trigs) {
+      if (trig.on !== 'rows-added') continue;
+      const hit = trig.match === undefined || rows.some((row) => matchRow(trig.match!, row));
+      if (!hit) continue;
+      const cd = parseInterval(trig.cooldown ?? DEFAULT_SOURCE_COOLDOWN) ?? 5 * 60_000;
+      const now = Date.now();
+      const until = this.cooldownUntil.get(key)?.[source + '/' + view] ?? 0;
+      if (now < until) break; // 窗口内：不投（方法尾 lastSeq 照常推进——判断不丢）
+      if (await this.fireSource(owner, entry, trig, { source, view, seq })) {
+        const cur = this.cooldownUntil.get(key) ?? {};
+        cur[source + '/' + view] = now + cd;
+        this.cooldownUntil.set(key, cur);
+      }
+      break; // 一投即止（同事件内不重复投）
+    }
+    this.advanceLastSeq(key, source, view, seq);
+  }
+
+  private lastSeqOf(key: string, source: string, view: string): number {
+    return this.lastSeqByEntry.get(key)?.[source + '/' + view] ?? 0;
+  }
+
+  private advanceLastSeq(key: string, source: string, view: string, seq: number): void {
+    const cur = this.lastSeqByEntry.get(key) ?? {};
+    if ((cur[source + '/' + view] ?? 0) < seq) {
+      cur[source + '/' + view] = seq;
+      this.lastSeqByEntry.set(key, cur);
+    }
+  }
+
+  /**
+   * pull 兜底（源声明 fallbackPoll——事件驱动为主，push 断了（行崩溃）
+   * 也有第二通道）：扫订阅源 meta.seq，比记账推进多即当一次事件处理。
+   * 10s 地板（防兜底扫描风暴——§六防线表）。
+   */
+  private syncPull(): void {
+    const needPull = [...this.entriesByAgent.values()].some((entries) => entries.some((e) => this.sourceTriggersOf(e).length > 0));
+    if (needPull && this.pullDispose === undefined) {
+      let lastSweep = 0;
+      this.pullDispose = this.ctx.interval(() => {
+        const now = Date.now();
+        if (now - lastSweep < PULL_FLOOR_MS) return;
+        lastSweep = now;
+        this.pullSweep();
+        this.staleSweep();
+      }, 10_000);
+    } else if (!needPull && this.pullDispose !== undefined) {
+      this.stopSourceRuntime();
+    }
+  }
+
+  private pullSweep(): void {
+    const pairs = new Map<string, { source: string; view: string; seq: number }>();
+    for (const entries of this.entriesByAgent.values()) {
+      for (const entry of entries) {
+        for (const t of this.sourceTriggersOf(entry)) {
+          if (pairs.has(t.source + '/' + t.view)) continue;
+          const meta = readMeta(path.join(this.dataRoot, 'exports', t.source, t.view));
+          if (meta !== null) pairs.set(t.source + '/' + t.view, { source: t.source, view: t.view, seq: meta.seq });
+        }
+      }
+    }
+    for (const p of pairs.values()) {
+      // 只在终态 seq 超过所有订阅条目的 lastSeq 时当一次事件（缺位 = 首见）
+      let behind = false;
+      for (const [owner, entries] of this.entriesByAgent) {
+        for (const entry of entries) {
+          if (!this.sourceTriggersOf(entry).some((t) => t.source === p.source && t.view === p.view)) continue;
+          if (this.lastSeqOf(owner + '/' + entry.id, p.source, p.view) < p.seq) behind = true;
+        }
+      }
+      if (behind) this.onSourceUpdated(p.source, p.view, p.seq);
+    }
+  }
+
+  /**
+   * stale 判定与唤醒（监控监控者——§五）：源 staleAfter 过期即投递
+   * on:'stale' 条目。由 pull 兜底扫描顺带执行（事件通道断了的 stale
+   * 也要能发现——meta.generatedAt 是源活性心跳）。
+   */
+  private staleSweep(): void {
+    const now = Date.now();
+    for (const [owner, entries] of this.entriesByAgent) {
+      for (const entry of entries) {
+        const staleTrig = this.sourceTriggersOf(entry).find((t) => t.on === 'stale');
+        if (staleTrig === undefined) continue;
+        const meta = readMeta(path.join(this.dataRoot, 'exports', staleTrig.source, staleTrig.view));
+        if (meta === null) continue; // 源从未物化（源行缺席）——dormant 面已有
+        const genMs = new Date(meta.generatedAt).getTime();
+        if (!Number.isFinite(genMs) || now - genMs < meta.staleAfterMs) continue;
+        // stale 唤醒也吃 cooldown（防告警风暴）——窗口内不投
+        const cdKey = staleTrig.source + '/' + staleTrig.view;
+        const until = this.cooldownUntil.get(owner + '/' + entry.id)?.[cdKey] ?? 0;
+        if (now < until) continue;
+        void this.fireSource(owner, entry, staleTrig, { source: staleTrig.source, view: staleTrig.view, seq: meta.seq }).then((ok) => {
+          if (!ok) return;
+          const cur = this.cooldownUntil.get(owner + '/' + entry.id) ?? {};
+          cur[cdKey] = now + (parseInterval(staleTrig.cooldown ?? '') ?? 30 * 60_000);
+          this.cooldownUntil.set(owner + '/' + entry.id, cur);
+        });
+      }
+    }
+  }
+
+  /**
+   * 源投递（与时间触发共用 fire 链的门/记账/审计/until 语义）：手动
+   * 组 FirePlan（cause 'source'）。投递成功即记账推进（lastFiredAt /
+   * firedCount / until 终结）。
+   */
+  private async fireSource(owner: string, entry: TimerEntry, trig: SourceTrigger, ev: { source: string; view: string; seq: number }): Promise<boolean> {
+    const key = owner + '/' + entry.id;
+    const now = Date.now();
+    const tz = this.tzOf(owner);
+    // 门不命中的事件轮不投（事件丢弃，由下一物化接续——§三）；手动语义不适用
+    if (!gatesPass(entry.gates, now, tz, this.resolverOf(owner))) return false;
+    const plan: FirePlan = { due: now, trigger: trig, cause: 'source' };
+    const ok = await this.dispatch(owner, entry, key);
+    if (!ok) {
+      this.retryDispatch(key, owner, entry, plan, false, () =>
+        this.entriesByAgent.get(owner)?.some((e) => e.id === entry.id && e.enabled !== false) ?? false);
+      return false;
+    }
+    this.lastError.delete(key);
+    this.lastSkip.delete(key);
+    const cur = this.persisted.get(key);
+    const newCount = (cur?.firedCount ?? 0) + 1;
+    this.persisted.set(key, { ...(cur ?? {}), firedCount: newCount, lastFiredAt: now });
+    this.saveState();
+    this.appendAudit(owner, entry, plan, now, ev.seq);
+    if (untilReached(entry.until, newCount, now)) this.completeEntry(owner, entry, newCount, 'until');
+    return true;
   }
 
   private syncHeartbeat(): void {
@@ -628,7 +796,7 @@ export class HostTimersService extends Service {
     if (need && this.heartbeatDispose === undefined) {
       this.heartbeatDispose = ctx.interval(() => {
         try {
-          this.persisted.set('_heartbeat', { lastTriggeredAt: localISO(undefined, this.baseTz) });
+          this.persisted.set('_heartbeat', { heartbeatAt: localISO(undefined, this.baseTz) });
           this.saveState();
         } catch {
           /* 心跳写失败不影响运行 */
@@ -640,161 +808,195 @@ export class HostTimersService extends Service {
     }
   }
 
-  /** 检测入参组装（宿主记账快照——纯数据四字段，零派生量） */
-  private checkArgsOf(owner: string, entry: TimerScriptEntry, stateOverride?: unknown): TimerCheckArgs {
-    const key = `${owner}/${entry.id}`;
-    const ps = this.persisted.get(key);
-    return {
-      now: localISO(new Date(), this.tzOf(owner)),
-      ...(ps?.lastTriggeredAt ? { last: ps.lastTriggeredAt } : {}),
-      count: ps?.executedCount ?? 0,
-      ...(stateOverride !== undefined ? { state: stateOverride } : (ps?.scriptState !== undefined ? { state: ps.scriptState } : {})),
-    };
-  }
-
-  /** utils 构造配置（per-owner tz + 节假日——随检测传 worker） */
-  private utilsConfigOf(owner: string): UtilsConfig {
-    const s = this.layerOf(owner);
-    return { tz: this.tzOf(owner), ...(Array.isArray(s.holidays) ? { holidays: s.holidays } : {}), ...(Array.isArray(s.makeupWorkdays) ? { makeupWorkdays: s.makeupWorkdays } : {}) };
+  /** 触发器级 missed 策略：once 缺省 catchup-once，其余缺省 skip */
+  private missedOf(entry: TimerEntry, t: TimeTrigger): 'skip' | 'catchup-once' {
+    return entry.missed ?? (t.kind === 'once' ? 'catchup-once' : 'skip');
   }
 
   /**
-   * 排程一条条目。重启断点（persistNextAt）：未来值直接排（不跑脚本——
-   * 防重启触发风暴）；过期/缺席立即首检（新条目首轮 verdict 定节奏；
-   * 过期场景脚本看 args.last 自决补偿）。
+   * 排程一条条目：catchup 候选（错过未投的最近刻，门命中）与下一刻候选
+   * 取最小。无时间触发器（纯源）→ dormant；once 已过期且 skip → 归档；
+   * after-last 链到期（下一刻在过去）→ 立即投。
    */
-  private arm(owner: string, entry: TimerScriptEntry): void {
+  private arm(owner: string, entry: TimerEntry): void {
     const key = `${owner}/${entry.id}`;
     this.cancel(key);
     if (entry.enabled === false) return;
+    const now = Date.now();
+    const tz = this.tzOf(owner);
+    // armedAt 落账（boot 首见即固定——catchup 下界与 after-last 锚）
     const ps = this.persisted.get(key);
-    const resume = ps?.persistNextAt !== undefined ? Date.now() - new Date(ps.persistNextAt).getTime() : NaN;
-    const wait = Number.isFinite(resume) && resume < 0 ? -resume : 0; // 未来差值 = 直排；过期/缺席 = 立即检
-    const dispose = this.ctx.timeout(() => void this.check(owner, entry, key), wait);
+    if (ps === undefined || ps.armedAt === undefined) {
+      this.persisted.set(key, { ...(ps ?? {}), armedAt: now });
+    }
+    const state = this.persisted.get(key)!;
+    const armed = state.armedAt!;
+    const firedCount = state.firedCount ?? 0;
+    const resolver = this.resolverOf(owner);
+
+    // 终结判定（count 已满 / date 已过）→ 归档
+    if (untilReached(entry.until, firedCount, now)) {
+      this.completeEntry(owner, entry, firedCount, entry.until !== undefined ? 'until' : 'manual');
+      return;
+    }
+
+    const deriveCtx = { tz, armedAt: armed, ...(state.lastFiredAt !== undefined ? { lastFiredAt: state.lastFiredAt } : {}) };
+    let best: FirePlan | undefined;
+    let hasSource = false;
+    for (const t of entry.when) {
+      if (!isTimeTrigger(t)) { hasSource = true; continue; }
+      if (t.kind === 'once' && new Date(t.at).getTime() <= now) {
+        // 过期 once：catchup 可补（下方 lastDue 分支）；无补即出局——nextGrid
+        // 恒为过去值，排了就是无限重投（at > lastFired 已在 lastDue 判据挡掉）
+        if (this.missedOf(entry, t) === 'skip') continue;
+        if (lastDueMs(t, now, deriveCtx) === null) continue;
+      }
+      const due = lastDueMs(t, now, deriveCtx);
+      if (due !== null && this.missedOf(entry, t) === 'catchup-once' && gatesPass(entry.gates, due, tz, resolver)) {
+        const plan: FirePlan = { due, trigger: t, cause: 'catchup' };
+        if (best === undefined || plan.due < best.due) best = plan;
+      }
+      const next = nextGridMs(t, now, deriveCtx);
+      const plan: FirePlan = { due: next, trigger: t, cause: 'time' };
+      if (best === undefined || plan.due < best.due) best = plan;
+    }
+
+    if (best === undefined) {
+      if (hasSource) {
+        // 纯源条目：源已物化（meta 在场）即活——事件/pull 驱动；源行缺席
+        // → dormant（不报错，list 可见；源上线事件到达时 re-arm 解除）
+        const anyLive = this.sourceTriggersOf(entry).some((t) =>
+          readMeta(path.join(this.dataRoot, 'exports', t.source, t.view)) !== null);
+        if (anyLive) { this.clearDormant(key); return; }
+        this.setDormant(key, owner, 'source-unavailable');
+        return;
+      }
+      // 时间触发器全部出局（过期 once 且 skip）→ 归档
+      this.completeEntry(owner, entry, firedCount, 'expired');
+      return;
+    }
+    this.clearDormant(key);
+    // 时钟跳变检测：重算值与缓存偏差过大 → lastNote（缓存不承载排程语义）
+    const cache = this.persisted.get(key)?.nextAtCache;
+    if (best.cause === 'time' && cache !== undefined && Math.abs(cache - best.due) > CLOCK_JUMP_MS) {
+      this.note(key, owner, 'nextAt 重算与上次缓存偏差超过 ' + Math.round(CLOCK_JUMP_MS / 60_000) + ' 分钟（' + new Date(cache).toISOString() + ' → ' + new Date(best.due).toISOString() + '）——疑似时钟跳变或条目被外部改写');
+    }
+    this.schedulePlan(key, owner, entry, best);
+  }
+
+  /** 挂一次投递（远期目标排中继刻度，到点重算不误投） */
+  private schedulePlan(key: string, owner: string, entry: TimerEntry, plan: FirePlan): void {
+    const wait = Math.max(plan.due - Date.now(), 0);
+    const relay = wait > MAX_TIMEOUT_MS;
+    const dispose = this.ctx.timeout(() => {
+      if (relay || Date.now() < plan.due - 1_000) {
+        // 中继刻度或时钟回拨：尚未到点——重算排程
+        this.arm(owner, entry);
+        return;
+      }
+      void this.fire(owner, entry, plan, false);
+    }, Math.min(wait, MAX_TIMEOUT_MS));
     this.schedules.set(key, dispose);
-    this.nextAtMs.set(key, Date.now() + wait);
+    this.scheduledDue.set(key, plan);
+    this.nextAtMs.set(key, plan.due);
+    const cur = this.persisted.get(key);
+    if (cur !== undefined) {
+      this.persisted.set(key, { ...cur, nextAtCache: plan.due });
+      this.saveState();
+    }
     this.syncHeartbeat();
   }
 
   /**
-   * 一次检测：worker 求值脚本 → verdict 分派。错误退避（连续失败
-   * 1m→5m→30m，CHECK_STOP_STREAK 次停排 fail-loud）；成功清 streak。
+   * 一次投递：门命中 → 邮局投递 → 记账/审计 → 终结判定 → 重排。
+   * 投递失败走退避重试（at-least-once 由邮局 outbox 承担，此处防死循环）。
    */
-  private async check(owner: string, entry: TimerScriptEntry, key: string): Promise<void> {
+  private async fire(owner: string, entry: TimerEntry, plan: FirePlan, manual: boolean): Promise<void> {
+    const key = `${owner}/${entry.id}`;
     this.schedules.delete(key);
+    this.scheduledDue.delete(key);
+    this.nextAtMs.delete(key);
     this.syncHeartbeat();
     const stillArmed = (): boolean => {
       const list = this.entriesByAgent.get(owner);
       return list !== undefined && list.some((e) => e.id === entry.id && e.enabled !== false);
     };
-    const skip = (reason: string): void => {
+    if (!stillArmed()) return;
+    const now = Date.now();
+    const tz = this.tzOf(owner);
+    const resolver = this.resolverOf(owner);
+    const firedCount = this.persisted.get(key)?.firedCount ?? 0;
+
+    // 门不命中：时间刻度直接跳过（不投递不计数）——重排下一刻
+    if (!manual && !gatesPass(entry.gates, now, tz, resolver)) {
       const prev = this.lastSkip.get(key);
+      const reason = 'gate';
       this.lastSkip.set(key, {
-        at: localISO(undefined, this.tzOf(owner)),
+        at: localISO(new Date(now), tz),
         reason,
         streak: (prev?.reason === reason ? prev.streak : 0) + 1,
       });
-    };
-    const args = this.checkArgsOf(owner, entry);
-    const r = await runCheckInWorker(entry.code, args, this.utilsConfigOf(owner), this.checkWallMs);
-    if (!r.ok) {
-      this.retryAfterError(key, owner, entry, r.error, stillArmed);
+      if (stillArmed()) this.arm(owner, entry);
+      return;
+    }
+
+    // 投递（手动触发跳过会话存活门——诊断面语义）
+    const ok = await this.dispatch(owner, entry, key);
+    if (!ok) {
+      this.retryDispatch(key, owner, entry, plan, manual, stillArmed);
       return;
     }
     this.lastError.delete(key);
-    const verdict = r.verdict;
-    if (verdict === undefined) {
-      this.retryAfterError(key, owner, entry, '脚本无返回值（须 return { action?, next?, state?, active? }）', stillArmed);
+    this.lastSkip.delete(key);
+    const cur = this.persisted.get(key);
+    const newCount = firedCount + 1;
+    this.persisted.set(key, { ...(cur ?? {}), firedCount: newCount, lastFiredAt: now });
+    this.saveState();
+    this.appendAudit(owner, entry, plan, now);
+    if (untilReached(entry.until, newCount, now)) {
+      this.completeEntry(owner, entry, newCount, 'until');
       return;
     }
-    // 类型层校验（cr-1149）：与干跑同一份判据——不合法整轮不处置（fail-loud）
-    const insp = inspectVerdict(verdict);
-    if (insp.error !== undefined) {
-      this.retryAfterError(key, owner, entry, insp.error, stillArmed);
-      return;
-    }
-    if (insp.notes.length > 0) this.noteVerdict(key, owner, insp.notes);
-    if (verdict.active === false) {
-      const cur = this.persisted.get(key);
-      const fired = verdict.action !== undefined && verdict.action !== '';
-      this.persisted.set(key, {
-        executedCount: (cur?.executedCount ?? 0) + (fired ? 1 : 0),
-        ...(fired || cur?.lastTriggeredAt ? { lastTriggeredAt: localISO(undefined, this.tzOf(owner)) } : {}),
-        ...(verdict.state !== undefined ? { scriptState: verdict.state } : {}),
-      });
-      this.saveState();
-      if (fired) await this.fireEntry(owner, entry, key, verdict.action);
-      this.completeEntry(owner, entry, (cur?.executedCount ?? 0) + (fired ? 1 : 0));
-      return;
-    }
-    // 状态前置持久化：脚本产出即落盘（state + persistNextAt 断点）——gate
-    // 跳过/会话消亡轮不丢记忆；重启直排未来值防风暴。后续仅投递记账覆盖。
-    {
-      const cur = this.persisted.get(key);
-      this.persisted.set(key, {
-        ...(cur ?? {}),
-        ...(verdict.state !== undefined ? { scriptState: verdict.state } : {}),
-        ...(verdict.next instanceof Date && !isNaN(verdict.next.getTime()) ? { persistNextAt: verdict.next.toISOString() } : {}),
-      });
-      this.saveState();
-    }
-    if (verdict.action !== undefined && verdict.action !== '') {
-      if (entry.gate) {
-        const gateResult = await this.runGate(key, owner, entry.gate);
-        if (gateResult !== 'run') {
-          const failOpen = gateResult === 'error' && entry.gateOnError === 'run';
-          if (gateResult === 'error') this.lastGateErrorAt.set(key, localISO(undefined, this.tzOf(owner)));
-          if (!failOpen) {
-            skip(gateResult === 'error' ? 'gate-error' : 'gate');
-            const gateNextMs = nextWaitMs(verdict.next) ?? BACKOFF_STEPS_MS[0];
-            if (stillArmed()) this.scheduleCheck(key, owner, entry, gateNextMs);
-            return;
-          }
-        }
-      }
-      if (!this.conversationAlive(entry)) {
-        skip('conversation');
-      } else {
-        await this.fireEntry(owner, entry, key, verdict.action);
-        const cur = this.persisted.get(key);
-        this.persisted.set(key, {
-          ...(cur ?? {}),
-          executedCount: (cur?.executedCount ?? 0) + 1,
-          lastTriggeredAt: localISO(undefined, this.tzOf(owner)),
-        });
-        this.saveState();
-        this.lastSkip.delete(key);
-      }
-    }
-    if (!stillArmed()) return;
-    // next 已由 inspectVerdict 保证为 Date（active 轮必在）；nextWaitMs 只做地板钳制
-    const nextMs = nextWaitMs(verdict.next);
-    if (nextMs === null) {
-      this.retryAfterError(key, owner, entry, 'verdict.next 无法排程：' + String(verdict.next), stillArmed);
-      return;
-    }
-    this.scheduleCheck(key, owner, entry, nextMs);
+    if (stillArmed()) this.arm(owner, entry);
   }
 
-  /** 失败处置：记账 + 退避重排（连续 CHECK_STOP_STREAK 次停排 fail-loud） */
-  private retryAfterError(key: string, owner: string, entry: TimerScriptEntry, message: string, stillArmed: () => boolean): void {
+  /** 投递失败处置：退避重试（连续 DISPATCH_STOP_STREAK 次停排 fail-loud） */
+  private retryDispatch(key: string, owner: string, entry: TimerEntry, plan: FirePlan, manual: boolean, stillArmed: () => boolean): void {
     const prev = this.lastError.get(key);
     const streak = (prev?.streak ?? 0) + 1;
-    this.lastError.set(key, { at: localISO(undefined, this.tzOf(owner)), message, streak });
-    this.ctx.logger.warn(`[timers] ${key} 检测失败（第 ${streak} 次）：${message}`);
-    if (streak >= CHECK_STOP_STREAK) {
-      this.ctx.logger.warn(`[timers] ${key} 连续 ${streak} 次失败——停排（fail-loud），修正脚本后重新 save/重启恢复`);
+    this.lastError.set(key, { at: localISO(undefined, this.tzOf(owner)), message: '投递失败（邮局 dispatch 异常）', streak });
+    this.ctx.logger.warn(`[timers] ${key} 投递失败（第 ${streak} 次）`);
+    if (streak >= DISPATCH_STOP_STREAK) {
+      this.ctx.logger.warn(`[timers] ${key} 连续 ${streak} 次投递失败——停排（fail-loud），修正后重新 save/重启恢复`);
       return;
     }
-    if (stillArmed()) this.scheduleCheck(key, owner, entry, BACKOFF_STEPS_MS[Math.min(streak - 1, BACKOFF_STEPS_MS.length - 1)]);
+    if (!stillArmed()) return;
+    const wait = BACKOFF_STEPS_MS[Math.min(streak - 1, BACKOFF_STEPS_MS.length - 1)];
+    const dispose = this.ctx.timeout(() => void this.fire(owner, entry, plan, manual), wait);
+    this.schedules.set(key, dispose);
+    this.syncHeartbeat();
   }
 
-  /** verdict 非致命提示：记诊断面 + 文本变化才曝光日志（同提示不刷屏） */
-  private noteVerdict(key: string, owner: string, notes: string[]): void {
-    const text = notes.join('；');
+  /** 非致命提示：记诊断面 + 文本变化才曝光日志（同提示不刷屏） */
+  private note(key: string, owner: string, text: string): void {
     if (this.lastNote.get(key)?.text === text) return;
     this.lastNote.set(key, { at: localISO(undefined, this.tzOf(owner)), text });
-    this.ctx.logger.warn(`[timers] ${key} verdict 提示：${text}`);
+    this.ctx.logger.warn(`[timers] ${key} 提示：${text}`);
+  }
+
+  private setDormant(key: string, owner: string, reason: string): void {
+    const cur = this.persisted.get(key);
+    this.persisted.set(key, { ...(cur ?? {}), dormantReason: reason });
+    this.saveState();
+    this.note(key, owner, 'dormant：' + reason);
+  }
+
+  private clearDormant(key: string): void {
+    const cur = this.persisted.get(key);
+    if (cur?.dormantReason !== undefined) {
+      const { dormantReason: _d, ...keep } = cur;
+      this.persisted.set(key, keep);
+    }
   }
 
   /** 条目记账单点清理（取消排程 + 清全量诊断/记账态——新增 Map 只改这里） */
@@ -802,86 +1004,27 @@ export class HostTimersService extends Service {
     this.cancel(key);
     this.persisted.delete(key);
     this.lastSkip.delete(key);
-    this.lastGateErrorAt.delete(key);
-    this.lastGateCode.delete(key);
-    this.lastGateCodeAt.delete(key);
     this.lastError.delete(key);
     this.lastNote.delete(key);
+    this.lastSeqByEntry.delete(key);
+    this.cooldownUntil.delete(key);
   }
 
-  /** 挂下次检测（地板钳制 CHECK_FLOOR_MS——防忙循环） */
-  private scheduleCheck(key: string, owner: string, entry: TimerScriptEntry, ms: number): void {
-    const wait = Math.max(ms, CHECK_FLOOR_MS);
-    const dispose = this.ctx.timeout(() => void this.check(owner, entry, key), wait);
-    this.schedules.set(key, dispose);
-    this.nextAtMs.set(key, Date.now() + wait);
-    this.syncHeartbeat();
-  }
-
-  private conversationAlive(entry: TimerScriptEntry): boolean {
-    const cid = entry.conversationId;
-    if (!cid || cid.includes('~') || entry.task !== undefined) return true;
+  private conversationAlive(entry: TimerEntry): boolean {
+    const cid = entry.action.conversationId;
+    if (!cid || cid.includes('~') || entry.action.task !== undefined) return true;
     for (const agentId of listAgentIds(this.dataRoot)) {
       if (fs.existsSync(path.join(this.dataRoot, 'agents', agentId, 'sessions', cid))) return true;
     }
     return false;
   }
 
-  private runGate(key: string, owner: string, command: string): Promise<GateVerdict> {
-    return new Promise((resolve) => {
-      const isWin = process.platform === 'win32';
-      execFile(
-        isWin ? 'cmd.exe' : '/bin/sh',
-        isWin ? ['/d', '/s', '/c', command] : ['-c', command],
-        {
-          timeout: this.gateTimeoutMs,
-          windowsHide: true,
-          cwd: this.dataRoot,
-          maxBuffer: 256 * 1024,
-          ...(process.platform === 'win32' ? { windowsVerbatimArguments: true } : {}),
-        },
-        (err, _stdout, stderr) => {
-          if (err === null) { resolve('run'); return; }
-          if ((err as { killed?: boolean }).killed) { resolve('run'); return; }
-          if (typeof err.code !== 'number') { resolve('run'); return; }
-          const detail = gateStderrTail(stderr);
-          this.lastGateCode.set(key, err.code);
-          this.lastGateCodeAt.set(key, localISO(undefined, this.tzOf(owner)));
-          if (err.code === GATE_SILENT_EXIT) { resolve('silent'); return; }
-          if (err.code === 1) {
-            if (detail === '') {
-              if (!this.legacyGateNotice.has(key)) {
-                this.legacyGateNotice.add(key);
-                this.ctx.logger.info(
-                  '[timers] ' + key + ' gate 用旧静默码 1（stderr 为空）——按预期静默处理；' +
-                    '建议改用退出码 20：那样声明是明确的，不依赖平台推断',
-                );
-              }
-              resolve('silent');
-              return;
-            }
-            this.ctx.logger.warn(
-              '[timers] ' + key + ' gate 退出码 1 但 stderr 非空（按崩溃处理，不当作「预期静默」）；stderr: ' + detail +
-                '——若这是刻意的静默，请改用退出码 20 或保持 stderr 干净',
-            );
-            resolve('error');
-            return;
-          }
-          this.ctx.logger.warn(
-            '[timers] ' + key + ' gate 异常退出（code=' + String(err.code) + '；仅 0/1 有约定语义）' +
-              (detail ? '；stderr: ' + detail : '') +
-              '——按条目 gateOnError 处置（缺省跳过；run = 放行）',
-          );
-          resolve('error');
-        },
-      );
-    });
-  }
-
-  private async fireEntry(owner: string, entry: TimerScriptEntry, key = `${owner}/${entry.id}`, action?: string): Promise<void> {
+  /** 唤醒信投递（投递面 v2 原样：机制任务直调 / 邮局信封）；false = 失败 */
+  private async dispatch(owner: string, entry: TimerEntry, key: string): Promise<boolean> {
     try {
-      if (entry.task) {
-        if (entry.task === 'archive-all') {
+      const action = entry.action;
+      if (action.task) {
+        if (action.task === 'archive-all') {
           const targets = listAgentIds(this.dataRoot)
             .map((id) => readAgentConfig(this.dataRoot, id))
             .filter((a): a is NonNullable<typeof a> => a !== null && !a.virtual && !isPresetId(a.id) && a.model !== undefined)
@@ -898,27 +1041,32 @@ export class HostTimersService extends Service {
             });
             await this.po.dispatch(env);
           }
-          return;
+          return true;
         }
         const backup = this.ctx.get('backup', false) as { run(opts?: { force?: boolean }): Promise<unknown> } | undefined;
-        if (!backup) return;
+        if (!backup) return true;
         await backup.run();
-        return;
+        return true;
       }
-      const text = action ?? entry.label ?? entry.id;
+      if (!this.conversationAlive(entry)) {
+        const prev = this.lastSkip.get(key);
+        this.lastSkip.set(key, { at: localISO(undefined, this.tzOf(owner)), reason: 'conversation', streak: (prev?.reason === 'conversation' ? prev.streak : 0) + 1 });
+        return true; // 会话消亡按已处置（不退避不重试）
+      }
+      const text = action.text;
       const targets =
         owner === GLOBAL_TIMER_OWNER
-          ? (entry.target || '*') === '*'
+          ? (action.target || '*') === '*'
             ? listAgentIds(this.dataRoot)
                 .map((id) => readAgentConfig(this.dataRoot, id))
                 .filter((a): a is NonNullable<typeof a> => a !== null && !a.virtual && !isPresetId(a.id) && a.model !== undefined)
                 .map((a) => a.id)
-            : entry.target!.split(',').map((t) => t.trim()).filter(Boolean)
+            : action.target!.split(',').map((t) => t.trim()).filter(Boolean)
           : [owner];
       for (const target of targets) {
         if (readAgentConfig(this.dataRoot, target) === null) continue;
-        const convId = entry.conversationId ?? `${target}~${target}`;
-        const sender = entry.conversationId ? 'user' : target;
+        const convId = action.conversationId ?? `${target}~${target}`;
+        const sender = action.conversationId ? 'user' : target;
         const env: Envelope = makeEnvelope({
           uuid: convId,
           requestId: 't-' + issueRequestId(),
@@ -930,13 +1078,39 @@ export class HostTimersService extends Service {
         });
         await this.po.dispatch(env);
       }
+      return true;
     } catch {
-      // 投递失败不记账不重试（at-least-once 由邮局 outbox 承担）
+      // 投递异常 → 调用方退避重试
+      return false;
     }
-    void key;
   }
 
-  private completeEntry(owner: string, entry: TimerScriptEntry, executedCount: number): void {
+  /** 审计行（滚动 jsonl：{at, owner, entryId, cause, trigger, seq?, target, budget}） */
+  private appendAudit(owner: string, entry: TimerEntry, plan: FirePlan, at: number, seq?: number): void {
+    try {
+      let size = 0;
+      try { size = fs.statSync(this.auditFile).size; } catch { /* 首件 */ }
+      if (size > AUDIT_ROLL_BYTES) {
+        try { fs.renameSync(this.auditFile, this.auditFile + '.old'); } catch { /* 无旧件 */ }
+      }
+      fs.mkdirSync(path.dirname(this.auditFile), { recursive: true });
+      const target = owner === GLOBAL_TIMER_OWNER ? (entry.action.target ?? '*') : owner;
+      fs.appendFileSync(this.auditFile, JSON.stringify({
+        at: new Date(at).toISOString(),
+        owner,
+        entryId: entry.id,
+        cause: plan.cause,
+        trigger: plan.trigger.kind,
+        ...(seq !== undefined ? { seq } : {}),
+        target,
+        budget: entry.action.task !== undefined ? 1 : 3,
+      }) + '\n', 'utf-8');
+    } catch {
+      /* 审计写失败不影响投递 */
+    }
+  }
+
+  private completeEntry(owner: string, entry: TimerEntry, firedCount: number, reason: string): void {
     const key = `${owner}/${entry.id}`;
     this.forget(key);
     this.saveState();
@@ -947,16 +1121,16 @@ export class HostTimersService extends Service {
       if (cached.length === 0) this.entriesByAgent.delete(owner);
     }
     if (owner === GLOBAL_TIMER_OWNER) return;
-    const stored = this.readStored(owner) ?? { entries: [] };
+    const stored = this.readStored(owner) ?? { version: 3, entries: [] };
     stored.entries = stored.entries.filter((e) => e.id !== entry.id);
     this.writeStored(owner, stored);
     const archive = this.readArchive(owner);
     archive.push({
       ...entry,
-      enabled: entry.enabled,
       status: 'completed',
+      reason,
       completedAt: localISO(undefined, this.tzOf(owner)),
-      executedCount,
+      firedCount,
     });
     this.writeArchive(owner, archive);
   }
@@ -971,11 +1145,12 @@ export class HostTimersService extends Service {
         this.persisted = new Map(Object.entries(raw));
       }
     } catch {
-      /* 状态损坏从空开始 */
+      /* 状态损坏从空开始（nextAt 可重算——缓存语义，无损） */
     }
   }
 
   private saveState(): void {
+    if (this.migrating) return; // 迁移中批量改记账，完毕后统一落盘
     try {
       const obj: Record<string, TimerPersistedState> = {};
       for (const [k, v] of this.persisted) obj[k] = v;
@@ -987,6 +1162,36 @@ export class HostTimersService extends Service {
       /* 状态写失败不致命（下一心跳重试） */
     }
   }
+}
+
+// ============================================================
+// 全局简化形状归一（GlobalTimerHost UI 产出 {time,hint,targets} → v3）
+// ============================================================
+
+function isSimplifiedGlobalShape(e: unknown): boolean {
+  if (typeof e !== 'object' || e === null) return false;
+  const r = e as Record<string, unknown>;
+  return r.kind === undefined && r.mode === undefined && r.when === undefined && typeof r.time === 'string' && typeof r.hint === 'string';
+}
+
+const MECH_HINTS: Record<string, 'archive-all' | 'backup-all'> = {
+  __archive_all__: 'archive-all',
+  __backup_all__: 'backup-all',
+};
+
+function simplifiedToV3(e: { time: string; hint: string; targets?: string[]; builtin?: boolean }): TimerEntry {
+  const hint = e.hint.trim();
+  const targets = Array.isArray(e.targets) ? e.targets.filter((t): t is string => typeof t === 'string' && t !== '') : [];
+  return {
+    id: 'g-' + e.time + '-' + hint,
+    enabled: true,
+    when: [{ kind: 'daily', at: /^\d{1,2}:\d{2}$/.test(e.time) ? e.time.padStart(5, '0') : '09:00' }],
+    action: {
+      text: hint,
+      ...(hint in MECH_HINTS ? { task: MECH_HINTS[hint] } : {}),
+      ...(targets.length > 0 ? { target: targets.join(',') } : {}),
+    },
+  };
 }
 
 /** 宿主 timers 行工厂 */

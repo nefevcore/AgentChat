@@ -28,7 +28,9 @@ import {
   type DenyRowOptions,
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
+  isPathUnder,
 } from 'ac-sandbox-core';
+import { sourceViewsOf } from 'ac-auth-core';
 import { isFullAccessCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { globToRegExp, literalDirPrefix, normalizeGlobPattern, toPosix, walkFiles, SKIP_DIRS, type WalkEntry } from 'ac-glob-core';
@@ -411,6 +413,13 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
     {
       workspaceOf: () => ctx.get('workspace') as { root?: unknown } | undefined,
       agentsOf: () => agentsOf() as { settingsOf?(id: string, name?: string): unknown } | undefined,
+      // source 视图读授权（cr-1166）：授权物化目录内检索放行（与 fs-tools read 同口径）
+      sourceViewsOf: (agentId) => {
+        const ws = ctx.get('workspace') as { root?: unknown } | undefined;
+        const root = typeof ws?.root === 'string' ? ws.root : undefined;
+        if (root === undefined) return [];
+        return sourceViewsOf(root, agentId).map((sv) => sv.source + '/' + sv.view);
+      },
     },
     () => ctx.logger.warn(
       '[fs-search] workspace 服务不可用：检索黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
@@ -421,12 +430,15 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
    * 检索面黑名单判定（§9.2 双黑名单结果过滤，glob/grep 共用）：
    * accessDeny（系统域，全档）+ readDeny（用户域机密，非 full 档）。
    * 目录前缀判定覆盖子树（agents/ 等持久化域树整树过滤）。
+   * source 视图白名单豁免（cr-1166）：授权物化目录内放行（只读语义）。
    */
   function searchDenyFilterOf(call: { agentId?: string; access?: string }): (abs: string) => boolean {
     const deny = denyListsOf(call);
     const skipReadDeny = isFullAccessCall(call); // cr-1082 批B：full 唯一来源 = 门注入
-    return (abs: string): boolean =>
-      isDeniedPath(deny.accessDeny, abs) || (!skipReadDeny && isDeniedPath(deny.readDeny, abs));
+    return (abs: string): boolean => {
+      if (deny.sourceAllowed.some((dir) => isPathUnder(abs, dir))) return false;
+      return isDeniedPath(deny.accessDeny, abs) || (!skipReadDeny && isDeniedPath(deny.readDeny, abs));
+    };
   }
 
   // ---- glob：按路径模式找文件 ----

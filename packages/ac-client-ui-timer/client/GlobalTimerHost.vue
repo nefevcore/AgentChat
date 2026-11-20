@@ -56,11 +56,36 @@ const gTaskEditIdx = ref<number | null>(null);
 const gTaskEditing = ref(false);
 const gTaskError = ref('');
 
-const gTasks = computed<GlobalTask[]>(() => settings.globalConfig.value.timer?.tasks ?? []);
+// 兼容两形态：简化数组（本组件产出）与 {version:3, entries}（timers 行 v3 落盘，cr-1164）
+const gTasks = computed<GlobalTask[]>(() => {
+  const t = settings.globalConfig.value.timer?.tasks;
+  if (Array.isArray(t)) return t;
+  if (t && typeof t === 'object' && Array.isArray(t.entries)) return v3ToSimplified(t);
+  return [];
+});
+
+/** v3 形态（timers 行迁移落盘 {version:3,entries}）→ 本组件简化模型（cr-1164：
+ * 读写同模型；宿主 configEntries 对两形态单源归一——v3 专属字段〔gates/until〕
+ * 全局任务 UI 不产出，编辑回写简化形态无损失） */
+function v3ToSimplified(t: { entries?: Array<Record<string, unknown>> }): GlobalTask[] {
+  return (t.entries ?? []).map((e) => {
+    const daily = Array.isArray(e.when) ? e.when[0] as { at?: string } | undefined : undefined;
+    return {
+      time: daily?.at ?? '09:00',
+      hint: (e.action as { text?: string } | undefined)?.text ?? '',
+      targets: ((e.action as { target?: string } | undefined)?.target ?? '').split(',').filter(Boolean),
+    } as GlobalTask;
+  });
+}
 
 function ensureTimer() {
-  if (!settings.globalConfig.value.timer) settings.globalConfig.value.timer = { enabled: true, tasks: [] };
-  if (!settings.globalConfig.value.timer.tasks) settings.globalConfig.value.timer.tasks = [];
+  if (!settings.globalConfig.value.timer) { settings.globalConfig.value.timer = { enabled: true, tasks: [] }; return; }
+  const t = settings.globalConfig.value.timer;
+  if (!t.tasks || typeof t.tasks !== 'object' || Array.isArray(t.tasks)) {
+    if (!t.tasks) t.tasks = [];
+    return;
+  }
+  t.tasks = v3ToSimplified(t.tasks as { entries?: Array<Record<string, unknown>> });
 }
 /** 新建入口（面板段头「添加」按钮经模板 ref 调用） */
 function startAddTask() {
@@ -95,8 +120,10 @@ function saveTask() {
   gTaskEditing.value = false; gTaskEditIdx.value = null;
 }
 function removeTask(idx: number) {
-  const tasks = settings.globalConfig.value.timer?.tasks;
-  if (!tasks) return;
+  if (!settings.globalConfig.value.timer) return;
+  ensureTimer();
+  const tasks = settings.globalConfig.value.timer.tasks;
+  if (!Array.isArray(tasks)) return;
   const t = tasks[idx];
   if (isProtectedTask(t)) return; // 内置系统任务：删除按钮已禁用，双保险
   tasks.splice(idx, 1);

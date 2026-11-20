@@ -1,0 +1,28 @@
+{
+  "name": "ac-source-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "source 采集域（cr-1165）：物化契约与纯函数（rows.jsonl/meta.json、快照 diff、seq 单调）+ fs-source 万能适配行（目录扫描物化 + source/updated 事件）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-timer-core": "workspace:*"
+  },
+  "devDependencies": {
+    "ac-extension-core": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

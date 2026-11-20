@@ -15,7 +15,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Context } from '@agentchat/cordis';
-import type { TimerScriptEntry } from 'ac-timer-core';
+import type { TimerEntry } from 'ac-timer-core';
 import {
   GLOBAL_TIMER_OWNER,
   conversationWorkspaceRoot,
@@ -26,7 +26,7 @@ import {
   workspaceTreeBase,
   resolveWorkspaceFile,
 } from 'ac-host-rows';
-import { validateScriptEntries } from 'ac-timer-core'; // cr-886 下沉单源（cr-1147 换名）
+import { validateTimerEntries } from 'ac-timer-core'; // cr-886 下沉单源（cr-1164 v3 换轨）
 import { createPoolCredentials, maskSecrets } from './config-face.ts';
 import type { ShellAdminPort } from './face-shell.ts';
 import { readCatalogSnapshot } from './face-shell.ts';
@@ -160,9 +160,9 @@ export async function collectRunning(deps: FaceOpsDeps): Promise<RunningProjecti
 /** 定时任务面（ctx.timers = 宿主 timers 行；行缺席 = fail-loud） */
 function registerTimers(web: WebFace, ctx: Context): void {
   const timers = (): {
-    list(): Array<{ owner: string; entries: TimerScriptEntry[] }>;
-    entries(owner: string): TimerScriptEntry[];
-    save(owner: string, entries: TimerScriptEntry[]): void;
+    list(): Array<{ owner: string; entries: TimerEntry[] }>;
+    entries(owner: string): TimerEntry[];
+    save(owner: string, entries: TimerEntry[]): void;
     triggerNow(owner: string, entryId: string): boolean;
   } => {
     const service = ctx.get('timers') as ReturnType<typeof timers> | undefined;
@@ -179,7 +179,7 @@ function registerTimers(web: WebFace, ctx: Context): void {
   web.registerRpc('timer/save', (params) => {
     const p = obj(params);
     const owner = ownerOf(p);
-    timers().save(owner, validateScriptEntries(p.entries));
+    timers().save(owner, validateTimerEntries(p.entries));
     return { saved: true, owner };
   });
   web.registerRpc('timer/trigger', (params) => {
@@ -844,15 +844,33 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     return typeof archive?.maxContextTokens === 'number' && archive.maxContextTokens > 0 ? archive.maxContextTokens : 1_000_000;
   };
 
-  // 会话 Token 仪表（cr-714 根修）：contextTokens = agent 域账本回放口径
-  // 估算（estimateReplayTokens 单源——含物化段行 steps 轨迹/概要头，与归档
-  // 阈值同口径）；cache 面 = ctx.usage 聚合（事件信 reportMeter 入账，覆盖
-  // 轨/累加轨）；缺失时回退 journal-settled 盘读（usage 行缺席的良定义降级）。
+  // 会话 Token 仪表（cr-714 根修；cr-1160 三口径收敛）：contextTokens 优先
+  // 索引活跃代合计（activeContextTokens——压缩边界已滤，与 LLM 注入同向）；
+  // 行缺席/未入账回落 replayTokensOf 全量盘读（保守上界，行为等价降级）。
+  // cache 面 = ctx.usage 聚合（事件信 reportMeter 入账，覆盖轨/累加轨）；
+  // 缺失时回退 journal-settled 盘读（usage 行缺席的良定义降级）。
+  // 载荷带压缩史（compactions——TokenGauge 弹层「压缩历史」区数据源）。
   web.registerRpc('session/tokens', (params) => {
     const p = obj(params);
     const conversationId = reqStr(p, 'conversationId');
     const agentId = optStr(p.agentId) ?? owningAgentOf(conversationId);
-    const promptTokens = replayTokensOf(conversationId, agentId);
+    let promptTokens: number | null = null;
+    const idx = ctx.get('sessionIndex', false) as
+      | { activeContextTokens(id: string, opts?: { refresh?: boolean }): number | null; compactionFactsOf(id: string): Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }> }
+      | undefined;
+    let compactions: Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }> = [];
+    if (idx !== undefined) {
+      try {
+        // 顺序敏感（cr-1160 实施期实证）：compactionFactsOf 内部 refreshConversation
+        // （建索引行），activeContextTokens 走 refresh:false（高频面不建索引——
+        // cr-1142 裁决）。先读活跃代再建索引 → 首次访问必返 null 回落全量盘读
+        // （含 shadowed，即被根治的 C5 分叉形态）。故**先 compactionFactsOf 建面、
+        // 后 activeContextTokens 读值**。
+        compactions = idx.compactionFactsOf(conversationId);
+        promptTokens = idx.activeContextTokens(conversationId, { refresh: false });
+      } catch { /* 索引故障回落盘读 */ }
+    }
+    if (promptTokens === null) promptTokens = replayTokensOf(conversationId, agentId);
     let hit = 0;
     let miss = 0;
     let lastHit = 0;
@@ -896,6 +914,8 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       status: usagePercent < 75 ? 'normal' : usagePercent < 90 ? 'high' : 'critical',
       ...(agentId !== undefined ? { agentId } : {}),
       cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
+      // cr-1160 §2.8 展示面：压缩史（每代时刻/摘要长/stats）
+      ...(compactions.length > 0 ? { compactions } : {}),
     };
   });
 

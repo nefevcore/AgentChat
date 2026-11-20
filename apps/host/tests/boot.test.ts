@@ -40,7 +40,7 @@ interface WebRpcFace {
 }
 
 describe('宿主 boot（单树装配面）', () => {
-  it('偏好缺省全装：全部宿主行就位对账（26 全集——cr-1121 增 timer-face/profile-face 贡献行，cr-701 B4 后无 ui 分流行）', async () => {
+  it('偏好缺省全装：全部宿主行就位对账（27 全集——cr-1121 增 timer-face/profile-face 贡献行，cr-1165 增 fs-source 采集行，cr-701 B4 后无 ui 分流行）', async () => {
     // 24 = cr-701 撤 25 ui 域行后的 cordis 全集 + cr-973 session-index 行
     //（指针索引行——宿主单写者）：web 表面 4 行（web-server/
     // webui/web-api + post-office 编排件）+ guardian / preset-builtin 为编排
@@ -53,7 +53,7 @@ describe('宿主 boot（单树装配面）', () => {
       dataRoot,
       catalogFile: CATALOG,
     });
-    const expected = ['agent-admin', 'agents', 'auth-registry', 'backup', 'config', 'conv-settings', 'event-policy', 'group', 'guardian',
+    const expected = ['agent-admin', 'agents', 'auth-registry', 'backup', 'config', 'conv-settings', 'event-policy', 'fs-source', 'group', 'guardian',
       'host-face', 'logger-console', 'post-office', 'plugin-market', 'plugin-registry', 'preset-builtin', 'profile-face',
       'remote-link', 'session-index', 'singles', 'timer', 'timer-face', 'timers', 'usage',
       'ws-bridge', 'web-server', 'webui', 'web-api',
@@ -165,13 +165,13 @@ describe('宿主 boot（单树装配面）', () => {
     await web.callRpc('config/delete', { key: 'llmProviders' });
     // 宿主直读面（cr-567）：timer / 预设 / 标签 / 技能 / 快照 / 用量 / 版本 / 事件治理
     const saved = await web.callRpc('timer/save', {
-      agentId: 'wired', entries: [{ id: 't1', enabled: true, kind: 'script', code: '(a, u) => ({ next: u.at(\'09:00\') })' }],
+      agentId: 'wired', entries: [{ id: 't1', enabled: true, when: [{ kind: 'daily', at: '09:00' }], action: { text: '早' } }],
     }) as { saved: boolean; owner: string };
     expect(saved).toMatchObject({ saved: true, owner: 'wired' });
     const entries = await web.callRpc('timer/entries', { agentId: 'wired' }) as { owner: string; entries: Array<{ id: string }> };
     expect(entries.owner).toBe('wired');
     expect(entries.entries.map((e) => e.id)).toEqual(['t1']);
-    await expect(web.callRpc('timer/save', { agentId: 'wired', entries: [{ id: 'x', kind: 'script' }] })).rejects.toThrow(/code/);
+    await expect(web.callRpc('timer/save', { agentId: 'wired', entries: [{ id: 'x', enabled: true, when: [], action: { text: '' } }] })).rejects.toThrow(/when/);
     const presets = await web.callRpc('agents/presets') as { presets: Array<{ id: string }> };
     // id = 预设 Agent 身份（物化时用的 __name__ 形式——独立会话可选用）
     expect(presets.presets.map((t) => t.id).sort()).toEqual(['__abap_dev__', '__creator__', '__dsh_minimal__', '__standard__']);
@@ -260,7 +260,7 @@ describe('宿主 boot（单树装配面）', () => {
     fs.rmSync(dataRoot, { recursive: true, force: true });
     const h = await bootHost({ dataRoot, catalogFile: CATALOG, preferences: [{ id: 'backup', disabled: true }] });
     expect(h.rowIds).not.toContain('backup');
-    expect(h.rowIds.length).toBe(26); // 27 - disabled backup（cr-1121 贡献行 +2 后全集 27）
+    expect(h.rowIds.length).toBe(27); // 28 - disabled backup（cr-1165 fs-source 后全集 28）
     await h.close();
     fs.rmSync(dataRoot, { recursive: true, force: true });
   });

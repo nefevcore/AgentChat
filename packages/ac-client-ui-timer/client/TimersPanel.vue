@@ -15,7 +15,7 @@ import { computed, ref, watch } from 'vue';
 import { Button, Icon } from '@agentchat/webui-kit';
 import { useClientContext } from 'ac-client-runtime';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
-import { getAgentTimers, saveAgentTimers, type TimerScriptEntry } from './timerApi.ts';
+import { getAgentTimers, saveAgentTimers, type TimerEntry } from './timerApi.ts';
 import TimerPane from './TimerPane.vue';
 import GlobalTimerHost from './GlobalTimerHost.vue';
 
@@ -26,7 +26,7 @@ const agentId = computed(() => roster.activeAgentId.value || null);
 const agentName = computed(() => agentId.value ? (roster.getAgentName(agentId.value) || agentId.value) : '');
 
 // ── Agent 级定时器（timer/entries RPC：读 + 写回） ──
-const timers = ref<TimerScriptEntry[]>([]);
+const timers = ref<TimerEntry[]>([]);
 const saving = ref(false);
 const dirty = ref(false);
 const timerPaneRef = ref<InstanceType<typeof TimerPane> | null>(null);
@@ -42,7 +42,7 @@ async function loadTimers() {
 }
 watch(agentId, () => void loadTimers(), { immediate: true });
 
-function onTimersUpdate(v: TimerScriptEntry[]) {
+function onTimersUpdate(v: TimerEntry[]) {
   timers.value = v;
   dirty.value = true;
 }

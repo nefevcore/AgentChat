@@ -26,6 +26,7 @@
 |---|---|---|
 | `agents/` | 第一层 | 真值账本（消息/运行记录/entries）——必须备份 |
 | `meta/` | 第二层 | 用户域源数据（见下节）——必须备份 |
+| `exports/` | 第二层 | source 物化面（cr-1165：`exports/<source>/<view>/{rows.jsonl,meta.json}`——timer 源触发输入；sandbox 双禁，读授权走 inline asset 白名单）——可按源重建 |
 | `credentials/` | 第二层（特殊成员） | 加密凭据——独立隔离，备份策略不同 |
 | `viewer/` | 第三层（历史） | ~~纯投影树~~——cr-973 物化账本退役（终稿层改 ac-ledger 读时投影 projectUserReplay）、cr-998 存量迁移归零后**整树物理删除**；此行仅存档认知（root README 数据根段同口径：viewer/sessions 为历史投影存量树、读面退役可整删） |
 | `usage/` | 派生流水 | 半可重建（从账本重放近似恢复） |

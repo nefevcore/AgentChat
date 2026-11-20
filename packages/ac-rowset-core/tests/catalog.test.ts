@@ -26,9 +26,9 @@ const skeletonDefs = skeletonRows.map(toDef);
 const capabilityDefs = capabilityRows.map(toDef);
 
 describe('行集目录对账（manifest R8 恒等式）', () => {
-  it('总行数 69 = 宿主 27 + 壳 42（cr-1121：host-face 贡献行 +2；cr-1066：permission-gate 骨架新增；cr-1158 net-monitor）', () => {
-    expect(catalog.rows).toHaveLength(69);
-    expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(27);
+  it('总行数 70 = 宿主 28 + 壳 42（cr-1121：host-face 贡献行 +2；cr-1165：fs-source 采集行；cr-1066：permission-gate 骨架新增；cr-1158 net-monitor）', () => {
+    expect(catalog.rows).toHaveLength(70);
+    expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(28);
     expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(42);
   });
 
@@ -55,7 +55,7 @@ describe('行集目录对账（manifest R8 恒等式）', () => {
     const menu = () => mergeMenu({ skeleton: skeletonDefs });
     expect(menu().entries.length).toBeGreaterThan(0);
     expect(menu().entries.map((e) => e.id)).not.toContain('dev-tools'); // 勘误剔除行不在目录
-    expect(deriveHostRowset([], catalog).rowIds).toHaveLength(27); // cr-1121：timer-face/profile-face 贡献行新增
+    expect(deriveHostRowset([], catalog).rowIds).toHaveLength(28); // cr-1121：timer-face/profile-face 贡献行；cr-1165：fs-source 采集行
     // cr-1022 批2：骨架 = 恒装面——能力目录行不进骨架菜单（成组选择由
     // patch/模板物化承担，取代 cr-1007 bundle 摘出语义）
     expect(menu().entries.map((e) => e.id)).not.toContain('plugin-dev');

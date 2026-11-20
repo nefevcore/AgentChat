@@ -1,4 +1,4 @@
-# ac-base-version: 4
+# ac-base-version: 5
 # host 进程基座源文档（cr-902 / cr-1022 批2 行词汇瘦身）——行→包映射单一事实源。
 # 顶层 = cordis-plugin-loader 官方方言条目数组（host 单区——骨架/能力分区
 # 立法只辖 shell，menu-assembly §2.1）；tree 字段由所在文档隐含（id 仅基座
@@ -43,7 +43,10 @@
   description: 能力面贡献行：update_agent_profile 档案写口（agents 树读改写，与编辑面同源）
 - id: timers
   name: link:packages/ac-host-rows
-  description: 定时唤醒（唤醒 = 投递信）
+  description: 定时唤醒（唤醒 = 投递信；源触发 = 订阅 source/updated + pull 兜底）
+- id: fs-source
+  name: link:packages/ac-source-core
+  description: fs 采集行（目录快照物化 exports/fs/ + source/updated 事件——timer-v3 采集层）
 - id: usage
   name: link:packages/ac-host-rows
   description: 计费聚合（对账 ledger 自报 + job 观测快照镜像）

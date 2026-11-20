@@ -11,3 +11,4 @@ export * from './auth.ts';
 export * from './disk.ts';
 export * from './write.ts';
 export * from './mcp.ts';
+export * from './source-view.ts';

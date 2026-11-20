@@ -24,11 +24,13 @@ import {
   createDenyListsFactory,
   DEV_MODE,
   isDeniedPath,
+  isPathUnder,
   isPlainRelativePath,
   type DenyRowOptions,
   type SandboxResolverOptions,
   type SandboxWorkdirSource,
 } from 'ac-sandbox-core';
+import { sourceViewsOf } from 'ac-auth-core';
 import { isFullAccessCall, widenToolsForGating } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { applyEditBatch, countLineChanges, withFileMutationQueue } from 'ac-edit-core';
@@ -107,6 +109,15 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
     {
       workspaceOf: () => ctx.get('workspace') as { root?: unknown } | undefined,
       agentsOf: () => agentsOf() as { settingsOf?(id: string, name?: string): unknown } | undefined,
+      // source 视图读授权（cr-1166）：inline grant 投影 → 物化目录前缀。
+      // sourceViewsOf 是 ac-auth-core 纯函数（读 agents/<id>/auth.json 投影），
+      // 每 call 现算——与授权面「每 run 前重读」的最终一致语义同拍。
+      sourceViewsOf: (agentId) => {
+        const ws = ctx.get('workspace') as { root?: unknown } | undefined;
+        const root = typeof ws?.root === 'string' ? ws.root : undefined;
+        if (root === undefined) return [];
+        return sourceViewsOf(root, agentId).map((sv) => sv.source + '/' + sv.view);
+      },
     },
     () => ctx.logger.warn(
       '[fs-tools] workspace 服务不可用：访问黑名单系统域部分（控制面/持久化域）无法锚定数据根——基线仅检查追加项（best-effort；ac-security 行如装载则 fail-closed 兜底）。',
@@ -114,13 +125,16 @@ export function apply(ctx: Context, options: FsToolsRowOptions = {}) {
   );
 
   /** 读面双黑名单命中判定（read 路径判定与目录列表条目过滤共用单源；
-   * accessDeny 全档 + readDeny 非 full 档——与 fs-search 检索结果过滤同口径） */
+   * accessDeny 全档 + readDeny 非 full 档——与 fs-search 检索结果过滤同口径。
+   * source 视图白名单豁免（cr-1166）：落在授权物化目录内的【读】放行
+   * （exports/ 双禁表上的授权读口）；写路径不豁免（readDenyHitOf 只辖读）。 */
   function readDenyHitOf(
     call: { agentId?: string; access?: string },
   ): (abs: string) => 'access' | 'read' | undefined {
     const deny = denyListsOf(call);
     const skipReadDeny = isFull(call);
     return (abs: string): 'access' | 'read' | undefined => {
+      if (deny.sourceAllowed.some((dir) => isPathUnder(abs, dir))) return undefined;
       if (isDeniedPath(deny.accessDeny, abs)) return 'access';
       if (!skipReadDeny && isDeniedPath(deny.readDeny, abs)) return 'read';
       return undefined;

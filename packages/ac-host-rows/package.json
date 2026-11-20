@@ -26,6 +26,7 @@
     "ac-envelope-core": "workspace:*",
     "ac-agents-core": "workspace:*",
     "ac-timer-core": "workspace:*",
+    "ac-source-core": "workspace:*",
     "ac-ws-bridge": "workspace:*",
     "ac-wire-format": "workspace:*",
     "ac-rowset-core": "workspace:*",
