@@ -80,6 +80,12 @@ interface TimerPersistedState {
   firedCount?: number;
   nextAtCache?: number;
   dormantReason?: string;
+  /**
+   * 源触发已消费 seq（键 = source/view——设计 §六「源触发按 lastSeq 续读」）。
+   * cr-1169：此前只在内存 Map——宿主重启即丢，pull 兜底首扫判「落后」重读
+   * 全部行，同 seq 二次投递（news 实测 seq10 双触发）。持久化后续读从断点起。
+   */
+  lastSeq?: Record<string, number>;
   /** 心跳存活信号（诊断面——不参与任何逻辑） */
   heartbeatAt?: string;
 }
@@ -174,10 +180,9 @@ export class HostTimersService extends Service {
   private lastNote = new Map<string, { at: string; text: string }>();
   private storedSnapshot = new Map<string, string>();
   private migrating = false;
-  // ── 源触发运行时（cr-1165）：lastSeq 记账 + cooldown 窗口 + pull 兜底 ──
-  /** 条目键 owner/id → 各源/视图的已消费 seq（断点续读基准） */
-  private lastSeqByEntry = new Map<string, Record<string, number>>();
-  /** 条目键 → 各源触发器 cooldown 窗口截止时刻（纪元毫秒） */
+  // ── 源触发运行时（cr-1165/1169）：lastSeq 走 persisted（重启续读）、cooldown 内存 ──
+  /** 条目键 → 各源触发器 cooldown 窗口截止时刻（纪元毫秒；重启丢失无害——
+   *  lastSeq 已持久化，无「新行」可重投，cooldown 只是投递节流瞬态） */
   private cooldownUntil = new Map<string, Record<string, number>>();
   /** pull 兜底扫描 interval dispose（10s 地板；仅源条目在场时活） */
   private pullDispose?: () => void;
@@ -664,8 +669,14 @@ export class HostTimersService extends Service {
     seq: number,
   ): Promise<void> {
     const key = owner + '/' + entry.id;
-    const rows = readRowsSince(path.join(this.dataRoot, 'exports', source, view), this.lastSeqOf(key, source, view));
+    const since = this.lastSeqOf(key, source, view);
+    const rows = readRowsSince(path.join(this.dataRoot, 'exports', source, view), since);
     if (rows.length === 0) return;
+    // 读后即占位（cr-1169）：投递是异步的——若投递完才推进，窗口期内的
+    // pull 兜底/后续事件会重读同批行再投一次。先推进 seq 再投；投递失败
+    // 不回退（at-least-once 由邮局 outbox 承担——与时间触发记账语义一致）。
+    const maxSeq = Math.max(seq, ...rows.map((r) => r.seq as number));
+    this.advanceLastSeq(key, source, view, maxSeq);
     for (const trig of trigs) {
       if (trig.on !== 'rows-added') continue;
       const hit = trig.match === undefined || rows.some((row) => matchRow(trig.match!, row));
@@ -681,19 +692,20 @@ export class HostTimersService extends Service {
       }
       break; // 一投即止（同事件内不重复投）
     }
-    this.advanceLastSeq(key, source, view, seq);
   }
 
   private lastSeqOf(key: string, source: string, view: string): number {
-    return this.lastSeqByEntry.get(key)?.[source + '/' + view] ?? 0;
+    return this.persisted.get(key)?.lastSeq?.[source + '/' + view] ?? 0;
   }
 
+  /** lastSeq 推进并立即落盘（cr-1169：持久化——重启后续读从断点起，防同 seq 重投） */
   private advanceLastSeq(key: string, source: string, view: string, seq: number): void {
-    const cur = this.lastSeqByEntry.get(key) ?? {};
-    if ((cur[source + '/' + view] ?? 0) < seq) {
-      cur[source + '/' + view] = seq;
-      this.lastSeqByEntry.set(key, cur);
-    }
+    const cur = this.persisted.get(key);
+    if (cur === undefined) return; // 条目已清理（fire 链 completeEntry 竞态）——无记账面
+    const prev = cur.lastSeq?.[source + '/' + view] ?? 0;
+    if (prev >= seq) return;
+    this.persisted.set(key, { ...cur, lastSeq: { ...(cur.lastSeq ?? {}), [source + '/' + view]: seq } });
+    this.saveState();
   }
 
   /**
@@ -1015,7 +1027,6 @@ export class HostTimersService extends Service {
     this.lastSkip.delete(key);
     this.lastError.delete(key);
     this.lastNote.delete(key);
-    this.lastSeqByEntry.delete(key);
     this.cooldownUntil.delete(key);
   }
 

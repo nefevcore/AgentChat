@@ -175,6 +175,39 @@ describe('源视图授权闸（cr-1166）', () => {
     action: { text: '有新行' },
   };
 
+  it('cr-1169 重启续读：投过一次的 seq 不因宿主重启重投（lastSeq 持久化）', async () => {
+    seedAgent('alpha', [{
+      id: 'sw', enabled: true,
+      when: [{ kind: 'source', source: 'fs', view: 'docs', on: 'rows-added' }],
+      action: { text: '新文件' },
+    }]);
+    const grantDir = path.join(ROOT, 'agents', 'alpha');
+    fs.writeFileSync(path.join(grantDir, 'auth.json'), JSON.stringify({
+      version: 1, agentId: 'alpha',
+      grants: [{ inline: { kind: 'inline', spec: { kind: 'source-view', source: 'fs', view: 'docs' } } }],
+      denials: [],
+    }), 'utf-8');
+    const h = await boot();
+    const { materializeSnapshot } = await import('ac-source-core');
+    const dir = path.join(ROOT, 'exports', 'fs', 'docs');
+    const r1 = materializeSnapshot(dir, [{ path: 'a.md', mtime: 1, size: 5 }], 60_000);
+    h.ctx.emit('source/updated', { source: 'fs', view: 'docs', seq: r1.seq });
+    await wait(400);
+    expect(h.received.length).toBe(1);
+    await h.dispose(); // 模拟宿主重启（内存态丢失——lastSeq 应已落 state.json）
+    // state.json 里有持久化断点
+    const st = JSON.parse(fs.readFileSync(path.join(ROOT, 'meta', 'timer', 'state.json'), 'utf-8')) as Record<string, { lastSeq?: Record<string, number> }>;
+    expect(st['alpha/sw']?.lastSeq?.['fs/docs']).toBe(r1.seq);
+    const h2 = await boot(); // 新代：pull 兜底首扫发现 meta.seq==lastSeq → 不判落后
+    try {
+      h2.ctx.emit('source/updated', { source: 'fs', view: 'docs', seq: r1.seq });
+      await wait(400);
+      expect(h2.received.length).toBe(0); // 同 seq 续读无新行——不投
+    } finally {
+      await h2.dispose();
+    }
+  }, 15_000);
+
   it('maySubscribe：无 grant 拒 / 有 grant 过 / 吊销后拒', async () => {
     seedAgent('alpha', [svEntry]);
     const h = await boot();

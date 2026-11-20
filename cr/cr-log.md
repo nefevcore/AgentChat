@@ -1187,4 +1187,5 @@
 - 【cr-1166 2026-11-20 source 视图读授权：InlineAsset source-view 词汇 + timer set 校验/分发双查 + fs 读白名单（timer-v3 §五/§七分期项）】
 - 【cr-1167 2026-11-20 timer-v3 体验修补：set 对 v2 遗留参数显式报错 + previewFires once 去重/until.count 截断/过期 once 不进预览 + test 对未安装源给 dormant 预警】
 - 【cr-1168 2026-11-20 fs-source 配置写面收口：config 可写白名单补 source 域 + news 手写 auth 转正走正规写者面 + 探针清理】
+- 【cr-1169 2026-11-20 源触发 lastSeq 持久化缺失修复：宿主重启内存丢失致同 seq 重投（news 实测 seq10 双触发）+ matchAndFire 读后即占位防并发窗口】
 
