@@ -207,6 +207,60 @@ describe('壳内服务面 RPC（goal / todo / interrupt）', () => {
     await expect(handlers.get('interaction/reply')!({ id: 'i1', answer: null })).rejects.toThrow(/未找到待答条目/);
   });
 
+  // cr-1176：重启后壳不在场（按需拉起是常态）——盘上定位持有 Agent 并拉起后
+  // 重投，回复自身即唤醒面（反馈原形：先发一条新消息让壳起来，同一回复才成功）。
+  it('interaction/reply：无活壳 → 盘上定位持有 Agent 拉起后重投（cr-1176）', async () => {
+    const rootDir = 'sandbox/test-face-reply-' + process.pid;
+    fs.mkdirSync(rootDir + '/agents/a1', { recursive: true });
+    const now = Date.now();
+    fs.writeFileSync(
+      rootDir + '/agents/a1/interactions.jsonl',
+      JSON.stringify({ id: 'i1', key: 'k1', kind: 'ask_questions', payload: {}, state: 'pending', createdAt: now, updatedAt: now }) + '\n',
+      'utf-8',
+    );
+    try {
+      const { web, handlers } = collect();
+      const ensured: string[] = [];
+      const frames: Array<Record<string, unknown>> = [];
+      const port: ShellAdminPort = {
+        async ensureAgent(agentId: string) {
+          ensured.push(agentId);
+          return { control: async (frame: Record<string, unknown>) => { frames.push(frame); return { status: 'ok', answer: frame.answer }; } };
+        },
+        handles: () => new Map(),
+      };
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => port });
+      const out = await handlers.get('interaction/reply')!({ id: 'i1', answer: { answers: ['A'] } });
+      expect(out).toMatchObject({ status: 'ok' });
+      expect(ensured).toEqual(['a1']);
+      expect(frames).toEqual([{ ctrl: 'admin', agentId: 'a1', op: 'interaction-reply', id: 'i1', answer: { answers: ['A'] } }]);
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it('interaction/reply：拉起失败 fail-loud 带归属（cr-1176）', async () => {
+    const rootDir = 'sandbox/test-face-reply-fail-' + process.pid;
+    fs.mkdirSync(rootDir + '/agents/a1', { recursive: true });
+    const now = Date.now();
+    fs.writeFileSync(
+      rootDir + '/agents/a1/interactions.jsonl',
+      JSON.stringify({ id: 'i9', key: 'k1', kind: 'ask_questions', payload: {}, state: 'pending', createdAt: now, updatedAt: now }) + '\n',
+      'utf-8',
+    );
+    try {
+      const { web, handlers } = collect();
+      const port: ShellAdminPort = {
+        async ensureAgent() { throw new Error('拉起退避中'); },
+        handles: () => new Map(),
+      };
+      registerShellFace(web, ctx, { dataRoot: rootDir, port: () => port });
+      await expect(handlers.get('interaction/reply')!({ id: 'i9', answer: null })).rejects.toThrow(/拉起失败.*a1.*退避/);
+    } finally {
+      fs.rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
   it('jobs/list 汇总活壳（附 agentId）+ jobs/kill 命中所在壳', async () => {
     const { web, handlers } = collect();
     const killed: string[] = [];

@@ -216,9 +216,24 @@ function interactionFiles(dataRoot: string): string[] {
   return out;
 }
 
+/** 顶层域交互 id → 持有该域的 Agent（cr-1176）。reply 的拉起依据用目录名而非
+ *  记录 owner 字段（owner 可缺席，目录恒在）；children 域不进本面——子域 pending
+ *  由 cr-734 boot 扫描拉父、父壳代答走 subagents.answer。 */
+function interactionTopOwnerOf(dataRoot: string, id: string): string | null {
+  const agentsDir = path.join(dataRoot, 'agents');
+  let agents: fs.Dirent[] = [];
+  try { agents = fs.readdirSync(agentsDir, { withFileTypes: true }); } catch { return null; }
+  for (const a of agents) {
+    if (!a.isDirectory()) continue;
+    const file = path.join(agentsDir, a.name, 'interactions.jsonl');
+    if (!fs.existsSync(file)) continue;
+    if (new ReadOnlyJsonlDurableInteractionStore(file).list().some((r) => r.id === id)) return a.name;
+  }
+  return null;
+}
+
 /** 注册壳内服务面（goal / todo / 运行中断） */
 export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDeps): void {
-  void ctx;
   /** 控制帧往返（cr-675）：编排面统一入口优先——池外活壳（宿主换代后的
    *  孤壳）经它自己的 transportHint 答帧；缺此入口才退回「按需拉起 → 句柄
    *  控制」（壳已在跑时那条链必被单例锁拒）。 */
@@ -300,16 +315,36 @@ export function registerShellFace(web: WebFace, ctx: Context, deps: ShellFaceDep
   };
 
   // 待答清单的应答（参数只有 {id, answer}——条目住在某只壳的 durable 存储里，
-  // 按活壳枚举直到命中；没有活壳持有该 id = 可读原因失败）
+  // 按活壳枚举直到命中；无活壳持有时按盘上归属拉起后重投）
   web.registerRpc('interaction/reply', async (params) => {
     const p = obj(params);
     const id = reqStr(p, 'id');
     let last: unknown = null;
     for (const shell of liveShells()) {
-      const outcome = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'interaction-reply', id, answer: p.answer ?? null });
+      try {
+        const outcome = await shell.control({ ctrl: 'admin', agentId: shell.agentId, op: 'interaction-reply', id, answer: p.answer ?? null });
+        last = outcome;
+        const status = (outcome as { status?: string } | null)?.status;
+        if (status !== 'not-found') return outcome;
+      } catch (err) {
+        // 单壳不应答（boot 窗口 / 换代瞬态）不拖垮回复：reply 幂等（duplicate 回原
+        // 回答），跳过继续枚举并由下方拉起兜底——否则一只坏壳让整次回复失败。
+        ctx.logger.warn('[face-shell] interaction/reply 壳 ' + shell.agentId + ' 不应答：' + (err instanceof Error ? err.message : String(err)));
+      }
+    }
+    // cr-1176（2026-11-20 反馈：重启后回复 ask_questions 无声失败，先发一条新消息
+    // 让壳起来后同一回复即成功）：壳按需拉起是常态——重启后无活壳持有该 id
+    // 不等于死信。盘上定位持有 Agent → ensureAgent 拉起后重投，回复自身即唤醒面
+    //（与 shellCall「写面按需拉壳」同纪律；此前 reply 是唯一漏拉起的写面）。
+    const owner = interactionTopOwnerOf(deps.dataRoot, id);
+    const port = deps.port();
+    if (owner !== null && port !== null) {
+      const handle = await port.ensureAgent(owner).catch((err: unknown) => {
+        throw new Error('待答条目所在 Agent 拉起失败（' + owner + '）：' + (err instanceof Error ? err.message : String(err)));
+      });
+      const outcome = await handle.control({ ctrl: 'admin', agentId: owner, op: 'interaction-reply', id, answer: p.answer ?? null });
       last = outcome;
-      const status = (outcome as { status?: string } | null)?.status;
-      if (status !== 'not-found') return outcome;
+      if ((outcome as { status?: string } | null)?.status !== 'not-found') return outcome;
     }
     if (last === null) throw new Error('未找到待答条目：当前没有活壳持有该 id（先让目标 Agent 跑起来）');
     return last;
