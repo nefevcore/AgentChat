@@ -1189,4 +1189,5 @@
 - 【cr-1168 2026-11-20 fs-source 配置写面收口：config 可写白名单补 source 域 + news 手写 auth 转正走正规写者面 + 探针清理】
 - 【cr-1169 2026-11-20 源触发 lastSeq 持久化缺失修复：宿主重启内存丢失致同 seq 重投（news 实测 seq10 双触发）+ matchAndFire 读后即占位防并发窗口】
 - 【cr-1170 2026-11-20 timer set 补 conversationId 参数：允许指定 agent~* 任意归属会话（v1 语义回归——自会话定时任务）+ 归属校验防跨 Agent 注入】
+- 【cr-1171 2026-11-20 timer LLM 面补全：update 语义（幂等改写单条）+ list 回显 conversationId（投递目标可见）+ cancel 归档留痕（撤条入 timer-archive）】
 

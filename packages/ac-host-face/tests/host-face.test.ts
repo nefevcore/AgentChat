@@ -221,6 +221,32 @@ describe('timer-face 行为（cr-1167）', () => {
     await po.close();
   });
 
+  it('cr-1171：update 幂等改写（继承未传字段）+ cancel 归档 + list 平铺 conversationId', async () => {
+    const root = tmpRoot();
+    const { po } = await bootWithTimers(root);
+    const client = new HostFaceClient();
+    await client.connect(pipeOf(root));
+    // set 一条
+    const s = await client.execute('timer', { action: 'set', when: [{ kind: 'daily', at: '09:00' }], text: '原始', conversationId: 'a1~a1' }, { agentId: 'a1' } as never);
+    const id = (s.result as { entry_id: string }).entry_id;
+    // update：只改 text——when/conversationId 继承
+    const u = await client.execute('timer', { action: 'update', entry_id: id, text: '改后' }, { agentId: 'a1' } as never);
+    expect((u.result as { conversationId?: string }).conversationId).toBe('a1~a1');
+    // list 平铺核验
+    const l = await client.execute('timer', { action: 'list' }, { agentId: 'a1' } as never);
+    const listed = ((l.result as { entries: Array<{ id: string; text: string; conversationId: string; when: unknown[] }> }).entries).find((e) => e.id === id)!;
+    expect(listed.text).toBe('改后');
+    expect(listed.conversationId).toBe('a1~a1');
+    expect(listed.when).toEqual([{ kind: 'daily', at: '09:00' }]);
+    // cancel → 归档留痕
+    const c = await client.execute('timer', { action: 'cancel', entry_id: id }, { agentId: 'a1' } as never);
+    expect((c.result as { archived?: boolean }).archived).toBe(true);
+    const archive = JSON.parse(fs.readFileSync(path.join(root, 'agents', 'a1', 'entries', 'timer-archive.json'), 'utf-8')) as Array<{ id: string; status: string; reason?: string }>;
+    expect(archive.find((a) => a.id === id)).toMatchObject({ status: 'cancelled' });
+    client.close();
+    await po.close();
+  });
+
   it('test 纯源指向未就绪源 → warning 提示 dormant', async () => {
     const root = tmpRoot();
     const { po } = await bootWithTimers(root);

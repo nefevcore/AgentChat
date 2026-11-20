@@ -90,10 +90,10 @@ interface TimerPersistedState {
   heartbeatAt?: string;
 }
 
-/** 完成条目归档记录 */
+/** 完成条目归档记录（cancelled = 用户撤销——cr-1171 cancel 归档） */
 interface TimerArchiveRecord {
   id: string;
-  status: 'completed' | 'dropped';
+  status: 'completed' | 'dropped' | 'cancelled';
   reason?: string;
   completedAt: string;
   firedCount: number;
@@ -481,6 +481,35 @@ export class HostTimersService extends Service {
       ...(note ? { lastNoteAt: note.at, lastNote: note.text } : {}),
       ...(ps?.firedCount !== undefined ? { triggeredCount: ps.firedCount } : {}),
     };
+  }
+
+  /**
+   * 幂等改写单条（cr-1171 update 语义）：按 id 替换，记账（armedAt/
+   * firedCount/lastSeq）保留——改触发词汇不丢历史；条目不存在报错。
+   */
+  update(owner: string, entry: TimerEntry): { ok: boolean; error?: string } {
+    let valid: TimerEntry;
+    try { valid = validateTimerEntries([entry])[0]!; } catch (err: unknown) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+    const current = this.entries(owner);
+    const idx = current.findIndex((e) => e.id === valid.id);
+    if (idx < 0) return { ok: false, error: '条目不存在: ' + valid.id };
+    const next = [...current];
+    next[idx] = valid;
+    return this.save(owner, next);
+  }
+
+  /**
+   * 撤单条并归档留痕（cr-1171 cancel 语义）：不走 save 过滤（那会静默蒸发），
+   * 经 completeEntry 同款归档链——status 'cancelled'，firedCount 固化，
+   * timer-archive.json 可查。条目不存在报错。
+   */
+  cancelEntry(owner: string, entryId: string): { ok: boolean; error?: string } {
+    const entry = this.entries(owner).find((e) => e.id === entryId);
+    if (entry === undefined) return { ok: false, error: '条目不存在: ' + entryId };
+    this.completeEntry(owner, entry, this.persisted.get(owner + '/' + entryId)?.firedCount ?? 0, 'cancelled');
+    return { ok: true };
   }
 
   /**
@@ -1164,7 +1193,9 @@ export class HostTimersService extends Service {
     const archive = this.readArchive(owner);
     archive.push({
       ...entry,
-      status: 'completed',
+      // 归档状态随终结语义（cr-1171）：until/expired/manual = completed、
+      // 用户撤销 = cancelled、迁移丢弃 = dropped（migrateLegacy 另路写）
+      status: reason === 'cancelled' ? 'cancelled' : 'completed',
       reason,
       completedAt: localISO(undefined, this.tzOf(owner)),
       firedCount,

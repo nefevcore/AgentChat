@@ -54,6 +54,10 @@ interface TimersFace {
   sourcePresent?(source: string, view: string): boolean;
   /** 会话键归属查询（cr-1170 set 校验用：唤醒信只能投 owner 自己的会话线程） */
   mayAddress?(owner: string, conversationId: string): boolean;
+  /** 幂等改写单条（cr-1171 update——记账保留） */
+  update?(owner: string, entry: TimerEntry): { ok: boolean; error?: string };
+  /** 撤单条并归档留痕（cr-1171 cancel——timer-archive 可查） */
+  cancelEntry?(owner: string, entryId: string): { ok: boolean; error?: string };
 }
 
 /** 触发点预览（tz 求值走 timers 行——owner 时区归它管） */
@@ -92,6 +96,10 @@ async function executeTimer(
           ...(e.gates !== undefined ? { gates: e.gates } : {}),
           ...(e.until !== undefined ? { until: e.until } : {}),
           ...(e.missed !== undefined ? { missed: e.missed } : {}),
+          // 投递目标平铺（cr-1171）：text 顶层可读、conversationId 显式可见
+          // （缺省时给派生值——对角线自会话；此前藏在 action 里需读盘核对）。
+          text: e.action.text,
+          conversationId: e.action.conversationId ?? (owner + '~' + owner),
           action: e.action,
           schedule: describeEntry(e),
           ...(timers.scheduleState?.(owner, e.id) ?? {}),
@@ -103,6 +111,13 @@ async function executeTimer(
   if (action === 'cancel') {
     const id = String(args.entry_id ?? '');
     if (!id) return err('cancel 需要 entry_id');
+    // cr-1171：优先归档版 cancelEntry（撤条入 timer-archive.json 留痕——
+    // status 'cancelled' + firedCount 固化）；行缺席（旧版宿主）回落 save 过滤。
+    if (timers.cancelEntry !== undefined) {
+      const res = timers.cancelEntry(owner, id);
+      if (!res.ok) return err(res.error ?? '撤销失败');
+      return { ok: true, result: { cancelled: id, archived: true } };
+    }
     const current = timers.entries(owner);
     const next = current.filter((e) => e.id !== id);
     if (next.length === current.length) return err('条目不存在: ' + id);
@@ -226,6 +241,68 @@ async function executeTimer(
       },
     };
   }
+  if (action === 'update') {
+    // cr-1171 update 语义：幂等改写单条——entry_id 定位，其余参数缺省【继承现有条目】
+    // （只改传了的字段，未传不丢——与 set 的全量构造互补）；记账（armedAt/
+    // firedCount/lastSeq）在行侧保留。同过 v2 参数闸 / 归属闸 / 授权闸。
+    const v2Keys = ['code', 'mode', 'time', 'hint', 'delay', 'delayMin', 'delayMax', 'repeatCount', 'activeHours'];
+    const v2hit = v2Keys.filter((k) => args[k] !== undefined);
+    if (v2hit.length > 0) return err('参数 ' + v2hit.join('/') + ' 是 v2 定时器词汇——用 v3 词汇（when/text）改写');
+    const id = String(args.entry_id ?? '');
+    if (!id) return err('update 需要 entry_id（list 可见）');
+    if (timers.update === undefined) return err('timers 行版本过旧（无 update 面）——改用 cancel + set 重建');
+    const cur = timers.entries(owner).find((e) => e.id === id);
+    if (cur === undefined) return err('条目不存在: ' + id);
+    const text = args.text !== undefined ? String(args.text).trim() : cur.action.text;
+    if (!text) return err('text 不能为空');
+    const conversationId = args.conversationId !== undefined
+      ? String(args.conversationId)
+      : (identity.conversationId !== undefined && cur.action.conversationId === undefined ? identity.conversationId : cur.action.conversationId);
+    let entry: TimerEntry;
+    try {
+      entry = validateTimerEntries([{
+        id,
+        enabled: args.enabled !== undefined ? Boolean(args.enabled) : cur.enabled,
+        ...(args.label !== undefined || cur.label !== undefined ? { label: args.label !== undefined ? String(args.label).trim() || undefined : cur.label } : {}),
+        when: args.when ?? cur.when,
+        ...(args.gates !== undefined ? { gates: args.gates } : cur.gates !== undefined ? { gates: cur.gates } : {}),
+        ...(args.until !== undefined ? { until: args.until } : cur.until !== undefined ? { until: cur.until } : {}),
+        ...(args.missed !== undefined ? { missed: args.missed } : cur.missed !== undefined ? { missed: cur.missed } : {}),
+        action: {
+          ...cur.action,
+          text,
+          ...(conversationId !== undefined ? { conversationId } : { conversationId: undefined }),
+        },
+      }])[0]!;
+    } catch (e: unknown) {
+      return err('条目非法（未落盘）：' + (e instanceof Error ? e.message : String(e)));
+    }
+    // 归属闸（cr-1170 同款）
+    if (entry.action.conversationId !== undefined && timers.mayAddress !== undefined
+      && !timers.mayAddress(owner, entry.action.conversationId)) {
+      return err('conversationId ' + entry.action.conversationId + ' 不属于本 Agent（a~b 键需一侧为 ' + owner + '）');
+    }
+    // 授权闸（cr-1166 同款）
+    if (timers.maySubscribe !== undefined) {
+      for (const t of entry.when) {
+        if (t.kind !== 'source') continue;
+        if (!timers.maySubscribe(owner, t.source, t.view)) {
+          return err('未授权的源视图 ' + t.source + '/' + t.view + '——需 per-agent inline grant');
+        }
+      }
+    }
+    const res = timers.update(owner, entry);
+    if (!res.ok) return err(res.error ?? '更新失败');
+    return {
+      ok: true,
+      result: {
+        entry_id: id,
+        conversationId: entry.action.conversationId,
+        schedule: describeEntry(entry),
+        preview: previewOf(timers, owner, entry).fires,
+      },
+    };
+  }
   return err('未知 action: ' + action);
 }
 
@@ -238,14 +315,14 @@ export function makeTimerFaceRow(): Plugin {
         tools: [{
           name: 'timer',
           description:
-            '管理定时任务（cr-1164 哑触发层：到点唤醒 = 声明式触发词汇，无脚本无代码执行）。set 安排一条定时（when = 触发器数组 OR 语义）；test 静态预览未来触发点；list 查看条目（nextAt/lastAt/triggeredCount/dormantReason）；cancel 按 id 取消。会话维度：在哪个会话设置就回哪个会话。'
+            '管理定时任务（cr-1164 哑触发层：到点唤醒 = 声明式触发词汇，无脚本无代码执行）。set 安排一条定时（when = 触发器数组 OR 语义）；update 按 entry_id 幂等改写（未传字段继承现值——改 when/text/conversationId/enabled 不丢记账）；test 静态预览未来触发点；list 查看条目（nextAt/lastAt/triggeredCount/dormantReason/conversationId）；cancel 按 id 取消（归档留痕 timer-archive）。'
             + ' when 触发词汇：{kind:"once", at:"ISO"} 单次；{kind:"daily", at:"HH:mm"}；{kind:"weekly", dow:0-6(0=周日), at:"HH:mm"}；{kind:"every", iv:"30m", base?, jitter?} 间隔网格（base 缺省 wall=墙钟网格对齐 cron 心智；{at:"HH:mm"} 显式锚如「每小时的 :20」= iv:"1h"+base:{at:"00:20"}；"after-last" 链式=上次投递起算）；{kind:"source", source, view, on:"rows-added"|"stale", match?, cooldown?} 源事件（需对应 source 行已安装，否则条目 dormant；且需该视图的读授权——未授权会被拒，请让用户在授权面板授予 inline grant {kind:"source-view",source,view}）。'
             + ' gates 时间门（AND）：{kind:"workday"}/{kind:"holiday"}/{kind:"hours", from, to}（from>to 为跨午夜形）。until 终结：{count:n}（按投递次数）或 {date:ISO}。missed 停机策略："skip"（缺省，周期触发错过直跳未来）或 "catchup-once"（once 缺省——错过补投一次）。conversationId：唤醒信投递的会话键（缺省 = 发起会话；定时任务建议用 <agent>~<agent> 自会话与用户聊天解耦，须归属本 Agent）。'
             + ' 语义判断归你：唤醒信只是「时间到/有事件」，值不值得做、做什么由 run 内判定。test 可验证 when 词汇与 match 求值（传 simulate_row 模拟源行）。时区按 owner（agent）配置。',
           parameters: {
             type: 'object',
             properties: {
-              action: { type: 'string', enum: ['set', 'list', 'cancel', 'test'], description: '操作' },
+              action: { type: 'string', enum: ['set', 'list', 'cancel', 'test', 'update'], description: '操作' },
               when: { type: 'array', description: '[set/test] 触发器数组（OR 语义——见工具描述词汇表）', items: { type: 'object' } },
               text: { type: 'string', description: '[set] 唤醒文本（到点投递的消息内容；语义提示写清楚——唤醒后由你判定做什么）' },
               label: { type: 'string', description: '[set] 人读标签（list 展示，可选）' },
@@ -253,7 +330,8 @@ export function makeTimerFaceRow(): Plugin {
               until: { type: 'object', description: '[set] 终结条件（{count:n} 按投递次数 / {date:ISO}）' },
               missed: { type: 'string', enum: ['skip', 'catchup-once'], description: '[set] 停机策略（周期缺省 skip；once 缺省 catchup-once）' },
               conversationId: { type: 'string', description: '[set] 唤醒信投递的会话键（缺省 = 发起本条目的会话）。定时任务建议指向自己的自会话 <agent>~<agent>（与用户聊天线程解耦）；须归属本 Agent：a~b 键一侧为己方，或自己名下已存在的会话键' },
-              entry_id: { type: 'string', description: '[cancel] 条目 id（list 可见）' },
+              entry_id: { type: 'string', description: '[cancel/update] 条目 id（list 可见）' },
+              enabled: { type: 'boolean', description: '[update] 启停条目（缺省继承现值）' },
               simulate_row: { type: 'object', description: '[test] 模拟源行（求值 source 触发器的 match）' },
             },
             required: ['action'],
