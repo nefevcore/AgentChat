@@ -11,7 +11,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { waitForShellReady, socketPathFor, manageRoundTrip } from 'ac-envelope-core';
 import {
   parseShellArgs, deriveAndAssertRowset, bootShell, assembleRows, seedPlaceholderAssemblers, workspaceClosureRoots,
-  replayAnsweredAfterInbox,
+  replayAnsweredAfterInbox, restartedNoteDelivery,
 } from '../boot.ts';
 import { subjectFingerprint } from 'ac-fingerprint-core';
 import { readAgentConfig, writeAgentConfig, writeAgentProfileAt, writeAgentPatchV3At, rowsToMenuDefs } from 'ac-agents-core';
@@ -340,5 +340,50 @@ describe('编译产物快照（cr-910 批6 切片四：审计视图）', () => {
     expect(snap.rows).toContain('tools'); // 骨架行恒在集
     expect(Array.isArray(snap.tools)).toBe(true); // 注册面 dump（cr-1022 批2 形状：rows/tools/rowTools）
     await boot.close();
+  });
+});
+
+describe('「已重启」注入取消契约（cr-1163：退出 take 未投键）', () => {
+  it('恢复面兑现前 take：未投键全量取走，投递循环不再消费', async () => {
+    let resolveGate!: () => void;
+    const gate = new Promise<void>((r) => { resolveGate = r; });
+    const received: string[] = [];
+    const delivery = restartedNoteDelivery(
+      ['conv-a', 'conv-b'],
+      gate, // inboxRecovery 永不兑现（模拟恢复面长队——注入仍在等待）
+      async (uuid) => { received.push(uuid); },
+      () => {},
+    );
+    expect(delivery.take()).toEqual(['conv-a', 'conv-b']); // take = 全量取走
+    resolveGate(); // 退出后恢复面才兑现——投递循环发现已无待投
+    await new Promise((r) => setTimeout(r, 30));
+    expect(received).toEqual([]); // 无注入起跑点——关闭窗竞态根除
+  });
+
+  it('部分投递后 take：只取走剩余未投键（已投不重复）', async () => {
+    const received: string[] = [];
+    let inFlight: string | null = null;
+    const delivery = restartedNoteDelivery(
+      ['conv-a', 'conv-b'],
+      Promise.resolve(), // 恢复面立即兑现
+      async (uuid) => {
+        inFlight = uuid; // 投递中（挂起——receive 尚未 resolve）
+        await new Promise((r) => setTimeout(r, 50));
+        received.push(uuid);
+        inFlight = null;
+      },
+      () => {},
+    );
+    await new Promise((r) => setTimeout(r, 20)); // conv-a 投递在途（未完成）
+    expect(inFlight).toBe('conv-a');
+    expect(received).toEqual([]); // 尚无已完成投递
+    expect(delivery.take()).toEqual(['conv-b']); // take 只取走未开始的（在途的 conv-a 归本代完成）
+    await new Promise((r) => setTimeout(r, 80));
+    expect(received).toEqual(['conv-a']); // conv-a 照常完成、conv-b 不再投
+  });
+
+  it('空键集：take 恒空（无注入面形态）', () => {
+    const delivery = restartedNoteDelivery([], Promise.resolve(), async () => {}, () => {});
+    expect(delivery.take()).toEqual([]);
   });
 });

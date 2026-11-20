@@ -564,6 +564,10 @@ export interface ShellBootResult {
   emitStream(frame: StreamFrame): boolean;
   /** 控制帧面（拉起方 → 壳：interrupt / bench——stdin 行协议的内态实现） */
   control(frame: ControlFrame): Promise<unknown>;
+  /** 「已重启」注入面（cr-1163）：take = 退出路径取走未投键（并入重启
+   * marker，下代投递）——注入不再与退出竞态；无注入面（CLI 直连无邮局
+   * 等形态）= undefined。 */
+  restartedNoteTake(): string[];
   close(): Promise<void>;
 }
 
@@ -601,6 +605,49 @@ export function replayAnsweredAfterInbox(
       process.stderr.write('[shell] answered 交互重放失败：' + String(err) + '\n');
     });
   }
+}
+
+/**
+ * 「已重启」注入面（cr-1163）：注入不再是与退出竞态的漂浮任务——本代在
+ * 途工作，带取消契约（take）。时序不变量（cr-658）：注入 gated on
+ * inboxRecovery；restart-ready 只在 activeRuns 全空时发出，而注入投递本
+ * 身就是一个 run 在 activeRuns 上——take 时投递必不在途（无半途泄漏），
+ * 未投键 = 必然还挂在恢复面队列里。退出路径同步 take：未投键并入本次重
+ * 启 marker（下代投递）——通知跨代恰好一次，进程内不再有能在关闭窗起跑
+ * 的游离起跑点（cr-1159 现场根修：注入撞 exit-42 关闭窗被杀 → error 假红）。
+ */
+export function restartedNoteDelivery(
+  keys: string[],
+  inboxRecovery: Promise<void>,
+  receive: (uuid: string) => Promise<unknown>,
+  emit: (msg: string) => void,
+): { take(): string[] } {
+  let pending = [...keys];
+  if (pending.length === 0) return { take: () => [] };
+  // 在途头（cr-1163）：restart-ready 在注入 run 收束点同步发射，此刻投递
+  // 循环仍悬在 await receive 上、shift 未执行——take 若取走在途头即重复
+  // 注入（下代再投一次）。在途头的 run 已收束，receive 只剩微任务收尾、
+  // 必在本代完成——take 排除之。
+  let delivering: string | null = null;
+  void inboxRecovery.then(async () => {
+    while (pending.length > 0) {
+      delivering = pending[0]!;
+      try {
+        await receive(delivering);
+        pending.shift();
+      } catch (err) {
+        emit('「已重启」注入失败：' + String(err));
+      }
+      delivering = null;
+    }
+  });
+  return {
+    take: () => {
+      const un = delivering !== null ? pending.slice(1) : [...pending];
+      pending = [];
+      return un;
+    },
+  };
 }
 
 export async function bootShell(
@@ -1213,34 +1260,29 @@ export async function bootShell(
   // 换代结果且 marker 带会话键时，向该会话投「已重启」通知（sender = 桶
   // 对端，timer/goal 的 KV 前缀裁决同款），开续跑轮（续跑上下文 = 轨迹
   // 读面，模型按上一轮终稿继续）。兜在 inbox 恢复之后：排队信先消费，
-  // 注入不插队。
-  if (restartedConversations.length > 0 && typeof convSvc?.receiveEnvelope === 'function') {
-    // cr-1159：逐发起方注入（多会话并发各调 restart_shell 时各收各的
-    // 「已重启」——单键注入 = 非发起方或后收束者永等不到）。串行逐封：
-    // 注入不插队语义保持（inboxes 先消费排队信）。
-    void inboxRecovery
-      .then(async () => {
-        for (const uuid of restartedConversations) {
-          await convSvc.receiveEnvelope!(makeEnvelope({
-            uuid,
-            requestId: 'restarted-' + issueRequestId(),
-            sender: restartNoteSender(uuid, args.agentId),
-            to: args.agentId,
-            kind: 'message',
-            budget: 1,
-            // cr-946：机制通知标记——壳自身合成的催办信不是会话发言：壳按机制行
-            //（context+event）落账，webui 投为事件分隔符（同时是两轮 run 的边界）。
-            payload: {
-              text: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。上一轮 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤、勿再次 restart_shell。',
-              mechanism: true,
-            },
-          }), { fresh: true });
-        }
-      })
-      .catch((err: unknown) => {
-        process.stderr.write('[shell] 「已重启」注入失败：' + String(err) + '\n');
-      });
-  }
+  // 注入不插队。cr-1163：注入经 delivery 面（带 take 契约）——本代退出时
+  // 未投键由退出路径取走并入 marker，跨代恰好一次。
+  const restartedDelivery = typeof convSvc?.receiveEnvelope === 'function'
+    ? restartedNoteDelivery(
+        restartedConversations,
+        inboxRecovery,
+        (uuid) => convSvc.receiveEnvelope!(makeEnvelope({
+          uuid,
+          requestId: 'restarted-' + issueRequestId(),
+          sender: restartNoteSender(uuid, args.agentId),
+          to: args.agentId,
+          kind: 'message',
+          budget: 1,
+          // cr-946：机制通知标记——壳自身合成的催办信不是会话发言：壳按机制行
+          //（context+event）落账，webui 投为事件分隔符（同时是两轮 run 的边界）。
+          payload: {
+            text: '壳已重启完成（restart_shell 已兑现）：行集与运行时状态已重载。上一轮 run 已自然收束，其终稿与完整工具轨迹都在上下文中——直接按终稿中的下一步继续任务即可，勿重做已完成步骤、勿再次 restart_shell。',
+            mechanism: true,
+          },
+        }), { fresh: true }),
+        (msg) => process.stderr.write('[shell] ' + msg + '\n'),
+      )
+    : undefined;
   // cr-1129 批 4：重放计数走 stderr 诊断（stdout 信号面退役；纯域函数签名不变）
   replayAnsweredAfterInbox(convSvc, inboxRecovery, (s) => process.stderr.write('[shell] ' + s + '\n'));
   // run 节拍订阅（cr-740 运维面）：loop 事件 → stdout TSV（emit 注入面——纯域
@@ -1273,6 +1315,7 @@ export async function bootShell(
     lockInfo, rowset, rowsReady, ctx, transportHint, fingerprint, rowTools: rowToolFace(),
     emitStream: emitStreamFrame,
     control,
+    restartedNoteTake: () => restartedDelivery?.take() ?? [],
     close: async () => {
       // cordis 树收割：fiber 逆序 dispose（主线测试同款语义），再收 ipc。
       for (const fiber of [...fibers].reverse()) {
@@ -1431,7 +1474,11 @@ export async function main(argv: string[]): Promise<number> {
     const exitCode = await new Promise<number>((resolve) => {
       gracefulExit = resolve;
       result.ctx.on('conversation/restart-ready', (p: { conversationIds?: string[] }) => {
-        void notifyHostRestartShell(args, p.conversationIds ?? []).finally(() => decideExit(42));
+        // cr-1163：退出前同步 take 本代未投的「已重启」注入键——并入本次
+        // 重启 marker（下代投递），通知跨代恰好一次；take 后注入面已空，
+        // 关闭窗内不再有注入起跑点（不再产生 aborted 假红）。
+        const merge = [...new Set([...(p.conversationIds ?? []), ...result.restartedNoteTake()])];
+        void notifyHostRestartShell(args, merge).finally(() => decideExit(42));
       });
       // 锁路径同源 bootShell（影子形态 = children 域；main 作用域无 agentDir）
       const lockFile = path.join(
