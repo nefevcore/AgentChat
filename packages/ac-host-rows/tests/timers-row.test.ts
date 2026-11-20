@@ -161,6 +161,40 @@ describe('源触发（cr-1165 采集层接线）', () => {
       await h.dispose();
     }
   }, 10_000);
+
+  it('cr-1172 源健康投影：scheduleState 带出 sources[]（generatedAt/seq/stale 现读）', async () => {
+    seedWithGrant('alpha', [{
+      id: 'sh', enabled: true,
+      when: [
+        { kind: 'source', source: 'fs', view: 'docs', on: 'rows-added' },
+        { kind: 'daily', at: '09:00' },
+      ],
+      action: { text: '巡检' },
+    }]);
+    const h = await boot();
+    try {
+      // 源未物化 = sources 缺席（dormantReason 另有投影）
+      let st = h.timers.scheduleState('alpha', 'sh');
+      expect(st.sources).toBeUndefined();
+      // 物化后 = 健康投影在场（staleAfterMs 60s > 已过时间 → stale false）
+      const { materializeSnapshot } = await import('ac-source-core');
+      const dir = path.join(ROOT, 'exports', 'fs', 'docs');
+      const r = materializeSnapshot(dir, [{ path: 'a.md', mtime: 1, size: 5 }], 60_000);
+      st = h.timers.scheduleState('alpha', 'sh');
+      expect(st.sources).toEqual([{ source: 'fs', view: 'docs', generatedAt: expect.any(String), seq: r.seq, stale: false }]);
+      // staleAfterMs 极小（10ms）→ 稍候即 stale true（与 staleSweep 同判据）
+      materializeSnapshot(dir, [{ path: 'a.md', mtime: 1, size: 5 }, { path: 'b.md', mtime: 2, size: 3 }], 10);
+      await wait(50);
+      st = h.timers.scheduleState('alpha', 'sh');
+      expect(st.sources?.[0]?.stale).toBe(true);
+      expect(st.sources?.[0]?.seq).toBe(r.seq + 1);
+      // 纯时间条目不带 sources
+      const none = h.timers.scheduleState('alpha', 'nonexistent');
+      expect(none.sources).toBeUndefined();
+    } finally {
+      await h.dispose();
+    }
+  }, 10_000);
 });
 
 describe('源视图授权闸（cr-1166）', () => {

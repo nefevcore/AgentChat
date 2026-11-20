@@ -38,8 +38,10 @@ const err = (msg: string): { ok: false; error: string } => ({ ok: false, error: 
  *   v4: cr-1147 脚本型——nextAt/lastAt 同格式、diagnosticsScope
  *   v5: cr-1164 v3 哑层——条目字段换轨（when/gates/until/missed/action 结构）；
  *       dormantReason / chained 新增；lastGate* / lagMs 退役；schedule 人读摘要
+ *   v6: cr-1172 源健康——scheduleState 新增 sources[]（generatedAt/seq/stale
+ *       现读投影）；纯增量字段，v5 消费方不受影响
  */
-const LIST_VERSION = 5;
+const LIST_VERSION = 6;
 
 /** timers 服务最小面（HostTimersService） */
 interface TimersFace {
@@ -88,6 +90,8 @@ async function executeTimer(
         // 惰性诊断字段（lastSkip* / lastError* / lastNote*）只在事件发生后出现，
         // 且为内存态（宿主重启即清空）——缺失 = 本次启动以来未发生该事件。
         diagnosticsScope: 'since-boot',
+        // 源健康：scheduleState 平铺带出 sources[]（cr-1172——源条目排障
+        // 不再需要手读 exports/<source>/<view>/meta.json）
         entries: timers.entries(owner).map((e) => ({
           id: e.id,
           label: e.label,

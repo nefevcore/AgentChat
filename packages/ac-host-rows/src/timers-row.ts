@@ -452,6 +452,8 @@ export class HostTimersService extends Service {
     nextAt?: string;
     chained?: boolean;
     dormantReason?: string;
+    /** 源健康（cr-1172：§七「list 源健康」——meta 现读，数组 = 条目全部订阅） */
+    sources?: Array<{ source: string; view: string; generatedAt: string; seq: number; stale: boolean }>;
     lastSkipAt?: string;
     lastSkipReason?: string;
     skipStreak?: number;
@@ -471,7 +473,22 @@ export class HostTimersService extends Service {
     const tz = this.tzOf(owner);
     const entry = this.entriesByAgent.get(owner)?.find((e) => e.id === entryId);
     const chained = entry?.when.some((t) => t.kind === 'every' && (t.base ?? 'wall') === 'after-last') ?? false;
+    // 源健康投影（cr-1172）：条目全部源订阅 → meta 现读。stale 判据与
+    // staleSweep 同口径（generatedAt 超 staleAfterMs）；meta 缺席 = 源
+    // 不可用（dormantReason: source-unavailable 已另有投影，不在此重复）。
+    const sources = entry?.when.filter((t): t is SourceTrigger => t.kind === 'source') ?? [];
+    const now = Date.now();
+    const health = sources.flatMap((t) => {
+      const meta = readMeta(path.join(this.dataRoot, 'exports', t.source, t.view));
+      if (meta === null) return [];
+      return [{
+        source: t.source, view: t.view,
+        generatedAt: meta.generatedAt, seq: meta.seq,
+        stale: now - new Date(meta.generatedAt).getTime() > meta.staleAfterMs,
+      }];
+    });
     return {
+      ...(health.length > 0 ? { sources: health } : {}),
       ...(ps?.lastFiredAt !== undefined ? { lastAt: localISO(new Date(ps.lastFiredAt), tz) } : {}),
       ...(next !== undefined ? { nextAt: localISO(new Date(next), tz) } : {}),
       ...(chained ? { chained: true } : {}),

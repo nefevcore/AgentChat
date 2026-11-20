@@ -226,8 +226,8 @@ R0b 三问：独立消费方（timer 条目 / 将来 webui 面板）✓；摘除
 | 状态 | 事项 | 倾向 |
 |---|---|---|
 | ☐ | match 算子集 v1 边界 | eq/ne/gt/lt/in/contains，单层字段；嵌套路径与正则不进 v1（防词汇表癌变） |
-| ☐ | cooldown 缺省值 | '5m' |
-| ◐ | pull 兜底节奏声明位 | 源声明 fallbackPoll，条目只 throttle（不另设条目位） |
+| ☑ | cooldown 缺省值 | '5m'（cr-1165 实现落定 DEFAULT_SOURCE_COOLDOWN；stale 唤醒缺省 30m） |
+| ☑ | pull 兜底节奏声明位 | 取简面：不设源侧 fallbackPoll 声明，timers 行统一 10s 地板兜底扫（cr-1165 实现落定） |
 | ☐ | hours 门跨午夜细节 | 支持 from > to 跨午夜形（activeHours 同款语义） |
 | ☑ | 审计行落位 | `meta/timer/audit.jsonl`（滚动 1MB→.old 覆盖；cr-1164 实现落定） |
 | ☑ | base 三裁决 | 恒 24h / 统一形状不开放 / once 循 missed（2026-11-20） |
