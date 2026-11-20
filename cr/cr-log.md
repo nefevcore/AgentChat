@@ -1177,4 +1177,12 @@
 - 【cr-1156 2026-11-18 回放压缩边界过滤修复：seq 空间倒挂（compaction 重写后 B1 尾窗播种重启小 seq）致 boundarySeq 遮蔽当前会话全部行——admin~user/news~user 用户消息静默不可见；边界过滤加 compaction 事件时刻维度（事件后落账行恒放行）→cr-1155】
 - 【cr-1157 2026-11-19 unread 计数器方案实施：三源事件 bump（run/settled/独立私信/群消息，可扩展源注册表）+ 幂等键 + session/unread take 全量清零 + mark-read 定向清 + 前端徽章面重建——cr-1152 下线后的重设计落地（未读语义降级为 hint，精准对账方案彻底退役）】
 - 【cr-1158 2026-11-19 网络状态监控：ac-net-core 纯库 + ac-net-monitor 壳侧行（网卡/DNS 探测状态机 + 离线时 llm/before-chat 闸门）】
+- 【cr-1159 2026-11-19 restart_shell 多会话并发单槽修复——通知链四层改多键（行旗标/服务意图/marker/boot 注入）+ reviewRun 收束 restartPending 孤儿缺口】
+- 【cr-1160 2026-11-20 压缩+概要 V2 重设计：逻辑压缩/物理回收分离、位置+时刻双维边界、概要提交协议、session-index 兼容（设计稿）】
+- 【cr-1161 2026-11-20 timer v3 设计稿：哑触发层重做（采集分离 source 行、砍 code 执行面、when 静态推导），取代 cr-1147 探测循环】
+- 【cr-1162 2026-11-20 TokenGauge 会话切换时固定开销面残留：切换 watch 同步清开销状态，让占比立即跟随会话（cr-1160 首轮诊断遗留问题 3）】
+- 【cr-1163 2026-11-20 restart_shell 退出与 boot「已重启」注入竞态根修——注入改带取消契约的本代在途工作：退出路径同步 take 未投递键并入重启 marker（下代投递，跨代恰好一次）+ decideExit 统一收口取消（修注入撞 exit-42 关闭窗被杀留 error 假红）】
+- 【cr-1164 2026-11-20 timer v3 换轨实施：ac-timer-core 契约/推导 + timers 行哑匹配 + face/UI 换轨 + v2-v3 迁移】
+- 【cr-1165 2026-11-20 source 采集层实施：ac-source-core 纯库 + fs-source 行 + timers 行源触发接线（timer-v3 再下一批）】
+- 【cr-1166 2026-11-20 source 视图读授权：InlineAsset source-view 词汇 + timer set 校验/分发双查 + fs 读白名单（timer-v3 §五/§七分期项）】
 
