@@ -146,6 +146,72 @@ describe('宿主能力面注册面（cr-1121）', () => {
   });
 });
 
+describe('timer-face 行为（cr-1167）', () => {
+  async function bootWithTimers(dataRoot: string) {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    const { PostOffice } = await import('ac-post-office');
+    const { TimerService } = await import('@agentchat/cordis-timer');
+    const { ConfigService } = await import('ac-config');
+    const { makeTimersHostRow } = await import('ac-host-rows');
+    const po = new PostOffice({ dataRoot });
+    writeAgentConfig(dataRoot, { id: 'a1', model: 'mock' } as never);
+    const rows: unknown[] = [
+      TimerService,
+      class extends ConfigService { constructor(c: Context) { super(c, { root: dataRoot }); } },
+      makeTimersHostRow({ dataRoot, postOffice: po }),
+      makeHostFaceRow({ dataRoot }),
+      makeTimerFaceRow(),
+    ];
+    for (const row of rows) {
+      const f = ctx.plugin(row as never, undefined as never);
+      await f;
+      fibers.push(f);
+    }
+    booted.push({ ctx, fibers });
+    const probe = new HostFaceClient();
+    for (let i = 0; i < 40; i++) {
+      try { await probe.connect(pipeOf(dataRoot)); probe.close(); return { po }; } catch { await new Promise((r) => setTimeout(r, 50)); }
+    }
+    probe.close();
+    throw new Error('端点未就绪');
+  }
+
+  it('set 携带 v2 参数（code）→ fail-loud 不落盘', async () => {
+    const root = tmpRoot();
+    const { po } = await bootWithTimers(root);
+    const client = new HostFaceClient();
+    await client.connect(pipeOf(root));
+    const r = await client.execute('timer', { action: 'set', code: '(a,u)=>({})', text: 'x' }, { agentId: 'a1' } as never);
+    expect(r.error).toContain('v2 定时器词汇');
+    expect(r.error).toContain('未生效');
+    client.close();
+    await po.close();
+  });
+
+  it('test 携带 until:{count:2} → 预览截断为 2 条（cr-1167 实测漏洞回归锁）', async () => {
+    const root = tmpRoot();
+    const { po } = await bootWithTimers(root);
+    const client = new HostFaceClient();
+    await client.connect(pipeOf(root));
+    const r = await client.execute('timer', { action: 'test', when: [{ kind: 'every', iv: '1h' }], until: { count: 2 } }, { agentId: 'a1' } as never);
+    expect((r.result as { fires: unknown[] }).fires).toHaveLength(2);
+    client.close();
+    await po.close();
+  });
+
+  it('test 纯源指向未就绪源 → warning 提示 dormant', async () => {
+    const root = tmpRoot();
+    const { po } = await bootWithTimers(root);
+    const client = new HostFaceClient();
+    await client.connect(pipeOf(root));
+    const r = await client.execute('timer', { action: 'test', when: [{ kind: 'source', source: 'fs', view: 'none', on: 'rows-added' }] }, { agentId: 'a1' } as never);
+    expect((r.result as { warning?: string }).warning).toContain('源未就绪');
+    client.close();
+    await po.close();
+  });
+});
+
 /** 测试本地 pipe 地址（与 socketPathFor win32 分支同归一——避免引 socketPathFor 重复实现） */
 function pipeOf(dataRoot: string): string {
   const posixPath = path.join(dataRoot.replaceAll('\\', '/'), 'ipc', 'host-face.sock');

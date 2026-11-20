@@ -109,12 +109,23 @@ async function executeTimer(
     return { ok: true, result: { cancelled: id } };
   }
   if (action === 'test') {
-    // 静态预览：未来三次触发点 + 源事件模拟（match 求值）
+    // 静态预览：未来触发点 + 源事件模拟（match 求值）。until 必须一并送进
+    // draft——否则 until:{count:2} 的截断不生效，预览谎报第三条（cr-1167 实测）。
     const when = args.when;
-    try { validateTimerEntries([{ id: 'preview', enabled: true, when: when as WhenTrigger[], action: { text: 'preview' } }]); } catch (e: unknown) {
+    let draft: TimerEntry;
+    try {
+      draft = validateTimerEntries([{
+        id: 'preview',
+        enabled: true,
+        when: when as WhenTrigger[],
+        ...(args.gates !== undefined ? { gates: args.gates } : {}),
+        ...(args.until !== undefined ? { until: args.until } : {}),
+        ...(args.missed !== undefined ? { missed: args.missed } : {}),
+        action: { text: 'preview' },
+      }])[0]!;
+    } catch (e: unknown) {
       return err('when 非法：' + (e instanceof Error ? e.message : String(e)));
     }
-    const draft: TimerEntry = { id: 'preview', enabled: true, when: when as WhenTrigger[], action: { text: 'preview' } };
     const fires = previewOf(timers, owner, draft);
     const simulateRow = args.simulate_row;
     const matched = Array.isArray(when)

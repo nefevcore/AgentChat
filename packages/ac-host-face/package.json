@@ -22,6 +22,10 @@
   },
   "devDependencies": {
     "ac-extension-core": "workspace:*",
+    "ac-host-rows": "workspace:*",
+    "ac-post-office": "workspace:*",
+    "ac-config": "workspace:*",
+    "@agentchat/cordis-timer": "workspace:*",
     "vitest": "^4.1.10"
   },
   "agentchat": {
