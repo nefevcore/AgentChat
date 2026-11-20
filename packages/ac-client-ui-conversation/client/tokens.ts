@@ -20,6 +20,22 @@ export function estimateTokens(text: string | null | undefined): number {
   return Math.ceil(tokens);
 }
 
+/** 仪表视图键（cr-1162）：Token 占用仪表所属的会话视图标识——开销面归属
+ *  判定用。归一口径：senior 形态优先级 group(gid) → single(sid) → direct(agentId，
+ *  前缀 direct: 避免与 sid 撞键)。null = 无视图（未选 Agent——不并入开销）。 */
+export interface GaugeViewShape {
+  form?: 'direct' | 'group' | 'single' | 'pair';
+  agentId?: string | null;
+  conversationId?: string | null;
+  single?: { id: string } | null;
+}
+
+export function gaugeViewKeyOf(data: GaugeViewShape): string | null {
+  if (data.form === 'group') return data.conversationId ?? null;
+  if (data.single) return data.single.id;
+  return data.agentId ? 'direct:' + data.agentId : null;
+}
+
 /**
  * token 数 K/M 级约化（展示）：≥999.5K 进 M 档（一位小数、≥100M 取整）、
  * ≥1K 进 K 档（一位小数、≥100K 取整）、<1K 原样（未命中明细等小值

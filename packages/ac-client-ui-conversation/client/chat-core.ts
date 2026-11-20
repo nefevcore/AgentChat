@@ -321,6 +321,13 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   const toolDefsLoading = ref(false);
   const toolDefs = ref<any[]>([]);
 
+  /** 固定开销面请求代（cr-1162）：两个 request 的 in-flight 响应共享同一
+   *  序号轴——发起新请求抬号，迟到响应按号丢弃（快速切换时旧会话的
+   *  systemPrompt/toolDefs 不得回写覆盖新的；TokenGauge 与 SystemPromptPanel
+   *  共用这对状态，谁后发起谁对应最新视图）。 */
+  let overheadSeq = 0;
+
+
   // ══ 会话工具调用模式快照（2026-09-21 预览失真修复）══
   /** 当前会话的工具调用模式覆盖（''=跟随；ChatInput 写口 conv-settings
    *  成功后同步 bump——system-prompt 预览/Token 估算面据此得知装配面
@@ -783,6 +790,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     const target = agentId ?? (ctx?.kind === 'single' ? ctx.agentId : activeAgent());
     if (!target) return;
     const sessionId = options?.conversationId ?? (ctx?.kind === 'single' ? ctx.sessionId : undefined);
+    const seq = ++overheadSeq; // cr-1162 竞态守卫（见 overheadSeq 声明）
     systemPromptLoading.value = true;
     systemPromptContent.value = '';
     systemPromptError.value = '';
@@ -791,10 +799,12 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       ...(sessionId ? { conversationId: sessionId } : {}),
     })
       .then((r) => {
+        if (seq !== overheadSeq) return; // 已清面/新请求接管——迟到响应丢弃
         systemPromptLoading.value = false;
         systemPromptContent.value = r.systemPrompt ?? '';
       })
       .catch((err: unknown) => {
+        if (seq !== overheadSeq) return;
         systemPromptLoading.value = false;
         systemPromptError.value = err instanceof Error ? err.message : '获取 System Prompt 失败';
       });
@@ -816,15 +826,18 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     const target = agentId ?? (ctx?.kind === 'single' ? ctx.agentId : activeAgent());
     if (!target) return;
     const sessionId = options?.conversationId ?? (ctx?.kind === 'single' ? ctx.sessionId : undefined);
+    const seq = ++overheadSeq; // cr-1162 竞态守卫（见 overheadSeq 声明）
     toolDefsLoading.value = true;
     toolDefs.value = [];
     void rpc.call<{ defs?: Array<{ name: string; description: string; parameters: Record<string, unknown> }> }>('agents/tool-defs', { agentId: target, ...(sessionId ? { conversationId: sessionId } : {}) })
       .then((r) => {
+        if (seq !== overheadSeq) return; // 已清面/新请求接管——迟到响应丢弃
         toolDefsLoading.value = false;
         toolDefs.value = toToolDefs(r.defs ?? []) as never;
       })
       .catch(() => {
         // 估算尽力而为：失败仅收敛 loading（弹层工具行显示 ≈ 0）
+        if (seq !== overheadSeq) return;
         toolDefsLoading.value = false;
       });
   }

@@ -17,7 +17,7 @@ import { fetchSessionTokens } from 'ac-client-ui-agents/client/rosterApi.ts';
 import { downsampleKvSteps, fetchKvTimeline, type KvSample, type KvTimelinePoint } from '../tokens.ts';
 import type { SingleSession } from 'ac-client-ui-singles/client';
 import { useChatStore } from '../chatStore.ts';
-import { estimateTokens, fmtTokenCount } from '../tokens.ts';
+import { estimateTokens, fmtTokenCount, gaugeViewKeyOf } from '../tokens.ts';
 
 const props = defineProps<{
   /** 席位 owner 上下文透传（D16-③：ConversationView 经 SlotOutlet data 传入） */
@@ -123,6 +123,9 @@ const tokenPanelOpen = ref(false);
 // （loop/after-step——工具步先于工具执行，长工具运行中即重取；此前挂
 // after-run 要等整轮收束）/ 历史拉尽（估算口径补全）/ 归档完成（compact
 // 重写会话——无 run 结束）
+// cr-1162：切换会话时固定开销面复位（见 overheadKey 注释——本组件侧判定，
+// 不碰 chatStore 全局状态：那是 TokenGauge 与 SystemPromptPanel 共用的，
+// 就地清空会作废 SystemPromptPanel 正在飞的响应、让它空白且不重试）。
 watch(() => props.data.agentId, () => { anchorRatio.value = null; fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
 watch(() => props.data.single?.id, () => { anchorRatio.value = null; fetchTokenBaseline(true); tokenPanelOpen.value = false; });
 watch(() => chatStore.lastStepEndAt, () => {
@@ -140,12 +143,29 @@ watch(() => chatStore.lastRunSettledAt, () => {
 // 归档（cr-1135）：P 停留旧值而 E 骤缩——比率失真，清除回落无锚点口径
 watch(() => chatStore.sessionArchivedAt, () => { anchorRatio.value = null; fetchTokenBaseline(); });
 // 会话模式/浏览器档快照变化（ChatInput 写口 bump——run 间隙生效）→ 装配面
+// ── 开销归属键（cr-1162：切换会话读数不跟随的根修）──
+// 根因：systemPromptContent/toolDefs 是 chatStore 全局单例（还与 SystemPromptPanel
+// 共用），而本组件无锚点态分子 = tokenCount + 系统提示 + 工具定义。切换会话后
+// 旧会话的开销仍留在分子里 → ①占比不跟随（只有点开弹层 refetchOverhead 才刷）
+// ②读数系统性偏高。
+// 判据：记下「本组件取开销时的视图键」，与当前视图键不符即视为 0（回落既有
+// 「弹层从未打开 = 比例维持会话净占用」口径）。**为什么不在切换时清全局状态**：
+// 那会作废 SystemPromptPanel 正在飞的请求（它有自己的切换清空+重取，L83-88），
+// 造成面板空白且不重试——本组件只判自己的读数，不动共享状态。
+/** 当前视图键（判据单源 = gaugeViewKeyOf，cr-1162） */
+const viewKey = computed<string | null>(() => gaugeViewKeyOf(props.data));
+/** 本组件最近一次取开销时的视图键（null = 从未取过——按 0 并入，与旧口径等价） */
+const overheadKey = ref<string | null>(null);
+/** 开销数据是否属于当前视图（false → 视为无明细，不并入分子） */
+const overheadFresh = computed(() => overheadKey.value !== null && overheadKey.value === viewKey.value);
+
 /** 重拉固定开销构成（系统提示/工具定义——打开面板/装配面变化时：人格/
  *  记忆/生效工具集都可能变化）；群形态带 gid（记忆桶/群共享记忆按 gid
  *  装配）；single/direct 传会话键——后端按会话模式/浏览器档收窄生效集
  * （程序化会话仅 run_code），估算与真实 run 的 LLM 可见面同口径 */
 function refetchOverhead() {
   if (!props.data.agentId) return;
+  overheadKey.value = viewKey.value; // 标记本次开销归属（cr-1162）
   const convId = props.data.form === 'group'
     ? props.data.conversationId
     : props.data.single?.id ?? undefined;
@@ -180,10 +200,16 @@ function closeTokenPanel() { tokenPanelOpen.value = false; }
 // 时为 0。计数行恒示实值；占用比例按 "若有取实值，否则 0" 并入——避免
 // 每步重取干跑（开销大），也不虚假抬高占用（弹层从未打开 = 用户未看过
 // 明细，比例维持会话净占用）。
-const systemPromptTokens = computed(() => estimateTokens(chatStore.systemPromptContent));
+// cr-1162：只并入属于当前视图的开销（overheadFresh）——全局状态里可能是别的
+// 会话留下的（切换后的旧值、或 SystemPromptPanel 为别的视图取的）。
+const systemPromptTokens = computed(() =>
+  overheadFresh.value ? estimateTokens(chatStore.systemPromptContent) : 0);
 const toolDefsTokens = computed(() =>
-  (chatStore.toolDefs as unknown[]).reduce<number>((n, d) => n + estimateTokens(JSON.stringify(d)), 0));
-const overheadLoading = computed(() => chatStore.systemPromptLoading || chatStore.toolDefsLoading);
+  overheadFresh.value
+    ? (chatStore.toolDefs as unknown[]).reduce<number>((n, d) => n + estimateTokens(JSON.stringify(d)), 0)
+    : 0);
+const overheadLoading = computed(() =>
+  overheadFresh.value ? (chatStore.systemPromptLoading || chatStore.toolDefsLoading) : false);
 
 /** 运行中实时占用（cr-761）：最新步的 prompt = 本步请求真实上下文 token
  *  （含 system/工具定义/全部历史/在途步——比盘读估算准且每步更新）。run
