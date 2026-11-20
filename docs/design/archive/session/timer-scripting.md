@@ -1,7 +1,7 @@
 # 定时器脚本化重做（timer-scripting）
 
 > 性质：域深设计——定时域 cr-1147 重做的终态规格与代码映射
-> 状态：现行 · cr-1147 2026-11-17（cr-1149 2026-11-17 契约硬化补注）
+> 状态：已被 timer-v3.md 取代 · cr-1161 2026-11-20
 > 读者：改定时域（ac-timer-core / ac-host-rows timers 行 / timer-face / Timer UI）的人
 
 ## 一、定位（探测循环，非排定时刻）
