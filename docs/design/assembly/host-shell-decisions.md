@@ -574,3 +574,12 @@ cr-1037 附带发现的潜伏坑已由 cr-1056 收口：`profile/<proc>.patch.ym
 （webui-doc 基座旧名回退 + 防重补丁一并退役）；登记旧名
 `installed.patch.yml` 兼容读不受影响。基座读面从此不消费
 `<proc>.patch.yml`——该名专属差量层，双义消灭。
+# 〈宿主服务通道〉（2026-11-20 立项，cr-1175 全批落地）
+
+控制/汇报通信与会话信封管道解耦——全文见 platform/host-service-channel.md。本簿记横切裁决：
+六类宿主寄居通信（restart/respawn/usage/title/plugin/grant）经邮局 socket 第二协议位
+（svc 服务帧）直达宿主服务台（HostServiceDesk，ac-host-rows），**不进可达表、不进 registry、
+永不触发 ensureHook**——`to:'host'` 类别错误（虚构端点撞名劫持 + ensureHook 自激）三重根拔除。
+HostInbox 退役为旧协议转发 shim（版本混布窗），随下一次发版删除。`user` 虚拟端点不迁
+（真会话参与者）；宿主→会话完成通知机制信不迁（会话语义正确归宿）。agent 命名保留字
+（host/user/@ 前缀）在创建面与拉壳面双闸拒斥。

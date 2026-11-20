@@ -301,10 +301,12 @@ interrupted（webui partial 态），不回写日志；`settleOrphan`/`recoverOr
 - **fail-closed checkpoint**：`tool/before-execute` 按执行身份 `call.conversationId` 定向 flush（M11），落盘失败则 veto 工具执行——入站消息与 journal 先于工具副作用 durable；
 - 卸载收尾 `flushAll()`（优雅关闭）。
 
-### 3.4 概要与重建（replace 的落盘面）
+### 3.4 概要与重建（replace 的落盘面；cr-1160 压缩 V2 已实施）
 
-- `compact({summary, keep})`：flush → 写 `summary.md` → tmp+rename 原子重写消息流（Windows 主场，不做硬链接发布）→ 旧队列作废；
-  **cr-974 压缩事件化**：v2 会话摘要全文进 `compaction/summary` 事件（`summary.md` 停写——v1 存量读兼容），fold 三态（current / shadowed〔被摘要替换，仍在日志〕/ log-only〔机制行〕）——LLM 回放 = 最新摘要置首 + 边界后行；物理回收只发生在归档时机（shadowed 前缀整段搬 `history_N` + 单流压缩，主日志保留 compaction 事件 + 摘要——S5 白名单唯一重写许可）；
+> **cr-1160（2026-11-20）压缩 V2 已实施**：逻辑压缩 = **compaction 单事件**（一行携带 boundarySeq/endTs/summary/stats/model——`compaction/*` 旧三连读侧归并，存量零迁移）；边界 = 多轮叠加 + `rowShadowedBy` 三级裁决谓词（时刻放行前置 → seq 位置维 → ts 时刻维 → 文件位置维）；概要提交协议（`summaryCommittable` 形态校验——不合格本代无新概要，回放头回落上一代）；session-index 增 generation/est_tokens/compactions 面（`activeContextTokens` 活跃代合计 = 阈值/仪表直读，三口径收敛）；物理回收与逻辑压缩解耦（shadowed 估算超 keep 水位 × 2 才搬段）。设计全文见 [compaction-v2-redesign.md](compaction-v2-redesign.md)。
+
+- `compact({summary, keep})`：flush → tmp+rename 原子重写消息流（Windows 主场，不做硬链接发布）→ 旧队列作废；
+  **cr-974 压缩事件化 → cr-1160 单事件化**：v2 会话摘要全文进 `compaction` 单事件行（`summary.md` 停写——v1 存量读兼容），fold 三态（current / shadowed〔被任一压缩代边界覆盖，仍在日志〕/ log-only〔机制行〕）——LLM 回放 = 最新可用摘要置首（本代缺概要回落上一代）+ 全部边界外行；物理回收与逻辑压缩解耦（cr-1160：shadowed 估算超回收阈才搬段——S5 白名单唯一重写许可不变）；
 - `deleteMessage` / `truncateAfter`（行内编辑语义）同款原子重写；
 - 归档分段（ac-archive-core：`message_id` 去重 + 尾部水位截断不拆工具对）写 `history_N.jsonl`，会话流由 compact 重建为尾部 keep；
 - 群本体轮转：500k token 阈值 → `groups/<gid>/archive/history_N.jsonl` + 机械摘要 `summary_N.md`，本体重建保留尾部 30k（§6.1）。
@@ -331,6 +333,11 @@ zstd 帧串接/硬链接原子发布（Windows 主场，tmp+rename 已够）；c
 
 一切双端会话都是对桶：`conversationId = pairKey(a, b)`，自会话 = `a~a`（对角线，机制触发统一归此——timer 自唤醒/job 完成，与用户直答桶分离）。
 信封身份/拓扑分离：`sender` = 发送方端点 id、`source` = 'user'|'agent'|'event' 拓扑词、`conversationId` = 会话键；`hooks[具名]` 不进信封。
+
+> **信封回归纯会话语义（cr-1175 D1，2026-11-20）**：`to` 永远是会话端点；机制/控制/汇报通信
+>（restart/usage/title/plugin/grant 等宿主寄居流量）永不走信封——归宿是邮局 socket 的服务帧
+> 通道（`svc` 协议位 → HostServiceDesk，见 platform/host-service-channel.md）。
+> `user` 是虚拟端点但是真会话参与者（终稿回信是会话语义），不在迁移面。
 串行化门 handle = `runAddress(agent, conversationId)`：同一会话同一 Agent 至多一个 run；忙时 steer 注入 / next-run 等闲 / next-turn 链跑（MAX_AUTO_WAKES=3 防自激）。
 
 > **投递幂等与 durable steer（cr-250，2026-10-05）**：`deliver` 带 `requestId` 时按下沉水位短路（`.deliver-seen.json` FIFO 200 跨重启，deduped outcome——多端重试不重复入账）；

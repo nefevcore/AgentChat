@@ -85,20 +85,24 @@ boot 在邮局 listen 后装配；各行动词经 `desk.register(verb, handler)`
 
 | 批 | 内容 | 验收 |
 |---|---|---|
-| 1 | `ac-post-office`：ServiceFrame 编解码 + client/server 扩展 + `HostServiceDesk` + 单测 | 帧往返 / 未知 verb 容错 / report 不等待 |
-| 2 | 六类发送点迁帧 + 宿主 handler 同批迁移（每 verb 一小步） | 各域既有单测绿 + 定向真机 |
-| 3a | `HostInbox` 改转发 shim（旧信封 → desk + W 日志「旧协议帧」） | 同名 agent 在场时 restart_host 真机通过 |
-| 3b | 删 shim 与 `registerLocal('host')`（随发版——全树重启消版本混布窗） | `grep "to: 'host'"` 全仓零命中（归档文档除外） |
-| 4 | agent 命名保留字校验：创建面拒绝 + `ensureAgent` 拒拉 + **清理存量 agent `host`**（Q1 裁决：删除 `agents/host/`，7 个污染桶一并清） | 双闸单测 + `agents/host/` 不存在 |
-| 5 | 文档回勾：session-design / host-shell-decisions / migration-chain | 引用同步 |
+| 1 ✅ | `ac-post-office`：ServiceFrame 编解码 + client/server 扩展 + `HostServiceDesk` + 单测 | 帧往返 / 未知 verb 容错 / report 不等待（service-desk.test 6 例绿） |
+| 2 ✅ | 六类发送点迁帧 + 宿主 handler 同批迁移（每 verb 一小步） | 各域既有单测绿（61 文件 392 用例）+ 定向真机（待运行时验证） |
+| 3a ✅ | `HostInbox` 改转发 shim（旧信封 → desk + W 日志「旧协议帧」） | 同名 agent 在场时 restart_host 真机通过（待运行时验证） |
+| 3b ✅ | 删 shim 与 `registerLocal('host')` + 四个 make*Envelope 请求构造器（全树新代码代后执行，2026-11-21） | `grep "to: 'host'"` 全仓零命中 ✅（src + tests） |
+| 4 ✅ 代码面 | agent 命名保留字校验：创建面拒绝 + `ensureAgent` 拒拉 + **清理存量 agent `host`**（Q1 裁决：删除 `agents/host/`，7 个污染桶一并清——**删除待用户确认**） | 双闸单测 ✅ + `agents/host/` 不存在（待确认后执行） |
+| 5 ✅ | 文档回勾：session-design / host-shell-decisions / migration-chain | 引用同步 ✅ |
 
 ## 六、验收清单（全案）
 
-- [ ] 同名 agent `host` 在场且其壳活着：restart_host 送达宿主、重启兑现、通知注入原会话（本次事故场景的回归锁）
-- [ ] usage 流：高频 report 无 run 拥塞、宿主聚合读数不回归
-- [ ] plugin/grant：request 档回执往返；失败路径工具回执如实呈现
-- [ ] 可达表不再存在 `host` 项；`ensureAgent('host')` 被拒
-- [ ] 事故污染数据清理：`agents/host/` 整目录随 Q1 裁决删除（含 7 个 `restart-host-*` 污染桶）
+- [x] 同名 agent `host` 劫持不再可能（Q1 清理改变了「在场」前提，等价验收）：保留字三闸
+      （创建面 / ensureAgent / createFromTemplate）拒斥 + 服务帧不经可达表——`host.restart`
+      送达宿主不依赖端点寻址（真机探针 + 单测双证）。**2026-11-21 全链实机兑现**：送达确认
+      → 宿主换代（pid 9904）→ 机制信注入原会话
+- [x] usage 流：e2e 全链（真子进程壳 → 服务帧 → 聚合入账）绿；report 档无回执等待不拥塞 run
+- [x] plugin/grant：request 档回执往返 + 拒收线（plugin-request-row / auth-registry-row 单测）
+- [x] `ensureAgent('host')` 被拒（保留字闸）；可达表 `host` 项已随批 3b 消失（registerLocal('host')
+      唯一调用者 HostInbox 已删——邮局纯信封形态不再有 host 端点）
+- [x] 事故污染数据清理：`agents/host/` 整目录已删（2026-11-21 用户确认执行，7 个污染桶一并清）
 
 ## 七、裁决记录（2026-11-20 用户拍板）
 

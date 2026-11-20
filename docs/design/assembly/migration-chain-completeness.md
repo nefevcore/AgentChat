@@ -55,6 +55,7 @@ DSH 先例（CompiledSessionFormatChain）：会话格式 v0→v4 每边独立�
 | packages/ac-import/src/agents-tree.ts | ☑ 导入写口换 v3（config.json 产线退役——批 3） |
 | boot 校准面（cr-1029） | 读面接链：格式版本落后 → 惰性迁移，与指纹校准同节奏 |
 | gen 链 | 构建期跑链完备性校验——注册即红，不待运行 |
+| cr-1175 服务通道 | 非持久形态迁移（通信协议位）——六类宿主寄居信封退役为服务帧；HostInbox 转发 shim 是混布窗兼容件（随发版删），无盘上形态 |
 
 ## 四、开放裁决
 
