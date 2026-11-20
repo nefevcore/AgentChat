@@ -143,6 +143,15 @@ export interface SessionTokens {
     miss?: number;
     lastRunPrompt?: number;
   };
+  /** 压缩史（cr-1160 §2.8——弹层「压缩历史」区数据源；每代时刻/摘要长/stats） */
+  compactions?: Array<{
+    domain: string;
+    generation: number;
+    endTs: number;
+    summaryLen: number | null;
+    summaryTokens?: number | null;
+    stats: { shadowedRows?: number; estimatedTokens?: number } | null;
+  }>;
 }
 
 /** 会话 Token 用量（session/tokens 全量透传；直答会话键 = pairKey
@@ -168,6 +177,7 @@ export async function fetchSessionTokens(
       miss?: number;
       lastRunPrompt?: number;
     };
+    compactions?: Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; summaryTokens?: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }>;
   }>('session/tokens', {
     conversationId: opts?.conversationId ?? [VIEWER_ID.value, agentId].sort().join('~'),
     ...(opts?.agentId ? { agentId: opts.agentId } : {}),
@@ -191,6 +201,7 @@ export async function fetchSessionTokens(
           },
         }
       : {}),
+    ...(r.compactions ? { compactions: r.compactions } : {}),
   };
 }
 

@@ -25,11 +25,13 @@ import {
   DEFAULT_ARCHIVE_BUDGETS,
   DEFAULT_SELF_CONTEXT_TOKENS,
   estimateReplayTokens,
+  keepBudgetOf,
   splitForArchive,
+  summaryCommittable,
   thresholdOf,
   type ArchiveBudgets,
 } from 'ac-archive-core';
-import { foldSession, foldStepsOf, foldSummaryOf, readDomainFacts, readLedger, summaryTextOf, type LedgerRow } from 'ac-ledger';
+import { foldSession, foldStepsOf, foldSummaryOf, readDomainFacts, readLedger, rowShadowedBy, summaryTextOf, type LedgerRow } from 'ac-ledger';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
 export interface ArchiveRowOptions {
@@ -115,28 +117,77 @@ export class ArchiveShellService extends Service {
    * 〔cr-424 单口径——注入形状含概要〕；viewer = 本 agent。cr-974：v2
    * 会话步级事实 = 事件行（无 role）——折叠出 steps 合成 v1 段行同形
    * 伪行（face-ops replayTokensOf 同型）；概要源 = 压缩事件优先，
-   * summary.md 兼容窗兜底） */
-  private estimateOf(uuid: string): number {
+   * summary.md 兼容窗兜底）。
+   *
+   *  opts.activeOnly（cr-1160 P4）：只计**活跃代**——被任一压缩代边界
+   *  shadow 的行剔除（rowShadowedBy 单源谓词：时刻放行前置 → seq 位置维
+   *  → 时刻维；无 seq 无数字 ts 的 v1 行由文件位置维兜底——此处无位置
+   * 信息，保守放行）。伪行按其 run 的末事实 seq/ts 判（与 foldLlmReplay
+   * 的 orphan slot 判定同源）。 */
+  private estimateOf(uuid: string, opts: { activeOnly?: boolean } = {}): number {
     const dir = this.sessionDir(uuid);
     const { rows } = readLedger(dir);
     const facts = readDomainFacts(dir, this.agentId);
+    const boundaries = opts.activeOnly === true ? facts.compactions : [];
+    const shadowed = (seq: number | undefined, ts: number | undefined): boolean =>
+      boundaries.some((b) => rowShadowedBy({ ...(seq !== undefined ? { seq } : {}), ...(ts !== undefined ? { ts } : {}) }, b));
     const pseudo: LedgerRow[] = [];
     if (facts.version >= 2) {
       for (const [run, rf] of facts.runs) {
         const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
-        if (steps.length > 0) pseudo.push({ role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
+        if (steps.length === 0) continue;
+        if (boundaries.length > 0) {
+          // run 级判定（foldLlmReplay orphan slot 同源）：末事实 seq + 末 ts
+          let runSeq: number | undefined;
+          let runTs: number | undefined;
+          for (const ev of rf.events) {
+            if (ev.kind === 'tool-call-result') continue;
+            if (ev.seq !== undefined && (runSeq === undefined || ev.seq > runSeq)) runSeq = ev.seq;
+            if (ev.ts !== undefined && (runTs === undefined || ev.ts > runTs)) runTs = ev.ts;
+          }
+          for (const s of steps) {
+            if (typeof s.ts === 'number' && (runTs === undefined || s.ts > runTs)) runTs = s.ts;
+          }
+          if (shadowed(runSeq, runTs)) continue; // 整 run 属压缩前代——不计
+        }
+        pseudo.push({ role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
       }
     }
+    // 行时刻（v2 事件行数字 ts / v1 行 ISO timestamp——索引入账同谓词）
+    const tsOf = (r: LedgerRow): number | undefined => {
+      const raw = (r as unknown as Record<string, unknown>).ts;
+      if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+      if (typeof r.timestamp === 'string' && r.timestamp !== '') {
+        const parsed = Date.parse(r.timestamp);
+        return Number.isFinite(parsed) ? parsed : undefined;
+      }
+      return undefined;
+    };
+    const picked = boundaries.length > 0
+      ? rows.filter((r) => !shadowed(typeof r.seq === 'number' ? r.seq : undefined, tsOf(r)))
+      : rows;
     const summary = foldSummaryOf(foldSession(this.dataRoot, uuid, [dir]))?.text ?? summaryTextOf(dir);
-    return estimateReplayTokens([...rows, ...pseudo], this.agentId, summary !== '' ? { summary } : {});
+    return estimateReplayTokens([...picked, ...pseudo], this.agentId, summary !== '' ? { summary } : {});
   }
 
   /** 阈值检测 + 触发（run 收束后异步）：超阈值 → 整理 → 归档重建。 */
   async maybeArchive(uuid: string): Promise<void> {
     if (this.pending.has(uuid)) return;
     const threshold = thresholdOf(this.budgetsFor(uuid));
-    if (this.estimateOf(uuid) <= threshold) return;
+    if (this.activeTokensOf(uuid) <= threshold) return; // cr-1160：活跃代口径（压缩边界已滤）
     await this.requestArchive(uuid);
+  }
+
+  /** 活跃上下文估算（cr-1160 P4 三口径收敛——阈值检测口径）。
+   *
+   *  **为什么不是直读 sessionIndex**：session-index 是宿主侧行（host.yml），
+   *  本行在壳进程（shell.yml）——ctx.get('sessionIndex') 跨进程恒 undefined，
+   *  软取即死代码（实施期实证）。壳侧持有账本读面（ac-ledger）足以自算：
+   *  boundaries = 本域压缩代 → rowShadowedBy 过滤 → 回放口径估算。与宿主侧
+   *  activeContextTokens（索引 est_tokens 累加）同语义、不同实现——两进程各
+   *  自算自己需要的那份，不跨进程递话（架构红线：能力间不传引用）。 */
+  private activeTokensOf(uuid: string): number {
+    return this.estimateOf(uuid, { activeOnly: true });
   }
 
   /**
@@ -167,7 +218,10 @@ export class ArchiveShellService extends Service {
         clearTimeout(timer);
       }
       // 概要来源（D4）：正常收束（finish='ok'）→ 亲写 summary.md（mtime ≥
-      // requestedAt 判新鲜）优先，缺/旧回退回复文本；未正常收束 → 概要不动
+      // requestedAt 判新鲜）优先，回退回复文本；**cr-1160 P3 概要提交协议**：
+      // 候选文本过 summaryCommittable 形态校验（「此前，」开头 + 上限 + 元文本
+      // 黑名单）——不合格 → summary = undefined（本代无新概要，compaction 事件
+      // 不带摘要，回放头回落上一代概要）；未正常收束 → 概要不动。
       let summary: string | undefined;
       if (outcome.finish === 'ok') {
         const file = path.join(this.sessionDir(uuid), 'summary.md');
@@ -178,8 +232,8 @@ export class ArchiveShellService extends Service {
           fresh = false;
         }
         const text = fresh ? summaryTextOf(this.sessionDir(uuid)) : '';
-        if (text !== '') summary = text;
-        else if (outcome.text.trim() !== '') summary = outcome.text.trim();
+        const candidate = text !== '' ? text : outcome.text.trim();
+        if (candidate !== '' && summaryCommittable(candidate)) summary = candidate;
       }
       await this.archiveAndRebuild(uuid, summary, requestedAt);
     } finally {
@@ -261,10 +315,19 @@ export class ArchiveShellService extends Service {
       const baselineSeq = rows.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
       const archivedMaxSeq = split.archive.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
       const boundary = Math.max(lastArchived?.seq ?? 0, archivedMaxSeq, 0);
-      // 语义边界先 durable（摘要滚动即使零移出也落事件——回放头即刻换新）
-      if (summary !== undefined) {
-        await ledger.compactionFor(uuid, requestedAt + '-compaction-' + uuid, summary, boundary);
-      }
+      // 语义边界先 durable（cr-1160 P1 单事件：摘要可空——P3 不合格本代无新
+      // 概要；stats 随行审计面。摘要滚动即使零移出也落事件——边界即刻生效）
+      await ledger.compactionFor(uuid, requestedAt + '-compaction-' + uuid, {
+        ...(summary !== undefined ? { summary } : {}),
+        shadowedSeq: boundary,
+        stats: { shadowedRows: archivedOriginal.length, estimatedTokens: this.estimateOf(uuid) },
+      });
+      // cr-1160 物理解耦：逻辑压缩（事件）与物理回收（重写）分离——影子估算
+      // 超回收阈（shadowed tokens > keep 水位 × 2）才搬尸骸；未超 = shadowed
+      // 行留主日志（回放已滤，不占上下文），下次触发再评估。
+      const budgetsNow = this.budgetsFor(uuid);
+      const shadowedEst = archivedOriginal.reduce((n, r) => n + estimateReplayTokens([r as never], this.agentId), 0);
+      if (shadowedEst <= keepBudgetOf(budgetsNow) * 2) return; // 未超回收阈——只落事件
       if (archivedOriginal.length === 0) return; // 零移出（尾部水位未越）——只滚摘要
       // 尾部保留 = 引用不在归档集的行 + compaction 事件行（永留主日志——
       // 边界前的机制行不随 shadowed 前缀搬移，audit 面跨轮在场）。cr-1155：
@@ -321,7 +384,7 @@ export class ArchiveShellService extends Service {
         continue;
       }
       const threshold = thresholdOf(this.budgetsFor(uuid));
-      if (this.estimateOf(uuid) < threshold) {
+      if (this.activeTokensOf(uuid) < threshold) {
         report.push({ conversationId: uuid, skipped: true, reason: 'below-threshold' });
         continue;
       }

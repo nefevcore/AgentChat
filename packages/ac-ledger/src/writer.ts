@@ -231,21 +231,18 @@ export class LedgerWriter {
   }
 
   /**
-   * 压缩事件落账（cr-974 §2.3）：compaction/start → summary（全文入事件
-   * ——回放 system 头取源）→ end（携带 shadowedSeq 覆盖边界）→
-   * run-end(completed)，单队列切片原子追加。物理回收（shadowed 前缀搬
-   * 归档段）是另一时机的事（compact 压缩分段——S5 白名单唯一重写许可），
-   * 本方法只落语义边界。shadowedSeq 缺省 = 本 run 起点前已落账最大 seq
-   * （调用方分割时给出精确边界）。返回末行 seq。cr-974 起 v2 会话不再
-   * 写 summary.md（摘要即事件；v1 读兼容窗保留）。
+   * 压缩事件落账（cr-1160 P1：单事件形态——一行携带全部压缩语义：
+   * boundarySeq（缺省 = 落账时刻主日志尾部 maxSeq，writer 内联计算）、
+   * endTs（= ts，P2 双维边界时刻维）、summary（可空——P3 形态校验
+   *  不合格时省略，本代无新概要）、stats/model（审计面）+ run-end。
+   *  单队列切片原子追加（append+fsync 行级原子——取代旧三连两阶段。
+   *  旧三连读侧归并兼容，存量零迁移）。物理回收是另一时机的 compact。
    */
-  async compaction(runId: string, summary: string, shadowedSeq?: number): Promise<number> {
-    const boundary = shadowedSeq ?? Math.max(tailMaxSeq(path.join(this.dir, MESSAGES)), 0);
+  async compaction(runId: string, opts: { summary?: string; shadowedSeq?: number; stats?: { shadowedRows?: number; estimatedTokens?: number }; model?: string } = {}): Promise<number> {
+    const boundary = opts.shadowedSeq ?? Math.max(tailMaxSeq(path.join(this.dir, MESSAGES)), 0);
     const ts = Date.now();
     return this.appendEvents([
-      { type: 'compaction/start', run: runId, ts },
-      { type: 'compaction/summary', run: runId, summary, ts },
-      { type: 'compaction/end', run: runId, boundarySeq: boundary, ts },
+      { type: 'compaction', run: runId, boundarySeq: boundary, ts, ...(opts.summary !== undefined ? { summary: opts.summary } : {}), ...(opts.stats !== undefined ? { stats: opts.stats } : {}), ...(opts.model !== undefined ? { model: opts.model } : {}) },
       { type: 'run-end', run: runId, finish: 'completed', ts },
     ]);
   }

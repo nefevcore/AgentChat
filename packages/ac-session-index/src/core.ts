@@ -45,6 +45,16 @@ const FILE_SHAPES: FileShape[] = [
   { file: 'subcalls.jsonl', kind: 'subcalls' },
 ];
 
+/** est_tokens/入账口径版本（cr-1160 P4）：语义演进时升版本——版本不符 →
+ *  整库弃重建（纯缓存语义）。v1 = 行级文本面（content/text/arguments/result
+ *  JSON，subcall 结果不计）；v2 = 追加「compaction 事件族一律不入 records」
+ *  聚合白名单（旧三连 start/summary/end 曾污染 sessionMeta.total）+
+ *  旧三连摘要长度经 summary→end 回填；v3 = 旧三连 boundary_seq 回落修正
+ *  （boundarySeq ≤0 视为无效 → 取 end 行自身 seq，cr-974 原语义）；
+ *  v4 = compactions 增 summary_tokens 列 + activeContextTokens 计入摘要头
+ *  （与 estimateReplayTokens 的 opts.summary 同口径）。 */
+const EST_TOKENS_VERSION = '4';
+
 /** journal 行类型判别（readJournal 同款：只认四种已知判别行，未知 type 安全忽略） */
 const JOURNAL_TYPES = ['journal-step', 'journal-inject', 'journal-tool-result', 'journal-settled'];
 function journalLineType(text: string): string | null {
@@ -53,6 +63,14 @@ function journalLineType(text: string): string | null {
     if (t.startsWith('{"type":"' + ty + '"')) return ty;
   }
   return null;
+}
+
+/** 文本 token 估算（ac-text-budget 同口径：CJK 0.6 / 其他 0.3） */
+function estimateTextTokens(s: string | null | undefined): number {
+  if (typeof s !== 'string' || s === '') return 0;
+  let t = 0;
+  for (const ch of s) t += ch.charCodeAt(0) > 0x2e7f ? 0.6 : 0.3;
+  return Math.ceil(t);
 }
 
 function isSafeId(id: string): boolean {
@@ -132,6 +150,14 @@ export interface SessionMeta {
   lastType: string | null;
 }
 
+/** 压缩代边界（cr-1160）：boundarySeq ≤ 0 视为无有效边界 → 回落事件自身
+ *  seq（存量老 writer 显式写 0 的现场形态；与 ac-ledger events-v2 同判）。 */
+function boundaryOf(row: Record<string, unknown>, rowType: string): number | null {
+  const declared = num(row.boundarySeq);
+  if (declared !== null && declared > 0) return declared;
+  return rowType === 'compaction/end' ? num(row.seq) : declared;
+}
+
 /** 行内字段安全取值（撕裂/异形行容错——缺席 = NULL） */
 function str(v: unknown): string | null {
   return typeof v === 'string' ? v : null;
@@ -155,10 +181,14 @@ export class SessionIndex {
     // cr-974：records 表增事件列（type/tool_call_id——v2 相位/收束行定位）；
     // cr-1138：增 ts_num（统一数字时标——v2 事件行用 ts 数字/epoch，v1 行用
     // timestamp ISO 文本，两代形态不同；聚合的时间/活跃日维度须单一时标列）。
+    // cr-1160 P4：增 generation（压缩代）与 est_tokens（行级文本面估算）列 +
+    // compactions 表（压缩代清单）——activeContextTokens/threshold 的索引直读面。
     // 旧 schema 落库 = 纯缓存过期 → 整库弃重建（files 一并清，refresh 自愈）
     const cols = (this.db.prepare('PRAGMA table_info(records)').all() as Array<{ name?: unknown }>).map((c) => c.name);
-    if (cols.length > 0 && (!cols.includes('type') || !cols.includes('ts_num'))) {
-      this.db.exec('DROP TABLE IF EXISTS records; DROP TABLE IF EXISTS journal_lines; DROP TABLE IF EXISTS subcalls; DROP TABLE IF EXISTS files;');
+    const cmpCols = (this.db.prepare('PRAGMA table_info(compactions)').all() as Array<{ name?: unknown }>).map((c) => c.name);
+    const cmpStale = cmpCols.length > 0 && !cmpCols.includes('summary_tokens');
+    if ((cols.length > 0 && (!cols.includes('type') || !cols.includes('ts_num') || !cols.includes('generation'))) || cmpStale) {
+      this.db.exec('DROP TABLE IF EXISTS records; DROP TABLE IF EXISTS journal_lines; DROP TABLE IF EXISTS subcalls; DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS compactions;');
     }
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS files (' +
@@ -167,16 +197,32 @@ export class SessionIndex {
       'CREATE TABLE IF NOT EXISTS records (' +
         'conv TEXT, domain TEXT, seq INTEGER, byte_offset INTEGER, line_len INTEGER, ' +
         'role TEXT, agent_id TEXT, run TEXT, request_id TEXT, message_id TEXT, ts TEXT, ' +
-        'type TEXT, tool_call_id TEXT, ts_num INTEGER); ' +
+        'type TEXT, tool_call_id TEXT, ts_num INTEGER, generation INTEGER DEFAULT 0, est_tokens INTEGER); ' +
       'CREATE INDEX IF NOT EXISTS idx_records_conv_domain ON records(conv, domain); ' +
+      // cr-1160 P4：压缩代清单（单事件 + 旧三连 end 行；generation 入列序）
+      'CREATE TABLE IF NOT EXISTS compactions (' +
+        'conv TEXT, domain TEXT, run TEXT, generation INTEGER, boundary_seq INTEGER, end_ts INTEGER, ' +
+        'summary_len INTEGER, summary_tokens INTEGER, model TEXT, stats TEXT, seq INTEGER); ' +
+      'CREATE INDEX IF NOT EXISTS idx_compactions_conv ON compactions(conv, domain); ' +
       'CREATE TABLE IF NOT EXISTS journal_lines (' +
         'conv TEXT, domain TEXT, seq INTEGER, byte_offset INTEGER, line_len INTEGER, ' +
         'type TEXT, run TEXT, tool_call_id TEXT, ts INTEGER); ' +
       'CREATE INDEX IF NOT EXISTS idx_journal_conv_domain ON journal_lines(conv, domain); ' +
       'CREATE TABLE IF NOT EXISTS subcalls (' +
         'conv TEXT, domain TEXT, run TEXT, tool_call_id TEXT, ' +
-        'byte_offset INTEGER, line_len INTEGER);'
+        'byte_offset INTEGER, line_len INTEGER); ' +
+      // cr-1160：口径版本元表（估算语义演进 → 版本不符整库重建）
+      'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);'
     );
+    // 口径版本对账（cr-1160 P4）：est_tokens 估算语义变化 → 已算值陈旧，
+    // 纯缓存可用「整库重建」自愈（不迁数据、不猜旧值）。
+    const seen = (this.db.prepare("SELECT value FROM meta WHERE key = 'est_tokens_version'").get() as { value?: unknown } | undefined)?.value;
+    const hasRows = (this.db.prepare('SELECT 1 AS hit FROM records LIMIT 1').get() as { hit?: unknown } | undefined) !== undefined;
+    // 无标记但有账面行 = 本版本前建立（est_tokens 口径未知）→ 同样视为陈旧
+    if (seen !== EST_TOKENS_VERSION && (seen !== undefined || hasRows)) {
+      this.db.exec('DELETE FROM records; DELETE FROM compactions; DELETE FROM journal_lines; DELETE FROM subcalls; DELETE FROM files;');
+    }
+    this.db.prepare("INSERT INTO meta (key, value) VALUES ('est_tokens_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(EST_TOKENS_VERSION);
   }
 
   /** 预编译语句缓存（实例生命周期内复用） */
@@ -224,9 +270,14 @@ export class SessionIndex {
     const fd = fs.openSync(file, 'r');
     try {
       this.db.exec('BEGIN');
+      // 旧三连摘要长度暂存（summary 行 → end 行回填；per-file，重建即清空）
+      const summaryLens = new Map<string, number | null>();
+      const summaryTokens = new Map<string, number>();
       if (rebuild) {
         const table = kind === 'records' ? 'records' : kind === 'journal' ? 'journal_lines' : 'subcalls';
         this.stmt('DELETE FROM ' + table + ' WHERE conv = ? AND domain = ?').run(conv, domain);
+        // 压缩代清单同源重建（否则重建后 compactions 残留旧代 → 代数重复推进）
+        if (kind === 'records') this.stmt('DELETE FROM compactions WHERE conv = ? AND domain = ?').run(conv, domain);
         report.rebuilt.push(file);
       }
       const buf = Buffer.alloc(st.size - consumed);
@@ -236,7 +287,7 @@ export class SessionIndex {
       let lineStart = 0;
       for (let i = 0; i < buf.length; i++) {
         if (buf[i] !== 0x0a) continue;
-        if (this.indexLine(kind, conv, domain, consumed + lineStart, i - lineStart, buf.subarray(lineStart, i).toString('utf-8'))) report.appended += 1;
+        if (this.indexLine(kind, conv, domain, consumed + lineStart, i - lineStart, buf.subarray(lineStart, i).toString('utf-8'), summaryLens, summaryTokens)) report.appended += 1;
         lineStart = i + 1;
       }
       consumed += lineStart;
@@ -253,8 +304,31 @@ export class SessionIndex {
     }
   }
 
+  /** 当前行应落的压缩代（cr-1160 P4）：已入账 compactions 的 max+1——
+   *  行与压缩事件的相对代序由文件序决定（增量只追加尾部，天然成立）。 */
+  private currentGeneration(conv: string, domain: string): number {
+    const r = this.stmt('SELECT MAX(generation) AS g FROM compactions WHERE conv = ? AND domain = ?').get(conv, domain) as { g: number | null };
+    return (r.g ?? 0) + 1;
+  }
+
+  /** 行级文本面 token 估算（cr-1160 P4——ac-text-budget 同口径 CJK 0.6/其他 0.3）：
+   *  v1 行 = content；v2 相位行 = text；tool-call = name+arguments；
+   *  tool-call-result = result JSON（**subcall 行不计**——与 ac-archive-core
+   *  replayTokensOf 的 `if (tc.subcall === true) continue` 同源：run_code 程序
+   *  内子调用不进回放注入，实测占体量大头——news~news 现场 1.7M→0.4M）；
+   *  compaction 行不计（非会话载荷）。 */
+  private static estimateRowTokens(row: Record<string, unknown>): number | null {
+    const est = estimateTextTokens;
+    const type = row.type;
+    if (type === 'compaction' || (typeof type === 'string' && type.startsWith('compaction/'))) return null;
+    if (type === 'step/reasoning' || type === 'step/content') return est(row.text as string);
+    if (type === 'step/tool-call') return est(String(row.name ?? '') + String(row.arguments ?? ''));
+    if (type === 'step/tool-call-result') return row.subcall === true ? 0 : est(JSON.stringify(row.result ?? null));
+    return est(row.content as string);
+  }
+
   /** 单行解析入账（返回是否计入 appended——判别/坏行跳过但已消费） */
-  private indexLine(kind: FileShape['kind'], conv: string, domain: string, byteOffset: number, lineLen: number, text: string): boolean {
+  private indexLine(kind: FileShape['kind'], conv: string, domain: string, byteOffset: number, lineLen: number, text: string, summaryLens: Map<string, number | null>, summaryTokens: Map<string, number>): boolean {
     if (text.trim() === '') return false;
     let row: Record<string, unknown>;
     try {
@@ -266,14 +340,47 @@ export class SessionIndex {
     }
     if (kind === 'records') {
       if (row.type === 'session-header') return false; // 头行不是消息行
+      // cr-1160 P4：压缩代清单与聚合白名单。**compaction 事件族一律不进
+      // records**（聚合白名单：摘要/边界不是会话活动——否则 sessionMeta.total
+      // 与 ts_num 活跃度被机制行污染）；它们只进 compactions 表。
+      //   单事件 compaction → 一行即一代（摘要/stats/model 随行）；
+      //   旧三连 compaction/* → summary 行记摘要长度入 pending，end 行建代
+      //   时回填（start 行仅标记；孤 summary 无 end 不建代——与 fold 同判）。
+      // generation 推进由 compactions 表代数驱动：建代后 currentGeneration
+      // 自然 +1，后续普通行落新一代（无需 end 行进 records 来「消耗」代）。
+      const rowType = row.type;
+      if (typeof rowType === 'string' && rowType.startsWith('compaction')) {
+        const run = str(row.run) ?? '';
+        if (rowType === 'compaction/summary') {
+          summaryLens.set(run, typeof row.summary === 'string' ? row.summary.length : null);
+          if (typeof row.summary === 'string') summaryTokens.set(run, estimateTextTokens(row.summary));
+          return false;
+        }
+        if (rowType === 'compaction/start') return false;
+        if (rowType === 'compaction/end' || rowType === 'compaction') {
+          const gen = this.currentGeneration(conv, domain);
+          const summaryLen = rowType === 'compaction'
+            ? (typeof row.summary === 'string' ? (row.summary as string).length : null)
+            : (summaryLens.get(run) ?? null);
+          const summaryTok = rowType === 'compaction'
+            ? (typeof row.summary === 'string' ? estimateTextTokens(row.summary) : null)
+            : (summaryTokens.get(run) ?? null);
+          this.stmt(
+            'INSERT INTO compactions (conv, domain, run, generation, boundary_seq, end_ts, summary_len, summary_tokens, model, stats, seq) ' +
+            'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          ).run(conv, domain, run, gen, boundaryOf(row, rowType), num(row.ts), summaryLen, summaryTok, str(row.model), rowType === 'compaction' && row.stats !== undefined ? JSON.stringify(row.stats) : null, num(row.seq));
+          return false;
+        }
+        return false; // 未知 compaction/* 词汇安全忽略
+      }
       // 时标归一（cr-1138）：v2 事件行（step/* · run-end · inject）只带数字
       // ts（epoch ms）无 role/timestamp；v1 行（含 v2 的 message 发言行）带
       // ISO timestamp。两代并存——ts_num 是聚合的时间维度单源。
       const tsNum = num(row.ts) ?? (typeof row.timestamp === 'string' ? (Date.parse(row.timestamp) || null) : null);
       this.stmt(
-        'INSERT INTO records (conv, domain, seq, byte_offset, line_len, role, agent_id, run, request_id, message_id, ts, type, tool_call_id, ts_num) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      ).run(conv, domain, num(row.seq), byteOffset, lineLen, str(row.role), str(row.agent_id), str(row.run), str(row.requestId), str(row.message_id), str(row.timestamp), str(row.type), str(row.toolCallId), tsNum);
+        'INSERT INTO records (conv, domain, seq, byte_offset, line_len, role, agent_id, run, request_id, message_id, ts, type, tool_call_id, ts_num, generation, est_tokens) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      ).run(conv, domain, num(row.seq), byteOffset, lineLen, str(row.role), str(row.agent_id), str(row.run), str(row.requestId), str(row.message_id), str(row.timestamp), str(row.type), str(row.toolCallId), tsNum, this.currentGeneration(conv, domain), SessionIndex.estimateRowTokens(row));
       return true;
     }
     if (kind === 'journal') {
@@ -459,6 +566,49 @@ export class SessionIndex {
     return { days, coverage: { indexedConversations: indexed, totalConversations: convId !== undefined ? 1 : allIds.length } };
   }
 
+  /** 压缩代清单（cr-1160 P4——读面前置 refresh）：每代 boundary/endTs/
+   *  generation/摘要长度/模型/stats；域内 generation 单调（对桶每域独立
+   *  压缩史）。摘要全文回源读 messages.jsonl（compaction 行指针不在
+   *  records——单事件行按聚合白名单不入；summary_len 供展示面）。 */
+  compactionFactsOf(dataRoot: string, convId: string): Array<{ domain: string; run: string; generation: number; boundarySeq: number; endTs: number; summaryLen: number | null; summaryTokens: number | null; model: string | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }> {
+    this.refreshConversation(dataRoot, convId);
+    const rows = this.stmt('SELECT domain, run, generation, boundary_seq, end_ts, summary_len, summary_tokens, model, stats FROM compactions WHERE conv = ? ORDER BY domain, generation').all(convId) as Array<{ domain: string; run: string; generation: number; boundary_seq: number; end_ts: number; summary_len: number | null; summary_tokens: number | null; model: string | null; stats: string | null }>;
+    return rows.map((r) => ({
+      domain: r.domain, run: r.run, generation: r.generation,
+      boundarySeq: r.boundary_seq, endTs: r.end_ts,
+      summaryLen: r.summary_len, summaryTokens: r.summary_tokens, model: r.model,
+      stats: r.stats !== null ? JSON.parse(r.stats) as { shadowedRows?: number; estimatedTokens?: number } : null,
+    }));
+  }
+
+  /** 活跃上下文估算合计（cr-1160 P4——阈值/仪表直读面）：每域最新代行的
+   *  est_tokens 跨域求和。未入账会话 = null（调用方回落盘读）；旧代行 =
+   *  shadowed 不计。 */
+  activeContextTokens(dataRoot: string, convId: string, opts: { refresh?: boolean } = {}): number | null {
+    if (sessionDirs(dataRoot, convId).length === 0) return null;
+    if (opts.refresh === false) {
+      const known = this.stmt('SELECT 1 AS hit FROM records WHERE conv = ? LIMIT 1').get(convId);
+      if (known === undefined) return null;
+    } else {
+      this.refreshConversation(dataRoot, convId);
+    }
+    const row = this.stmt(
+      'SELECT SUM(est_tokens) AS total FROM records r WHERE r.conv = ? AND r.generation = (' +
+      "  SELECT MAX(generation) FROM records r2 WHERE r2.conv = r.conv AND r2.domain = r.domain)"
+    ).get(convId) as { total: number | null };
+    // 摘要 system 头计入（cr-1160 第五处修正）：LLM 回放 = [最新可用摘要] +
+    // 边界后行——摘要是真实开销，漏计会让「压缩后活跃代只剩 run-end 行」
+    // 的会话仪表显示 0%（回落路径 estimateReplayTokens 是含 summary 的，
+    // 两路径必须同口径）。回落语义与 foldSummaryOf 一致：从最新代往前找
+    // 第一个有摘要的代（summaryOmitted 代跳过）。对桶多域各取一份合计。
+    const summaries = this.stmt(
+      'SELECT domain, summary_tokens FROM compactions c WHERE c.conv = ? AND c.summary_tokens IS NOT NULL ' +
+      'AND c.generation = (SELECT MAX(generation) FROM compactions c2 WHERE c2.conv = c.conv AND c2.domain = c.domain AND c2.summary_tokens IS NOT NULL)',
+    ).all(convId) as Array<{ domain: string; summary_tokens: number }>;
+    const summaryTotal = summaries.reduce((n, s) => n + s.summary_tokens, 0);
+    return (row.total ?? 0) + summaryTotal;
+  }
+
   /** 会话索引行全清（目录已消失——账面与指针行一并回收） */
   drop(convId: string): void {
     this.db.exec('BEGIN');
@@ -467,6 +617,7 @@ export class SessionIndex {
       this.stmt('DELETE FROM records WHERE conv = ?').run(convId);
       this.stmt('DELETE FROM journal_lines WHERE conv = ?').run(convId);
       this.stmt('DELETE FROM subcalls WHERE conv = ?').run(convId);
+      this.stmt('DELETE FROM compactions WHERE conv = ?').run(convId);
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');

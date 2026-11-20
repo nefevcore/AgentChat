@@ -76,6 +76,16 @@ export class SessionIndexService extends Service {
     return this.index.sessionByDay(this.dataRoot, convId, full);
   }
 
+  /** 压缩代清单（cr-1160 P4）——core.compactionFactsOf 透传 */
+  compactionFactsOf(convId: string): Array<{ domain: string; run: string; generation: number; boundarySeq: number; endTs: number; summaryLen: number | null; summaryTokens: number | null; model: string | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }> {
+    return this.index.compactionFactsOf(this.dataRoot, convId);
+  }
+
+  /** 活跃上下文估算合计（cr-1160 P4）——core.activeContextTokens 透传 */
+  activeContextTokens(convId: string, opts: { refresh?: boolean } = {}): number | null {
+    return this.index.activeContextTokens(this.dataRoot, convId, opts);
+  }
+
   /** 某 run 的子调用行（缺席 = []; 未入账 = undefined 回落全量读） */
   subcallLines(convId: string, domain: string, run: string): Array<Record<string, unknown>> | undefined {
     return this.index.subcallLines(this.dataRoot, convId, domain, run);

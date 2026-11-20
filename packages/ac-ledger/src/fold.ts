@@ -162,13 +162,16 @@ export interface SessionFold {
   /** run → 事实（对桶 participants 并域合并——run 键不相交无重） */
   runs: Map<string, RunFactsV2 & { domain: string }>;
   version: number;
-  /** 最新压缩事实（多域取边界最大者——对桶跨域压缩的保守归并） */
+  /** 最新压缩事实（多域取边界最大者——对桶跨域压缩的保守归并；兼容面） */
   compaction?: import('./events-v2.ts').CompactionFacts;
+  /** 全部压缩代（cr-1160 P2：多轮边界叠加——按域并入，代序 = 各域入列序；
+   *  rowShadowedBy 谓词的事实源） */
+  compactions: import('./events-v2.ts').CompactionFacts[];
 }
 
 export function foldSession(dataRoot: string, conversationId: string, dirs?: string[]): SessionFold {
   const list = dirs ?? conversationDirs(dataRoot, conversationId, { includeJournalOnly: true });
-  const fold: SessionFold = { domains: [], factsOf: new Map(), speech: [], contexts: [], runs: new Map(), version: 1 };
+  const fold: SessionFold = { domains: [], factsOf: new Map(), speech: [], contexts: [], runs: new Map(), version: 1, compactions: [] };
   for (const dir of list) {
     const domain = domainOfDir(dir);
     if (domain === 'viewer') continue;
@@ -176,6 +179,7 @@ export function foldSession(dataRoot: string, conversationId: string, dirs?: str
     fold.domains.push(domain);
     fold.factsOf.set(domain, facts);
     fold.version = Math.max(fold.version, facts.version);
+    fold.compactions.push(...facts.compactions);
     if (facts.compaction !== undefined
       && (fold.compaction === undefined || facts.compaction.boundarySeq > fold.compaction.boundarySeq)) {
       fold.compaction = facts.compaction;
@@ -203,14 +207,40 @@ export function foldTextReplay(fold: SessionFold, viewer: string): Array<{ role:
     .map((r) => ({ role: r.agentId === viewer ? 'assistant' as const : 'user' as const, content: r.content }));
 }
 
+/** 行是否被压缩边界 shadow（cr-1160 P2 三级裁决谓词——单源）：
+ *  ⓪ 时刻放行前置（cr-1156 不变量）：行落账时刻晚于压缩收束时刻 → 恒 kept
+ *    （物理重写后 writer 重启小 seq 空间，seq 比较只对事件前 shadowed 前缀
+ *    负责；位置维判定前先放行事件后落账行——admin~user 现场形态）；
+ *  ① 位置维（行有 seq）：seq ≤ boundarySeq → shadowed；
+ *  ② 时刻维（行无 seq、行有数字 ts）：ts ≤ endTs → shadowed；
+ *  ③ 文件位置维（v1 无 seq 无数字 ts 行的兜底）：调用方已知该行在文件中
+ *     出现于 compaction 事件行之前（beforeEvent = true）→ shadowed；
+ *     未给 → kept（保守放行——与既有口径等价）。 */
+export function rowShadowedBy(
+  row: { seq?: number; ts?: number },
+  boundary: { boundarySeq: number; endTs: number },
+  beforeEvent?: boolean,
+): boolean {
+  if (typeof row.ts === 'number' && boundary.endTs > 0 && row.ts > boundary.endTs) return false;
+  if (typeof row.seq === 'number') return row.seq <= boundary.boundarySeq;
+  if (typeof row.ts === 'number' && boundary.endTs > 0) return row.ts <= boundary.endTs;
+  return beforeEvent === true;
+}
+
 /** 域名归并辅助（上）——会话压缩三态查询口（§2.3）：当前态回放的
  * 摘要头与边界（shadowed 前缀 seq ≤ boundarySeq 不进回放；v1 会话
  * 无压缩事件 → null，调用方回落 summary.md 兼容窗）。endTs = 压缩收束
  * 时刻（cr-1156 回放过滤时刻维度）。 */
 export function foldSummaryOf(fold: SessionFold): { text: string; boundarySeq: number; endTs: number } | null {
-  return fold.compaction !== undefined && fold.compaction.summary !== ''
-    ? { text: fold.compaction.summary, boundarySeq: fold.compaction.boundarySeq, endTs: fold.compaction.endTs }
-    : null;
+  // cr-1160 P3：最新代概要缺席（summaryOmitted/空文）→ 回落上一代概要
+  // （「无新概要的压缩」合法——头可能过时但语义完整）；全部缺席 → null。
+  for (let i = fold.compactions.length - 1; i >= 0; i--) {
+    const c = fold.compactions[i]!;
+    if (c.summary !== '' && c.summaryOmitted !== true) {
+      return { text: c.summary, boundarySeq: c.boundarySeq, endTs: c.endTs };
+    }
+  }
+  return null;
 }
 
 // —— 投影一：user 终稿层（projectUserReplay 谓词原样） ——
@@ -628,22 +658,24 @@ export function foldLlmReplay(
     timeline.push({ ts: new Date(lastTs).toISOString(), ord: ord++, orphan: run, ...(lastSeq !== undefined ? { orphanSeq: lastSeq } : {}) });
   }
   timeline.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : a.ord - b.ord));
-  // 压缩边界过滤（shadowed 前缀不进回放——v2 行恒带 seq；无 seq 存量行放行）。
-  // cr-1156 时刻维度兜底：compaction 物理重写后 writer 重启小 seq 空间
-  // （B1 尾窗播种错过已归档高 seq 行——现场 admin~user：boundary=1323、
-  // 重写后新行 650+，seq 比较把当前会话全部行静默滤出、模型对用户新消息
-  // 失明）。修复：落账时刻晚于压缩收束时刻的行恒放行——物理重写后追加的
-  // 行天然在事件后；seq 比较只对事件前的 shadowed 前缀负责。
-  const afterEnd = (s: Slot): boolean => {
-    if (compaction === null || compaction.endTs <= 0) return false;
+  // 压缩边界过滤（cr-1160 P2：多轮叠加 + 三级裁决谓词 rowShadowedBy）。
+  // 单维 seq → 双维 (seq, endTs)：位置维精确（v2 行恒带 seq），时刻维兜
+  // 物理/事件后落账行（cr-1156 正式化）；v1 无 seq 行的第三级文件位置维
+  // 由索引批消费（此处保守放行——与既有口径等价）。
+  const tsNumOf = (s: Slot): number | undefined => {
     const ts = s.speech?.timestamp ?? s.notice?.timestamp;
-    if (ts === undefined) return false;
-    return Date.parse(ts) > compaction.endTs;
+    if (ts === undefined) return undefined;
+    const n = Date.parse(ts);
+    return Number.isFinite(n) ? n : undefined;
   };
-  const bounded = compaction !== null
+  const bounded = fold.compactions.length > 0
     ? timeline.filter((s) => {
         const seq = s.speech?.seq ?? s.notice?.seq ?? s.orphanSeq;
-        return seq === undefined || seq > compaction.boundarySeq || afterEnd(s);
+        const tsNum = tsNumOf(s);
+        return !fold.compactions.some((b) => rowShadowedBy(
+          { ...(seq !== undefined ? { seq } : {}), ...(tsNum !== undefined ? { ts: tsNum } : {}) },
+          b,
+        ));
       })
     : timeline;
   const subcallsFor = (domain: string, run: string): JournalToolResult[] =>

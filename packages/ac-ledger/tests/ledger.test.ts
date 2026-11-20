@@ -260,10 +260,9 @@ describe('usage 自报 stepCache（cr-714：KV 走势步级粒度）', () => {
     fs.mkdirSync(root, { recursive: true });
     const ctx = new Context();
     const sent: Array<Record<string, unknown>> = [];
-    // 邮局出站口打桩：截获 usage 事件信
+    // 邮局出站口打桩：截获 usage 服务帧 payload（cr-1175 report 档）
     const fakePo = {
-      listen: async () => {},
-      send: async (env: Record<string, unknown>) => { sent.push(env); },
+      report: (p: Record<string, unknown>) => { sent.push(p); },
     };
     const fiber = ctx.plugin(makeLedgerRow({ dataRoot: root, agentId: 'sga', postOfficeAddress: 'unused' }));
     await fiber;
@@ -271,7 +270,7 @@ describe('usage 自报 stepCache（cr-714：KV 走势步级粒度）', () => {
       const svc = ctx.ledger as unknown as {
         settleRun(uuid: string, participants: string[], kind: string, row: Record<string, unknown>, runId: string, finish: string): Promise<void>;
         // 测试口：替换邮局出站（构造期惰性连接，此处直接注入桩）
-        usageOutbound: { send(env: Record<string, unknown>): Promise<unknown> } | null,
+        usageOutbound: { report(payload: Record<string, unknown>): void } | null,
       };
       svc.usageOutbound = fakePo;
       ctx.emit('loop/after-run', { agent: 'sga', model: 'mock', conversationId: 'user~sga', runId: 'run-k1' } as never, {
@@ -286,7 +285,7 @@ describe('usage 自报 stepCache（cr-714：KV 走势步级粒度）', () => {
       await svc.settleRun('user~sga', ['sga', 'user'], 'user', { role: 'agent', content: 'ok', agent_id: 'sga', requestId: 'reply-k1' }, 'run-k1', 'ok');
       await new Promise((res) => setTimeout(res, 50)); // reportUsage fire-and-forget
       expect(sent).toHaveLength(1);
-      const payload = sent[0].payload as Record<string, unknown>;
+      const payload = sent[0] as Record<string, unknown>;
       expect(payload.subject).toBe('usage-run');
       expect(payload.stepCache).toEqual([
         { ts: 111, hit: 90, miss: 10, prompt: 100 },
@@ -308,11 +307,11 @@ describe('usage 自报 stepCache（cr-714：KV 走势步级粒度）', () => {
     fs.mkdirSync(root, { recursive: true });
     const ctx = new Context();
     const sent: Array<Record<string, unknown>> = [];
-    const fakePo = { send: async (env: Record<string, unknown>) => { sent.push(env); } };
+    const fakePo = { report: (p: Record<string, unknown>) => { sent.push(p); } };
     const fiber = ctx.plugin(makeLedgerRow({ dataRoot: root, agentId: 'live', postOfficeAddress: 'unused' }));
     await fiber;
     try {
-      const svc = ctx.ledger as unknown as { usageOutbound: { send(env: Record<string, unknown>): Promise<unknown> } | null };
+      const svc = ctx.ledger as unknown as { usageOutbound: { report(payload: Record<string, unknown>): void } | null };
       svc.usageOutbound = fakePo;
       ctx.emit('loop/after-step', 'live',
         { text: '', toolCalls: [], toolResults: [], index: 0, usage: { prompt: 50_000, completion: 3, cacheHit: 900, cacheMiss: 100 }, ts: 777 } as never,
@@ -323,8 +322,7 @@ describe('usage 自报 stepCache（cr-714：KV 走势步级粒度）', () => {
       await new Promise((res) => setTimeout(res, 50));
       expect(sent).toHaveLength(1);
       expect(sent[0]).toMatchObject({
-        requestId: 'usage-step-run-l1-0',
-        payload: { subject: 'usage-step', agent: 'live', conversationId: 'user~live', runId: 'run-l1', step: 0, ts: 777, hit: 900, miss: 100, prompt: 50_000 },
+        subject: 'usage-step', agent: 'live', conversationId: 'user~live', runId: 'run-l1', step: 0, ts: 777, hit: 900, miss: 100, prompt: 50_000,
       });
     } finally {
       await fiber.dispose();

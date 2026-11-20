@@ -123,8 +123,8 @@ describe('archive 行（D11 全壳内）', () => {
       const segs = fs.readdirSync(path.join(dir, 'archive')).filter((n) => n.startsWith('history_'));
       expect(segs.length).toBeGreaterThanOrEqual(1);
       expect(after.rows.length).toBeLessThan(6);
-      // 概要滚动（cr-974 v2：摘要 = compaction/summary 事件——mock 回退文本线）
-      const summaryRow = after.rows.find((r) => (r as { type?: string }).type === 'compaction/summary') as { summary?: string } | undefined;
+      // 概要滚动（cr-1160 P1：摘要 = compaction 单事件——mock 回退文本线）
+      const summaryRow = after.rows.find((r) => (r as { type?: string }).type === 'compaction') as { summary?: string } | undefined;
       expect(summaryRow?.summary ?? '').toContain('此前，');
       // 概要头注入（historyFor 置首 system——事件摘要取源）
       const hist = h.ledger.historyFor('user~alpha');
@@ -147,9 +147,9 @@ describe('archive 行（D11 全壳内）', () => {
     try {
       await seedBulkyConversation(h.ledger, 'user~beta', 'beta', 6);
       await h.archive.requestArchive('user~beta');
-      // cr-974 v2：亲写文件仍是概要取源（mtime 判新鲜）——落入 compaction 事件
+      // cr-1160 P1/P3：亲写文件仍是概要取源（mtime 判新鲜 + 形态校验）——落入 compaction 单事件
       const rows2 = readLedger(path.join(ROOT, 'agents', 'beta', 'sessions', 'user~beta')).rows;
-      const summary2 = rows2.find((r) => (r as { type?: string }).type === 'compaction/summary') as { summary?: string } | undefined;
+      const summary2 = rows2.find((r) => (r as { type?: string }).type === 'compaction') as { summary?: string } | undefined;
       expect(summary2?.summary ?? '').toContain('亲写概要');
     } finally {
       await h.dispose();
@@ -176,35 +176,70 @@ describe('archive 行（D11 全壳内）', () => {
     }
   }, 20_000);
 
-  it('④ 二次归档去重（anchor seq 锚）——同批行不重复入段', async () => {
+  it('④ 二次压缩：逻辑代叠加 + 物理解耦（shadowed 未超回收阈不搬段）+ 超阈后去重归档', async () => {
     seedAgent('delta', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
     const h = await bootShellRows('delta');
     try {
       await seedBulkyConversation(h.ledger, 'user~delta', 'delta', 6);
-      await h.archive.requestArchive('user~delta'); // 第一次归档
-      // 新增两行再归档（第二次）
+      await h.archive.requestArchive('user~delta'); // 第一次（超回收阈——物理搬运）
+      // 新增一行再压缩（第二次——shadowed 小，仅落逻辑代）
       await h.ledger.deliverRow('user~delta', ['delta', 'user'], 'user', {
         role: 'agent', content: 'y'.repeat(2000), agent_id: 'delta', requestId: 'seed-a', uuid: 'user~delta',
       });
-      await h.archive.requestArchive('user~delta'); // 第二次归档
-      const dir = path.join(ROOT, 'agents', 'delta', 'sessions', 'user~delta', 'archive');
-      // cr-974 v2：归档段 = 整段单流 gzip（.gz）
-      const segs = fs.readdirSync(dir).filter((n) => /^history_\d+\.jsonl(\.gz)?$/.test(n)).sort();
-      expect(segs.length).toBe(2); // 两段
-      // 二段不含一段已归档行（seq 锚去重）——读两段行数对照
+      await h.archive.requestArchive('user~delta'); // 第二次压缩
+      const sdir = path.join(ROOT, 'agents', 'delta', 'sessions', 'user~delta');
+      const segs1 = fs.readdirSync(path.join(sdir, 'archive')).filter((n) => /^history_\d+\.jsonl(\.gz)?$/.test(n)).sort();
+      const cmpRows = readLedger(sdir).rows.filter((r) => (r as { type?: string }).type === 'compaction');
+      expect(cmpRows.length).toBe(2); // 两个逻辑代（cr-1160 P1 单事件）
+      expect(segs1.length).toBe(1); // 物理解耦：第二次 shadowed 未超回收阈——不搬段
+      // 大量新增行第三次压缩——shadowed 超回收阈，物理搬运且 anchor 去重
+      for (let i = 0; i < 6; i++) {
+        await h.ledger.deliverRow('user~delta', ['delta', 'user'], 'user', {
+          role: 'agent', content: 'z'.repeat(2000), agent_id: 'delta', requestId: 'seed-b' + i, uuid: 'user~delta',
+        });
+      }
+      await h.archive.requestArchive('user~delta'); // 第三次压缩（超阈搬运）
+      const segs2 = fs.readdirSync(path.join(sdir, 'archive')).filter((n) => /^history_\d+\.jsonl(\.gz)?$/.test(n)).sort();
+      expect(segs2.length).toBe(2); // 两段
       const readSeg = (n: string) => {
-        const raw = fs.readFileSync(path.join(dir, n));
+        const raw = fs.readFileSync(path.join(sdir, 'archive', n));
         const text = n.endsWith('.gz') ? zlib.gunzipSync(raw).toString('utf-8') : raw.toString('utf-8');
         return text.split('\n').filter((l) => l.trim() !== '').length;
       };
-      const seg1 = readSeg(segs[0]!);
-      const seg2 = readSeg(segs[0]! < segs[1]! ? segs[1]! : segs[0]!);
-      // 一段 = 初次归档条数；二段仅含新增行（< 一段——keep 窗内已保留）
-      expect(seg1).toBeGreaterThan(0);
-      expect(seg2).toBeLessThan(seg1);
+      expect(readSeg(segs2[0]!)).toBeGreaterThan(0);
+      // anchor 去重语义：一段已归档行（requestId seed-0..5）不出现在二段
+      const segText = (n: string) => {
+        const raw = fs.readFileSync(path.join(sdir, 'archive', n));
+        return n.endsWith('.gz') ? zlib.gunzipSync(raw).toString('utf-8') : raw.toString('utf-8');
+      };
+      const seg1ReqIds = new Set((segText(segs2[0]!).match(/"requestId":"[^"]+"/g) ?? []).map((s) => s.slice(13, -1)));
+      const seg2ReqIds = new Set((segText(segs2[1]!).match(/"requestId":"[^"]+"/g) ?? []).map((s) => s.slice(13, -1)));
+      const overlap = [...seg1ReqIds].filter((id) => seg2ReqIds.has(id));
+      expect(overlap).toEqual([]); // 同批行不重复入段（seq 锚去重）
     } finally {
       await h.dispose();
     }
-  }, 20_000);
+  }, 30_000);
+  it('⑤ cr-1160 阈值用活跃代口径：压缩后旧代不计——不误触发归档', async () => {
+    // 低阈值：maxContextTokens 100 → 阈值 50。旧代约 2000+ token，活跃代远小于它。
+    seedAgent('epsilon', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('epsilon', async () => ({ finish: 'ok', text: '此前，整理完毕。' }));
+    try {
+      const uuid = 'user~epsilon';
+      await seedBulkyConversation(h.ledger, uuid, 'epsilon', 6);
+      await h.archive.requestArchive(uuid); // 第一次：超阈值，归档
+      const dir = path.join(ROOT, 'agents', 'epsilon', 'sessions', uuid);
+      const cmpCount = () => readLedger(dir).rows.filter((r) => (r as { type?: string }).type === 'compaction').length;
+      expect(cmpCount()).toBe(1);
+      // 再补一条短消息（活跃代很小）——阈值检测不应再次触发归档
+      await h.ledger.deliverRow(uuid, ['epsilon', 'user'], 'user', {
+        role: 'agent', content: '短', agent_id: 'epsilon', requestId: 'tiny-1', uuid,
+      });
+      await h.archive.maybeArchive(uuid);
+      expect(cmpCount()).toBe(1); // 活跃代未超阈——零新压缩代
+    } finally {
+      await h.dispose();
+    }
+  }, 30_000);
 });
 

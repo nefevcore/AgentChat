@@ -100,8 +100,11 @@ export interface RunEndEvent {
   seq?: number;
 }
 
-/** 压缩事件族（v2 compaction/*——§2.3；fold 三态的语义边界） */
+/** 压缩事件族（v2 compaction/*——§2.3；fold 三态的语义边界）
+ *  cr-1160 P1：新增单事件形态 compaction（三连的收编——一行携带全部
+ *  压缩语义；append+fsync 行级原子，无需两阶段）。旧三连读侧归并。 */
 export type CompactionEvent =
+  | { kind: 'compaction'; run: string; boundarySeq?: number; endTs: number; summary?: string; stats?: { shadowedRows?: number; estimatedTokens?: number }; model?: string; generation?: number; ts: number; seq?: number }
   | { kind: 'compaction-start'; run: string; ts: number; seq?: number }
   | { kind: 'compaction-summary'; run: string; summary: string; ts: number; seq?: number }
   | { kind: 'compaction-end'; run: string; boundarySeq?: number; ts: number; seq?: number };
@@ -121,21 +124,34 @@ export interface RunFactsV2 {
   aggOrder?: Array<{ type: 'steps'; count: number } | { type: 'inject'; ev: InjectEvent }>;
 }
 
-/** 压缩事实（§2.3 fold 三态语义边界——最新一次压缩） */
+/** 压缩事实（§2.3 fold 三态语义边界——最新一次压缩）
+ *
+ * cr-1160 P2：边界升级为多轮叠加——DomainFacts.compactions 按文件序记
+ * 全部压缩代（compaction 单事件 + 旧三连归并；facts.compaction 保留最新
+ * 一代兼容既有消费面）。行 shadow 判定 = 被任一代命中（fold 层
+ * rowShadowedBy 谓词——位置/时刻/文件位置三级裁决）。 */
 export interface CompactionFacts {
   /** 压缩 run */
   run: string;
-  /** 摘要全文（compaction/summary 事件携带——回放注入的 system 头取源） */
+  /** 摘要全文（compaction/summary 事件携带——回放注入 system 头取源；
+   *  cr-1160 P3 起形态校验不合格的代落空串——回放头回落上一代概要） */
   summary: string;
-  /** 覆盖边界（shadowed 前缀的最大 seq——exclusive；compaction/end 行携带，
-   *  缺席回落该 run 三事件最大 seq） */
+  /** 覆盖边界（shadowed 前缀的最大 seq——exclusive；compaction/end 行
+   *  携带，缺席回落该 run 三事件最大 seq） */
   boundarySeq: number;
-  /** 压缩收束时刻（compaction/end 的 ts——cr-1156：seq 空间倒挂期回放的
-   *  时刻维度兜底。compaction 物理重写后 writer 重启小 seq 空间（B1 尾窗
-   *  播种错过已归档高 seq 行），此后落账的行 seq 可能 ≤ boundarySeq——seq
-   *  比较只对事件前的 shadowed 前缀负责，事件后落账的行恒放行。
-   *  缺省 0 = 旧档无 ts，时刻维度不生效（回落纯 seq 判定）。 */
+  /** 压缩收束时刻（compaction/end 的 ts——cr-1156 时刻维兜底：物理重写
+   *  后 writer 重启小 seq 空间，事件后落账行 seq 可能 ≤ boundarySeq——seq
+   *  比较只对事件前 shadowed 前缀负责。缺省 0 = 时刻维不生效（纯 seq）。 */
   endTs: number;
+  /** 压缩代序（1 起，cr-1160 P4：行 generation 坐标，域内单调） */
+  generation?: number;
+  /** 本代概要缺席标记（cr-1160 P3：形态不合格 → 概要未更新——回放头
+   *  取上一代概要；stats/model 仍记） */
+  summaryOmitted?: boolean;
+  /** 审计面（cr-1160 P1：单事件携带；旧三连无） */
+  stats?: { shadowedRows?: number; estimatedTokens?: number };
+  /** 摘要生成模型（审计面） */
+  model?: string;
 }
 
 /**
@@ -150,11 +166,15 @@ export interface DomainFacts {
   subcallArchive: JournalToolResult[];
   /** 日志版本（头行） */
   version: number;
-  /** 最新压缩事实（compaction/* 事件——§2.3；缺席 = 无压缩） */
+  /** 最新压缩事实（compaction/* 事件——§2.3；缺席 = 无压缩；兼容面——
+   *  最新代恒等于 compactions 末位） */
   compaction?: CompactionFacts;
+  /** 全部压缩代（cr-1160 P2：按文件序——单事件 + 旧三连归并；多轮边界
+   *  叠加判定的事实源） */
+  compactions: CompactionFacts[];
 }
 
-const V2_TYPES = new Set(['message', 'context', 'step/reasoning', 'step/content', 'step/tool-call', 'step/tool-call-result', 'inject', 'run-end', 'compaction/start', 'compaction/summary', 'compaction/end']);
+const V2_TYPES = new Set(['message', 'context', 'step/reasoning', 'step/content', 'step/tool-call', 'step/tool-call-result', 'inject', 'run-end', 'compaction', 'compaction/start', 'compaction/summary', 'compaction/end']);
 
 function runOf(facts: Map<string, RunFactsV2>, run: string): RunFactsV2 {
   let f = facts.get(run);
@@ -178,6 +198,8 @@ function v2RowToEvent(row: Record<string, unknown>): SessionEvent | 'segment' | 
       return { kind: 'tool-call-result', run: String(row.run ?? ''), toolCallId: String(row.toolCallId ?? ''), result: (row.result ?? { ok: false }) as { ok: boolean; output?: unknown; error?: string }, ...(row.durationMs !== undefined ? { durationMs: Number(row.durationMs) } : {}), ...(row.subcall === true ? { subcall: true, ...(row.name !== undefined ? { name: String(row.name) } : {}), ...(row.arguments !== undefined ? { arguments: String(row.arguments) } : {}) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'inject':
       return { kind: 'inject', run: String(row.run ?? ''), content: String(row.content ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectionId !== undefined ? { injectionId: String(row.injectionId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
+    case 'compaction':
+      return { kind: 'compaction', run: String(row.run ?? ''), ...(row.boundarySeq !== undefined ? { boundarySeq: Number(row.boundarySeq) } : {}), endTs: Number(row.ts ?? 0), ...(row.summary !== undefined ? { summary: String(row.summary ?? '') } : {}), ...(row.stats !== undefined ? { stats: row.stats as { shadowedRows?: number; estimatedTokens?: number } } : {}), ...(row.model !== undefined ? { model: String(row.model) } : {}), ...(row.generation !== undefined ? { generation: Number(row.generation) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'compaction/start':
       return { kind: 'compaction-start', run: String(row.run ?? ''), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'compaction/summary':
@@ -229,13 +251,15 @@ function expandJournalStep(line: JournalStep): { phases: Array<PhaseEvent | Inje
  */
 export function readDomainFacts(dir: string, domain: string): DomainFacts {
   const { header, rows } = readLedger(dir);
-  const out: DomainFacts = { domain, speech: [], contexts: [], runs: new Map(), subcallArchive: readSubcalls(dir), version: header?.version ?? 1 };
+  const out: DomainFacts = { domain, speech: [], contexts: [], runs: new Map(), subcallArchive: readSubcalls(dir), version: header?.version ?? 1, compactions: [] };
+  // 旧三连归并暂存（run → 半成品代；end 到达成代）
+  const pendingCompactions = new Map<string, CompactionFacts>();
   for (const r of rows as Array<LedgerRow & Record<string, unknown>>) {
     if (V2_TYPES.has(String(r.type ?? ''))) {
       const ev = v2RowToEvent(r as Record<string, unknown>);
       if (ev === null) continue;
       if (ev === 'segment') continue;
-      placeEvent(out, ev);
+      placeEvent(out, ev, pendingCompactions);
       continue;
     }
     // v1 role 判别行
@@ -284,7 +308,7 @@ export function readDomainFacts(dir: string, domain: string): DomainFacts {
   return out;
 }
 
-function placeEvent(facts: DomainFacts, ev: SessionEvent): void {
+function placeEvent(facts: DomainFacts, ev: SessionEvent, pending: Map<string, CompactionFacts>): void {
   switch (ev.kind) {
     case 'speech': facts.speech.push({ ...ev, domain: facts.domain }); return;
     case 'context': facts.contexts.push({ ...ev, domain: facts.domain }); return;
@@ -298,26 +322,54 @@ function placeEvent(facts: DomainFacts, ev: SessionEvent): void {
       return;
     }
     case 'run-end': runOf(facts.runs, ev.run).end = ev; return;
-    // 压缩三态（§2.3）：summary 建档（最新 seq 胜），end 回填边界（同 run
-    // 才回填——多次压缩按 seq 迭替，旧边界随旧档淘汰）
+    // 压缩代累积（cr-1160 P1/P2）：单事件直入一代；旧三连按 run 归并成
+    // 一代（start 开档 → summary 填文 → end 回填边界；end 到达才入列——
+    // 崩溃残留的孤 summary 不建代，回放不受未完成压缩影响）。generation
+    // = 入列序 + 1；facts.compaction 恒指最新代（兼容面）。
+    case 'compaction': {
+      const gen: CompactionFacts = {
+        run: ev.run,
+        summary: ev.summary ?? '',
+        boundarySeq: ev.boundarySeq ?? ev.seq ?? 0,
+        endTs: ev.endTs,
+        generation: ev.generation ?? facts.compactions.length + 1,
+        ...(ev.summary === undefined ? { summaryOmitted: true } : {}),
+        ...(ev.stats !== undefined ? { stats: ev.stats } : {}),
+        ...(ev.model !== undefined ? { model: ev.model } : {}),
+      };
+      appendGeneration(facts, gen);
+      return;
+    }
     case 'compaction-summary': {
-      const cur = facts.compaction;
-      if (cur === undefined || cur.run === ev.run || (ev.seq ?? 0) > cur.boundarySeq) {
-        facts.compaction = { run: ev.run, summary: ev.summary, boundarySeq: cur?.run === ev.run ? cur.boundarySeq : ev.seq ?? 0, endTs: cur?.run === ev.run ? cur.endTs : 0 };
-      }
+      pending.set(ev.run, { run: ev.run, summary: ev.summary, boundarySeq: 0, endTs: 0 });
       return;
     }
     case 'compaction-end': {
-      const cur = facts.compaction;
-      if (cur !== undefined && cur.run === ev.run) {
-        cur.boundarySeq = ev.boundarySeq ?? Math.max(cur.boundarySeq, ev.seq ?? 0);
-        cur.endTs = ev.ts; // cr-1156：收束时刻（时刻维度兜底的判据）
-      }
+      const pend = pending.get(ev.run);
+      if (pend === undefined) return; // 孤 end（崩溃残留）——不建代
+      // 边界语义（cr-1160 重写期回归修复）：boundarySeq **≤ 0 视为无有效边界**
+      // ——存量老 writer 曾显式写 boundarySeq:0（admin~admin 现场 4 代全 0），
+      // 此时回落该 end 行**自身 seq**（边界 = 事件落账位置，其后行必属新一代）。
+      // 曾只写 `?? 0`：缺字段路径都救不了，boundary=0 让 rowShadowedBy 恒判
+      // 不 shadow（seq≥1），壳侧阈值估算把已压缩内容全当活跃 → 老会话每 run
+      // 收束反复触发整理压缩（花钱且账面不降）。
+      pend.boundarySeq = (ev.boundarySeq ?? 0) > 0 ? ev.boundarySeq! : (ev.seq ?? 0);
+      pend.endTs = ev.ts; // cr-1156：收束时刻（时刻维度兜底的判据）
+      appendGeneration(facts, pend);
+      pending.delete(ev.run);
       return;
     }
     case 'compaction-start': return;
-    default: return; // compaction/* 由 fold 消费（本层不缓）
+    default: return; // 其余未知词汇安全忽略
   }
+}
+
+/** 代入列（generation 重编为入列序 + 1——盘面乱序/跳号时归一；最新代
+ *  同步 facts.compaction） */
+function appendGeneration(facts: DomainFacts, gen: CompactionFacts): void {
+  gen.generation = facts.compactions.length + 1;
+  facts.compactions.push(gen);
+  facts.compaction = gen;
 }
 
 /** 数据根下某会话的域事实集（conversationDirs 域序；viewer 域剔除） */

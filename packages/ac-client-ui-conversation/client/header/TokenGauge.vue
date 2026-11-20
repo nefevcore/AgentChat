@@ -45,6 +45,8 @@ interface SessionTokens {
   tokenCount: number; messageCount: number; maxContextTokens: number; usagePercent: number;
   avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'normal' | 'high' | 'critical';
   cache?: SessionTokensCache;
+  /** 压缩史（cr-1160 §2.8——弹层「压缩历史」区数据源） */
+  compactions?: Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; summaryTokens?: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }>;
 }
 const sessionTokens = ref<SessionTokens | null>(null);
 
@@ -92,6 +94,7 @@ async function fetchTokenBaseline(clearFirst = false) {
       avgTokensPerMsg: data.avgTokensPerMsg ?? 0,
       estimatedMsgsRemaining: data.estimatedMsgsRemaining ?? 0,
       status: data.status ?? 'normal',
+      ...(data.compactions ? { compactions: data.compactions } : {}),
       ...(data.cache
         ? {
             cache: {
@@ -446,6 +449,19 @@ const applicable = computed(() =>
           </div>
         </template>
 
+        <!-- 压缩历史（cr-1160 §2.8）：每代一行——时刻/压缩前估算/shadowed 行数；
+             无压缩事件的会话不渲染 -->
+        <template v-if="sessionTokens?.compactions?.length">
+          <div class="token-panel__compactions">
+            <span class="compactions-label">压缩历史 · {{ sessionTokens.compactions.length }} 轮</span>
+            <div v-for="c in sessionTokens.compactions" :key="c.domain + c.generation" class="compactions-row">
+              <span class="compactions-gen">#{{ c.generation }}</span>
+              <span class="compactions-at">{{ kvTimeOf(c.endTs) }}</span>
+              <span class="compactions-stats">{{ c.summaryLen === null ? '概要未更新' : (c.summaryTokens != null ? '概要 ~' + fmtTokenCount(c.summaryTokens) : '') }}{{ c.stats?.shadowedRows != null ? ' · 移出 ' + c.stats.shadowedRows + ' 行' : '' }}</span>
+            </div>
+          </div>
+        </template>
+
         <!-- 归档入口：占用量与归档动作同屏——超阈值时顺手整理；run 进行中/整理中禁用。
              群形态不显示（群归档走后端轮转：达阈值先给群主跑 [群归档整理] run） -->
         <Tooltip
@@ -513,6 +529,14 @@ const applicable = computed(() =>
 .token-row .v { color: var(--text-1); font-variant-numeric: tabular-nums; text-align: right; }
 .token-row--sub .k { color: var(--text-3); padding-left: 6px; }
 .token-row--sub .v { color: var(--text-2); }
+/* 压缩历史区（cr-1160 §2.8——上分隔线同款） */
+.token-panel__compactions { display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--line-strong); padding-top: 8px; margin-top: 2px; }
+.compactions-label { font-size: 10px; color: var(--text-3); }
+.compactions-row { display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.compactions-gen { color: var(--text-3); min-width: 22px; }
+.compactions-at { min-width: 84px; }
+.compactions-stats { margin-left: auto; text-align: right; }
+
 /* 缓存命中区（上分隔线） */
 .token-panel__cache { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line-strong); padding-top: 8px; margin-top: 2px; }
 /* KV 缓存率走势（cr-231）：等距 run 序号 sparkline；线 = ok 状态档（缓存好=绿）
