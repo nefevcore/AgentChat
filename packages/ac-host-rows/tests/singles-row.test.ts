@@ -7,9 +7,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { makeSinglesHostRow, migrateLegacyPrefixSnapshots, HostInbox } from '../src/index.ts';
+import { makeSinglesHostRow, migrateLegacyPrefixSnapshots, HostServiceDesk } from '../src/index.ts';
 import { writeAgentConfig } from 'ac-agents-core';
-import { makeTitleRequestEnvelope, type Envelope } from 'ac-envelope-core';
+import type { Envelope } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-singles-title-' + process.pid);
 beforeEach(() => { fs.rmSync(ROOT, { recursive: true, force: true }); fs.mkdirSync(ROOT, { recursive: true }); });
@@ -46,31 +46,26 @@ function seedLedger(id: string, rows: Array<Record<string, unknown>>): void {
 
 type SessionIndexFace = { messagesCatalog(): Array<{ conv: string; size: number; mtimeMs: number }> };
 
-function boot(withInbox: boolean, sessionIndex?: SessionIndexFace) {
+function boot(withDesk: boolean, sessionIndex?: SessionIndexFace) {
   const handlers = new Map<string, Handler>();
   const frames: Array<{ type: string; args?: unknown }> = [];
-  let receiver: Receiver | null = null;
-  const inbox = new HostInbox({ registerLocal: (_id: string, r: Receiver) => { receiver = r; } });
-  if (withInbox) inbox.start();
+  const desk = new HostServiceDesk();
   const web = {
     registerRpc: (method: string, handler: Handler) => { handlers.set(method, handler); },
     broadcast: (type: string, data?: unknown) => { frames.push({ type, ...(data as { args?: unknown }) }); },
   };
-  const plugin = makeSinglesHostRow({ dataRoot: ROOT, ...(withInbox ? { inbox } : {}) }) as unknown as { apply(ctx: unknown): void };
+  const plugin = makeSinglesHostRow({ dataRoot: ROOT, ...(withDesk ? { desk } : {}) }) as unknown as { apply(ctx: unknown): void };
   // 桩 ctx：webServer + get + 最小事件面（conv-settings/updated 订阅——cordis on 形状）
   plugin.apply({ webServer: web, get: (k: string) => (k === 'sessionIndex' ? sessionIndex ?? undefined : undefined), on: () => {} });
-  const send = (env: Envelope) => {
-    if (receiver === null) throw new Error('收信面未注册');
-    return receiver(env);
-  };
+  /** title.set 服务帧直投（request 档） */
+  const send = (payload: Record<string, unknown>) => desk.handle({ svc: 'title.set', reqId: 'title-req', payload }, null);
   return { handlers, frames, send };
 }
 
-const titleRequest = (conversationId: string, title: string): Envelope => makeTitleRequestEnvelope({
+const titleRequest = (conversationId: string, title: string): Record<string, unknown> => ({
   conversationId,
-  requestId: 'title-' + conversationId + '-' + Math.random().toString(36).slice(2),
-  sender: 'alpha',
-  payload: { conversationId, title, agent: 'alpha' },
+  title,
+  agent: 'alpha',
 });
 
 describe('标题请求受理（cr-672）', () => {
@@ -78,8 +73,9 @@ describe('标题请求受理（cr-672）', () => {
     // 对端行在场 → agentId 由派生面带入 session.json（纯增量不迁移）
     seedLedger(sidOf('s1'), [{ agent_id: 'alpha', content: 'Agent 开场白' }, { agent_id: 'user', content: '首条用户消息' }]);
     const h = boot(true);
-    const out = await h.send(titleRequest(sidOf('s1'), '重建会话标题面'));
-    expect(out.fresh).toBe(true);
+    const out = await h.send(titleRequest(sidOf('s1'), '重建会话标题面')) as { ok: boolean; result?: { applied?: boolean } };
+    expect(out.ok).toBe(true);
+    expect(out.result?.applied).toBe(true);
     const meta = JSON.parse(fs.readFileSync(metaFile(sidOf('s1')), 'utf-8')) as Record<string, unknown>;
     expect(meta).toMatchObject({ id: sidOf('s1'), title: '重建会话标题面', status: 'active', agentId: 'alpha' });
     expect(h.frames.at(-1)).toMatchObject({ type: 'singles/updated' });
@@ -100,10 +96,12 @@ describe('标题请求受理（cr-672）', () => {
     expect(h.frames).toHaveLength(0); // 未变更 = 不广播
   });
 
-  it('非法 payload fail-loud（HostInbox 整体投递失败 → 邮局重投面可见）', async () => {
+  it('非法 payload fail-loud（desk handler 抛错 → ok:false 回执——调用方明确失败）', async () => {
     seedLedger(sidOf('s3'), [{ agent_id: 'user', content: 'x' }]);
     const h = boot(true);
-    await expect(h.send(titleRequest(sidOf('s3'), '   '))).rejects.toThrow(/标题请求非法/);
+    const out = await h.send(titleRequest(sidOf('s3'), '   ')) as { ok: boolean; error?: string };
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain('标题请求非法');
   });
 
   it('无收信面（inbox 缺省）→ 行照常装配，singles/* RPC 不受影响', async () => {
@@ -490,10 +488,12 @@ describe('cr-1120 会话键词汇锁（对桶键 / 子Agent 键不进 singles �
     expect(reg.entries['admin~designer']).toBeUndefined();
   });
 
-  it('title-request 对非 uuid 键 fail-loud（不落 meta）', async () => {
+  it('title.set 对非 uuid 键 fail-loud（不落 meta）', async () => {
     seedLedger('admin~nana', [{ agent_id: 'user', content: '对桶' }]);
     const h = boot(true);
-    await expect(h.send(titleRequest('admin~nana', '不该落的标题'))).rejects.toThrow(/非法/);
+    const out = await h.send(titleRequest('admin~nana', '不该落的标题')) as { ok: boolean; error?: string };
+    expect(out.ok).toBe(false);
+    expect(out.error).toContain('非法');
     expect(fs.existsSync(metaFile('admin~nana'))).toBe(false);
   });
 

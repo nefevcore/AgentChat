@@ -28,16 +28,16 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
-import { isTitleRequest, issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
+import { issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
 import { conversationDirs, forkConversation, projectUserReplay, sessionDir, userMetaFile } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
 import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, fallbackTitle } from 'ac-core-utils';
-import type { HostInbox } from './host-inbox.ts';
+import type { HostServiceDesk } from './service-desk.ts';
 
 export interface SinglesHostRowOptions {
   dataRoot: string;
-  /** host 端点收信扇出面（壳侧命名行标题请求受理——cr-672；缺省 = 只走派生标题） */
-  inbox?: HostInbox;
+  /** 宿主服务台（壳侧命名行 title.set 受理——cr-672；cr-1175 批 2 起迁服务帧；缺省 = 只走派生标题） */
+  desk?: HostServiceDesk;
 }
 
 /** 会话元数据（session.json 形态——模型覆盖不在此，见 conv-settings） */
@@ -453,30 +453,28 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         registry.set(conversationId, { ...e, stale: true });
       });
 
-      // ---- 标题请求受理（cr-672：壳侧 auto-title 行 → 信封 → 本行落盘）----
+      // ---- 标题落盘受理（cr-672；cr-1175 批 2 起迁 title.set 服务帧——request 档）----
       // 写权归本行（session.json 单写者）；write-if-absent——用户手改标题 /
-      // fork 继承标题 / 换代壳重复上报一律不覆盖。已有标题 = 幂等成功（不抛
-      // 错：抛错会进邮局重投循环，而本请求没有需要重试的语义）。
-      const titleInbox = options.inbox;
-      if (titleInbox !== undefined) {
-        titleInbox.on(async (env) => {
-          if (!isTitleRequest(env)) return;
-          const payload = env.payload as Partial<TitleRequestPayload>;
+      // fork 继承标题 / 换代壳重复上报一律不覆盖。已有标题 = 幂等成功
+      //（{ applied: true } 回执）。落盘即 emit singles/updated 广播——D7
+      // 前端 live 通知（发一次即忘，前端刷新 = 重读盘面兜底）。
+      if (options.desk !== undefined) {
+        options.desk.register('title.set', async (payloadRaw: unknown) => {
+          const payload = payloadRaw as Partial<TitleRequestPayload>;
           const issues = validateTitleRequestPayload(payload);
           if (issues.length > 0) throw new Error('标题请求非法：' + issues.join('；'));
           const id = String(payload.conversationId);
           // cr-1120：受理前按词汇锁拒绝非 singles 会话键（对桶/子Agent 键
           // 的 auto-title 上报不落 meta/sessions——历史误写即本次未分组
-          // 幻影行的来源之一）；非法键 fail-loud（信封面协议错误，可重投面
-          // 可见）。
+          // 幻影行的来源之一）；非法键 fail-loud（协议错误，回执面可见）。
           assertSingleId(id);
           const title = String(payload.title).trim().slice(0, TITLE_MAX_LEN);
-          if (title === '') return;
+          if (title === '') return { applied: false };
           const before = viewOf(dataRoot, id, conv());
-          if (before === null || before.status !== 'active') return;
+          if (before === null || before.status !== 'active') return { applied: false };
           // 判「已存标题」只看 session.json（readMeta）——viewOf 的 title 含
           // 账本派生兜底值，拿它判会让生成标题永无写入机会
-          if (readMeta(dataRoot, id)?.title !== undefined) return;
+          if (readMeta(dataRoot, id)?.title !== undefined) return { applied: false };
           writeMeta(dataRoot, {
             id,
             ...(before.agentId !== '' ? { agentId: before.agentId } : {}),
@@ -488,6 +486,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
           });
           const view = viewOf(dataRoot, id, conv());
           if (view !== null) { emit(view, 'updated'); upsertEntry(id, view); }
+          return { applied: true };
         });
       }
 

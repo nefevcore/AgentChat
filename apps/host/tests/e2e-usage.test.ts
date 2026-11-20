@@ -1,6 +1,6 @@
 // ============================================================
-// usage 自报链 e2e（cr-538）：真子进程壳 mock run 收束 → 事件信经
-// 邮局 ipc → 宿主 usage 行聚并入账（byAgent + 审计流水）。
+// usage 自报链 e2e（cr-538；cr-1175 起服务帧）：真子进程壳 mock run 收束 →
+// usage.report 帧 → 邮局 ipc → 宿主 usage 行聚并入账（byAgent + 审计流水）。
 // 数据根恒 sandbox 独立目录（红线）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -12,7 +12,7 @@ import { socketPathFor, waitForShellReady } from 'ac-envelope-core';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from '../user-stub.ts';
 import { Context } from '@agentchat/cordis';
-import { makeUsageHostRow, HostInbox } from 'ac-host-rows';
+import { makeUsageHostRow, HostServiceDesk } from 'ac-host-rows';
 import { writeAgentConfig } from 'ac-agents-core';
 
 const ROOT = path.join('sandbox', 'test-usage-e2e-' + process.pid);
@@ -38,17 +38,17 @@ async function spawnShell(agentId: string): Promise<{ hint: string }> {
   return { hint: lock.transportHint };
 }
 
-describe('usage 自报链 e2e（壳 run 收束 → 事件信 → 宿主聚合并）', () => {
+describe('usage 自报链 e2e（壳 run 收束 → 计量帧 → 宿主聚合并）', () => {
   it('mock run 收束后宿主 byAgent 入账 + journal 计量在场', async () => {
     // v3 播种（cr-1022 批3：boot 对 config.json-only 旧形态 fail-loud——「先迁移」）
     fs.copyFileSync(CATALOG, path.join(ROOT, 'row-catalog.json'));
     writeAgentConfig(ROOT, { id: 'alpha', model: 'mock' });
     const po = new PostOffice({ dataRoot: ROOT });
+    const desk = new HostServiceDesk();
+    po.setServiceDesk(desk);
     await po.listen();
     const ctx = new Context();
-    const inbox = new HostInbox(po);
-    inbox.start();
-    const fiber = ctx.plugin(makeUsageHostRow({ root: ROOT, inbox }));
+    const fiber = ctx.plugin(makeUsageHostRow({ root: ROOT, desk }));
     await fiber;
     const user = new UserStub(po, ROOT);
     user.start();
@@ -56,7 +56,7 @@ describe('usage 自报链 e2e（壳 run 收束 → 事件信 → 宿主聚合并
     po.reach.markReachable('alpha', hint);
     try {
       await user.send('alpha', '计一下');
-      // 等事件信到达 + 入账（at-least-once 异步）
+      // 等计量帧到达 + 入账（report 档异步）
       const deadline = Date.now() + 10_000;
       for (;;) {
         if (Object.keys(ctx.usage.byAgent()).includes('alpha')) break;

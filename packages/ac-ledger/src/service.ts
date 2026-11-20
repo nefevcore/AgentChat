@@ -53,9 +53,7 @@ export interface ToolResultLike {
   output?: unknown;
   error?: string;
 }
-import type { Envelope } from 'ac-envelope-core';
 import type { LlmMessage } from 'ac-llm';
-import { makeUsageEnvelope } from './usage.ts';
 
 /** 行配置（boot 装配参数） */
 export interface LedgerRowOptions {
@@ -64,7 +62,7 @@ export interface LedgerRowOptions {
   /** agent 域目录覆盖（影子形态 = agents/<parent>/children/<child>/——账本随
    * 物化域走，D4 空间不变式：每实例只写自己域；缺省 = 顶层 agents/<agentId>/） */
   agentDirOverride?: string;
-  /** 邮局地址（usage 事件信投递面——cr-538；缺省 = 无邮局不发（CLI 直连形态）） */
+  /** 邮局地址（usage.report 服务帧投递面——cr-538/cr-1175；缺省 = 无邮局不发（CLI 直连形态）） */
   postOfficeAddress?: string;
 }
 
@@ -75,11 +73,11 @@ export class LedgerService extends Service {
   private postOfficeAddress: string | undefined;
   private writers = new Map<string, LedgerWriter>();
   /** run 收束计量缓存（runId → meter——settleRun 时随 journal-settled 落账
-   * + 发 usage 事件信；after-run 先于 settle 到达的时序桥）。stepCache =
+   * + 发 usage 计量帧；after-run 先于 settle 到达的时序桥）。stepCache =
    * 步级缓存序列（KV 走势步粒度——随 usage 信带出宿主，cr-714） */
   private runMeters = new Map<string, { usage: RunUsage; model: string; conversationId: string; stepCache?: Array<{ ts: number; hit: number; miss: number; prompt?: number }> }>();
-  /** usage 事件信出口（邮局 ipc——postReply 同款通道；惰性连接） */
-  private usageOutbound: { send(env: Envelope): Promise<unknown> } | null = null;
+  /** usage 服务帧出口（cr-1175 usage.report report 档——邮局 ipc，惰性连接） */
+  private usageOutbound: { report(payload: unknown): void } | null = null;
 
   constructor(ctx: Context, options: LedgerRowOptions) {
     super(ctx, 'ledger');
@@ -134,7 +132,7 @@ export class LedgerService extends Service {
         ts: Date.now(),
       }]);
     });
-    // usage 计量（cr-538：R2「journal 计量 + 事件信」）：after-run 缓存
+    // usage 计量（cr-538：R2「journal 计量 + 计量帧」）：after-run 缓存
     // run 级聚合（无计量步的 run 不缓存——主线同判），settleRun 消费。
     ctx.on('loop/after-run', (request: LoopRunRequestLike, result: LoopRunResult) => {
       if (request.agent !== this.agentId || request.runId === undefined) return;
@@ -284,7 +282,7 @@ export class LedgerService extends Service {
   }
 
   /** run 收束（cr-974 v2：终稿 message 行 +（error 时 context/error 行）+
-   * run-end 标记行——物化/journal 两阶段退役）+ 计量落账与 usage 事件信
+   * run-end 标记行——物化/journal 两阶段退役）+ 计量落账与 usage 计量帧
    *（cr-538——meter 取 after-run 缓存，消费即清）。cr-807：error 收束补落
    * 错误行——错误文案只在瞬态帧（run-settled.message → 前端红条），刷新/
    * 错过帧即蒸发，落盘行补齐两路径。 */
@@ -297,27 +295,26 @@ export class LedgerService extends Service {
     }
   }
 
-  /** 邮局连接获取（cr-842 断链自愈）：宿主重启后旧 named pipe 死连接的
-   *  send 会 reject（IpcClient socket=null 后不重连）——失败即弃缓存重连
-   *  一次再发。连接本身持有在 this.usageOutbound，重连成功换新缓存。 */
-  private async usageEnvelopeSend(envelope: Envelope): Promise<void> {
+  /** usage 服务帧出口（cr-842 断链自愈 + cr-1175 迁 usage.report report 档）：
+   *  宿主重启后旧 named pipe 死连接写入即失败——弃缓存重连一次再发。
+   *  report 档不等回执（fire-and-forget）；对账面兜底幂等（journal 事实源）。 */
+  private async usageReportSend(payload: Record<string, unknown>): Promise<void> {
     if (this.usageOutbound === null) {
       const { IpcClient } = await import('ac-envelope-core');
       const client = new IpcClient();
       await client.connect(this.postOfficeAddress!);
-      this.usageOutbound = { send: (e) => client.send(e) };
+      this.usageOutbound = { report: (p) => client.serviceReport('usage.report', p) };
     }
     try {
-      await this.usageOutbound.send(envelope);
-    } catch (err) {
-      // 死连接（宿主重启后 pipe 断）：弃缓存重连一次重发（at-least-once，
-      // 宿主 requestId 幂等去重——重发安全）
+      this.usageOutbound.report(payload);
+    } catch {
+      // 死连接（宿主重启后 pipe 断）：弃缓存重连一次再发
       this.usageOutbound = null;
       const { IpcClient } = await import('ac-envelope-core');
       const client = new IpcClient();
       await client.connect(this.postOfficeAddress!);
-      this.usageOutbound = { send: (e) => client.send(e) };
-      await this.usageOutbound.send(envelope);
+      this.usageOutbound = { report: (p) => client.serviceReport('usage.report', p) };
+      this.usageOutbound.report(payload);
     }
   }
 
@@ -326,30 +323,24 @@ export class LedgerService extends Service {
     conversationId: string, runId: string, step: number, ts: number, hit: number, miss: number, prompt: number | undefined,
   ): Promise<void> {
     try {
-      await this.usageEnvelopeSend(makeUsageEnvelope({
-        requestId: `usage-step-${runId}-${step}`,
-        payload: { subject: 'usage-step', agent: this.agentId, conversationId, runId, step, ts, hit, miss, ...(prompt !== undefined ? { prompt } : {}) },
-      }));
+      await this.usageReportSend({ subject: 'usage-step', agent: this.agentId, conversationId, runId, step, ts, hit, miss, ...(prompt !== undefined ? { prompt } : {}) });
     } catch {
       // 收束信 stepCache 兜底（全序）——步级信丢失只损失实时性，不损失数据。
     }
   }
 
-  /** usage 事件信发射（at-least-once——失败不阻塞收束；宿主 requestId 幂等。
-   *  cr-842：断链自愈重连（usageEnvelopeSend）+ 失败后兜底走宿主 boot 对账
-   *  回填（journal 事实源 → reportMeter 补录，ac-host-rows usage 行）） */
+  /** usage 计量帧发射（cr-1175 起 report 档——尽力面，不阻塞收束：断链重连
+   *  只在首份未送达时发生〔socket null 同步 throw〕，无 at-least-once 重发；
+   *  丢失兜底 = 宿主 boot 对账回填（journal 事实源 → reportMeter 补录）） */
   private async reportUsage(runId: string, meter: { usage: RunUsage; model: string; conversationId: string; stepCache?: Array<{ ts: number; hit: number; miss: number; prompt?: number }> }, finish: string): Promise<void> {
     try {
-      await this.usageEnvelopeSend(makeUsageEnvelope({
-        requestId: 'usage-' + runId,
-        payload: {
-          subject: 'usage-run', agent: this.agentId, model: meter.model, finish,
-          usage: meter.usage, conversationId: meter.conversationId, runId,
-          ...(meter.stepCache !== undefined ? { stepCache: meter.stepCache } : {}),
-        },
-      }));
+      await this.usageReportSend({
+        subject: 'usage-run', agent: this.agentId, model: meter.model, finish,
+        usage: meter.usage, conversationId: meter.conversationId, runId,
+        ...(meter.stepCache !== undefined ? { stepCache: meter.stepCache } : {}),
+      });
     } catch {
-      // 计量已在 journal（usage 字段随 settlement 落盘）——事件信失败可容忍，
+      // 计量已在 journal（usage 字段随 settlement 落盘）——计量帧失败可容忍，
       // 宿主对账可扫账本补差（对账面归 usage 行）。不重试不阻塞。
     }
   }
@@ -393,7 +384,7 @@ export class LedgerService extends Service {
     if (REPLAY_BUILTIN_WORDS.has(decl.source)) {
       throw new Error('机制词不可注册（封闭词表）: ' + decl.source);
     }
-    if (decl.replay !== 'original' && decl.replay !== 'wrapper' && decl.replay !== 'none') {
+    if (!['original', 'wrapper', 'none'].includes(decl.replay)) {
       throw new Error('回放档非法（original|wrapper|none）: ' + JSON.stringify(decl.replay));
     }
     if (this.replayDecls.has(decl.source)) {
@@ -548,10 +539,11 @@ export class LedgerService extends Service {
     return this.writerFor(uuid, [this.agentId], 'user').compact(opts);
   }
 
-  /** 压缩事件落账（cr-974 §2.3——archive 行编排消费：语义边界先 durable，
-   * 物理回收随后经 compactFor（压缩事件行经 B1 窗口 late-merge 自然保留） */
-  async compactionFor(uuid: string, runId: string, summary: string, shadowedSeq?: number): Promise<number> {
-    return this.writerFor(uuid, [this.agentId], 'user').compaction(runId, summary, shadowedSeq);
+  /** 压缩事件落账（cr-1160 P1 单事件——archive 行编排消费：语义边界先
+   * durable，物理回收随后（或解耦延后）经 compactFor。opts.summary 可空
+   * ——P3 概要协议不合格时本代无新概要；stats/model 审计面随行。） */
+  async compactionFor(uuid: string, runId: string, opts: { summary?: string; shadowedSeq?: number; stats?: { shadowedRows?: number; estimatedTokens?: number }; model?: string } = {}): Promise<number> {
+    return this.writerFor(uuid, [this.agentId], 'user').compaction(runId, opts);
   }
 
   /** 机制 run 收束（archive 行消费——journal-settled 落账、账本不落行） */

@@ -19,7 +19,7 @@ export * from './replay.ts';
 export * from './project.ts';
 export * from './archive.ts';
 export * from './user.ts';
-export * from './usage.ts';
+// usage.ts 退役（cr-1175：壳侧改发 usage.report 服务帧——payload schema owning 归 ac-envelope-core）
 export * from './manage.ts';
 export * from './service.ts';
 export * from './view.ts';

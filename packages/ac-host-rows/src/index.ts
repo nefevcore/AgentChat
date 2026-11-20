@@ -54,8 +54,8 @@ export interface HostRowOptions {
   templatesDir?: string;
   /** 行集目录（plugin-registry 行偏好视图 + 插件行撞名对账；cr-543） */
   catalogFile?: string;
-  /** host 端点收信扇出面（usage/auth-registry 行共用——boot 建 HostInbox 注入；cr-545） */
-  inbox?: HostInbox;
+  /** 宿主服务台（cr-1175：svc 帧受理面——usage/plugin/auth/singles 行共用） */
+  desk?: HostServiceDesk;
   /** agents 编辑面（timers 行 entries 单写者收口注入——cr-551） */
   agentsEdit?: EntriesEditFace;
 }
@@ -100,11 +100,13 @@ import { makeAgentAdminRow } from './agent-admin-row.ts';
 export { makeAgentAdminRow };
 export type { AgentsEditFace, AdminPreviewFace, AgentAdminRowOptions } from './agent-admin-row.ts';
 
-// —— 授权注册表写者（cr-545）：auth-registry 行（grant 信受理 + 两层
-// additive 写者 + 凭据写面 + F2 分立编辑面）+ HostInbox 收信扇出组合器 ——
+// —— 授权注册表写者（cr-545；cr-1175 起经 grant.apply 服务帧）：auth-registry 行 ——
 import { makeAuthRegistryRow } from './auth-registry-row.ts';
-import { HostInbox } from './host-inbox.ts';
-export { makeAuthRegistryRow, HostInbox };
+export { makeAuthRegistryRow };
+// —— 宿主服务台（cr-1175）：svc 帧受理面（服务动词注册——D4 不进可达表）。
+//    HostInbox 旧协议转发 shim 已随批 3b 退役（全树新代码代后无旧信封发送方）——
+export { HostServiceDesk } from './service-desk.ts';
+export type { ServiceHandler, DeskLog } from './service-desk.ts';
 export type { AuthRegistryRowOptions } from './auth-registry-row.ts';
 
 // —— 独立会话面（cr-566）：singles 行（session.json 元数据单写者 +
@@ -155,6 +157,7 @@ export type { GroupsHostRowOptions, GroupMessageView } from './groups-row.ts';
 // —— 插件治理面（cr-543）：plugin-registry 行（装载裁决 + 熔断闸门 +
 // 行集偏好急救 RPC + client manifest 注入——第三方代码零宿主驻留）——
 import { makePluginRegistryRow, PluginRegistryHostService } from './plugin-registry-row.ts';
+import type { HostServiceDesk } from './service-desk.ts';
 export { makePluginRegistryRow, PluginRegistryHostService };
 export type { PluginRegistryHostRowOptions, PluginRowsView, HostRowsView, InstalledView } from './plugin-registry-row.ts';
 
@@ -199,8 +202,8 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     // 会话级覆盖目录（conv-settings/<conversationId>.json——宿主单写）
     'conv-settings': { root: opts.dataRoot },
     // 独立会话元数据（viewer/sessions/<sid>/session.json——宿主单写）
-    // + 标题请求收信面（cr-672：壳侧 auto-title 行生成 → 信封 → 本行落盘）
-    singles: { dataRoot: opts.dataRoot, ...(opts.inbox !== undefined ? { inbox: opts.inbox } : {}) },
+    // + 标题落盘受理面（cr-672 信封 → cr-1175 批 2 起迁 title.set 服务帧）
+    singles: { dataRoot: opts.dataRoot, ...(opts.desk !== undefined ? { desk: opts.desk } : {}) },
     // 会话指针索引（cr-973）：DB 落 <dataRoot>/index/session-index.db
     'session-index': { dataRoot: opts.dataRoot },
     backup: backupOptions,
@@ -214,9 +217,10 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     // source.fs.roots 在 config（行内热重载，改源不重启）
     'fs-source': { dataRoot: opts.dataRoot },
   };
-  // usage 行（cr-538 宿主自有形态）：UsageHostRowOptions = 数据根 + 收信扇出面
-  if (opts.inbox !== undefined) {
-    out.usage = { root: opts.dataRoot, inbox: opts.inbox };
+  // usage 行（cr-538 宿主自有形态）：UsageHostRowOptions = 数据根 + 服务台
+  //（cr-1175 批 2 起收 usage.report 服务帧）
+  if (opts.desk !== undefined) {
+    out.usage = { root: opts.dataRoot, desk: opts.desk };
   }
   if (opts.postOffice !== undefined) {
     // timers 行（cr-539）：数据根 + 邮局（唤醒信投递面）+ agents 编辑面
@@ -227,18 +231,19 @@ export function rowOptionsFor(opts: HostRowOptions): Record<string, unknown> {
     // group 行（cr-576）：数据根 + 邮局（group/send 扇出 + 成员流预登记）
     out.group = { dataRoot: opts.dataRoot, postOffice: opts.postOffice };
   }
-  // auth-registry 行（cr-545）：数据根 + HostInbox（收信扇出）+ 邮局（回执投递）
-  if (opts.postOffice !== undefined && opts.inbox !== undefined) {
-    out['auth-registry'] = { dataRoot: opts.dataRoot, inbox: opts.inbox, postOffice: opts.postOffice };
+  // auth-registry 行（cr-545；cr-1175 批 2 起经 grant.apply 服务帧）：数据根
+  // + 服务台 + 邮局（回执投递）
+  if (opts.postOffice !== undefined && opts.desk !== undefined) {
+    out['auth-registry'] = { dataRoot: opts.dataRoot, desk: opts.desk, postOffice: opts.postOffice };
   }
   // agents 编辑面行（cr-540）：数据根 + 模板目录（preset-builtin 行在集才注入——
   // 缺席 = 模板面不可用，编辑面按良定义降级）
   // plugin-registry 行（cr-543）：数据根 + 行集目录（偏好视图/撞名对账）
-  // + 装卸请求信受理面（cr-553：inbox 收信 + 邮局回执/续跑投递）
+  // + 装卸请求受理面（cr-553；cr-1175 起 desk + 邮局回执/续跑投递）
   out['plugin-registry'] = {
     dataRoot: opts.dataRoot,
     ...(opts.catalogFile !== undefined ? { catalogFile: opts.catalogFile } : {}),
-    ...(opts.inbox !== undefined ? { inbox: opts.inbox } : {}),
+    ...(opts.desk !== undefined ? { desk: opts.desk } : {}),
     ...(opts.postOffice !== undefined ? { postOffice: opts.postOffice } : {}),
   };
   out.agents = opts.templatesDir !== undefined

@@ -65,13 +65,13 @@ import {
 } from 'ac-plugin-core';
 import type { Envelope } from 'ac-envelope-core';
 import {
-  isPluginRequest,
+  issueRequestId,
   makePluginReceiptEnvelope,
   readActivationLock,
   validatePluginRequestPayload,
   type PluginReceiptPayload,
 } from 'ac-envelope-core';
-import type { HostInbox } from './host-inbox.ts';
+import type { HostServiceDesk } from './service-desk.ts';
 import {
   deriveHostRowset,
   hostPreferenceFile,
@@ -89,8 +89,8 @@ export interface PluginRegistryHostRowOptions {
   dataRoot: string;
   /** 行集目录（宿主偏好视图 + 插件行撞名对账；缺省 <dataRoot>/row-catalog.json） */
   catalogFile?: string;
-  /** host 端点收信扇出面（cr-553 装卸请求信受理；缺席 = 信封面下线，RPC/装载裁决照常） */
-  inbox?: HostInbox;
+  /** 宿主服务台（cr-1175 批 2 起装卸请求受理面；缺席 = 服务面下线，RPC/装载裁决照常） */
+  desk?: HostServiceDesk;
   /** 邮局（回执 + 续跑信投递——受理编排件注入，测试可替身） */
   postOffice?: { dispatch(env: Envelope): Promise<unknown> };
 }
@@ -445,6 +445,14 @@ function obj(params: unknown): Record<string, unknown> {
   return typeof params === 'object' && params !== null ? (params as Record<string, unknown>) : {};
 }
 
+/** 服务帧 payload 的 conversationId 提取（回投信封 uuid——缺席时拒收链
+ *  自然报错，无需在此 fail-loud） */
+function reqConversationId(payload: unknown): string {
+  const v = (payload as { conversationId?: unknown } | null)?.conversationId;
+  if (typeof v !== 'string' || v === '') throw new Error('conversationId 缺席——回投会话不可寻址');
+  return v;
+}
+
 function reqStr(source: Record<string, unknown>, key: string): string {
   const value = source[key];
   if (typeof value !== 'string' || value === '') throw new Error('参数 ' + key + ' 缺失或非非空字符串');
@@ -452,26 +460,26 @@ function reqStr(source: Record<string, unknown>, key: string): string {
 }
 
 /**
- * 装卸请求受理编排（cr-553）：install → svc.installFromDir（免审三态）；
- * uninstall → svc.uninstall（永久卸载）。回执 payload + 续跑文案一体
- * 返回（回执进经验流 / 续跑驱动下一轮——主线 receiptAndRetrigger 同义）。
- * 相对目录按发起方沙箱（files/<agentId>/）基准解析——主线 resolveDir
- * 同语义；结构非法 = 拒收回执（不 throw——handler 抛错 = 投递失败滞留
- * 重试，语义应为一次性拒收）。
+ * 装卸请求受理编排（cr-553；cr-1175 批 2 起经服务帧 plugin.request）：
+ * install → svc.installFromDir（免审三态）；uninstall → svc.uninstall
+ * （永久卸载）。回执 payload + 续跑文案一体返回（回执进经验流 / 续跑
+ * 驱动下一轮——主线 receiptAndRetrigger 同义）。相对目录按发起方沙箱
+ * （files/<agentId>/）基准解析——主线 resolveDir 同语义；结构非法 =
+ * 拒收回执（不 throw——一次性拒收语义，服务帧 handler 抛错回 ok:false）。
  */
 async function applyPluginRequest(
   svc: PluginRegistryHostService,
-  env: Envelope,
+  payload: unknown,
+  agent: string,
 ): Promise<{ payload: PluginReceiptPayload; nextPrompt: string | null }> {
-  const agent = env.sender;
-  const issues = validatePluginRequestPayload(env.payload);
+  const issues = validatePluginRequestPayload(payload);
   if (issues.length > 0) {
     return {
       payload: { subject: 'plugin-rejected', agent, ok: false, reason: '结构非法：' + issues.join('；') },
       nextPrompt: '[plugin] 你请求的插件装卸信结构非法：' + issues.join('；') + '。请修正参数后重试。',
     };
   }
-  const p = env.payload as { action: 'install' | 'uninstall'; dir?: string; name?: string; conversationId: string };
+  const p = payload as { action: 'install' | 'uninstall'; dir?: string; name?: string; conversationId: string };
   const base = path.join(svc.root() === '' ? '' : path.dirname(svc.root()), 'files', agent);
   if (p.action === 'install') {
     const dir = path.isAbsolute(p.dir!) ? path.resolve(p.dir!) : path.resolve(base, p.dir!);
@@ -532,33 +540,37 @@ export function makePluginRegistryRow(options: PluginRegistryHostRowOptions): Pl
         web.broadcast('plugin/updated', { name });
       };
 
-      // —— ④ 装卸请求信受理（cr-553；creator 模板工具面的宿主半边）——
-      // 壳 install_plugin / unregister_plugin（永久档）的落点：信封 →
+      // —— ④ 装卸请求受理（cr-553；cr-1175 批 2 迁服务帧 plugin.request）——
+      // 壳 install_plugin / unregister_plugin（永久档）的落点：服务帧 →
       // installFromDir / uninstall（免审——admin 边界在壳侧工具面把守）→
-      // 回执信（receipt → ledger-only 落原会话）+ 续跑信（message → 驱动
-      // 下一轮——主线 receiptAndRetrigger 语义：成败都回投，失败文案可
-      // 独立驱动 bump version / 修复重装）。源目录相对路径按发起方沙箱
-      //（files/<agentId>/）基准解析。inbox/postOffice 缺席 = 信封面下线，
-      // RPC 与装载裁决照常（良定义降级）。
-      if (options.inbox !== undefined && options.postOffice !== undefined) {
+      // 回执 { applied, receipt } + 续跑信（message → 驱动下一轮——主线
+      // receiptAndRetrigger 语义：成败都回投，失败文案可独立驱动 bump
+      // version / 修复重装）。源目录相对路径按发起方沙箱（files/<agentId>/）
+      // 基准解析。desk 缺席 = 服务面下线，RPC 与装载裁决照常（良定义降级）。
+      // 回投走邮局 dispatch（会话语义正确归宿）：receipt → 经验流落原会话；
+      // message 续跑信触发下一轮。uuid = 会话键原值（登记集 {agent, host}
+      // 两侧一致——回投链不穿服务帧）。
+      if (options.desk !== undefined && options.postOffice !== undefined) {
         const dispatch = options.postOffice.dispatch.bind(options.postOffice);
-        options.inbox.on(async (env: Envelope) => {
-          if (!isPluginRequest(env) || env.to !== 'host') return;
-          const receipt = await applyPluginRequest(svc, env);
+        options.desk.register('plugin.request', async (payload: unknown) => {
+          const p = payload as { agent?: unknown } | null;
+          const agent = typeof p?.agent === 'string' && p.agent !== '' ? p.agent : 'unknown';
+          const receipt = await applyPluginRequest(svc, payload, agent);
           await dispatch(makePluginReceiptEnvelope({
-            uuid: env.uuid, requestId: env.requestId, to: env.sender, payload: receipt.payload,
+            uuid: reqConversationId(payload), requestId: 'plugin-' + issueRequestId(), to: agent, payload: receipt.payload,
           }));
           if (receipt.nextPrompt !== null) {
             await dispatch({
-              uuid: env.uuid,
-              requestId: 'retrigger-' + env.requestId,
+              uuid: reqConversationId(payload),
+              requestId: 'retrigger-plugin-' + issueRequestId(),
               sender: 'host',
-              to: env.sender,
+              to: agent,
               kind: 'message',
               budget: 1,
               payload: { text: receipt.nextPrompt },
             });
           }
+          return { applied: true };
         });
       }
 

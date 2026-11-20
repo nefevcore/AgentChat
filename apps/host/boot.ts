@@ -29,7 +29,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
-import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostInbox, type EntriesEditFace, readTemplate, materializeConfigOf, materializeTemplateSkills, readAgentSkills, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
+import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostServiceDesk, type EntriesEditFace, readTemplate, materializeConfigOf, materializeTemplateSkills, readAgentSkills, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
 import { isPresetId, presetTemplateKeyOf, readAgentConfig, writeAgentConfig } from 'ac-agents-core';
 import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readAssemblyPatch, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
 import { hostLog } from './host-log.ts';
@@ -165,14 +165,16 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
       if (r.reaped.length === 0) hostLog('I', 'host', '孤儿进程对账：无命中');
     }
   } catch { /* 尽力面：清扫失败不阻塞 boot（漏网的下一世 boot 自愈再扫） */ }
-  // host 端点收信扇出面（cr-545：usage / auth-registry 行共用——邮局 local 通道单 receiver 组合器）
-  const inbox = new HostInbox(po);
-  // 编排面迟绑定引用（inbox 钩子先于编排面创建——cr-648 restart_shell 重拉用）
+  // ---- 宿主服务台（cr-1175 批 1/2）：svc 帧受理面——boot 自有动词在此
+  // 注册，各行动词经 rowOptionsFor 注入 desk 装配期注册。
+  const desk = new HostServiceDesk((level, message) => hostLog(level, 'service-desk', message));
+  po.setServiceDesk(desk);
+  // 编排面迟绑定引用（cr-648 restart_shell 重拉用——host.respawn-shell 帧 handler 消费）
   const orchestratorRef: { handle: OrchestratorHandle | null } = { handle: null };
   /**
    * restart_shell 退出后的重拉请求（cr-648）：宿主换代后活壳只在可达表、不在
-   * 句柄池（撞活锁救援只回登记不接管）→ 壳 exit 42 无人 respawn，在途消息滞留
-   * inbox。壳在退出前发本请求：宿主轮询 activation.lock（最多 ~10s）等 holder
+   * 句柄池（撞活锁救援只回登记不接管）→ 壳 exit 42 无人 respawn，在途消息滞留。
+   * 壳在退出前发 host.respawn-shell 帧：宿主轮询 activation.lock（最多 ~10s）等 holder
    * 退净后按需拉起；句柄池已有该 agent（warden 快路已接手）= 不动（幂等）。
    */
   const requestShellRespawn = (agentId: string): void => {
@@ -204,32 +206,33 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     };
     setTimeout(tick, 1_500).unref();
   };
-  // 安全重启收信面：restart_host（cr-629）/ restart_shell 退出重拉（cr-648）
-  inbox.on(async (env) => {
-    const payload = env.payload as { restartHost?: unknown; restartShell?: unknown; agentId?: unknown; conversationId?: unknown } | null;
-    if (payload?.restartHost === true) {
-      // cr-1097 配套：落盘通知标记——新宿主 boot 完成后向请求方会话投「宿主已重启」
-      // 机制信（restart_shell「已重启」通知同款模式），Agent 无需自查 healthz/facts。
-      try {
-        fs.mkdirSync(path.join(dataRoot, '.runtime'), { recursive: true });
-        fs.writeFileSync(
-          path.join(dataRoot, '.runtime', 'restart-host-notify.json'),
-          JSON.stringify({
-            sender: env.sender,
-            conversationId: typeof payload.conversationId === 'string' ? payload.conversationId : null,
-            requestedAt: new Date().toISOString(),
-          }, null, 2),
-          'utf-8',
-        );
-      } catch { /* 尽力面：写失败 = 新宿主无通知（重启本身不受影响） */ }
-      options.onRestartRequest?.(env.sender);
-      return;
-    }
-    if (payload?.restartShell === true && typeof payload.agentId === 'string') {
-      requestShellRespawn(payload.agentId);
-    }
+  // 安全重启服务面（cr-1175 批 2）：host.restart / host.respawn-shell 经
+  // 服务帧通道（HostServiceDesk）——控制指令不再穿会话信封。旧信封形态
+  // 与 HostInbox 转发 shim 已随批 3b 退役。
+  // host.restart：落盘通知标记（cr-1097）+ onRestartRequest 钩子；回执 =
+  // 送达确认 { accepted: true }（完成通知仍走机制信——§4.3 不迁）。
+  desk.register('host.restart', (payload) => {
+    const p = payload as { agentId?: unknown; conversationId?: unknown };
+    try {
+      fs.mkdirSync(path.join(dataRoot, '.runtime'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dataRoot, '.runtime', 'restart-host-notify.json'),
+        JSON.stringify({
+          sender: typeof p.agentId === 'string' ? p.agentId : '',
+          conversationId: typeof p.conversationId === 'string' ? p.conversationId : null,
+          requestedAt: new Date().toISOString(),
+        }, null, 2),
+        'utf-8',
+      );
+    } catch { /* 尽力面：写失败 = 新宿主无通知（重启本身不受影响） */ }
+    options.onRestartRequest?.(typeof p.agentId === 'string' ? p.agentId : '');
+    return { accepted: true };
   });
-  inbox.start();
+  // host.respawn-shell：report 档——marker 落盘已兜底（壳侧先写标记再发帧）
+  desk.register('host.respawn-shell', (payload) => {
+    const agentId = (payload as { agentId?: unknown }).agentId;
+    if (typeof agentId === 'string') requestShellRespawn(agentId);
+  });
 
   // ---- 单树 cordis 装配 ----
   const ctx = new Context();
@@ -276,7 +279,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     const optionsMap = rowOptionsFor({
       dataRoot,
       postOffice: po,
-      inbox,
+      desk,
       catalogFile: options.catalogFile,
       agentsEdit,
       ...(mounted.has('preset-builtin') ? { templatesDir: ANCHORS.templatesDir } : {}),

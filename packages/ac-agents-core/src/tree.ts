@@ -43,14 +43,27 @@ export function assertAgentId(id: string): void {
 }
 
 /**
+ * 端点保留字（cr-1175 D6）：host = 宿主服务帧域（虚构端点事故根因——
+ * 同名 agent 可达表覆写劫持 to:'host' 信封）；user = 虚拟端点但真会话
+ * 参与者（终稿回信会话语义）。`@` 前缀 = 群地址词形。创建面与拉壳面
+ * 双闸拒斥。
+ */
+export const RESERVED_ENDPOINT_IDS: ReadonlySet<string> = new Set(['host', 'user']);
+
+export function isReservedEndpointId(id: string): boolean {
+  return RESERVED_ENDPOINT_IDS.has(id) || id.startsWith('@');
+}
+
+/**
  * Agent 身份词形（主线 M19 承重墙同款）：id 禁 `~`——对键桶 conversationId
  * = pairKey(a,b) 排序 `~` 连接，身份若也含 `~` 会与对键撞键、破坏
  * runAddress 从右解析的歧义性。agents/ 树内含 `~` 的目录 = 会话流域
  * （pair 对桶/自会话对角线/群成员流——兜底 config 在场也不是名册身份）。
+ * 端点保留字（host/user/@ 前缀）同拒（cr-1175 D6——虚拟端点撞名即劫持）。
  * 本函数只判身份词形；agentDir 寻址（会话域路径）仍走 assertAgentId。
  */
 export function isAgentIdentity(id: string): boolean {
-  return id !== '' && !id.includes('~');
+  return id !== '' && !id.includes('~') && !isReservedEndpointId(id);
 }
 
 /** v3 菜单组合（cr-1022 批2/批3——唯一组合读面）：agent.json 档案 + 菜单

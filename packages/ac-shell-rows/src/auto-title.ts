@@ -11,8 +11,8 @@
 //   loop/run-started   暂存（路由终值 model/provider + 首条用户消息）
 //   loop/after-step    首个完成步 → 结合 Agent 首步思考/正文生成（标题
 //                      概括「这轮在谈什么」；工具轮里用户消息常只是「继续」）
-//   → 标题请求信（title-request）→ 邮局 → 宿主 singles 行 write-if-absent
-//     + singles/updated 广播
+//   → title.set 服务帧（cr-1175）→ 宿主 singles 行 write-if-absent
+//     + 前端 live 通知（D7——§4.5）
 //   loop/after-run     兜底（run 夭折/无步完成 → 截断回落，会话不留无名列）
 //
 // 幂等三面：宿主 write-if-absent（用户手改/fork 继承的标题不被覆盖）；
@@ -20,13 +20,11 @@
 // 标题即不花一次 LLM 调用——壳 idle-exit/restart 频繁，重算标题是纯浪费）。
 // 只命名用户会话（run source='user'）：agent↔agent / 机制触发会话的标题归
 // 宿主派生面（同一会话多壳各跑，谁都不该单独定名）。
-// 失败静默降级：LLM 失败 → 截断回落；信封失败 → 只记 stderr（标题是装饰性
+// 失败静默降级：LLM 失败 → 截断回落；投递失败 → 只记 stderr（标题是装饰性
 // 面，不得放大为 run 失败）。
 // ============================================================
 import type { Context, Plugin } from '@agentchat/cordis';
 import { DATE_SNAPSHOT_PREFIX, cleanTitle, fallbackTitle, isArchiveReviewRun, titlePrompt } from 'ac-core-utils';
-import { issueRequestId } from 'ac-envelope-core';
-import { makeTitleRequestEnvelope } from 'ac-envelope-core';
 import { readSessionTitle } from 'ac-ledger';
 import type { LoopRunRequest, LoopStepRecord } from 'ac-agent-loop';
 
@@ -34,7 +32,7 @@ import type { LoopRunRequest, LoopStepRecord } from 'ac-agent-loop';
 export interface AutoTitleRowOptions {
   dataRoot: string;
   agentId: string;
-  /** 邮局 ipc 地址（标题请求信封面）；缺省 = CLI 直连形态无宿主写面 → 不命名 */
+  /** 邮局 ipc 地址（title.set 服务帧投递面）；缺省 = CLI 直连形态无宿主写面 → 不命名 */
   postOfficeAddress?: string;
 }
 
@@ -84,19 +82,14 @@ export function makeAutoTitleRow(options: AutoTitleRowOptions): Plugin {
         }
       };
 
-      /** 标题请求信投递（每次调用独立连接、发毕即关——缓存连接会随宿主换代
-       *  失效，cr-656 同款） */
+      /** 标题落盘请求（cr-1175 批 2 迁服务帧 title.set request 档——Q3 裁决；
+       *  每次独立连接发毕即关，cr-656 同款防换代死连接） */
       const deliver = async (conversationId: string, title: string): Promise<void> => {
         const { IpcClient } = await import('ac-envelope-core');
         const client = new IpcClient();
         try {
           await client.connect(options.postOfficeAddress!);
-          await client.send(makeTitleRequestEnvelope({
-            conversationId,
-            requestId: 'title-' + issueRequestId(),
-            sender: options.agentId,
-            payload: { conversationId, title, agent: options.agentId },
-          }));
+          await client.serviceCall('title.set', { conversationId, title, agent: options.agentId });
         } finally {
           client.close();
         }

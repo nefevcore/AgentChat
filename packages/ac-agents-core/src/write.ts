@@ -15,7 +15,7 @@
 //   · 缺 model 的非 virtual 身份不物化默认连接（缺键 = 跟随全局默认）：写口
 //     固化创建时点的默认模型会让全局换默认对存量身份失效。
 // ============================================================
-import { assertAgentId, isAgentIdentity } from './tree.ts';
+import { assertAgentId, isAgentIdentity, isReservedEndpointId } from './tree.ts';
 import { isPresetId } from './config.ts';
 import type { AgentConfig } from './config.ts';
 
@@ -59,6 +59,7 @@ export function sanitizeAgentInput(
   // 存量域不改判。
   if (current === undefined) {
     assertAgentId(agentId);
+    if (isReservedEndpointId(agentId)) throw new Error(`Agent id "${agentId}" 非法（端点保留字：host/user 与 @ 前缀是基础设施/虚拟端点词形——cr-1175 D6）`);
     if (!isAgentIdentity(agentId)) throw new Error(`Agent id "${agentId}" 非法（禁 ~——对键桶会话键词形，非身份词）`);
     if (isPresetId(agentId)) throw new Error(`Agent id "${agentId}" 非法（__<key>__ 词形为预设保留，不可用于普通身份）`);
   }

@@ -1351,18 +1351,11 @@ async function notifyHostRestartShell(args: ShellBootArgs, conversationIds: stri
     process.stderr.write('[shell] restart_shell 复活标记写入失败：' + String(err) + '\n');
   }
   try {
+    // cr-1175 批 2：host.respawn-shell 服务帧（report 档）——重拉请求不再穿会话信封
     const { IpcClient } = await import('ac-envelope-core');
     const client = new IpcClient();
     await client.connect(args.postOffice);
-    await client.send(makeEnvelope({
-      uuid: 'restart-shell-' + args.agentId,
-      requestId: 'restart-shell-' + issueRequestId(),
-      sender: args.agentId,
-      to: 'host',
-      kind: 'message',
-      budget: 0,
-      payload: { restartShell: true, agentId: args.agentId },
-    }));
+    client.serviceReport('host.respawn-shell', { agentId: args.agentId });
     client.close();
   } catch (err) {
     // 宿主换代窗口内连接失败：标记已落盘，由新宿主 boot 扫标记兜底

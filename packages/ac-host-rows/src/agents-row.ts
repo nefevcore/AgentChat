@@ -26,6 +26,7 @@ import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import {
   agentDir,
   assertAgentId,
+  isReservedEndpointId,
   listAgentIds,
   readAgentConfig,
   writeAgentConfig,
@@ -223,6 +224,9 @@ export class AgentsEditService extends Service {
    * 文档或同名技能不覆盖，原样返回现值——重入幂等，不吞掉用户编辑。
    */
   createFromTemplate(templateId: string, id: string, overrides: Partial<AgentConfig> = {}): AgentConfig {
+    if (isReservedEndpointId(id)) {
+      throw new Error(`Agent id "${id}" 非法（端点保留字：host/user 与 @ 前缀——cr-1175 D6）`);
+    }
     const existing = this.getAgent(id);
     if (existing !== undefined) return existing;
     const { docs = [], skills = [], ...template } = this.templateOf(templateId);

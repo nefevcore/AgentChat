@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { type PostOffice, type ReachabilityTable } from 'ac-post-office';
 import { probeIpc } from 'ac-envelope-core';
+import { isReservedEndpointId } from 'ac-agents-core';
 import { manageRoundTrip } from 'ac-envelope-core';
 import { adoptShell } from './orchestrate.ts';
 import { hostLog } from './host-log.ts';
@@ -204,6 +205,11 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
   // agent 的并发 ensureAgent 会各自 superviseShell → 双 spawn（R3 anomaly 线索）。
   const inflight = new Map<string, Promise<SuperviseHandle>>();
   const ensureAgent = async (agentId: string): Promise<SuperviseHandle> => {
+    // cr-1175 D6 闸 2：保留端点拒拉——同名 agent 壳可达表覆写劫持宿主端点是
+    // 本次事故根因，拉壳面与创建面双闸。
+    if (isReservedEndpointId(agentId)) {
+      throw new Error(`ensureAgent(${agentId}) 拒绝——端点保留字（host/user/@ 前缀），不可拉壳（cr-1175 D6）`);
+    }
     const existing = handles.get(agentId);
     if (existing !== undefined) {
       await existing.restart(); // 幂等：死态重拉 / 活态复用

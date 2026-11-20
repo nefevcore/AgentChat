@@ -72,15 +72,15 @@ describe('壳侧会话命名行（cr-672）', () => {
   it('首步后生成：素材 = 首条用户消息 + Agent 首步思考 → 标题请求信封送达', async () => {
     const address = socketPathFor(ROOT, 'post-office');
     const frames: unknown[] = [];
-    const server: IpcServer = await listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });
+    const server: IpcServer = await listenIpc(address, (frame) => { frames.push(frame); return { reqId: (frame as { reqId?: string }).reqId ?? '', ok: true, result: { applied: true } }; });
     const h = await boot(address);
     try {
       h.emit('loop/run-started', runRequest());
       h.emit('loop/after-step', 'alpha', step(), envelopeOf());
       await waitFor(() => frames.length > 0);
-      const env = frames[0] as Envelope;
-      expect(env).toMatchObject({ uuid: 'title-c1', sender: 'alpha', to: 'host', kind: 'message', budget: 0 });
-      expect(env.payload).toMatchObject({ conversationId: 'c1', title: '会话命名标题', agent: 'alpha' });
+      const frame = frames[0] as { svc: string; reqId: string; payload: { conversationId: string; title: string; agent: string } };
+      expect(frame.svc).toBe('title.set');
+      expect(frame.payload).toMatchObject({ conversationId: 'c1', title: '会话命名标题', agent: 'alpha' });
       // 思考禁用双词汇 + 素材含用户消息与 Agent 首步思考
       expect(h.llm.calls).toHaveLength(1);
       expect(h.llm.calls[0]).toMatchObject({ model: 'mock', thinking: { type: 'disabled' }, reasoning_effort: 'none' });
@@ -103,7 +103,7 @@ describe('壳侧会话命名行（cr-672）', () => {
     fs.writeFileSync(path.join(dir, 'c1.json'), JSON.stringify({ id: 'c1', title: '手改标题' }), 'utf-8');
     const address = socketPathFor(ROOT, 'po-existing');
     const frames: unknown[] = [];
-    const server = await listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });
+    const server = await listenIpc(address, (frame) => { frames.push(frame); return { reqId: (frame as { reqId?: string }).reqId ?? '', ok: true, result: { applied: true } }; });
     const h = await boot(address);
     try {
       h.emit('loop/run-started', runRequest());
@@ -120,7 +120,7 @@ describe('壳侧会话命名行（cr-672）', () => {
   it('非用户会话 / 机制 run / 日期快照行首消息 → 不定名', async () => {
     const address = socketPathFor(ROOT, 'po-gates');
     const frames: unknown[] = [];
-    const server = await listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });
+    const server = await listenIpc(address, (frame) => { frames.push(frame); return { reqId: (frame as { reqId?: string }).reqId ?? '', ok: true, result: { applied: true } }; });
     const h = await boot(address);
     try {
       h.emit('loop/run-started', runRequest({ conversationId: 'agent-pair', source: 'agent' }));
@@ -141,7 +141,7 @@ describe('壳侧会话命名行（cr-672）', () => {
   it('LLM 失败 → 截断回落标题（24 字上限 + 省略号）仍投递', async () => {
     const address = socketPathFor(ROOT, 'po-fallback');
     const frames: unknown[] = [];
-    const server = await listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });
+    const server = await listenIpc(address, (frame) => { frames.push(frame); return { reqId: (frame as { reqId?: string }).reqId ?? '', ok: true, result: { applied: true } }; });
     const h = await boot(address);
     h.llm.fail = true;
     try {
@@ -161,7 +161,7 @@ describe('壳侧会话命名行（cr-672）', () => {
   it('run 无步完成（after-run 兜底）→ 截断回落仍投递；无邮局形态恒不命名', async () => {
     const address = socketPathFor(ROOT, 'po-after-run');
     const frames: unknown[] = [];
-    const server = await listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });
+    const server = await listenIpc(address, (frame) => { frames.push(frame); return { reqId: (frame as { reqId?: string }).reqId ?? '', ok: true, result: { applied: true } }; });
     const h = await boot(address);
     try {
       // after-run 兜底同样走 LLM（只是没有 Agent 首步素材——素材面缺省）

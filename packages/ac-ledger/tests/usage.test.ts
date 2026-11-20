@@ -1,13 +1,13 @@
 // ============================================================
-// usage 自报链单测（cr-538）：writer settle 计量随 run-end 落事件日志 /
-// 事件信 schema 校验与信封形态。
+// usage 计量单测（cr-538；cr-1175 批 3b 起去信封面）：writer settle
+// 计量随 run-end 落事件日志 / usage.report 帧 payload schema 校验。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { LedgerWriter, sessionDir } from '../src/writer.ts';
 import { readLedger } from '../src/reader.ts';
-import { makeUsageEnvelope, validateUsagePayload, isUsageReport, usageStreamKey } from 'ac-envelope-core';
+import { validateUsagePayload } from 'ac-envelope-core';
 
 const ROOT = path.join('sandbox', 'test-ledger-usage-' + process.pid);
 beforeEach(() => fs.mkdirSync(ROOT, { recursive: true }));
@@ -40,18 +40,15 @@ describe('writer settle 计量（run-end 事件行——R2）', () => {
   });
 });
 
-describe('usage 事件信 schema（envelope-core）', () => {
+describe('usage.report 帧 payload schema（envelope-core）', () => {
   const payload = {
     subject: 'usage-run' as const, agent: 'alpha', model: 'mock', finish: 'ok',
     usage: { prompt: 1, completion: 1, promptAccumulated: 2, steps: 1 },
     conversationId: 'user~alpha', runId: 'run-r1',
   };
 
-  it('合法 payload 零 issues + 信封形态（kind=receipt / budget=0 / to=host）', () => {
+  it('合法 payload 零 issues', () => {
     expect(validateUsagePayload(payload)).toEqual([]);
-    const env = makeUsageEnvelope({ requestId: 'usage-run-r1', payload });
-    expect(env).toMatchObject({ kind: 'receipt', budget: 0, to: 'host', sender: 'alpha', uuid: usageStreamKey('alpha') });
-    expect(isUsageReport(env)).toBe(true);
   });
 
   it('缺失面 fail-closed（subject/agent/usage/conversationId）', () => {
@@ -61,17 +58,9 @@ describe('usage 事件信 schema（envelope-core）', () => {
     expect(validateUsagePayload({ ...payload, conversationId: '' })).toContain('conversationId 缺席');
   });
 
-  it('非 usage 信不误判（升级回执 receipt）', () => {
-    const env = { ...makeUsageEnvelope({ requestId: 'x', payload }), payload: { subject: 'upgrade-success' } };
-    expect(isUsageReport(env)).toBe(false);
-  });
-
-  it('usage-step 步级缓存信（cr-760）：合法零 issues + fail-closed + 信封识别', () => {
+  it('usage-step 步级缓存帧（cr-760）：合法零 issues + fail-closed', () => {
     const step = { subject: 'usage-step' as const, agent: 'alpha', conversationId: 'user~alpha', runId: 'run-r1', step: 2, ts: 1234, hit: 100, miss: 5 };
     expect(validateUsagePayload(step)).toEqual([]);
-    const env = makeUsageEnvelope({ requestId: 'usage-step-run-r1-2', payload: step });
-    expect(env).toMatchObject({ kind: 'receipt', budget: 0, to: 'host', sender: 'alpha' });
-    expect(isUsageReport(env)).toBe(true);
     expect(validateUsagePayload({ ...step, hit: undefined })).toContain('hit 缺席');
     expect(validateUsagePayload({ ...step, step: undefined })).toContain('step 缺席');
   });

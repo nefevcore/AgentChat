@@ -9,7 +9,7 @@
 //     宿主 respawn（warden 42 = 有意重启，不计崩溃熔断）→ 新壳 boot
 //     按 marker 会话键注入「已重启」通知（桶对端 sender，timer/goal 同款）
 //     开续跑轮——续跑上下文 = 账本轨迹读面（historyMessagesFor）。
-//   · restart_host：信封请求宿主 graceful 重启（exit 42，拉起恒归活壳
+//   · restart_host：服务帧 host.restart 请求宿主 graceful 重启（exit 42，拉起恒归活壳
 //     —— D5 边 2 裁决，supervisor 仅快路兜底）——本壳与在途
 //     run 不受影响（LLM 直连 provider），终稿回信经 postReply 断链重试
 //     在宿主复活后送达；停机戳恒不写（cr-630 裁决：戳只辖用户停机/换代，
@@ -19,7 +19,6 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context, Plugin } from '@agentchat/cordis';
 import type { ToolResult, ToolCall } from 'ac-tools';
-import { issueRequestId, makeEnvelope } from 'ac-envelope-core';
 
 /** cr-806：宿主事实源（boot 落盘 .runtime/host-facts.json）——restart_host
  * 回执的 oldPid/webuiPort 来源；缺席（旧宿主代/写失败）= 探测降级读日志。 */
@@ -108,26 +107,17 @@ export function makeRestartRow(options: RestartRowOptions): Plugin {
           if (options.postOfficeAddress === undefined) {
             return { ok: false, error: 'CLI 直连形态无邮局——restart_host 不可用（宿主形态壳才可）' };
           }
-          // 每次调用独立连接、发毕即关（无缓存）：宿主换代（exit 42）会带走本壳
-          // 持有的旧连接，缓存下来的话下一次 restart_host 恒失败（cr-656 活体实锤：
-          // 29124→23528 换代后同一壳再调 →「This socket has been ended by the other party」）。
+          // cr-1175：宿主服务通道 host.restart（request 档）——控制指令不再穿
+          // 会话信封（to:'host' 类别错误是本次事故根因）。每次调用独立连接、
+          // 发毕即关（cr-656：缓存连接随宿主换代失效）。
           const { IpcClient } = await import('ac-envelope-core');
           const client = new IpcClient();
           try {
             await client.connect(options.postOfficeAddress);
-            // uuid = host 请求域独立键：会话键原值会撞 R-1（会话登记集 [user, agent]，
-            // to=host 的 participants 近似 [agent, host] 非其子集 → conflict fail-loud，
-            // 信被邮局静默吞掉——e2e 用新鲜 uuid 测不出，真实环境必撞（cr-641）。
-            // host 域子会话键 = 每会话独立登记 [agent, host]，重发幂等 consistent。
-            await client.send(makeEnvelope({
-              uuid: 'restart-host-' + (call.conversationId ?? options.agentId),
-              requestId: 'restart-host-' + issueRequestId(),
-              sender: options.agentId,
-              to: 'host',
-              kind: 'message',
-              budget: 0,
-              payload: { restartHost: true, conversationId: call.conversationId ?? null },
-            }));
+            await client.serviceCall('host.restart', {
+              agentId: options.agentId,
+              conversationId: call.conversationId ?? null,
+            });
           } catch (err) {
             return { ok: false, error: '重启请求送达失败（宿主可能正在换代，稍后重试）：' + String(err) };
           } finally {

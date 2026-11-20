@@ -64,7 +64,7 @@ describe('安全重启行（cr-629）', () => {
     }
   });
 
-  it('restart_host：无邮局（CLI 直连形态）fail-loud；有邮局经信封送达（不验宿主半边——宿主侧钩子另测）', async () => {
+  it('restart_host：无邮局（CLI 直连形态）fail-loud；有邮局经服务帧送达（不验宿主半边——宿主侧 handler 另测）', async () => {
     const h = await boot();
     try {
       const out = await h.tools.tools.get('restart_host')!.execute!({}, { agentId: 'alpha' }) as { ok: boolean; error?: string };
@@ -79,7 +79,7 @@ describe('安全重启行（cr-629）', () => {
   it('restart_host：宿主换代（旧连接随旧宿主消失）后同壳第二次调用仍送达（cr-656）', async () => {
     const address = socketPathFor(ROOT, 'post-office');
     const frames: unknown[] = [];
-    const listen = () => listenIpc(address, (frame) => { frames.push(frame); return { ok: true }; });
+    const listen = () => listenIpc(address, (frame) => { frames.push(frame); return { reqId: (frame as { reqId?: string }).reqId ?? '', ok: true, result: { accepted: true } }; });
     let server = await listen();
     const h = await boot(address);
     try {

@@ -10,11 +10,11 @@
 //     宿主参与；装载完成后工具即在本壳注册面（run_code 投影面每调用
 //     现算，程序化模式子调用即刻可测）；
 //   · install_plugin = 定型驻留：安装态唯一写者 = 宿主 plugin-registry
-//     行（A7/A10 装载 = 授权动作）→ execute 内直接发信封请求宿主受理
+//     行（A7/A10 装载 = 授权动作）→ execute 内直接发 plugin.request 服务帧
 //     （plugin-request schema），回执 + 续跑信经邮局回投本会话；本壳
 //     内同时立即会话级装载（保住「装好即可测试」主线产品语义）；
 //   · unregister_plugin = 两档：缺省立即卸本壳会话级装载（dispose）；
-//     removeFromLibrary=true = 永久卸载（信封请求宿主 uninstall + 本壳
+//     removeFromLibrary=true = 永久卸载（服务帧请求宿主 uninstall + 本壳
 //     dispose 同步）。
 // 历史语义（cr-553 引入，cr-866 退役）：M11 语义化中断上报意图 →
 // loop/after-run 收束检测 → 装载/回执/续跑——该通道在程序化模式断链
@@ -27,8 +27,6 @@ import { pathToFileURL } from 'node:url';
 import type { Context, Plugin, Fiber } from '@agentchat/cordis';
 import type { ToolResult, ToolCall } from 'ac-tools';
 import { loadManifestFromDir } from 'ac-plugin-core';
-import { issueRequestId, makePluginRequestEnvelope } from 'ac-envelope-core';
-import type { Envelope } from 'ac-envelope-core';
 import { pluginRowsOf } from 'ac-rowset-core';
 import { guardPluginModule } from './plugin-guard.ts';
 
@@ -36,7 +34,7 @@ import { guardPluginModule } from './plugin-guard.ts';
 export interface PluginDevRowOptions {
   dataRoot: string;
   agentId: string;
-  /** 邮局 ipc 地址（install/uninstall 永久档的信封面；缺席 = CLI 直连形态，永久档 fail-loud） */
+  /** 邮局 ipc 地址（install/uninstall 永久档的 plugin.request 服务帧面；缺席 = CLI 直连形态，永久档 fail-loud） */
   postOfficeAddress?: string;
   /** 入口装载面（真跑 = file URL 动态 import；测试替身注入——主线 registry importModule 同形） */
   importModule?: (url: string) => Promise<unknown>;
@@ -49,9 +47,9 @@ interface SessionLoad {
   rows: ReturnType<typeof pluginRowsOf>['rows'];
 }
 
-/** 惰性邮局连接（postReply 同款形态——conversation.outbound 先例） */
+/** 惰性邮局连接（cr-1175 批 2 迁服务帧 plugin.request——request 档要回执） */
 interface Uplink {
-  send(env: Envelope): Promise<unknown>;
+  call(payload: unknown): Promise<unknown>;
   close(): void;
 }
 
@@ -70,14 +68,14 @@ export function makePluginDevRow(options: PluginDevRowOptions): Plugin {
       const resolveDir = (dir: string): string =>
         path.isAbsolute(dir) ? path.resolve(dir) : path.resolve(dataRoot, 'files', options.agentId, dir);
 
-      /** 惰性邮局连接（install/uninstall 永久档） */
+      /** 惰性邮局连接（install/uninstall 永久档——plugin.request 服务帧） */
       const connect = async (): Promise<Uplink> => {
         if (uplink === null) {
           const { IpcClient } = await import('ac-envelope-core');
           const client = new IpcClient();
           await client.connect(options.postOfficeAddress!);
           uplink = {
-            send: (e) => client.send(e),
+            call: (p) => client.serviceCall('plugin.request', p),
             close: () => client.close(),
           };
         }
@@ -178,12 +176,7 @@ export function makePluginDevRow(options: PluginDevRowOptions): Plugin {
           const conversationId = call.conversationId ?? options.agentId;
           try {
             const link = await connect();
-            await link.send(makePluginRequestEnvelope({
-              uuid: conversationId,
-              requestId: 'plugin-' + issueRequestId(),
-              sender: options.agentId,
-              payload: { action: 'install', dir: args.dir, conversationId },
-            }));
+            await link.call({ action: 'install', dir: args.dir, conversationId, agent: options.agentId });
           } catch (err: unknown) {
             const msg = err instanceof Error ? err.message : String(err);
             return { ok: false, error: '安装请求投递失败（邮局不可达）：' + msg + '。宿主恢复后重试，或先用 register_plugin 会话级试跑。' };
@@ -242,12 +235,7 @@ export function makePluginDevRow(options: PluginDevRowOptions): Plugin {
           const conversationId = call.conversationId ?? options.agentId;
           try {
             const link = await connect();
-            await link.send(makePluginRequestEnvelope({
-              uuid: conversationId,
-              requestId: 'plugin-' + issueRequestId(),
-              sender: options.agentId,
-              payload: { action: 'uninstall', name: args.name, conversationId },
-            }));
+            await link.call({ action: 'uninstall', name: args.name, conversationId, agent: options.agentId });
             return {
               ok: true,
               output: { uninstalled: args.name, note: '永久卸载请求已投递宿主受理（回执与续跑信稍后进入本会话）；本壳装载已同步卸载。' },

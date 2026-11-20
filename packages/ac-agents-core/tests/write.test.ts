@@ -38,6 +38,15 @@ describe('sanitizeAgentInput', () => {
     expect(() => sanitizeAgentInput({ id: 'a', tags: [1] })).toThrow(/tags/);
   });
 
+  it('cr-1175 D6 端点保留字：create 拒 host/user/@ 前缀', () => {
+    expect(() => sanitizeAgentInput({ id: 'host', name: 'H' })).toThrow(/端点保留字/);
+    expect(() => sanitizeAgentInput({ id: 'user', name: 'U' })).toThrow(/端点保留字/);
+    expect(() => sanitizeAgentInput({ id: '@group', name: 'G' })).toThrow(/端点保留字/);
+    // update 语义（current 在场）不受影响——存量域不改判
+    const patch = sanitizeAgentInput({ name: '改名' }, { id: 'host', name: 'H' } as AgentConfig);
+    expect(patch.name).toBe('改名');
+  });
+
   it('create 词法闸：id 禁 ~（对键桶会话键词形——主线 M19 承重墙）', () => {
     expect(() => sanitizeAgentInput({ id: 'a~b' })).toThrow(/禁 ~/);
     // update 不改判（id 由现值固定）

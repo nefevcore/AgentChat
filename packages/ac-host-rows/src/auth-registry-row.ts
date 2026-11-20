@@ -3,7 +3,7 @@
 // 「授权注册表写者」preview 落地）
 //
 // 三个入口、一个写口（D3 修订「两层皆宿主单写」）：
-//   ① grant 信受理（协议 E）：host 端点收信（HostInbox 扇出面）→
+//   ① grant 受理（协议 E；cr-1175 批 2 起经 grant.apply 服务帧）→
 //      requestId 幂等 → 预检（资产面恒拒 row/inline；global scope 需
 //      user 审批——现阶段拒收，审批卡归 webui 产品批）→ priorFingerprint
 //      对拍（乐观锁）→ 写者面 → 回执信（grant-applied/grant-rejected）
@@ -19,14 +19,15 @@
 // {sender, host} 两侧序无关一致——R-1 集合比较）。
 // ============================================================
 import type { Plugin, Context } from '@agentchat/cordis';
-import type { Envelope } from 'ac-envelope-core';
 import {
   makeGrantReceiptEnvelope,
   validateGrantPayload,
+  issueRequestId,
+  type Envelope,
   type GrantPayload,
   type GrantReceiptPayload,
 } from 'ac-envelope-core';
-import type { HostInbox } from './host-inbox.ts';
+import type { HostServiceDesk } from './service-desk.ts';
 import {
   readGlobalAuth,
   readAgentAuth,
@@ -45,8 +46,8 @@ import { writeCredential, listCredentialNames, deriveKey, machineMaterial } from
 export interface AuthRegistryRowOptions {
   /** 数据根（两层 auth.json + credentials/ + mcp.json 锚点） */
   dataRoot: string;
-  /** host 端点收信扇出面（boot 建 HostInbox 后注入） */
-  inbox: HostInbox;
+  /** 宿主服务台（cr-1175 批 2 起 grant.apply 服务帧受理面） */
+  desk: HostServiceDesk;
   /** 邮局（回执投递——dispatch 结构子集，测试可替身） */
   postOffice: { dispatch(env: Envelope): Promise<unknown> };
 }
@@ -71,18 +72,21 @@ export function makeAuthRegistryRow(options: AuthRegistryRowOptions): Plugin {
     apply(ctx: Context) {
       const dataRoot = options.dataRoot;
 
-      // ---- ① grant 信受理（HostInbox 扇出面——grant/revoke 域自判） ----
-      options.inbox.on(async (env: Envelope) => {
-        if (env.kind !== 'grant' && env.kind !== 'revoke') return;
-        if (env.to !== 'host') return;
-        const receipt = applyGrant(dataRoot, env);
-        // 回执投 agent 经验流（kind=receipt → ledger-only A4——不触发 run）
+      // ---- ① grant 受理（cr-1175 批 2 起经服务帧 grant.apply——request 档）----
+      // payload = GrantPayload 原样 + agent 发起方；回执仍投 agent 经验流
+      //（kind=receipt → ledger-only A4——不触发 run；会话语义正确归宿走邮局）
+      options.desk.register('grant.apply', async (payload: unknown) => {
+        const agent = (payload as { agent?: unknown } | null)?.agent;
+        const sender = typeof agent === 'string' && agent !== '' ? agent : 'unknown';
+        const conversationId = (payload as { conversationId?: unknown } | null)?.conversationId;
+        const receipt = applyGrant(dataRoot, sender, payload);
         await options.postOffice.dispatch(makeGrantReceiptEnvelope({
-          uuid: env.uuid,
-          requestId: env.requestId,
-          to: env.sender,
+          uuid: typeof conversationId === 'string' && conversationId !== '' ? conversationId : sender,
+          requestId: 'grant-' + issueRequestId(),
+          to: sender,
           payload: receipt,
         }));
+        return { applied: true, subject: receipt.subject };
       });
 
       // ---- ③ 编辑面（auth/* RPC 域绑定——ctx.webServer 经 inject 就位） ----
@@ -91,14 +95,13 @@ export function makeAuthRegistryRow(options: AuthRegistryRowOptions): Plugin {
   };
 }
 
-/** 受理编排（纯编排——写者词汇单源 ac-auth-core） */
-function applyGrant(dataRoot: string, env: Envelope): GrantReceiptPayload {
-  const agent = env.sender;
-  const issues = validateGrantPayload(env.payload);
+/** 受理编排（纯编排——写者词汇单源 ac-auth-core；cr-1175 起入参 = 服务帧 payload） */
+function applyGrant(dataRoot: string, agent: string, payload: unknown): GrantReceiptPayload {
+  const issues = validateGrantPayload(payload);
   if (issues.length > 0) {
     return { subject: 'grant-rejected', agent, ok: false, reason: '结构非法：' + issues.join('；') };
   }
-  const p = env.payload as GrantPayload;
+  const p = payload as GrantPayload;
   // 预检：global scope 需 user 审批（D4）——现阶段拒收（审批卡归 webui 产品批）
   if (p.scope === 'global') {
     return { subject: 'grant-rejected', agent, ok: false, reason: 'global scope 授予需 user 审批（审批信面未落地——webui 产品批）' };
