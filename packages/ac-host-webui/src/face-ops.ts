@@ -1133,24 +1133,36 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       await warmRoster(index);
     } catch { /* 数据根暂不可访问（测试清理竞态）——下轮再试 */ }
   };
-  // cr-1185 名册 warm-up：罗盘缺口逐会话增量入账（时间片让出——冷首轮
-  // 不饿死并发 RPC）；完成后广播 session/roster-warmed——冷态拉过
-  // session/roster 的前端借此帧重拉（零轮询转纯事件驱动）。boot 预热
-  // 航班收尾与周期 reconcile 都走这里（幂等：缺口空 = 零成本）。
-  const warmRoster = async (index: SessionIndexStatsFace): Promise<void> => {
-    const gaps = index.rosterGaps();
-    let sliceAt = Date.now();
-    for (const cid of gaps) {
-      index.refresh(cid);
-      if (Date.now() - sliceAt > SLICE_MS) {
-        await new Promise<void>((r) => setImmediate(r));
-        sliceAt = Date.now();
+  // cr-1185 名册 warm-up（性能修复后形态）：**全量对账逐会话分片**——
+  // 全量版 rosterGaps 曾是秒级同步段（千级会话全量 stat 扫），在 RPC 路径
+  // 冻结宿主 ~6s。循环体：枚举（零 stat）→ 逐会话 rosterGapOf（单会话
+  // stat，微秒级）→ 缺口 refreshConversation；12ms 时间片让出（SLICE_MS
+  // 同款纪律）。孤儿行（目录已消失）随 drop 清。有填充才广播
+  // session/roster-warmed——冷态拉过 session/roster 的前端借此帧重拉。
+  // boot 预热航班收尾与周期 reconcile 都走这里（幂等：无缺口 = 零 stat
+  // 读差异、零 refresh）。同拍并发调用由 warmRosterInFlight 串行化
+  //（boot 预热 + 首轮 reconcile 可能同拍）。
+  let warmRosterInFlight: Promise<void> | null = null;
+  const warmRoster = (index: SessionIndexStatsFace): Promise<void> => {
+    if (warmRosterInFlight !== null) return warmRosterInFlight;
+    warmRosterInFlight = (async (): Promise<void> => {
+      let filled = 0;
+      let sliceAt = Date.now();
+      for (const cid of index.allConversationIds()) {
+        try {
+          if (index.rosterGapOf(cid)) { index.refresh(cid); filled += 1; }
+        } catch { /* 单会话失败继续——下轮 reconcile 再试 */ }
+        if (Date.now() - sliceAt > SLICE_MS) {
+          await new Promise<void>((r) => setImmediate(r));
+          sliceAt = Date.now();
+        }
       }
-    }
-    if (gaps.length > 0) {
-      (ctx.webServer as unknown as { broadcast(type: string, data?: unknown): void })
-        .broadcast('session/roster-warmed', { args: [{ filled: gaps.length }] });
-    }
+      if (filled > 0) {
+        (ctx.webServer as unknown as { broadcast(type: string, data?: unknown): void })
+          .broadcast('session/roster-warmed', { args: [{ filled }] });
+      }
+    })().finally(() => { warmRosterInFlight = null; });
+    return warmRosterInFlight;
   };
   const reconcileTimer = setInterval(() => { void reconcile(); }, 60_000);
   (reconcileTimer as { unref?: () => void }).unref?.();
@@ -1213,8 +1225,10 @@ interface SessionIndexStatsFace {
    *  （cr-1138 裁决：全量预热是显式动作）——未入账会话返回 null 走回落。 */
   /** 会话指针行增量入账（含 roster 同源重算——cr-1185 名册通道） */
   refresh(convId: string): unknown;
-  /** 名册缺口对账（stat 指纹 vs roster 行——cr-1185） */
-  rosterGaps(): string[];
+  /** 名册缺口判定（单会话原子——全量对账由 warmRoster 分片，cr-1185） */
+  rosterGapOf(convId: string): boolean;
+  /** 全部会话键枚举（零 stat——分片全量对账数据源） */
+  allConversationIds(): string[];
   /** 名册小表快照（零盘读——cr-1185） */
   rosterSnapshot(): Array<{
     key: string; kind: 'pair' | 'single' | 'group' | 'other';

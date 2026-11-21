@@ -33,8 +33,6 @@ function captureRpcs(root: string, real: SessionIndex): Map<string, (p: unknown)
   });
   (plugin as { apply(ctx: Context): void }).apply({
     get: (key: string) => (key === 'sessionIndex' ? {
-      refresh: (cid: string) => real.refreshConversation(root, cid),
-      rosterGaps: () => real.rosterGaps(root),
       rosterSnapshot: () => real.rosterSnapshot(),
     } : undefined),
     webServer: { registerRpc: (m: string, h: (p: unknown) => unknown) => { handlers.set(m, h); }, route: () => {} },
@@ -43,7 +41,7 @@ function captureRpcs(root: string, real: SessionIndex): Map<string, (p: unknown)
 }
 
 describe('session/roster RPC（cr-1185）', () => {
-  it('warm:true 填缺口 → warm 热度 + 全量行（身份/时标/正文 + 群折叠）；无 warm 拉子集', async () => {
+  it('纯读子集 + warmRoster 分片填充后全量（身份/时标/正文 + 群折叠）', async () => {
     const root = tmpRoot('warm');
     writeSession(root, 'alpha', 'alpha~user', [
       { role: 'agent', agent_id: 'user', content: '在吗', message_id: 'm1', timestamp: '2026-11-10T01:00:00Z' },
@@ -61,12 +59,13 @@ describe('session/roster RPC（cr-1185）', () => {
       const handlers = captureRpcs(root, real);
       // 预置一半索引（模拟既有惰性入账面）：只 alpha~user 被显式读面路过
       real.refreshConversation(root, 'alpha~user');
-      const cold = await handlers.get('session/roster')!({}) as { rows: Array<Record<string, unknown>>; warm: string };
-      expect(cold.warm).toBe('cold');
-      expect(cold.rows).toHaveLength(1); // 已索引子集
-      // warm:true 填缺口 → 全量 + 群折叠
-      const out = await handlers.get('session/roster')!({ warm: true }) as { rows: Array<Record<string, unknown>>; warm: string };
-      expect(out.warm).toBe('warm');
+      const cold = await handlers.get('session/roster')!({}) as { rows: Array<Record<string, unknown>> };
+      expect(cold.rows).toHaveLength(1); // 已索引子集（纯读——RPC 不做全量对账）
+      // warm-up 模拟（face-ops warmRoster 分片循环的数据效果：逐会话 gap 判定 + refresh）
+      for (const cid of real.allConversationIds(root)) {
+        if (real.rosterGapOf(root, cid)) real.refreshConversation(root, cid);
+      }
+      const out = await handlers.get('session/roster')!({}) as { rows: Array<Record<string, unknown>> };
       expect(out.rows).toHaveLength(2); // alpha~user + g-g1x（成员流折叠）
       const pair = out.rows.find((r) => r.key === 'alpha~user')!;
       expect(pair.kind).toBe('pair');

@@ -67,9 +67,15 @@ export class SessionIndexService extends Service {
     return this.index.sessionMeta(this.dataRoot, convId, opts);
   }
 
-  /** 名册缺口对账（cr-1185）——core.rosterGaps 透传（显式读面动作） */
-  rosterGaps(): string[] {
-    return this.index.rosterGaps(this.dataRoot);
+  /** 名册缺口判定（cr-1185；性能修复后单会话原子——全量对账由调用方
+   *  分片让出，见 face-ops warmRoster） */
+  rosterGapOf(convId: string): boolean {
+    return this.index.rosterGapOf(this.dataRoot, convId);
+  }
+
+  /** 全部会话键枚举（分片全量对账的数据源——零 stat） */
+  allConversationIds(): string[] {
+    return this.index.allConversationIds(this.dataRoot);
   }
 
   /** 名册小表快照（cr-1185——零盘读；群行已由成员流折叠） */

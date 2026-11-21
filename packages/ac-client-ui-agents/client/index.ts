@@ -202,13 +202,14 @@ function rosterToTails(rows: PRosterRow[]): PConvTail[] {
 }
 
 /** Agent 名册（cr-1185：名册活动面单源 = session/roster——脱离 runs/snapshot；
- *  RPC 失败静默降级旧形态〔空活动面〕；冷态自补 warm 拉满全量） */
+ *  RPC 失败静默降级旧形态〔空活动面〕。纯读——冷启动子集由宿主
+ *  warm-up 分片填充 + session/roster-warmed 帧通知重拉） */
 export async function fetchAgents(rpc: Pick<RpcClientFace, 'call'>): Promise<{ agents: AgentInfo[] }> {
   const [agentsR, statsR, rosterR] = await Promise.all([
     rpc.call<{ agents: PAgentConfig[] }>('agents/list'),
     rpc.call<{ running: Array<{ agentId: string; conversationId: string }> }>('conversation/stats'),
     rpc
-      .call<{ rows?: PRosterRow[]; warm?: string }>('session/roster', { warm: true })
+      .call<{ rows?: PRosterRow[] }>('session/roster')
       .catch(() => undefined),
   ]);
   return toAgentList(agentsR.agents, statsR.running, rosterToTails(rosterR?.rows ?? []));

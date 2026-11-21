@@ -271,7 +271,7 @@ export class SessionIndex {
 
   /** 刷新某会话全部域 × 三源文件的指针行（重建/增量对账见文件头）。
    *  cr-1185：尾部同源重算 roster 行（records 聚合 + 末发言正文 seek
-   *  回源；stat 指纹随行——rosterGaps 据此找陈旧行）。零源目录时**不**落
+   *  回源；stat 指纹随行——rosterGapOf 据此判缺口）。零源目录时**不**落
    *  roster 行（null kind 表示「会话不存在」，清账归 drop）。 */
   refreshConversation(dataRoot: string, convId: string): RefreshReport {
     const report: RefreshReport = { appended: 0, rebuilt: [] };
@@ -340,7 +340,7 @@ export class SessionIndex {
 
   /** roster 行重算（cr-1185——refreshConversation 尾部调用）：records
    *  SQL 聚合身份/时标 + 末发言行指针 seek 回源取正文截断；stat 复合
-   *  指纹随行（rosterGaps 对账燃料）。索引行缺席（records 无行）时按
+   *  指纹随行（rosterGapOf 对账燃料）。索引行缺席（records 无行）时按
    *  空会话落全零行——目录在即合法态。 */
   private recomputeRoster(dataRoot: string, convId: string): void {
     const agg = this.stmt(
@@ -369,7 +369,7 @@ export class SessionIndex {
         } finally { fs.closeSync(fd); }
       } catch { /* 回源失败 = lastText null（身份/时标不受影响） */ }
     }
-    // stat 复合指纹（三源文件——rosterGaps 对账同公式）
+    // stat 复合指纹（三源文件——rosterGapOf 对账同公式）
     let fpSize = 0; let fpMtime = 0;
     for (const dir of sessionDirs(dataRoot, convId)) {
       for (const shape of FILE_SHAPES) {
@@ -607,36 +607,55 @@ export class SessionIndex {
     };
   }
 
-  /** 名册缺口对账（cr-1185）：全部会话目录的**新鲜 stat 复合指纹** vs
-   *  roster 行随存指纹——不匹配（未入账/陈旧）即需 refreshConversation。
-   *  stat 指纹公式与 face-ops runs/snapshot 指纹源同构（size 求和 +
-   *  mtime 取最大，跨域三源文件）；stat 走 readdir/stat 现取，不建索引行
-   *  （缺口填充是显式读面动作，与 cr-1142 高频面禁隐式建索引不冲突）。 */
-  rosterGaps(dataRoot: string): string[] {
-    const byConv = new Map<string, { size: number; mtimeMs: number }>();
-    for (const convId of this.allConversationIds(dataRoot)) {
-      for (const dir of sessionDirs(dataRoot, convId)) {
-        for (const shape of FILE_SHAPES) {
-          try {
-            const st = fs.statSync(path.join(dir, shape.file));
-            const cur = byConv.get(convId) ?? { size: 0, mtimeMs: 0 };
-            byConv.set(convId, { size: cur.size + st.size, mtimeMs: Math.max(cur.mtimeMs, st.mtimeMs) });
-          } catch { /* 缺席文件不参与 */ }
-        }
+  /** 会话的**新鲜 stat 复合指纹**（size 求和 + mtime 取最大，跨域三源
+   *  文件——与 recomputeRoster 落行 fp 同公式、face-ops 快照指纹源同构）。
+   *  会话目录缺席 = null。 */
+  private freshFingerprintOf(dataRoot: string, convId: string): { size: number; mtimeMs: number } | null {
+    let size = 0;
+    let mtimeMs = 0;
+    let hit = false;
+    for (const dir of sessionDirs(dataRoot, convId)) {
+      for (const shape of FILE_SHAPES) {
+        try {
+          const st = fs.statSync(path.join(dir, shape.file));
+          size += st.size; mtimeMs = Math.max(mtimeMs, st.mtimeMs); hit = true;
+        } catch { /* 缺席文件不参与 */ }
       }
     }
-    const rows = this.db.prepare('SELECT conv, fp_size, fp_mtime FROM roster').all() as Array<{ conv: string; fp_size: number | null; fp_mtime: number | null }>;
-    const fpOf = new Map(rows.map((r) => [r.conv, r.fp_size !== null && r.fp_mtime !== null ? (r.fp_size + ':' + r.fp_mtime) : null]));
-    const gaps: string[] = [];
-    for (const [convId, meta] of byConv) {
-      if (fpOf.get(convId) !== meta.size + ':' + meta.mtimeMs) gaps.push(convId);
+    return hit ? { size, mtimeMs } : null;
+  }
+
+  /** 名册缺口判定（cr-1185；性能修复后单会话原子）：会话目录的新鲜 stat
+   *  指纹 vs roster 行随存指纹——不匹配（未入账/陈旧/目录缺席清理孤儿行）
+   *  即需 refreshConversation。**有意不做全量版**：千级会话的全量 stat 扫
+   *  是秒级同步段，曾在 RPC 路径冻结宿主 ~6s（首批 RPC 全体排队）——全量
+   *  对账由调用方（face-ops warmRoster）逐会话分片让出。 */
+  rosterGapOf(dataRoot: string, convId: string): boolean {
+    const fresh = this.freshFingerprintOf(dataRoot, convId);
+    const row = this.db.prepare('SELECT fp_size, fp_mtime FROM roster WHERE conv = ?').get(convId) as { fp_size: number | null; fp_mtime: number | null } | undefined;
+    if (fresh === null) return row !== undefined; // 目录已消失 = 孤儿行，需清
+    if (row === undefined || row.fp_size === null || row.fp_mtime === null) return true;
+    return row.fp_size !== fresh.size || row.fp_mtime !== fresh.mtimeMs;
+  }
+
+  /** 全部会话键 + 缺口判定分离视图（分片让出的数据源：调用方逐键调
+   *  rosterGapOf 并按时间片让出；本方法自身零 stat——只做目录枚举）。 */
+  allConversationIds(dataRoot: string): string[] {
+    const out = new Set<string>();
+    let agents: fs.Dirent[] = [];
+    try { agents = fs.readdirSync(path.join(dataRoot, 'agents'), { withFileTypes: true }); } catch { return []; }
+    for (const a of agents) {
+      if (!a.isDirectory() || !isSafeId(a.name)) continue;
+      let convs: fs.Dirent[] = [];
+      try { convs = fs.readdirSync(path.join(dataRoot, 'agents', a.name, 'sessions'), { withFileTypes: true }); } catch { continue; }
+      for (const c of convs) if (c.isDirectory() && isSafeId(c.name)) out.add(c.name);
     }
-    return gaps;
+    return [...out];
   }
 
   /** 名册小表快照（cr-1185——每会话一行零盘读；群行由成员流折叠：kind
    *  折 'group'、last_* 取成员行最大、speech/total 跨成员求和。调用方
-   *  （face-ops boot 预热）先跑 rosterGaps 填缺口再取本面。） */
+   *  （face-ops boot 预热分片对账）填完缺口再取本面。） */
   rosterSnapshot(): RosterRow[] {
     const rows = this.db.prepare(
       'SELECT conv, kind, last_speech_ms, last_agent, last_role, last_text, last_at_ms, speech, total FROM roster',
@@ -672,21 +691,6 @@ export class SessionIndex {
       base.set(r.conv, row);
     }
     return [...base.values()];
-  }
-
-  /** 全量会话键枚举（agents/*\/sessions/* 目录名去重——索引维护面，
-   *  非读面：供显式预热/覆盖度统计用） */
-  allConversationIds(dataRoot: string): string[] {
-    const out = new Set<string>();
-    let agents: fs.Dirent[] = [];
-    try { agents = fs.readdirSync(path.join(dataRoot, 'agents'), { withFileTypes: true }); } catch { return []; }
-    for (const a of agents) {
-      if (!a.isDirectory() || !isSafeId(a.name)) continue;
-      let convs: fs.Dirent[] = [];
-      try { convs = fs.readdirSync(path.join(dataRoot, 'agents', a.name, 'sessions'), { withFileTypes: true }); } catch { continue; }
-      for (const c of convs) if (c.isDirectory() && isSafeId(c.name)) out.add(c.name);
-    }
-    return [...out];
   }
 
   /** 日聚合（cr-1138）：有 conversationId = 该会话（先 refresh，权威）；

@@ -2,7 +2,7 @@
 // roster.test.ts —— 名册小表回归（cr-1185）
 //
 // refreshConversation 同源维护 roster 行（发言口径身份/时标 + seek 回源
-// 正文截断 + stat 指纹）；rosterGaps 对账（未入账/追加后陈旧）；
+// 正文截断 + stat 指纹）；rosterGapOf 缺口判定（未入账/追加后陈旧/孤儿）；
 // rosterSnapshot 群成员流折叠（gid 无账本目录——成员流聚合派生）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -78,26 +78,29 @@ describe('cr-1185 · roster 行同源维护', () => {
     expect(idx.rosterSnapshot()[0]!.lastRole).toBe('agent');
   });
 
-  it('rosterGaps：未入账 → 命中；入账 → 空；追加 → 再命中；增量后复空', () => {
+  it('rosterGapOf：未入账 → true；入账 → false；追加 → 再 true；增量后复 false；孤儿行 → true', () => {
     writeMessages('alpha', 'alpha~user', [
       row({ role: 'user', agent_id: 'user', content: 'a', timestamp: '2026-11-10T01:00:00.000Z', seq: 1, run: 'r1' }),
     ]);
     const idx = newIndex();
-    expect(idx.rosterGaps(root)).toContain('alpha~user');
+    expect(idx.rosterGapOf(root, 'alpha~user')).toBe(true);
     idx.refreshConversation(root, 'alpha~user');
-    expect(idx.rosterGaps(root)).toEqual([]);
+    expect(idx.rosterGapOf(root, 'alpha~user')).toBe(false);
     appendMessages('alpha', 'alpha~user', [
       row({ role: 'agent', agent_id: 'alpha', content: 'b', timestamp: '2026-11-10T01:01:00.000Z', seq: 2, run: 'r1' }),
     ]);
-    expect(idx.rosterGaps(root)).toContain('alpha~user');
+    expect(idx.rosterGapOf(root, 'alpha~user')).toBe(true);
     idx.refreshConversation(root, 'alpha~user');
-    expect(idx.rosterGaps(root)).toEqual([]);
+    expect(idx.rosterGapOf(root, 'alpha~user')).toBe(false);
     const r = idx.rosterSnapshot()[0]!;
     expect(r.lastAgent).toBe('alpha');
     expect(r.speech).toBe(2);
+    // 孤儿行：目录消失（drop 由 reconcile 负责，缺口判定如实报需处理）
+    fs.rmSync(path.join(root, 'agents', 'alpha', 'sessions', 'alpha~user'), { recursive: true, force: true });
+    expect(idx.rosterGapOf(root, 'alpha~user')).toBe(true);
   });
 
-  it('drop 清 roster 行（目录消失后 rosterGaps 不再命中）', () => {
+  it('drop 清 roster 行（目录消失后 rosterGapOf 判孤儿）', () => {
     writeMessages('alpha', 'alpha~user', [
       row({ role: 'user', agent_id: 'user', content: 'a', timestamp: '2026-11-10T01:00:00.000Z', seq: 1, run: 'r1' }),
     ]);

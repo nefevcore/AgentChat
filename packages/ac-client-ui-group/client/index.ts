@@ -63,14 +63,15 @@ function toGroupInfo(g: PGroupConfig): GroupInfo {
 }
 
 /** 群名册（cr-1185：活动面单源 = session/roster 群行〔宿主成员流折叠〕
- *  ——脱离 runs/snapshot；RPC 失败静默降级〔无 lastActivity〕。冷态自补
- *  warm 拉满全量。群 lastActivity 因此来自真实成员账本——修复旧链路以
- *  gid 匹配 conversations 键恒落空〔gid 无账本目录〕的死数据形态） */
+ *  ——脱离 runs/snapshot；RPC 失败静默降级〔无 lastActivity〕。纯读——
+ *  冷启动子集由宿主 warm-up 分片填充 + session/roster-warmed 帧重拉。
+ *  群 lastActivity 因此来自真实成员账本——修复旧链路以 gid 匹配
+ *  conversations 键恒落空〔gid 无账本目录〕的死数据形态） */
 export async function fetchGroups(rpc: Pick<RpcClientFace, 'call'>): Promise<{ groups: GroupInfo[] }> {
   const [r, rosterR] = await Promise.all([
     rpc.call<{ groups?: PGroupConfig[] }>('group/list'),
     rpc
-      .call<{ rows?: Array<{ key: string; kind: string; lastSpeechAt: string | null; lastAt: string | null }> }>('session/roster', { warm: true })
+      .call<{ rows?: Array<{ key: string; kind: string; lastSpeechAt: string | null; lastAt: string | null }> }>('session/roster')
       .catch(() => undefined),
   ]);
   const actOf = new Map<string, number>();
