@@ -12,7 +12,7 @@ import {
 } from '../src/config.ts';
 import {
   readAgentConfig, writeAgentConfig, listAgentIds,
-  readChildConfig, listChildIds, materializedChildIds, agentDir,
+  readChildConfig, listChildIds, materializedChildIds, agentDir, isAgentIdentity,
 } from '../src/tree.ts';
 import { readAgentPatchV3At } from '../src/patch-doc.ts';
 
@@ -187,5 +187,17 @@ describe('预设词形判定（cr-880 单源）', () => {
     expect(presetTemplateKeyOf('__standard__')).toBe('standard');
     expect(presetTemplateKeyOf('standard')).toBeUndefined();
     expect(presetTemplateKeyOf('sub-x')).toBeUndefined();
+  });
+});
+
+describe('身份词形单义（cr-1186）', () => {
+  // isAgentIdentity 只判词形（禁 ~），不拒端点保留字——user 是合法虚拟身份
+  //（名册/头像投影源），保留字拒斥归创建/拉壳闸（isReservedEndpointId 直调）。
+  it('isAgentIdentity：user/host 放行（虚拟身份进名册）、~ 拒斥', () => {
+    expect(isAgentIdentity('user')).toBe(true);
+    expect(isAgentIdentity('host')).toBe(true); // 名册内无 host 目录时投影自然缺席——闸在出生口
+    expect(isAgentIdentity('plain')).toBe(true);
+    expect(isAgentIdentity('a~b')).toBe(false);
+    expect(isAgentIdentity('')).toBe(false);
   });
 });

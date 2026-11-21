@@ -59,11 +59,16 @@ export function isReservedEndpointId(id: string): boolean {
  * = pairKey(a,b) 排序 `~` 连接，身份若也含 `~` 会与对键撞键、破坏
  * runAddress 从右解析的歧义性。agents/ 树内含 `~` 的目录 = 会话流域
  * （pair 对桶/自会话对角线/群成员流——兜底 config 在场也不是名册身份）。
- * 端点保留字（host/user/@ 前缀）同拒（cr-1175 D6——虚拟端点撞名即劫持）。
+ * 纯词形单义：**不**拒端点保留字——user 是合法虚拟身份（viewer 实体，
+ * 名册/头像/消息发送者面的投影源，档案与头像 = 数据根真实实体）；
+ * 保留字拒斥归三处显式闸（sanitize/ensureAgent/createFromTemplate 直调
+ * isReservedEndpointId，cr-1175 D6——防的是「虚构端点劫持可达表」的
+ * 创建面，不是名册投影面。此处曾内嵌拒斥致 user 被名册除名、用户头像
+ * 全域消失——cr-1186）。
  * 本函数只判身份词形；agentDir 寻址（会话域路径）仍走 assertAgentId。
  */
 export function isAgentIdentity(id: string): boolean {
-  return id !== '' && !id.includes('~') && !isReservedEndpointId(id);
+  return id !== '' && !id.includes('~');
 }
 
 /** v3 菜单组合（cr-1022 批2/批3——唯一组合读面）：agent.json 档案 + 菜单

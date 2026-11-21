@@ -132,6 +132,22 @@ describe('8.5a 宿主 web 面接线', () => {
     ws.close();
   }, 30_000);
 
+  // cr-1186 回归锁：user 虚拟身份必须在名册（isAgentIdentity 词形单义——
+  // cr-1175 曾把保留字拒斥内嵌进词形判定，user 被名册除名 → 前端
+  // getAgentAvatar('user') 恒 null → 用户头像全域消失）。
+  it('agents/list 投影 user 虚拟身份（头像链）', async () => {
+    writeAgentConfig(ROOT, { id: 'user', name: '风栗', virtual: true });
+    fs.writeFileSync(path.join(ROOT, 'agents', 'user', 'avatar.png'), Buffer.from('<png>'));
+    fs.writeFileSync(path.join(ROOT, 'config.json'), '{}', 'utf-8');
+    host = await bootHostWeb({ dataRoot: ROOT });
+    const { ws } = await connect(host.port);
+    const list = await rpc<{ agents: Array<{ id: string; name?: string; hasAvatar?: boolean; avatarVersion?: string }> }>(ws, 'agents/list', {});
+    const user = list.agents.find((a) => a.id === 'user');
+    expect(user).toMatchObject({ name: '风栗', hasAvatar: true });
+    expect(user!.avatarVersion).toMatch(/^\d+:\d+$/);
+    ws.close();
+  }, 30_000);
+
   it('GET /api/ui/wire：装配态投影（cr-932 v3——boot-graph 端点/hello 握手退役）', async () => {
     host = await bootHostWeb({ dataRoot: ROOT });
     const res = await fetch('http://127.0.0.1:' + host.port + '/api/ui/wire');
