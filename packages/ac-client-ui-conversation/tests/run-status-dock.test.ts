@@ -78,7 +78,28 @@ describe('deriveRunStatus（七态推导）', () => {
       runStartAt: 100,
       rawMessages: [{ role: 'agent', agent_id: 'user', timestamp: 42 }],
     });
-    expect(deriveRunStatus(d, '', 'info')).toEqual({ kind: 'calling', sinceMs: 42 });
+    // cr-1187：锚 = max(viewer ts, runStartAt)——run 启动晚于发送，取后者
+    expect(deriveRunStatus(d, '', 'info')).toEqual({ kind: 'calling', sinceMs: 100 });
+  });
+
+  it('【cr-1187】机制触发 run（runStartAt 远晚于末条 viewer 消息——timer/归档整理无新 viewer 行）→ 锚定 run 启动时刻，不再显示数十小时陈旧读数', () => {
+    const now = Date.now();
+    const d = dialog({
+      streaming: true,
+      runStartAt: now - 5000,
+      rawMessages: [{ role: 'agent', agent_id: 'user', timestamp: now - 40 * 3600_000 }],
+    });
+    expect(deriveRunStatus(d, '', 'info')).toEqual({ kind: 'calling', sinceMs: now - 5000 });
+  });
+
+  it('【cr-1187】用户后到消息晚于 runStartAt（排队/插话）→ 锚定 viewer 发送时刻（2026-10-28 裁决语义不变）', () => {
+    const now = Date.now();
+    const d = dialog({
+      streaming: true,
+      runStartAt: now - 9000,
+      rawMessages: [{ role: 'agent', agent_id: 'user', timestamp: now - 3000 }],
+    });
+    expect(deriveRunStatus(d, '', 'info')).toEqual({ kind: 'calling', sinceMs: now - 3000 });
   });
 
   it('占位已建但全空 → calling（API 往返窗口）', () => {

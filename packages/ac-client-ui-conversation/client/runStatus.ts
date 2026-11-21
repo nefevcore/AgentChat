@@ -17,8 +17,10 @@
 //   error     busyFeedback error 通道（投递失败/看门狗超时并入，
 //             用户裁决：反馈面收敛到一处）
 //   hidden    无分区 / run 不在途（组合判据，见 runInFlight）
-// 计时：全档共用 sinceMs（末条 viewer 消息 ts）——「整体耗时」从用户
-// 发送那一刻起算，跨档连续不归零（用户裁决 2026-10-28）。
+// 计时：全档共用 sinceMs——「整体耗时」从本轮实际起点起算，跨档连续不归零
+//（用户裁决 2026-10-28「从用户发送那一刻起算」；cr-1187 推广：锚 = max(末条
+// viewer 消息 ts, runStartAt)——timer 唤醒/归档整理等机制 run 无新 viewer
+// 消息，钉 run 启动时刻，长会话不再显示数十小时的陈旧读数）。
 // 消费方：RunStatusDockHost（feed 分区态 → 本层推导 → 纯展示卡）。
 // ============================================================
 
@@ -167,7 +169,9 @@ export function deriveRunStatus(
     return { kind: 'hidden' };
   }
   if (!d || !runInFlight(d)) return { kind: 'hidden' };
-  const sinceMs = lastViewerTs(d);
+  // cr-1187 计时锚：max(末条 viewer ts, runStartAt)——机制触发 run（无新
+  // viewer 消息）锚定 run 启动时刻；用户 run 两者几乎同刻，语义不变。
+  const sinceMs = Math.max(lastViewerTs(d), d.runStartAt ?? 0);
   const carrier = lastStreamingAgent(d);
   if (carrier) {
     if (carrier.content) return { kind: 'replying', sinceMs };
