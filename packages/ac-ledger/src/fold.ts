@@ -230,7 +230,10 @@ export function rowShadowedBy(
 /** 域名归并辅助（上）——会话压缩三态查询口（§2.3）：当前态回放的
  * 摘要头与边界（shadowed 前缀 seq ≤ boundarySeq 不进回放；v1 会话
  * 无压缩事件 → null，调用方回落 summary.md 兼容窗）。endTs = 压缩收束
- * 时刻（cr-1156 回放过滤时刻维度）。 */
+ * 时刻（cr-1156 回放过滤时刻维度）。
+ * cr-1189 V3：新代起摘要住 archive-summary 注入行（本文件
+ * foldDigestOf）——本函数只服务 v2 存量代（compaction 事件摘要），
+ * 调用方须先查 foldDigestOf（行在场时不再回落本面，防双份）。 */
 export function foldSummaryOf(fold: SessionFold): { text: string; boundarySeq: number; endTs: number } | null {
   // cr-1160 P3：最新代概要缺席（summaryOmitted/空文）→ 回落上一代概要
   // （「无新概要的压缩」合法——头可能过时但语义完整）；全部缺席 → null。
@@ -241,6 +244,29 @@ export function foldSummaryOf(fold: SessionFold): { text: string; boundarySeq: n
     }
   }
   return null;
+}
+
+/** V3 归档摘要行 source 词（cr-1189）——archive-summary context 行判别键 */
+export const ARCHIVE_SUMMARY_SOURCE = 'archive-summary';
+
+/** 会话最新摘要文本（cr-1189 V3 单一事实源）：最新未被任一压缩代
+ *  shadow 的 archive-summary 行；全部 shadow / 无行 → null（调用方回落
+ *  foldSummaryOf〔v2 存量代〕或 summaryTextOf〔v1 存量〕）。
+ *  摘要行落在自身代边界之后（落账序：压缩轮事实 → 摘要行 → compaction
+ *  事件），本轮永不被 shadow；下轮压缩把它划入旧代——新一代摘要行接替。 */
+export function foldDigestOf(fold: SessionFold): string | null {
+  let best: { text: string; at: string } | null = null;
+  for (const c of fold.contexts) {
+    if (c.source !== ARCHIVE_SUMMARY_SOURCE || c.content.trim() === '') continue;
+    const tsNum = Date.parse(c.timestamp);
+    const shadowed = fold.compactions.some((b) => rowShadowedBy(
+      { ...(c.seq !== undefined ? { seq: c.seq } : {}), ...(Number.isFinite(tsNum) ? { ts: tsNum } : {}) },
+      b,
+    ));
+    if (shadowed) continue;
+    if (best === null || c.timestamp >= best.at) best = { text: c.content, at: c.timestamp };
+  }
+  return best?.text ?? null;
 }
 
 // —— 投影一：user 终稿层（projectUserReplay 谓词原样） ——
@@ -603,10 +629,15 @@ export function foldLlmReplay(
 ): LlmMessage[] {
   const out: LlmMessage[] = [];
   const traced = new Set<string>();
-  // 压缩三态（§2.3）：压缩事件在场 → 回放 = [摘要 system 头] + 边界后
-  // 行（shadowed 前缀仍在日志但不再注入）；v1 无压缩 → 调用方概要兼容窗
-  const compaction = foldSummaryOf(fold);
-  if (compaction !== null) out.push({ role: 'system', content: compaction.text });
+  // 压缩三态（§2.3）+ cr-1189 V3 摘要头单源：archive-summary 行在场
+  // （未 shadow）时摘要即行——wrapper 档随下方时间线进回放，天然落新代
+  // 头部，system 头不再另发（防与 v2 存量摘要双份）；无行才回落 v2
+  // 事件摘要头；v1 无压缩 → 调用方概要兼容窗
+  const digest = foldDigestOf(fold);
+  if (digest === null) {
+    const compaction = foldSummaryOf(fold);
+    if (compaction !== null) out.push({ role: 'system', content: compaction.text });
+  }
   // cr-1104 注册制分档：声明词按注册档（original 原文/none 跳过），缺省 wrapper
   const kindOf = (word: string | undefined): ReplayKind =>
     (word !== undefined && REPLAY_BUILTIN_NONE.has(word)) ? 'none' : (word !== undefined ? opts.replayOf?.(word) : undefined) ?? 'wrapper';

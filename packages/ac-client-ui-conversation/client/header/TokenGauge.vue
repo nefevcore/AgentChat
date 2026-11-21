@@ -374,7 +374,7 @@ function kvTimeOf(ts: number): string {
 /** 压缩对话：触发 Agent 整理记忆后裁剪消息 */
 function handleCompress() {
   if (!props.data.agentId || chatStore.turnInProgress || chatStore.compressPending) return;
-  chatStore.compressSession();
+  chatStore.archiveSession();
 }
 
 /** 形态 gate：direct/single 且有会话数据时渲染（pair 只读无仪表；群暂隐

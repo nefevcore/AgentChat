@@ -1,7 +1,7 @@
 # 会话压缩 V3：注入驱动整理轮 + session_digest 结构化提交（compaction-v3-injection）
 
 > 性质：域深设计——压缩机制 V2（cr-1160）之后对「整理轮驱动方式」与「概要提交协议」的重设计（用户裁决 2026-11-21）。
-> 状态：现行（设计定稿，待实施） · cr-1189 2026-11-21 · 承接 cr-1160（P1-P4 骨架保留）/ cr-1188（archive/completed 发射链保留）。
+> 状态：现行（B1-B6 已实施 · cr-1190 2026-11-21；实施偏差见 §8）· cr-1189 2026-11-21 · 承接 cr-1160（P1-P4 骨架保留）/ cr-1188（archive/completed 发射链保留）。
 > 读者：动 ac-shell-rows archive 行 / ac-conversation 注入面 / ac-ledger 压缩事件 / session-index 入账白名单的人；实施前必读。
 
 ---
@@ -215,3 +215,17 @@ eval 时机：run 收束（loop/after-run）——遍历注册表，任一触发
 | 2026-11-21 | cr-1188 受理语义 + archive/completed 发射链 + archive-review 透传 | 修 V2 实施的运行时断点（保留，V3 沿用其广播链） |
 | 2026-11-21 | **本稿 V3**：注入驱动 + session_digest 结构化提交；摘要全文住注入行；工具命名裁决 | 取代 V2 的驱动面（reviewRun 族）与提交面（P3 启发式）；P1/P2/P4 骨架与三口径收敛不动 |
 | 2026-11-21 同日 | 提交协议松绑（无意图词校验 / 长度不限 + 提示引导）+ 触发检测改机制注册式（token 阈值为缺省，可扩展 run-count 等场景）+ 术语分层（归档/压缩/总结） | §2.4 / §2.8 / §2.7 增补 |
+| 2026-11-21 | cr-1190 B1-B6 实施收口（见 §8 实施注记） | 本档状态行更新 |
+
+## 8. 实施注记（cr-1190，B1-B6 落地时的裁量与偏差）
+
+| # | 点 | 实施 | 与本稿的差异说明 |
+|---|---|---|---|
+| 1 | archive-review-request 行回放档 | **wrapper（进回放）**，非「不进回放」 | 压缩轮 run 的驱动 = 机制信 + history 复读——none 档会让压缩轮看不到指令（空跑）。§2.1 兜底「机制请求非会话事实」由压缩边界 shadow 出清承担（请求行落边界前，随代进归档段——archive-row.test V1 断言锚定） |
+| 2 | 摘要头单源规则 | archive-summary 行在场时 system 头（v2 事件摘要跨代回落）**不再另发**；行本体以 wrapper 档进回放、天然置首 | 本稿 §2.3 预期「摘要行进回放」但未显式写明 system 头停发规则——不补此规则会与 v2 存量摘要双份（V6 用例锁定） |
+| 3 | 摘要行永留主日志 | isCompactionRow 排除面扩展到 archive-summary 行 | 实施发现：摘要行若随代进归档段，foldDigestOf（读主日志 contexts）在下一代物理回收后失明——回放头蒸发。摘要行同 compaction 事件永留主日志 |
+| 4 | 编排超时语义 | 等待窗（timeoutMs + 60s 宽限）轮询 run-end，**不 abort** run | 本稿闸②「超时 abort」随 reviewRun 退役失去执行面（普通 run 的 signal 不在编排方手里）；超窗 = 兜底落边界，run 自然收束后落账的 digest 行属下一代语境（回放头由边界时刻维保护） |
+| 5 | runMeta 透传通道 | 保留（boot.ts），archive-review 消费方随 §2.5 退役 | 同本稿 §2.5 裁决 |
+| 6 | 整理轮事实与会话增长 | 整理轮 = 普通 run（终稿/工具结果/机制信落账）——这些行计入下一代 shadowed 集 | §1 未显式讨论；后果 = 第二轮压缩的 shadowed 估算偏大（多搬一轮整理轮事实，语义无害——它们确属旧代） |
+| 7 | session-index 请求行 | archive-review-request 行 est_tokens 不计（机制行非会话载荷）；摘要行计入 | Q2 裁定计入的实施面 |
+| 8 | 整理 hint「整理工作文件」条目 | **删除**（cr-1190 续修，writer 实证驱动） | 主线 ac-archive 时代遗物：TODO 归 todo 工具、知识库归 memory 行，归档轮插手 = 双事实源 + 每轮固定 2-3 步开销（DONE.md 滚至 268KB 无出清机制——Agent 自己标 "historical ledger, keep"）。归档轮职责收窄至总结提交 + 边界（V3 单一事实源原则的自然延伸） |

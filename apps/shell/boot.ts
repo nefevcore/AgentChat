@@ -1078,15 +1078,9 @@ export async function bootShell(
   // 与 end 收束同流。发射失败静默（无连接即丢）——瞬态语义。meta 全套
   // 路由键随帧携带（8.5d：前端按 agent/conversationId/stepId 寻址——
   // loop 组装的 input.meta 即身份贯通面）。
-  // cr-1188 整理 run 隐藏查表（对齐主线 ws-bridge isHiddenRun 语义）：archive
-  // review run 的流式内容不进前端——主线在宿主桥接层过滤（isArchiveReviewRun
-  // 查表），新架构壳链路此前无等价物，整理 run 的思考/正文直接泄进用户会话。
-  // run-started 登记（runMeta['archive-review']），run 收束清表。
-  const hiddenReviewRuns = new Set<string>();
+  // cr-1189 V3：整理 run 隐藏查表（hiddenReviewRuns）随 reviewRun 机制
+  // 退役——整理轮 = 会话内可见的普通 run（透明性裁决），流式帧照常广播。
   ctx.on('llm/delta', (input: { meta?: StreamMeta }, chunk: LlmStreamChunk) => {
-    // runId = stepId 前缀（'run-xxx:0' 前缀 = runId）；整理 run 整流丢弃
-    const rid = input.meta?.stepId?.split(':')[0] ?? input.meta?.runId;
-    if (rid !== undefined && hiddenReviewRuns.has(rid)) return;
     for (const frame of streamFrameFromDelta(input.meta, chunk)) emitStreamFrame(frame);
   });
   // run 收束旁带（cr-591）随 cr-976 B 案退役：前端收敛信号 = run-end 行
@@ -1127,18 +1121,11 @@ export async function bootShell(
         sender: request.sender,
         source: request.source,
         runId: request.runId,
-        // cr-1188 run 机制旗标透传：LoopRunRequest.meta（archive-review 等标记）
-        // 随帧全程——此前在此丢弃，前端判定恒 false，归档整理 run 被当普通
-        // run 点亮 busy + 状态卡（timer 会话状态卡计时锚到数十小时前 viewer
-        // 消息的直接触发链）。
+        // cr-1188 run 机制旗标透传（cr-1189 起归通用机制旗标面——通道
+        // 保留，archive-review 消费方已退役）：LoopRunRequest.meta 随帧全程。
         ...(request.meta !== undefined ? { runMeta: request.meta } : {}),
       },
     });
-    // cr-1188 整理 run 隐藏登记：archive-review run 的流式内容不进前端
-    //（对齐主线 ws-bridge isHiddenRun 语义；清表见 loop/after-run）。
-    if (request.meta?.['archive-review'] === true) {
-      hiddenReviewRuns.add(request.runId);
-    }
   });
   // 工具执行旁带（cr-593）：tool/started·progress → 对应帧（宿主直转主线
   // 同名前端帧——run_code 子调用占位 / 长任务进度；流时序帧，D3-1 两时标
@@ -1321,8 +1308,8 @@ export async function bootShell(
   // 可测）。字段语义：
   //   run.started  <runId> <conversationId> <source> <model>
   //   run.settled  <runId> <conversationId> <finish> <steps> <totalTokens> <elapsedMs> [error]
-  // 机制 run（meta.ARCHIVE_REVIEW_META——归档整理）照发：运维面关心活动量与
-  // 失败率，来源经 source 字段可辨。宿主侧 onRunbeat 落 runbeat 日志。
+  // 归档整理轮（cr-1189 起为普通 run——source='event'）照发：运维面关心
+  // 活动量与失败率，来源经 source 字段可辨。宿主侧 onRunbeat 落 runbeat 日志。
   // cr-1127 批 3：runbeat 壳侧直写（宿主 sink 退役）——同一行数据本壳落
   // dataRoot/.runtime/logs/runbeat-<agentId>.log（滚动语义与宿主旧 sink 同源
   // appendRollingLine）；TSV emit 双写保留至批 4。
@@ -1335,7 +1322,6 @@ export async function bootShell(
       request.runId ?? '', request.conversationId ?? '', request.source ?? '', request.model].join('\t'));
   });
   ctx.on('loop/after-run', (request: LoopRunRequest, result: LoopRunResult) => {
-    if (request.runId !== undefined) hiddenReviewRuns.delete(request.runId); // cr-1188 整理 run 隐藏清表
     const fields = [
       request.runId ?? '', request.conversationId ?? '', result.finish,
       String(result.usage.steps), String(result.usage.totalAccumulated ?? result.usage.prompt),

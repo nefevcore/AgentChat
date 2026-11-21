@@ -467,7 +467,7 @@ export class ConversationService extends Service {
   async deliver(
     agentId: string,
     inbound: string | LlmMessage,
-    options: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number; replyTo?: string; budget?: number; notice?: boolean; replyConversation?: string; meta?: Record<string, unknown> } = {},
+    options: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number; replyTo?: string; budget?: number; notice?: boolean; replyConversation?: string; meta?: Record<string, unknown>; mechanism?: boolean } = {},
   ): Promise<
     | { kind: 'run'; result: { steps: unknown[]; text: string; finish: string; usage: { prompt: number; completion: number; promptAccumulated: number; steps: number } } }
     | { kind: 'steered'; handle: string }
@@ -503,6 +503,7 @@ export class ConversationService extends Service {
           ...(options.notice === true ? { notice: true } : {}),
           ...(options.replyConversation !== undefined ? { replyConversation: options.replyConversation } : {}),
           ...(options.meta !== undefined ? { meta: options.meta } : {}),
+          ...(options.mechanism === true ? { mechanism: true } : {}),
         },
         ...(options.replyTo !== undefined ? { replyTo: options.replyTo } : {}),
       };
@@ -528,6 +529,7 @@ export class ConversationService extends Service {
         ...(options.notice === true ? { notice: true } : {}),
         ...(options.replyConversation !== undefined ? { replyConversation: options.replyConversation } : {}),
         ...(options.meta !== undefined ? { meta: options.meta } : {}),
+        ...(options.mechanism === true ? { mechanism: true } : {}),
       },
       ...(options.replyTo !== undefined ? { replyTo: options.replyTo } : {}),
     };
@@ -673,7 +675,7 @@ export class ConversationService extends Service {
     }
     // run：串行化门 + 全量 loop 真身（signal = stop 中止面——ADR-2 步边界检查）。
     // config 读取移入 try（cr-549）：plan 已占门，读取 throw 需经 finally 清门
-    // ——此前 throw 在 try 外，busy 泄漏（idle 探针恒忙 + reviewRun 自旋永挂）。
+    // ——此前 throw 在 try 外，busy 泄漏（idle 探针恒忙）。
     const abort = new AbortController();
     let runId = '';
     let restartNow = false;
@@ -854,7 +856,7 @@ export class ConversationService extends Service {
     // 安全重启通知（finally 后——链跑已 break，busy 已收口）：不回队在途
     // 信封（cr-658——本轮已自然消费），只携发起方键集通知 boot 退 42
     // （新壳按 marker 多键注入「已重启」续跑轮）。cr-1159：清意图须与
-    // 发出同点——收束点孤儿化（reviewRun 最后收束）由 4 的检查兜底。
+    // 发出同点——收束点孤儿化由 4 的检查兜底。
     if (restartNow) {
       const origins = [...this.restartOrigins];
       this.restartOrigins.clear();
@@ -863,75 +865,9 @@ export class ConversationService extends Service {
     return 'settled';
   }
 
-  /**
-   * 机制 run 投递（archive 行消费面——D11）：与用户 run 共串行化门
-   *（busy 时 next-run 排队），但**不落账不进上下文**（主线 deliver 的
-   * meta[ARCHIVE_REVIEW] 三不语义——本壳单 agent，整理者恒 self，
-   * 无双侧 done 协议）。settle 走 settleMechanismFor（journal-settled
-   * 落 journal、messages 不落行）。maxSteps = 整理硬闸（主线闸①）。
-   */
-  async reviewRun(uuid: string, prompt: string, opts: { runId: string; maxSteps?: number; signal?: AbortSignal } = { runId: 'review' }): Promise<{ finish: 'ok' | 'interrupted' | 'error'; text: string }> {
-    const ledger = this.ctx.ledger;
-    const machine = this.machineFor(uuid);
-    // 串行化门：busy → 入 next-turn 队列等待（整理是机制任务，不抢用户 run）
-    while (machine.state().busy) {
-      await new Promise((r) => setTimeout(r, 50));
-      // 极端活锁防御：用户 run 长忙 + 整理排队——交给调用方 timeout 兜底
-      if (opts.signal?.aborted) return { finish: 'interrupted', text: '' };
-    }
-    const config = this.readConfig();
-    const runId = opts.runId;
-    machine.runStarted(runId);
-    const abort = new AbortController();
-    this.activeRuns.set(this.gateKey(uuid), { conversationId: uuid, startedAt: Date.now(), abort });
-    const onOuterAbort = () => abort.abort(new Error('整理超时中止'));
-    opts.signal?.addEventListener('abort', onOuterAbort, { once: true });
-    try {
-      const history = this.ctx.ledger.historyFor(uuid);
-      const result = await this.ctx.agentLoop.run({
-        runId,
-        agent: this.agentId,
-        ...this.modelRefOf(config),
-        tools: this.llmToolFace(config, uuid),
-        ...(opts.maxSteps !== undefined && opts.maxSteps > 0 ? { maxSteps: opts.maxSteps } : {}),
-        sender: this.agentId, // 机制触发 = 目标自身（自会话语义——主线 source='event'）
-        source: 'event',
-        conversationId: uuid,
-        meta: { 'archive-review': true }, // 三不标记（主线 ARCHIVE_REVIEW_META 同键）
-        messages: [...history, { role: 'user', content: prompt }],
-        signal: abort.signal,
-      });
-      const finish = result.finish === 'error' ? 'error' : result.finish === 'interrupted' ? 'interrupted' : 'ok';
-      // cr-971 收束兜底（同 driveRun：sealed 后到达的 steer 落账防丢）
-      await this.flushPendingInjects(runId, uuid);
-      await ledger.settleMechanismFor(uuid, runId, finish);
-      this.noteSettled(runId, uuid, finish); // cr-748 收束尾巴（对账面）
-      return { finish, text: result.text };
-    } finally {
-      opts.signal?.removeEventListener('abort', onOuterAbort);
-      this.activeRuns.delete(this.gateKey(uuid));
-      // reviewRun 非链跑（无收束消费面）——runSettled 的 shift 会静默丢
-      // 排队 turn（cr-685）；清门留队列，待下一封入站信触发链跑。
-      machine.releaseGate();
-      // 队列唤醒（cr-688）：收束后本会话队列若仍有 turn，取队首重入
-      // driveRun（无新信时不再滞留到下次事件）。finally 内 await：门先占
-      // 后回执；唤醒失败不掩 reviewRun 结果（留 boot 恢复面收敛）。
-      try { await this.drainQueuedTurn(machine, uuid); } catch { /* 唤醒失败不掩回执 */ }
-      // cr-1159：机制 run 收束的全闲检查——与 driveRun 收束点同构（此前
-      // 缺席 = reviewRun 最后收束时 restartPending 孤儿化：无 restart-ready、
-      // 无 marker、不退 42，重启静默蒸发）。drainQueuedTurn 唤醒的链跑若
-      // 已在其收束点兑现（键集清零），此处幂等跳过。
-      if (this.restartOrigins.size > 0 && this.activeRuns.size === 0) {
-        const origins = [...this.restartOrigins];
-        this.restartOrigins.clear();
-        this.ctx.emit('conversation/restart-ready', { agentId: this.agentId, conversationIds: origins });
-      }
-    }
-  }
-
-  /** 排队 turn 唤醒消费（cr-688）：非链跑收束（reviewRun）后队列无消费者
-   * ——无新信时滞留到下次事件/壳重启。取队首信封重入 driveRun（信封
-   * 已落账，不重走 receive 面；driveRun 内部链跑自会清完剩余队列）。
+  /** 排队 turn 唤醒消费（cr-688）：非链跑收束后队列无消费者——无新信时
+   * 滞留到下次事件/壳重启。取队首信封重入 driveRun（信封已落账，不重走
+   * receive 面；driveRun 内部链跑自会清完剩余队列）。
    * 死信 / 无会话键条目不唤醒——留收束链跑与 boot 恢复面收敛。 */
   private async drainQueuedTurn(machine: ConversationMachine, uuid: string): Promise<void> {
     if (machine.state().busy) return;

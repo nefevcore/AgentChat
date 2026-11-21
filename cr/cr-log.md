@@ -1208,4 +1208,5 @@
 - 【cr-1187 2026-11-21 fix(conversation): 状态卡计时锚钉陈旧 viewer 消息——机制触发 run（timer 唤醒/归档整理）超先行窗时锚定 runStartAt，长会话计时不再从数十小时前起算】
 - 【cr-1188 2026-11-21 fix(shell): session-archive admin 帧改受理即回执——requestArchive 后台执行，不再撞宿主 ipc 15s 回帧超时（前端本就等 archive/completed 广播收口）】
 - 【cr-1189 2026-11-21 压缩 V3 设计稿：注入驱动整理轮 + session_digest 结构化提交——摘要全文住注入行（compaction 事件只带边界+stats）、reviewRun 机制面退役、无提交不压缩（取代 cr-1160 P3 启发式提交）】
+- 【cr-1190 2026-11-21 压缩 V3 实施：注入驱动整理轮 + session_digest 结构化提交（B1-B6）】
 

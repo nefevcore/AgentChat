@@ -463,7 +463,7 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
 
   it('busy 收口不变式（cr-549）：config 缺席 throw 不泄漏 busy——门清 + 异常如实上抛', async () => {
     // plan 占门后 config 重读 throw：busy 必须随异常路径清理（finally 收口），
-    // 否则 idle 探针恒忙 + reviewRun 自旋永挂。验收：receiveEnvelope rejects +
+    // 否则 idle 探针恒忙。验收：receiveEnvelope rejects +
     // isBusy() 回 false。
     const { fibers, conv } = await bootTree('ghost'); // ghost 无 config.json
     try {
@@ -592,8 +592,8 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
   // cr-591 → cr-976：run 收束通知退役（conversation/run-settled 词汇删除——
   // 前端收敛信号 = run-end 行 durable 落盘投影 run/settled 帧）。本用例改锁
   // durable 因果链：settle 点 ledger/event-appended 携带 run-end 行（E-2 的
-  // 壳侧数据源）；机制 run（reviewRun）走 settleMechanism（run-end 单行）。
-  it('run 收束经 ledger/event-appended 携带 run-end 行（失败终稿/error 行/run-end 同批；reviewRun 同理单行）', async () => {    seedAgent('alpha');
+  // 壳侧数据源）。
+  it('run 收束经 ledger/event-appended 携带 run-end 行（失败终稿/error 行/run-end 同批）', async () => {    seedAgent('alpha');
     const events: Array<{ conversationId: string; rows: Array<Record<string, unknown>> }> = [];
     const { ctx, fibers, conv } = await bootTree('alpha', undefined, undefined, new Error('连接超时'));
     try {
@@ -605,9 +605,6 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       // 收束切片原子：终稿 message + error context 行 + run-end 同批（E-2 壳侧数据源）
       expect(settledBatch!.rows.map((r) => r.type)).toEqual(['message', 'context', 'run-end']);
       expect(settledBatch!.rows[2]).toMatchObject({ run: 'run-f1', finish: 'error' });
-      // 机制 run（reviewRun）：同样收束——settleMechanism = run-end 单行批
-      await conv.reviewRun(UUID, '整理提示', { runId: 'review-1' });
-      expect(events.some((p) => p.rows.some((r) => r.type === 'run-end' && r.run === 'review-1'))).toBe(true);
       // 终稿行如实落账（空文本 + finish error——账本仍是权威收束记录）；
       // cr-807：error 文案落 context+source:error 行（终稿行后）——刷新后
       // 前端红条仍可见（此前只活瞬态帧）
@@ -949,34 +946,6 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
     }
   }, 20_000);
 
-  it('reviewRun 收束唤醒排队 turn（cr-688）：非链跑消费者释放门后队列不再滞留', async () => {
-    seedAgent('alpha');
-    let release!: () => void;
-    const gate = new Promise<void>((r) => { release = r; });
-    const { fibers, conv } = await bootTree('alpha', undefined, gate);
-    try {
-      // reviewRun 先占门（首流挂起——整理 run 持有串行化门）
-      const review = conv.reviewRun('conv-a', '整理提示', { runId: 'review-1' });
-      await new Promise((r) => setTimeout(r, 80));
-      expect(conv.isBusy()).toBe(true);
-      // 占门期同会话 next-turn 信 → 入队（无信再触发 = 修复前滞留现场）
-      const cross = await conv.receiveEnvelope(msg('conv-a', 'b1', '排队信', 'user', 'next-turn'), { fresh: true });
-      expect(cross).toBe('queued');
-      expect(conv.queue('conv-a')).toHaveLength(1);
-      release();
-      await review;
-      // review 收束 → 唤醒消费：conv-a 的 run 真跑并收束（不再等下一封信）
-      for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
-      expect(conv.isBusy()).toBe(false);
-      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-a'));
-      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['排队信', '[回复 排队信]']);
-      expect(conv.queue('conv-a')).toHaveLength(0);
-    } finally {
-      release();
-      await dispose(fibers);
-    }
-  }, 20_000);
-
 // —— cr-629 安全重启面 + boot 恢复面 ——
 describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
   // cr-658 自然收束语义：不中断、不回队——run 恰好消费一次，重启通知
@@ -1103,31 +1072,6 @@ describe('安全重启（restart_shell 面）与 boot 恢复面', () => {
     } finally {
       gates[0]!.resolve();
       gates[1]!.resolve();
-      await dispose(fibers);
-    }
-  }, 20_000);
-
-  // cr-1159 reviewRun 收束孤儿化收口：机制 run 最后收束也兑现重启意图
-  // （修复前 reviewRun 无 restartPending 检查 → 无 restart-ready、无 marker、
-  // 不退 42，重启静默蒸发至 idle-exit）。
-  it('requestRestart 后 reviewRun 收束（cr-1159）：全闲检查补位 → restart-ready 照发', async () => {
-    seedAgent('alpha');
-    let release!: () => void;
-    const gate = new Promise<void>((r) => { release = r; });
-    const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
-    const events: string[] = [];
-    ctx.on('conversation/restart-ready', (p: { conversationIds?: string[] }) => { events.push((p.conversationIds ?? []).join('+')); });
-    try {
-      const review = conv.reviewRun('conv-a', '整理提示', { runId: 'review-1' });
-      await new Promise((r) => setTimeout(r, 80));
-      expect(conv.isBusy()).toBe(true);
-      expect(conv.requestRestart('conv-a')).toBe(true); // 挂起意图（reviewRun 在途）
-      release();
-      await review;
-      expect(events).toEqual(['conv-a']); // 修复前：意图孤儿化（永不发）
-      expect(conv.isBusy()).toBe(false);
-    } finally {
-      release();
       await dispose(fibers);
     }
   }, 20_000);

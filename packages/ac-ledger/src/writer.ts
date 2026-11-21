@@ -339,9 +339,9 @@ export class LedgerWriter {
   // 未闭合 run 不回写，读侧（fold）合成 run-end(interrupted) 投影。
 
   /**
-   * 机制 run 收束（归档整理等——settle 机制变体，cr-974 v2）：run-end
-   * 单行（步级事实若随行也已落事件流；机制 run 与会话增长无关——主线
-   * ARCHIVE_REVIEW 三不语义的账本侧，无终稿行）。
+   * 机制 run 收束（归档整理等——settle 机制变体，cr-974 v2）。cr-1189 V3
+   * 退役标记：整理轮改普通 run 语义（终稿照常落账）后本面无生产消费方——
+   * 保留为存量读兼容薄壳（恢复面收口等残余调用形态），不再新增调用。
    */
   async settleMechanism(runId: string, finish: 'ok' | 'interrupted' | 'error'): Promise<void> {
     await this.runEnd(runId, finish === 'ok' ? 'completed' : finish);

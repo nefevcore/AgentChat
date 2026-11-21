@@ -168,11 +168,11 @@ export function createFeedCore(
    */
   const lastRunSettledAt = ref(0);
   /**
-   * 归档整理 run 进行中的对话（2026-09-04 认知缺口修复）：机制 run 流式
-   * 隐藏（不扰民）但边界帧对隐藏 run 也广播（ws-bridge：run-started /
-   * after-run 恒转发）——据此维护"正在整理"集合。archivePending（活跃
-   * 对话是否整理中）供输入框占位与会话头状态条点亮；原全局 ref 从未被
-   * 置 true（死路径），本次以活跃对话判定收编。
+   * 归档整理进行中的对话（cr-1189 V3）：压缩轮 = 会话内可见的普通 run
+   * （meta 判定随 reviewRun 机制退役），"正在整理"态驱动源改请求注入卡
+   * （session/context-injected 帧 source=archive-review-request——archive
+   * 行落请求行时发射）——archive/completed 帧收口。archivePending 供输入
+   * 框占位与会话头状态条点亮。
    */
   const archiveReviewing = ref<ReadonlySet<DialogId>>(new Set());
   const archivePending = computed(() => {
@@ -180,8 +180,8 @@ export function createFeedCore(
     return id !== null && archiveReviewing.value.has(id);
   });
 
-  /** 归档整理 run 信封 meta 键（对齐 ac-agent-loop ARCHIVE_REVIEW_META） */
-  const ARCHIVE_REVIEW_META_KEY = 'archive-review';
+  /** 归档整理请求注入源词（对齐 ac-shell-rows archive 行 §2.3） */
+  const ARCHIVE_REVIEW_REQUEST_SOURCE = 'archive-review-request';
 
   /** 自会话桶判定（a~a 对角线——机制 run 的隐藏面；与 ws-bridge 同口径） */
   function isSelfPairConversation(conversationId: string | undefined): boolean {
@@ -2143,23 +2143,19 @@ export function createFeedCore(
     switch (type) {
       case 'loop/run-started': {
         // 边界帧（run-started/after-run）对隐藏 run 也恒转发：
-        //   · 归档整理 run（meta[archive-review]）→ 点亮"正在整理"状态
-        //     （流式仍隐藏，不打扰；光环语义不变）；
         //   · 可见 run → 点亮分区 streaming（run 级忙态信号：忙时 Enter
         //     排队/插话手势、停止按钮、头像光环的判定源）。后端 after-step
         //     先于工具执行，若 streaming 只在步内点亮，工具执行窗口
         //     （agentic run 的主要耗时）会被判空闲——忙态投递不带 lane，
         //     后端缺省 next-step+steer 直接插话进运行中 run（消息队列
         //     形同虚设）。run 边界恒广播，故以 run 为粒度点亮。
+        //   · cr-1189 V3：归档整理轮 = 普通 run（可见，照常点亮）；"正在
+        //     整理"态由请求注入卡驱动（context-injected 分支）。
         const [request] = args as [any];
         const agent = frameAgentId(request?.agent);
         if (!isUserConversation(agent, request?.conversationId)) return;
         const keys = routeDialog(agent, request?.conversationId, request?.sender, request?.source);
         if (!keys) return;
-        if (request?.meta?.[ARCHIVE_REVIEW_META_KEY] === true) {
-          markArchiveReview(keys.dialogId, true);
-          return;
-        }
         // 自会话桶（a~a）机制 run：桥接面隐藏其流式帧——不点亮 busy
         //（与 ws-bridge isHiddenRun 同口径）
         if (isSelfPairConversation(request?.conversationId)) return;
@@ -2519,9 +2515,8 @@ export function createFeedCore(
         const keys = routeDialog(agent, p?.conversationId);
         if (!keys) return;
         noteStreamAgent(keys);
-        // 整理 run 收尾：状态条熄灭（完成反馈另由 archive/completed 驱动）。
-        // 帧不再携带 meta[archive-review]（run-end 行无此键）——收尾清标记
-        // 无条件化：非整理分区本无标记，等价。
+        // cr-1189 V3：整理轮收尾清"正在整理"标记（请求卡点亮、run 收束
+        // 熄灭 + archive/completed 双保险收口；非整理分区本无标记，等价）。
         markArchiveReview(keys.dialogId, false);
         const finish = String(p?.finish ?? 'stop');
         if (finish === 'interrupted') {
@@ -2591,6 +2586,12 @@ export function createFeedCore(
         // 注入落账即调度延迟重拉（500ms，cr-767）：权威行带 contextContent，与
         // 直播行同锚合并（吸收语义）后卡片即可展开。与 settlement 重拉共用同一
         // 函数（指纹短路 + requestId 守卫天然幂等，不产生风暴）。
+        // cr-1189 V3：归档整理请求卡 = "正在整理"态点亮源（原 run meta
+        // 判定随 reviewRun 机制退役）；archive/completed 帧收口。
+        if (source === ARCHIVE_REVIEW_REQUEST_SOURCE) {
+          const rk0 = routeDialog(frameAgentId(agentId), conversationId);
+          if (rk0) markArchiveReview(rk0.dialogId, true);
+        }
         if (anchor !== undefined) {
           const rk = routeDialog(frameAgentId(agentId), conversationId);
           if (rk) scheduleSettlementReload(rk.dialogId, conversationId);

@@ -2,18 +2,22 @@
 // archive.ts —— 归档编排行（D11 裁决：archive 全壳内）
 //
 // 主线 ac-archive 服务编排半边的壳内形态（算法半边复用主线
-// ac-archive-core 纯库零改动）：
-//   · 阈值检测 = 订阅 loop/after-run（emit 面）——run 收束后估回放
-//     token，超阈值触发「先整理后归档」；
-//   · 整理 run = conversation.reviewRun（机制投递面——不落账不进
-//     上下文，与用户 run 共串行化门）；
+// ac-archive-core 纯库零改动）。cr-1189 V3（注入驱动 + 结构化提交）：
+//   · 触发检测 = 机制注册式（registerTrigger）——run 收束后遍历注册表
+//     （任一命中即触发；token 阈值为缺省注册，现行口径平移）；
+//   · 整理轮 = 机制信经 conversation.deliver 唤醒的普通 run（请求注入
+//     行 + 机制信封；排队/steer 语义免费），终稿照常落账进会话流；
+//   · 总结提交 = session_digest 工具参数（唯一提交面——零格式门槛，
+//     长度仅提示引导）；run 收束后从 run 事实捞调用参数落摘要注入行
+//     （archive-summary，单一事实源——回放头随 fold 单源置首）；
+//   · 无 digest = 「无新总结压缩」（合法态）：边界照落、摘要行不落、
+//     回放头沿用上一代——亲写 summary.md 与终稿启发式随 V2 退役；
 //   · 归档重建 = splitForArchive 分割 + ctx.ledger.compactFor（物理
 //     面归账本 writer——写权 = 账本所有权 D4，本壳只写自己域）；
-//   · 概要 = Agent 亲写 summary.md（D4）——reviewRun 后 mtime 判
-//     新鲜，未更新/缺文件回退整理回复文本；
 //   · 批量唤醒信（archive-all，timers 机制任务）：枚举本域会话逐桶
-//     触发阈值检测（宿主零 archive 职责——A13/D11）；
-//   · 失控防线三闸照搬：① maxSteps 硬上限 ② 超时 abort ③ 步级观测。
+//     触发检测（宿主零 archive 职责——A13/D11）；
+//   · 失控防线：maxSteps 硬上限随 run 装配（用户配置）+ 编排超时兜底
+//     （等待窗 + 60s 缓冲后落边界）。
 // pending 标记协议退化：单写者壳内事件驱动 + idle-exit 不收割 busy
 // 会话（shellIsIdle 面），崩溃残留无独立扫描兜底的必要——重启后阈值
 // 检测自然重触发（幂等）。
@@ -24,14 +28,16 @@ import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import {
   DEFAULT_ARCHIVE_BUDGETS,
   DEFAULT_SELF_CONTEXT_TOKENS,
+  SUMMARY_TOKEN_CAP,
   estimateReplayTokens,
   keepBudgetOf,
   splitForArchive,
-  summaryCommittable,
   thresholdOf,
   type ArchiveBudgets,
 } from 'ac-archive-core';
-import { foldSession, foldStepsOf, foldSummaryOf, readDomainFacts, readLedger, rowShadowedBy, summaryTextOf, type LedgerRow } from 'ac-ledger';
+import type { ToolCall, ToolResult } from 'ac-tools';
+import { estimateTokens } from 'ac-text-budget';
+import { ARCHIVE_SUMMARY_SOURCE, foldDigestOf, foldSession, foldStepsOf, foldSummaryOf, readDomainFacts, readLedger, rowShadowedBy, summaryTextOf, type LedgerRow } from 'ac-ledger';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
 declare module '@agentchat/cordis' {
@@ -49,52 +55,117 @@ declare module '@agentchat/cordis' {
   }
 }
 
+/**
+ * 归档触发器（cr-1189 V3 机制注册式）：run 收束后逐会话求值，任一命中
+ * 即进入压缩流程（OR 语义）。注册沿 registerPromptSection 范式——
+ * ctx.archive.registerTrigger，随行 fiber 归属自动回收；缺省注册
+ * token-threshold（V2 现行口径平移）。
+ */
+export interface ArchiveTrigger {
+  /** 触发器 id（诊断/去重） */
+  id: string;
+  /** 触发器描述（诊断面） */
+  description?: string;
+  /** 适用面谓词（缺省全适用）；触发器自声明——如 run-count 只 appliesTo 自会话桶 */
+  appliesTo?: (uuid: string) => boolean;
+  /** 触发判定（ctx 字段随注册面扩展） */
+  shouldTrigger: (ctx: { uuid: string; activeTokens: number; runCountSinceCompaction: number; lastRunAt: number }) => boolean;
+}
+
 export interface ArchiveRowOptions {
   dataRoot: string;
   agentId: string;
-  /** 整理 run 步数硬上限（闸①——主线用户裁决 128） */
-  reviewMaxSteps?: number;
-  /** 整理 run 超时（闸②——超时 abort 后强制归档，概要不动） */
+  /** 整理轮编排等待窗（超时后宽限即兜底落边界——不 abort，run 自然收束） */
   timeoutMs?: number;
   /** 预算缺省（per-Agent settings['archive'] 覆盖） */
   defaults?: Partial<ArchiveBudgets>;
 }
 
 const REVIEW_TIMEOUT_MS = 10 * 60_000;
-const REVIEW_MAX_STEPS = 128;
-const SOFT_STEPS = 16;
+/** 编排等待窗超时后的缓冲（run 自然收束的宽限——超时兜底不 abort，只等） */
+const REVIEW_GRACE_MS = 60_000;
+/** 整理轮 runId 前缀（机制信封 requestId 'archive-run-*' → run-*）——触发检测跳过自身 */
+const REVIEW_RUN_PREFIX = 'run-archive-run-';
 
 /** 归档编排便（单会话串行——同桶并发触发幂等去重） */
 export class ArchiveShellService extends Service {
   private dataRoot: string;
   private agentId: string;
-  private reviewMaxSteps: number;
   private timeoutMs: number;
   private defaults: ArchiveBudgets;
-  /** 进行中的归档（uuid → AbortController——超时中止整理 run） */
-  private pending = new Map<string, AbortController>();
+  /** 进行中的归档（uuid → 机制信封 requestId——编排等待窗 + 幂等去重） */
+  private pending = new Map<string, string>();
+  /** 触发器注册表（cr-1189 机制注册式——token 阈值缺省注册，V2 口径平移） */
+  private triggers: ArchiveTrigger[] = [
+    {
+      id: 'token-threshold',
+      description: '活跃上下文 token 超阈值（V2 缺省口径）',
+      shouldTrigger: (t) => t.activeTokens > thresholdOf(this.budgetsFor(t.uuid)),
+    },
+  ];
+  /** digest 调用登记簿（uuid → text；工具观察面填、收束捞取消费——
+   * 键控会话防多桶并发归档时串味） */
+  private digestCommits = new Map<string, string>();
 
   constructor(ctx: Context, options: ArchiveRowOptions) {
     super(ctx, 'archive');
     this.dataRoot = options.dataRoot;
     this.agentId = options.agentId;
-    this.reviewMaxSteps = options.reviewMaxSteps ?? REVIEW_MAX_STEPS;
     this.timeoutMs = options.timeoutMs ?? REVIEW_TIMEOUT_MS;
     this.defaults = { ...DEFAULT_ARCHIVE_BUDGETS, ...options.defaults };
 
-    // 阈值检测（run 收束后）：非整理 run 且会话键含本 agent → 估算触发。
-    // 会话键门（主线 M19 对桶门同义）：本壳只管自己是端点的会话——
-    // uuid 两端（a~b / a~a）或单键 = 本 agent 即检测。
+    // 触发检测（run 收束后，cr-1189 机制注册式）：非整理 run 且会话键含本
+    // agent → 遍历触发器注册表（任一命中即触发）。会话键门（主线 M19
+    // 对桶门同义）：本壳只管自己是端点的会话——uuid 两端（a~b / a~a）
+    // 或单键 = 本 agent 即检测。
     ctx.on('loop/after-run', (request: LoopRunRequest, result: LoopRunResult) => {
       if (request.agent !== this.agentId) return;
       const uuid = request.conversationId;
       if (uuid === undefined || !uuid.split('~').includes(this.agentId)) return;
-      if (request.runId !== undefined && request.runId.includes('-review-')) return; // 整理 run 与会话增长无关
+      if (request.runId !== undefined && request.runId.startsWith(REVIEW_RUN_PREFIX)) return; // 整理轮与会话增长无关
       if (result.finish === 'error') return; // 失败 run 不触发
       void this.maybeArchive(uuid).catch((err: unknown) => {
-        this.ctx.logger.warn('[archive] 阈值检测失败（' + uuid + '）: ' + String(err));
+        this.ctx.logger.warn('[archive] 触发检测失败（' + uuid + '）: ' + String(err));
       });
-    }, { description: '归档阈值检测（run 收束后回放估算）' });
+    }, { description: '归档触发检测（run 收束后——机制注册式）' });
+
+    // session_digest 工具注册（cr-1189 §2.2——工具随 archive 行装配，
+    // 全 Agent 恒有）：压缩轮 pending 标记在场时接收总结（唯一提交面），
+    // 否则无副作用提示返回（防会话内被名字诱骗误调用）。长度不设硬闸
+    // ——超建议值仅提示引导（per-Agent settings['archive'] 可调）。
+    ctx.tools.register({
+      name: 'session_digest',
+      description: '仅在归档整理轮调用——收到压缩请求注入后，把整理结果作为唯一参数提交。会话内其他场景勿调用。',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string', description: '总结全文（自然语言；建议精炼覆盖关键决策、结论与待办）' } },
+        required: ['text'],
+      },
+      execute: async (args: Record<string, unknown>, call: ToolCall): Promise<ToolResult> => {
+        const uuid = call.conversationId ?? '';
+        if (uuid === '' || !this.pending.has(uuid)) {
+          return { ok: false, error: 'session_digest 仅在归档整理轮可用（当前无进行中的压缩请求）。会话内请直接把总结写在回复正文里。' };
+        }
+        const text = typeof args.text === 'string' ? args.text : '';
+        if (text.trim() === '') return { ok: false, error: 'text 不能为空——把整理结果全文作为参数提交。' };
+        this.digestCommits.set(uuid, text);
+        const cap = this.digestCapOf(uuid);
+        if (estimateTokens(text) > cap) {
+          return { ok: true, output: { committed: true, note: '总结已收录（偏长，下次可更精炼——建议 ' + cap + ' token 内）。' } };
+        }
+        return { ok: true, output: { committed: true } };
+      },
+    });
+  }
+
+  /**
+   * 总结长度建议值（per-Agent settings['archive'].digestTokenCap 覆盖
+   * 行缺省——提示引导面，非硬闸）。
+   */
+  private digestCapOf(uuid: string): number {
+    const settings = this.archiveSettingsOf(uuid);
+    const v = (settings as { digestTokenCap?: unknown } | null)?.digestTokenCap;
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : SUMMARY_TOKEN_CAP;
   }
 
   /** 会话目录（本 agent 域——影子域经 ledger agentDirOf 同源；本行直接拼） */
@@ -102,20 +173,26 @@ export class ArchiveShellService extends Service {
     return path.join(this.dataRoot, 'agents', this.agentId, 'sessions', uuid);
   }
 
-  /** 预算（per-Agent settings['archive'] 覆盖 > 行缺省；直读不缓存——
-   * 配置轴 = 文件文集，与 shims settingsOf 同源） */
-  private budgetsFor(uuid: string): ArchiveBudgets {
-    const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
-    let settings: Record<string, unknown> | undefined;
+  /** settings['archive'] 原值读面（缺省 undefined；直读不缓存——配置轴 =
+   * 文件文集，与 shims settingsOf 同源） */
+  private archiveSettingsOf(_uuid: string): Record<string, unknown> | undefined {
     try {
       const config = JSON.parse(fs.readFileSync(
         path.join(this.dataRoot, 'agents', this.agentId, 'config.json'), 'utf-8',
       )) as { settings?: Record<string, Record<string, unknown>> };
       const s = config.settings?.archive;
-      if (s !== undefined && typeof s === 'object') settings = s;
+      if (s !== undefined && typeof s === 'object') return s;
     } catch {
       // 配置缺席 = 行缺省
     }
+    return undefined;
+  }
+
+  /** 预算（per-Agent settings['archive'] 覆盖 > 行缺省；直读不缓存——
+   * 配置轴 = 文件文集，与 shims settingsOf 同源） */
+  private budgetsFor(uuid: string): ArchiveBudgets {
+    const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+    const settings = this.archiveSettingsOf(uuid);
     const base = {
       maxContextTokens: num(settings?.maxContextTokens, this.defaults.maxContextTokens),
       archiveTokenRatio: num(settings?.archiveTokenRatio, this.defaults.archiveTokenRatio),
@@ -181,16 +258,48 @@ export class ArchiveShellService extends Service {
     const picked = boundaries.length > 0
       ? rows.filter((r) => !shadowed(typeof r.seq === 'number' ? r.seq : undefined, tsOf(r)))
       : rows;
-    const summary = foldSummaryOf(foldSession(this.dataRoot, uuid, [dir]))?.text ?? summaryTextOf(dir);
+    const fold = foldSession(this.dataRoot, uuid, [dir]);
+    const summary = foldDigestOf(fold) ?? foldSummaryOf(fold)?.text ?? summaryTextOf(dir);
     return estimateReplayTokens([...picked, ...pseudo], this.agentId, summary !== '' ? { summary } : {});
   }
 
-  /** 阈值检测 + 触发（run 收束后异步）：超阈值 → 整理 → 归档重建。 */
+  /** 触发检测 + 触发（run 收束后异步，cr-1189 机制注册式）：遍历触发器
+   *  注册表（appliesTo 过滤后 OR 求值）——任一命中即进入压缩流程。
+   *  ctx 数据面：activeTokens（V2 现行口径）/ runCountSinceCompaction
+   *  （fold 压缩代边界后的 run-end 计数）/ lastRunAt。token-threshold
+   *  缺省注册 = V2 阈值口径平移（行为等价回归锚）。 */
   async maybeArchive(uuid: string): Promise<void> {
-    if (this.pending.has(uuid)) return;
-    const threshold = thresholdOf(this.budgetsFor(uuid));
-    if (this.activeTokensOf(uuid) <= threshold) return; // cr-1160：活跃代口径（压缩边界已滤）
+    if (this.pending.has(uuid)) return; // 同拍去重（同一会话同拍至多一次）
+    const ctx = this.triggerCtxOf(uuid);
+    const hit = this.triggers.some((t) => (t.appliesTo?.(uuid) ?? true) && t.shouldTrigger(ctx));
+    if (!hit) return;
     await this.requestArchive(uuid);
+  }
+
+  /** 触发器 ctx 数据面（首版字段——新字段按需加，注册式扩展点即在此） */
+  private triggerCtxOf(uuid: string): { uuid: string; activeTokens: number; runCountSinceCompaction: number; lastRunAt: number } {
+    const facts = readDomainFacts(this.sessionDir(uuid), this.agentId);
+    // 最新压缩代边界（多域取最大 endTs——本域单写者视角取本域代即可）
+    const lastGen = facts.compactions.at(-1);
+    let runCount = 0;
+    let lastRunAt = 0;
+    for (const rf of facts.runs.values()) {
+      const endTs = rf.end?.ts ?? 0;
+      if (lastGen !== undefined && lastGen.endTs > 0 && endTs > 0 && endTs <= lastGen.endTs) continue; // 压缩前代 run 不计
+      runCount += 1;
+      if (endTs > lastRunAt) lastRunAt = endTs;
+    }
+    return {
+      uuid,
+      activeTokens: this.activeTokensOf(uuid),
+      runCountSinceCompaction: runCount,
+      lastRunAt,
+    };
+  }
+
+  /** 触发器注册（registerPromptSection 范式——随行 fiber 归属自动回收） */
+  registerTrigger(trigger: ArchiveTrigger): void {
+    this.triggers.push(trigger);
   }
 
   /** 活跃上下文估算（cr-1160 P4 三口径收敛——阈值检测口径）。
@@ -211,52 +320,72 @@ export class ArchiveShellService extends Service {
   }
 
   /**
-   * 请求归档（幂等）：整理 run → 概要（亲写文件优先 / 回退回复文本）→
-   * 归档重建。超时（闸②）abort 整理 → 强制归档（概要不动）。
+   * 请求归档（幂等，cr-1189 V3 注入驱动 + 结构化提交）：
+   * ① 落请求注入行（context + source=archive-review-request——机制材料
+   *     非 shadowed 面待压缩边界出清；wrapper 档进回放，压缩轮复读即见指令）
+   *  → ② 机制信封经 conversation.deliver 投递（plan=run/queue/steered 随机
+   *     器自判——busy 时 next-turn 排队不抢用户 run；requestId 同键幂等）
+   *  → ③ 等待整理轮收束（等待窗 = 超时 + 宽限；不 abort——自然收束语义）
+   *  → ④ 从 run 事实捞 session_digest 调用参数（digestCommits ∪ run 事实
+   *     回捞）→ 捞到落摘要注入行（archive-summary，单一事实源）；没捞到
+   *     = 无新总结压缩（合法态）
+   *  → ⑤ archiveAndRebuild（边界 + stats 落 compaction 事件——无 summary 字段）
+   *  → ⑥ 完成广播。
+   * pending 标记生命周期：① 置位（uuid → requestId）、⑤ 前消费清除；
+   * 工具守卫据它判定压缩轮上下文。
    */
   async requestArchive(uuid: string): Promise<void> {
     if (this.pending.has(uuid)) return;
-    const abort = new AbortController();
-    this.pending.set(uuid, abort);
+    const requestId = 'archive-run-' + Date.now();
+    this.pending.set(uuid, requestId);
     try {
       const requestedAt = Date.now();
       const conv = this.ctx.get('conversation', false) as
-        | { reviewRun(uuid: string, prompt: string, opts?: { runId?: string; maxSteps?: number; signal?: AbortSignal }): Promise<{ finish: string; text: string }> }
+        | { deliver(agentId: string, inbound: string, options?: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number; notice?: boolean; mechanism?: boolean; budget?: number }): Promise<unknown> }
         | undefined;
-      if (conv === undefined) {
-        this.ctx.logger.warn('[archive] conversation 服务缺席——整理不可用，直接归档（概要不动）');
-        const archived = await this.archiveAndRebuild(uuid, undefined, requestedAt);
-        this.completedOf(uuid, archived); // cr-1188 降级路径同样呈报——前端收口同门
-        return;
-      }
-      const runId = requestedAt + '-review-' + uuid;
-      const timer = setTimeout(() => abort.abort(new Error('整理超时')), this.timeoutMs);
-      timer.unref();
-      let outcome: { finish: string; text: string };
-      try {
-        outcome = await conv.reviewRun(uuid, this.reviewPrompt(uuid), { runId, maxSteps: this.reviewMaxSteps, signal: abort.signal });
-      } finally {
-        clearTimeout(timer);
-      }
-      // 概要来源（D4）：正常收束（finish='ok'）→ 亲写 summary.md（mtime ≥
-      // requestedAt 判新鲜）优先，回退回复文本；**cr-1160 P3 概要提交协议**：
-      // 候选文本过 summaryCommittable 形态校验（「此前，」开头 + 上限 + 元文本
-      // 黑名单）——不合格 → summary = undefined（本代无新概要，compaction 事件
-      // 不带摘要，回放头回落上一代概要）；未正常收束 → 概要不动。
-      let summary: string | undefined;
-      if (outcome.finish === 'ok') {
-        const file = path.join(this.sessionDir(uuid), 'summary.md');
-        let fresh = false;
+      // 请求注入行落账（压缩轮指令的 durable 面——run 上下文复读自带）
+      await this.ctx.ledger.deliverRow(uuid, [this.agentId], 'user', {
+        role: 'context',
+        source: 'archive-review-request',
+        content: this.reviewPrompt(uuid),
+        label: '归档整理请求',
+        agent_id: this.agentId,
+        requestId,
+        uuid,
+      });
+      let runId = 'run-' + requestId;
+      if (conv !== undefined) {
         try {
-          fresh = fs.existsSync(file) && fs.statSync(file).mtimeMs >= requestedAt;
-        } catch {
-          fresh = false;
+          await conv.deliver(this.agentId, this.reviewPrompt(uuid), {
+            sender: this.agentId,
+            source: 'event',
+            conversationId: uuid,
+            requestId,
+            timeoutMs: this.timeoutMs,
+            mechanism: true,
+            budget: 3,
+          });
+        } catch (err: unknown) {
+          this.ctx.logger.warn('[archive] 整理轮投递失败（' + uuid + '）: ' + String(err));
         }
-        const text = fresh ? summaryTextOf(this.sessionDir(uuid)) : '';
-        const candidate = text !== '' ? text : outcome.text.trim();
-        if (candidate !== '' && summaryCommittable(candidate)) summary = candidate;
+        await this.waitForReviewRun(uuid, runId, requestedAt);
+      } else {
+        this.ctx.logger.warn('[archive] conversation 服务缺席——整理不可用，直接归档（总结不动）');
       }
-      const archived = await this.archiveAndRebuild(uuid, summary, requestedAt);
+      // digest 捞取：登记簿（壳内观察面）∪ run 事实回捞（跨重启/多路径兜底）
+      const digest = this.takeDigestOf(uuid, runId);
+      if (digest !== undefined) {
+        await this.ctx.ledger.deliverRow(uuid, [this.agentId], 'user', {
+          role: 'context',
+          source: ARCHIVE_SUMMARY_SOURCE,
+          content: digest,
+          label: '归档总结',
+          agent_id: this.agentId,
+          requestId: requestId + '-summary',
+          uuid,
+        });
+      }
+      const archived = await this.archiveAndRebuild(uuid, requestedAt);
       this.completedOf(uuid, archived); // cr-1188 完成广播——前端 pending 收口 / 会话流刷新
     } finally {
       this.pending.delete(uuid);
@@ -264,27 +393,102 @@ export class ArchiveShellService extends Service {
   }
 
   /**
-   * 整理提示词（主线 reviewPrompt 平移——Agent 亲自整理语义）：
-   * 概要 = Agent 亲写 summary.md（fs 工具在场时）/ 回复即概要；TODO/
-   * DONE/note 工作文件同理整理。会话键显式给出（Agent 无从推导键词法）。
+   * 等待整理轮收束（自然收束语义——不 abort）：等待窗 = timeoutMs + 宽限；
+   * 每 500ms 轮询 run 事实的 run-end。收束/超窗/异常都放行（超窗 = 兜底
+   * 落边界——run 若仍在途，其后落账的 digest 行属下一代语境，回放头由
+   * 边界时刻维保护不误入）。
+   */
+  private async waitForReviewRun(uuid: string, runId: string, requestedAt: number): Promise<void> {
+    const deadline = requestedAt + this.timeoutMs + REVIEW_GRACE_MS;
+    const file = path.join(this.sessionDir(uuid), 'messages.jsonl');
+    let seenMtime = 0;
+    while (Date.now() < deadline) {
+      // stat 门：mtime 未变不重解析账本（readDomainFacts 全文件解析，
+      // 等待窗内 500ms 轮询 × 分钟级窗口的读放大闸）
+      let mtime = 0;
+      try { mtime = fs.statSync(file).mtimeMs; } catch { /* 文件缺席 = run 未起步 */ }
+      if (mtime !== seenMtime) {
+        seenMtime = mtime;
+        const facts = readDomainFacts(this.sessionDir(uuid), this.agentId);
+        if (facts.runs.get(runId)?.end !== undefined) return;
+      }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    this.ctx.logger.warn('[archive] 整理轮等待超窗（' + uuid + ' ' + runId + '）——兜底落边界');
+  }
+
+  /**
+   * digest 捞取（cr-1189 唯一提交面）：① 登记簿命中（工具 execute 直写
+   * ——守卫已保证 ok 调用必属 pending 中的该会话，消费即清）；② run 事实
+   * 回捞（step/tool-call-result 行里 name='session_digest' 的结果 ok 面
+   * → 同 run 的 tool-call 参数 + 结果 JSON 内嵌 text 取回——崩溃重启/
+   * 登记簿缺席的兜底）。多取按 run 内序取最后一次（末次为终态）。
+   */
+  private takeDigestOf(uuid: string, runId: string): string | undefined {
+    const committed = this.digestCommits.get(uuid);
+    if (committed !== undefined) {
+      this.digestCommits.delete(uuid);
+      return committed;
+    }
+    // run 事实回捞兜底：run 的步级事件里找 session_digest 调用对
+    const facts = readDomainFacts(this.sessionDir(uuid), this.agentId);
+    const rf = facts.runs.get(runId);
+    if (rf === undefined) return undefined;
+    const calls = new Map<string, string>();
+    for (const ev of rf.events) {
+      if (ev.kind === 'tool-call' && ev.name === 'session_digest') calls.set(ev.toolCallId, ev.arguments);
+    }
+    let last: string | undefined;
+    for (const ev of rf.events) {
+      if (ev.kind !== 'tool-call-result' || ev.name !== 'session_digest') continue;
+      if (ev.result.ok !== true) continue;
+      const text = this.digestTextOf(ev.result, calls.get(ev.toolCallId));
+      if (text !== undefined) last = text;
+    }
+    return last;
+  }
+
+  /** digest 文本提取（结果 output 内嵌优先；缺参数结果面回落） */
+  private digestTextOf(result: { ok: boolean; output?: unknown }, argsJson: string | undefined): string | undefined {
+    const out = result.output as { text?: unknown } | undefined;
+    if (typeof out === 'object' && typeof (out as { text?: unknown }).text === 'string') {
+      const text = (out as { text: string }).text;
+      if (text.trim() !== '') return text;
+    }
+    if (argsJson !== undefined) {
+      try {
+        const parsed = JSON.parse(argsJson) as { text?: unknown };
+        if (typeof parsed.text === 'string' && parsed.text.trim() !== '') return parsed.text;
+      } catch { /* 坏参数 JSON——如实缺席 */ }
+    }
+    return undefined;
+  }
+
+  /**
+   * 归档整理指令（cr-1189 V3 注入行正文——措辞按术语分层用「归档整理」
+   * 「总结」；§2.6 首轮膨胀缓解：写明基于当前上下文与既有总结整理，不必
+   * 逐条回读）。会话键显式给出（Agent 无从推导键词法）。
+   * cr-1190 续修：删「整理工作文件」（TODO.md/DONE.md/note/）条目——主线
+   * ac-archive 时代遗物：TODO 归 todo 工具、知识库归 memory 行，归档轮插手
+   * = 双事实源 + 每轮固定 2-3 步开销（DONE.md 实测滚至 268KB 无出清机制）。
    */
   private reviewPrompt(uuid: string): string {
     const budget = Math.max(400, Math.ceil(this.budgetsFor(uuid).maxContextTokens * 0.004));
+    const cap = this.digestCapOf(uuid);
     const self = uuid === this.agentId + '~' + this.agentId;
     const other = uuid.split('~').find((p) => p !== this.agentId) ?? 'user';
     const subject = self
-      ? '此前运行日志（含已有概要覆盖的更早内容）的关键事件、推送结论、失败教训与待跟进事项'
-      : '这段会话（含已有概要覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项';
+      ? '此前运行日志（含已有总结覆盖的更早内容）的关键事件、推送结论、失败教训与待跟进事项'
+      : '这段会话（含已有总结覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项';
     const head = self
       ? '[归档整理] 你的自会话运行日志（会话键 ' + uuid + '）需要滚动整理，早期机制触发记录即将移出会话流。请完成以下整理：'
       : '[归档整理] 你与「' + other + '」的会话（会话键 ' + uuid + '）已达到归档阈值，早期消息即将移出会话流。请在归档前完成以下整理：';
     return [
       head,
-      '1. 【生成会话总结】把' + subject + '，整理为一段以「此前，」开头的自然语言，控制在 ' + budget + ' 字以内，写入本会话概要文件 summary.md（整文件即总结，重写覆盖——位于会话目录，可用 write/fs_write 工具）。',
-      '2. 【整理工作文件】TODO.md / DONE.md / note/ 知识库同理更新：完成的事项移入 DONE、过时内容清理删除，保持精炼。',
-      '会话中的 context 注入行（长期记忆快照/增量、技能注入等）是机制材料，不属于会话事实——无需纳入概要。',
-      '整理是机制任务：不要发起对话、不要等待用户回复；完成后简短确认即可，系统会自动归档。',
-    ].join('\n');
+      '1. 【提交会话总结】基于当前上下文与既有总结整理（不必逐条回读），把' + subject + '，整理为一段自然语言（建议 ' + Math.min(cap, budget) + ' token 内），调用 session_digest 工具提交——text 参数即总结全文，这是唯一提交面（不写文件、不必贴在回复正文）。',
+      'context 注入行（记忆快照/技能注入等）是机制材料，不属于会话事实，无需纳入总结。',
+      '这是机制任务：不要发起对话、不要等待回复；提交总结后简短确认即可，系统会自动归档。',
+    ].join('\\n');
   }
 
   /**
@@ -300,7 +504,7 @@ export class ArchiveShellService extends Service {
    * 命名）；主日志保留 = header + compaction 事件（经 B1 窗口 late-merge
    * 自然留存——audit 面永在）+ 尾部行。v1 会话走原 compact 流程不动。
    */
-  async archiveAndRebuild(uuid: string, summary: string | undefined, requestedAt: number): Promise<number> {
+  async archiveAndRebuild(uuid: string, requestedAt: number): Promise<number> {
     const ledger = this.ctx.ledger;
     const dir = this.sessionDir(uuid);
     const { header, rows } = readLedger(dir);
@@ -310,7 +514,14 @@ export class ArchiveShellService extends Service {
     const lastArchived = anchor !== null && anchor.seq !== undefined
       ? { seq: anchor.seq, message_id: anchor.messageId, role: '', content: '' }
       : null;
-    if ((header?.version ?? 1) >= 2) {
+    // 版本判据 = 行面而非头行（cr-1190 续修：v1 头行会话后续追加 v2 判别行合法
+    // ——writer.ts「头行永不重写」。按头行分流会让 v1 分支拿到 90% content 空的
+    // v2 事件行：content-only 截断把全表当零成本尾部吃尽 → archive 恒空、边界
+    // 恒不落（user~writer 实锤：734 行 662 空 content，整理轮跑了两次零归档）。
+    // 行面出现任一 v2 判别行（type/seq）即走 v2 语义——与 events-v2 归一化
+    // 「按行判别」同源；纯 v1 行（无 type 无 seq）才留 v1 分支。
+    const hasV2Rows = rows.some((r) => r.type !== undefined || r.seq !== undefined);
+    if ((header?.version ?? 1) >= 2 || hasV2Rows) {
       // 富化行（估算/水位计量面）——分割边界取回原 rows 的 seq 锚
       const facts = readDomainFacts(dir, this.agentId);
       const pseudo: LedgerRow[] = [];
@@ -319,30 +530,42 @@ export class ArchiveShellService extends Service {
         if (steps.length > 0) pseudo.push({ role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
       }
       const enriched = [...rows, ...pseudo] as never[];
-      const split = splitForArchive(enriched, budgets, lastArchived);
+      // viewer 必传（cr-1190 续修 2）：缺省 content-only 会让伪行（content=''
+      // 轨迹全在 steps）est=0——truncateTail 零成本吃完全表 → archive 恒空、
+      // boundary=0（user~writer 实锤：伪行真实体积 32.5 万 token 全漏计）。
+      // 传 viewer 后尾部预算按回放口径（轨迹展开）计量，与 estimateOf 同源。
+      const split = splitForArchive(enriched, budgets, lastArchived, { viewer: this.agentId });
       // cr-1155 归档对齐口径修正：split 切片是 enriched 数组的引用切片——
       // 用引用集对齐（位置语义）替代 seq 集匹配，无 seq 的 v1 存量行按其
       // 文件位置自然进归档集/保留集，不再被 (seq ?? Infinity) 永久钉在主日志
       // （僵尸行：穿越任意多次 compaction 不离场——ac-memory 锚曾因 v1 行
       // 永踞 recordsFor 投影尾部而 S 冻结、每 run 重注）。
       const archivedSet = new Set<unknown>(split.archive);
-      // compaction 事件永留主日志（§2.3 可审计可重建；其 run-end 同留——
-      // 机制标记）——归档排除，fold summaryOf 跨轮迭替不受影响
+      // compaction 事件 + archive-summary 行永留主日志（§2.3 可审计可重建；
+      // cr-1189：摘要行是回放头事实源——foldDigestOf 读主日志 contexts，物理
+      // 搬走 = 下一代刷新后回放头蒸发。请求行/机制信行照常随代出清）。
+      // 其 run-end 同留——机制标记）
       const compactionRuns = new Set(rows
         .filter((r) => String((r as { type?: unknown }).type ?? '').startsWith('compaction/'))
         .map((r) => (r as { run?: unknown }).run));
       const isCompactionRow = (r: LedgerRow): boolean => {
         const t = String((r as { type?: unknown }).type ?? '');
+        if ((r as { source?: unknown }).source === ARCHIVE_SUMMARY_SOURCE) return true;
         return t.startsWith('compaction/') || (t === 'run-end' && compactionRuns.has((r as { run?: unknown }).run));
       };
       const archivedOriginal = rows.filter((r) => archivedSet.has(r) && !isCompactionRow(r));
       const baselineSeq = rows.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
-      const archivedMaxSeq = split.archive.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
+      // boundary 从 archivedOriginal（真行、机制行已排除）取 max——不从
+      // split.archive 取（cr-1190 续修 3）：split 集含伪行与刚落账的摘要行
+      //（伪行尾部追加使摘要行位置落进归档段），boundary 盖过摘要行 = 自
+      // shadow、回放头蒸发。排除后 boundary ≤ 摘要行 seq-1，天然不 shadow。
+      const archivedMaxSeq = archivedOriginal.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
       const boundary = Math.max(lastArchived?.seq ?? 0, archivedMaxSeq, 0);
-      // 语义边界先 durable（cr-1160 P1 单事件：摘要可空——P3 不合格本代无新
-      // 概要；stats 随行审计面。摘要滚动即使零移出也落事件——边界即刻生效）
+      // 语义边界先 durable（cr-1160 P1 单事件 + cr-1189 V3：**不携带 summary
+      // 字段**——摘要全文住 archive-summary 注入行，单一事实源；无新总结压缩
+      // 时摘要行缺席、回放头沿用上一代。stats 随行审计面。摘要滚动即使零移出
+      // 也落事件——边界即刻生效）
       await ledger.compactionFor(uuid, requestedAt + '-compaction-' + uuid, {
-        ...(summary !== undefined ? { summary } : {}),
         shadowedSeq: boundary,
         stats: { shadowedRows: archivedOriginal.length, estimatedTokens: this.estimateOf(uuid) },
       });
@@ -374,7 +597,6 @@ export class ArchiveShellService extends Service {
       archive: split.archive,
       keep: split.keep,
       baselineSeq: baselineSeq > 0 ? baselineSeq : undefined,
-      ...(summary !== undefined ? { summary } : {}),
     });
     if (report.archived > 0) {
       this.ctx.logger.info(
@@ -390,7 +612,8 @@ export class ArchiveShellService extends Service {
 
   /**
    * 批量归档本域全部达阈值会话（archive-all 唤醒信到达）：枚举
-   * agents/<id>/sessions/ → 逐桶阈值检测（maybeArchive 幂等串行）。
+   * agents/<id>/sessions/ → 逐桶触发检测（maybeArchive 幂等串行——
+   * cr-1189 机制注册式，token 阈值为缺省注册之一）。
    * 无注册表面（A13）——宿主只发信，判定与执行全在壳内。
    */
   async archiveAll(): Promise<Array<{ conversationId: string; skipped?: boolean; reason?: string }>> {
@@ -408,8 +631,7 @@ export class ArchiveShellService extends Service {
         report.push({ conversationId: uuid, skipped: true, reason: 'pending' });
         continue;
       }
-      const threshold = thresholdOf(this.budgetsFor(uuid));
-      if (this.activeTokensOf(uuid) < threshold) {
+      if (!this.triggers.some((t) => (t.appliesTo?.(uuid) ?? true) && t.shouldTrigger(this.triggerCtxOf(uuid)))) {
         report.push({ conversationId: uuid, skipped: true, reason: 'below-threshold' });
         continue;
       }
@@ -426,7 +648,9 @@ export class ArchiveShellService extends Service {
 export function makeArchiveRow(options: ArchiveRowOptions): Plugin {
   return {
     name: 'shell-archive-row',
-    inject: ['ledger'],
+    // tools 硬依赖（cr-1189）：session_digest 随行注册——构造器访问
+    // ctx.tools，无 inject 声明的属性访问直接 throw（cr-639 同款教训）
+    inject: ['ledger', 'tools'],
     apply(ctx: Context) {
       ctx.plugin(class extends ArchiveShellService {
         constructor(c: Context) { super(c, options); }

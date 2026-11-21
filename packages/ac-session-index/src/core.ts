@@ -399,9 +399,11 @@ export class SessionIndex {
   /** 行级文本面 token 估算（cr-1160 P4——ac-text-budget 同口径 CJK 0.6/其他 0.3）：
    *  v1 行 = content；v2 相位行 = text；tool-call = name+arguments；
    *  tool-call-result = result JSON（**subcall 行不计**——与 ac-archive-core
-   *  replayTokensOf 的 `if (tc.subcall === true) continue` 同源：run_code 程序
-   *  内子调用不进回放注入，实测占体量大头——news~news 现场 1.7M→0.4M）；
-   *  compaction 行不计（非会话载荷）。 */
+   *  replayTokensOf 的 subcall 过滤同源：run_code 程序内子调用不进回放
+   *  注入，实测占体量大头——news~news 现场 1.7M→0.4M）；
+   *  compaction 行不计（非会话载荷）；cr-1189 V3：archive-review-request
+   *  机制请求行不计（非会话载荷，回放由压缩边界出清）；archive-summary
+   *  摘要行计入（Q2 裁定——新代头部事实，与 est_tokens 同源）。 */
   private static estimateRowTokens(row: Record<string, unknown>): number | null {
     const est = estimateTextTokens;
     const type = row.type;
@@ -409,6 +411,7 @@ export class SessionIndex {
     if (type === 'step/reasoning' || type === 'step/content') return est(row.text as string);
     if (type === 'step/tool-call') return est(String(row.name ?? '') + String(row.arguments ?? ''));
     if (type === 'step/tool-call-result') return row.subcall === true ? 0 : est(JSON.stringify(row.result ?? null));
+    if (row.source === 'archive-review-request') return null;
     return est(row.content as string);
   }
 

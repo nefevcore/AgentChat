@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
 import { summaryTextOf, UNCOMMITTED_TOOL_ERROR } from './reader.ts';
-import { foldLlmReplay, foldSession, foldSummaryOf, foldTextReplay } from './fold.ts';
+import { foldDigestOf, foldLlmReplay, foldSession, foldSummaryOf, foldTextReplay } from './fold.ts';
 import { REPLAY_BUILTIN_WORDS, type ReplayDecl, type ReplayKind } from './replay.ts';
 import { wrapSystemReminder } from 'ac-core-utils';
 import { readDomainFacts, type RunFactsV2 } from './events-v2.ts';
@@ -351,10 +351,11 @@ export class LedgerService extends Service {
    * 对端视角投影（cr-712——委托对历史播种） */
   historyFor(uuid: string, viewer: string = this.agentId): Array<{ role: 'assistant' | 'user' | 'system'; content: string }> {
     const dir = path.join(this.agentDirOf(), 'sessions', uuid);
-    // cr-974：摘要源切换——压缩事件在场用事件摘要（§2.3 三态），否则
-    // summary.md 兼容窗（v1）；文本投影走 fold 单源（含 shadowed 过滤）
+    // cr-974 摘要源 + cr-1189 V3 单源序：archive-summary 行 → v2 事件
+    // 摘要（§2.3 三态）→ summary.md 兼容窗（v1）；文本投影走 fold 单源
+    // （含 shadowed 过滤）
     const fold = foldSession(this.dataRoot, uuid, [dir]);
-    const summary = foldSummaryOf(fold)?.text ?? summaryTextOf(dir);
+    const summary = foldDigestOf(fold) ?? foldSummaryOf(fold)?.text ?? summaryTextOf(dir);
     const view = foldTextReplay(fold, viewer);
     return summary !== '' ? [{ role: 'system', content: summary }, ...view] : view;
   }
@@ -420,7 +421,9 @@ export class LedgerService extends Service {
       // cr-1104 注册制：声明词按 owning 插件的注册档回放（缺省 wrapper）
       replayOf: (word) => this.replayDecls.get(word),
     });
-    if (foldSummaryOf(fold) === null) {
+    // v1 概要兼容窗（cr-1189 V3 单源序）：无 V3 摘要行且无 v2 压缩代时
+    // 才回落 summary.md——foldLlmReplay 只对 v2 代发 system 头
+    if (foldDigestOf(fold) === null && foldSummaryOf(fold) === null) {
       const summary = summaryTextOf(dir);
       return summary !== '' ? [{ role: 'system', content: summary }, ...out] : out;
     }
@@ -546,7 +549,8 @@ export class LedgerService extends Service {
     return this.writerFor(uuid, [this.agentId], 'user').compaction(runId, opts);
   }
 
-  /** 机制 run 收束（archive 行消费——journal-settled 落账、账本不落行） */
+  /** 机制 run 收束（cr-1189 V3 退役标记：整理轮改普通 run 语义后无生产
+   *  消费方——保留薄壳供恢复面收口等残余形态，不再新增调用） */
   async settleMechanismFor(uuid: string, runId: string, finish: 'ok' | 'interrupted' | 'error'): Promise<void> {
     await this.writerFor(uuid, [this.agentId], 'user').settleMechanism(runId, finish);
   }

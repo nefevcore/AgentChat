@@ -143,20 +143,12 @@ export function replayTokensOf(m: ArchiveMessage, viewer?: string): number {
   return estimateTokens(m.content ?? '');
 }
 
-/** 概要提交形态校验（cr-1160 P3）：整理 run 产出的摘要是否合格。
- *  合格 = 以「此前，」开头 && 不超 token 上限 && 首行不以元文本黑名单开头。
- *  不合格 → 调用方落 compaction 事件时不带 summary（本代无新概要，回放头
- *  回落上一代）——「无新概要的压缩」是合法状态。 */
+/** 总结长度建议值（cr-1189 V3：提交面结构化后格式门槛退役——无意图词
+ *  校验、不限长度，超建议值仅提示引导；per-Agent settings['archive']
+ *  .digestTokenCap 可调）。 */
 export const SUMMARY_TOKEN_CAP = 4000;
-const SUMMARY_META_PREFIXES = ['整理完成', '概要：', '概要:', '## ', '**'];
-
-export function summaryCommittable(summary: string, cap = SUMMARY_TOKEN_CAP): boolean {
-  const text = summary.trim();
-  if (!text.startsWith('此前，') && !text.startsWith('此前:')) return false;
-  const firstLine = text.split('\n')[0] ?? '';
-  if (SUMMARY_META_PREFIXES.some((p) => firstLine.startsWith(p))) return false;
-  return estimateTokens(text) <= cap;
-}
+// summaryCommittable 启发式校验随 V2 概要提交协议退役（cr-1189 §2.4）——
+// 工具参数 = 显式提交意图，无「误把汇报当摘要」的提取歧义。
 
 /**
  * 回放口径的会话估算（归档阈值/水位判断的唯一口径；viewer = 回读的 Agent）。

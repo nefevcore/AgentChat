@@ -57,6 +57,7 @@
     "ac-goal": "workspace:*",
     "ac-todo": "workspace:*",
     "ac-agents-core": "workspace:*",
+    "ac-text-budget": "workspace:*",
     "ac-auth-core": "workspace:*",
     "ac-credentials-core": "workspace:*",
     "ac-llm": "workspace:*",

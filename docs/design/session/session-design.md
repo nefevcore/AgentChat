@@ -301,9 +301,11 @@ interrupted（webui partial 态），不回写日志；`settleOrphan`/`recoverOr
 - **fail-closed checkpoint**：`tool/before-execute` 按执行身份 `call.conversationId` 定向 flush（M11），落盘失败则 veto 工具执行——入站消息与 journal 先于工具副作用 durable；
 - 卸载收尾 `flushAll()`（优雅关闭）。
 
-### 3.4 概要与重建（replace 的落盘面；cr-1160 压缩 V2 已实施）
+### 3.4 概要与重建（replace 的落盘面；cr-1189 压缩 V3 已实施）
 
-> **cr-1160（2026-11-20）压缩 V2 已实施**：逻辑压缩 = **compaction 单事件**（一行携带 boundarySeq/endTs/summary/stats/model——`compaction/*` 旧三连读侧归并，存量零迁移）；边界 = 多轮叠加 + `rowShadowedBy` 三级裁决谓词（时刻放行前置 → seq 位置维 → ts 时刻维 → 文件位置维）；概要提交协议（`summaryCommittable` 形态校验——不合格本代无新概要，回放头回落上一代）；session-index 增 generation/est_tokens/compactions 面（`activeContextTokens` 活跃代合计 = 阈值/仪表直读，三口径收敛）；物理回收与逻辑压缩解耦（shadowed 估算超 keep 水位 × 2 才搬段）。设计全文见 [compaction-v2-redesign.md](compaction-v2-redesign.md)。
+> **cr-1189/cr-1190（2026-11-21）压缩 V3 已实施**（取代 V2 的驱动面与提交面，P1/P2/P4 骨架不动）：整理轮 = **会话内注入行 + 普通 deliver run**（reviewRun 机制面整体退役——隐藏查表/settleMechanismFor 消费面随退，压缩轮在会话流可见）；总结提交 = **session_digest 工具参数**（结构化提交零格式门槛；无提交不压缩 = 合法态）；摘要全文住 **archive-summary 注入行**（单一事实源——compaction 事件只做边界 + stats，不带 summary 字段；回放头随 fold 单源置首）；触发检测 = **机制注册式**（registerTrigger——token 阈值缺省，可扩展 run-count 等场景）。设计全文与实施注记见 [compaction-v3-injection.md](compaction-v3-injection.md)。
+>
+> cr-1160（2026-11-20）V2 遗产仍在场的部分：逻辑压缩 = **compaction 单事件**（边界 + stats——`compaction/*` 旧三连读侧归并，存量零迁移）；边界 = 多轮叠加 + `rowShadowedBy` 三级裁决谓词（时刻放行前置 → seq 位置维 → ts 时刻维 → 文件位置维）；session-index 增 generation/est_tokens/compactions 面（`activeContextTokens` 活跃代合计 = 阈值/仪表直读，三口径收敛）；物理回收与逻辑压缩解耦（shadowed 估算超 keep 水位 × 2 才搬段）。V2 全文见 [compaction-v2-redesign.md](compaction-v2-redesign.md)（已被 V3 部分取代）。
 
 - `compact({summary, keep})`：flush → tmp+rename 原子重写消息流（Windows 主场，不做硬链接发布）→ 旧队列作废；
   **cr-974 压缩事件化 → cr-1160 单事件化**：v2 会话摘要全文进 `compaction` 单事件行（`summary.md` 停写——v1 存量读兼容），fold 三态（current / shadowed〔被任一压缩代边界覆盖，仍在日志〕/ log-only〔机制行〕）——LLM 回放 = 最新可用摘要置首（本代缺概要回落上一代）+ 全部边界外行；物理回收与逻辑压缩解耦（cr-1160：shadowed 估算超回收阈才搬段——S5 白名单唯一重写许可不变）；

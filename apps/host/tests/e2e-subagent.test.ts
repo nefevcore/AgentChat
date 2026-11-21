@@ -160,8 +160,9 @@ describe('M8.3 e2e：程序化会话 spawn → 子壳 LLM 工具面（cr-763）'
       // 形态 = 空集（tc-* 继承把面收窄没了）。
       // cr-1114 批1：骨架行（host-face-client）承诺面工具（timer/
       // update_agent_profile）恒可见——不再被点名白名单滤除（cr-1007 滤除
-      // 语义退役）。
-      expect([...subsetDefs.names].sort()).toEqual(['browser', 'edit', 'read', 'timer', 'update_agent_profile', 'web_search', 'write']);
+      // 语义退役）。cr-1189：骨架 archive 行的 session_digest 同理在面
+      //（工具守卫挡会话内误调，注册面恒可见）。
+      expect([...subsetDefs.names].sort()).toEqual(['browser', 'edit', 'read', 'session_digest', 'timer', 'update_agent_profile', 'web_search', 'write']);
       const subsetCfg = readChildConfig(ROOT, 'coder', subsetId);
       expect(subsetCfg?.toolMode).toBeUndefined();
       await parent.control({ ctrl: 'tool', name: 'subagent', args: { action: 'delete', subagent_id: subsetId } });

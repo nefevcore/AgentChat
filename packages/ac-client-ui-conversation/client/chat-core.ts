@@ -149,7 +149,9 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   // ══ 复制反馈 ══
   const copyFeedback = ref(false);
 
-  // ══ 压缩 / 记忆整理反馈（非消息状态；tone 语义态 → FeedbackNotice 派生图标/配色）══
+  // ══ 归档 / 记忆整理反馈（非消息状态；tone 语义态 → FeedbackNotice 派生图标/配色）══
+  // cr-1189 §2.7 术语分层：编排层符号统一 archive 族（compressSession →
+  // archiveSession 改名留 B5 全仓消费面一起做，此处先别名导出）。
   const compressPending = ref(false);
   /** 手工归档进行中的会话键（conversationId）——完成帧按它精确复位
    *  pending（后台自动归档的完成帧不误清手工进行中的状态） */
@@ -699,7 +701,9 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     feed.loadMoreHistory(dialogId);
   }
 
-  function compressSession() {
+  /** 手工归档入口（cr-1189 §2.7 术语分层：compressSession 更名 archiveSession
+   *  ——编排层符号统一 archive 族，行为零变） */
+  function archiveSession() {
     const ctx = resolveContext();
     // 1v1 与独立会话均可触发（/archive 快捷命令同一入口）：single 的会话键
     // = sid（与 deliver/历史同口径），agentId 显式透传（sid 无 ~ 段，
@@ -1059,7 +1063,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     // Actions
     sendMessage, interruptGeneration, regenerateMessage, deleteMessage, editMessage,
     appendOwnSteered,
-    loadHistory, loadMoreHistory, compressSession,
+    loadHistory, loadMoreHistory, archiveSession,
     respondInteraction, dismissInteraction,
     // 附件合成（群聊等非 store 投递路径复用：文本行 + 图片引用同构）
     composeContent, imageAttachmentsOf,

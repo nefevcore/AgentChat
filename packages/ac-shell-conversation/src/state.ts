@@ -148,7 +148,7 @@ export class ConversationMachine {
 
   /**
    * 清门不动队列（cr-685）：runSettled 会 shift 队头——收束点链跑消费它；
-   * 但 finally 收口 / reviewRun 收束等「早退或非链跑」路径若调 runSettled，
+   * 但 finally 收口等「早退或非链跑」路径若调 runSettled，
    * 移位即静默丢弃一条排队 turn（实锤：creator 2 排队 turn 全蒸发）。这些
    * 路径只清 busy/currentRun，队列留给后续链跑/恢复面消费。
    */
@@ -195,7 +195,7 @@ export class ConversationMachine {
   }
 
   /** 队首出队（cr-688 唤醒面）：与 runSettled 的 shift 同源但不烧预算、
-   * 不依赖收束链——非链跑消费者（reviewRun 收束后的唤醒）专用。 */
+   * 不依赖收束链——非链跑消费者的唤醒专用。 */
   takeQueueHead(): QueuedTurn | null {
     return this.turnQueue.shift() ?? null;
   }

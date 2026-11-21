@@ -1255,7 +1255,7 @@ function runMentionCommand(cmd: NonNullable<MentionItem['command']>): void {
     return;
   }
   if (cmd === 'archive') {
-    store.compressSession();
+    store.archiveSession();
     return;
   }
   if (cmd === 'timer') {
