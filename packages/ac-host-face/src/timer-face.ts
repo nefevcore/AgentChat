@@ -205,9 +205,12 @@ async function executeTimer(
       : identity.conversationId;
     let entry: TimerEntry;
     try {
+      // cr-1181：label 必须进构造对象——曾在此漏传，返回体回显而盘上无字段（伪成功）。
+      // trim 后空串不落字段，与 update 分支的 String(...).trim() || undefined 语义一致。
       entry = validateTimerEntries([{
         id,
         enabled: true,
+        ...(label !== '' ? { label } : {}),
         when: args.when,
         ...(args.gates !== undefined ? { gates: args.gates } : {}),
         ...(args.until !== undefined ? { until: args.until } : {}),
@@ -244,7 +247,7 @@ async function executeTimer(
       ok: true,
       result: {
         entry_id: id,
-        label: label || undefined,
+        label: entry.label,
         conversationId: entry.action.conversationId,
         schedule: describeEntry(entry),
         preview: previewOf(timers, owner, entry).fires,

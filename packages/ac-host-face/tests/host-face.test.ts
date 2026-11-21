@@ -247,6 +247,21 @@ describe('timer-face 行为（cr-1167）', () => {
     await po.close();
   });
 
+  it('set 携带 label → 落盘 timer.json（cr-1181：曾构造条目漏带 label，返回回显而磁盘无字段）', async () => {
+    const root = tmpRoot();
+    const { po } = await bootWithTimers(root);
+    const client = new HostFaceClient();
+    await client.connect(pipeOf(root));
+    const r = await client.execute('timer', { action: 'set', when: [{ kind: 'daily', at: '09:00' }], text: 'x', label: '晨报' }, { agentId: 'a1' } as never);
+    const id = (r.result as { entry_id: string }).entry_id;
+    expect((r.result as { label?: string }).label).toBe('晨报');
+    // 回归锁核验磁盘（bug 本质 = 返回体回显而 timer.json 无该字段）
+    const disk = JSON.parse(fs.readFileSync(path.join(root, 'agents', 'a1', 'entries', 'timer.json'), 'utf-8')) as { version: number; entries: Array<{ id: string; label?: string }> };
+    expect(disk.entries.find((en) => en.id === id)?.label).toBe('晨报');
+    client.close();
+    await po.close();
+  });
+
   it('test 纯源指向未就绪源 → warning 提示 dormant', async () => {
     const root = tmpRoot();
     const { po } = await bootWithTimers(root);
