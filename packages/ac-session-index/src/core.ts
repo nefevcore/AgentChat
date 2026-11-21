@@ -740,6 +740,56 @@ export class SessionIndex {
     }));
   }
 
+  /** P+delta 锚面（cr-1194——TokenGauge idle 态外推数据源）：末次 run
+   *  落账末端之后活跃代行的 est 合计。锚 = 末次 run 的账本末端时刻：
+   *  P（末步 prompt）覆盖到该 run 最后一行入账为止，之后新落的行才该
+   *  入 delta。锚早于任一域最新代 compaction end_ts = 跨代断层（P 属旧代）
+   *  → null（调用方回落净估算，下轮 run 收束自然重锚）——取代 cr-1191
+   *  P/E 病理界。无带 run 的 records 行（从未跑过 run）= null。 */
+  pdeltaAnchorOf(dataRoot: string, convId: string, opts: { refresh?: boolean } = {}): { anchorTs: number; estSince: number } | null {
+    if (sessionDirs(dataRoot, convId).length === 0) return null;
+    if (opts.refresh === false) {
+      const known = this.stmt('SELECT 1 AS hit FROM records WHERE conv = ? LIMIT 1').get(convId);
+      if (known === undefined) return null;
+    } else {
+      this.refreshConversation(dataRoot, convId);
+    }
+    // 锚 = 末次 run 在 records 的末行时刻（纯 records 自足：journal_lines
+    // 对多数会话不入账——实读 1113 个 partials.jsonl，索引侧 journal 行
+    // 大面积缺席，不能作判定依据）。末次 run = 按 ts_num 取最新的带 run
+    // 行所属 run（run-end/步行都带 run），再取该 run 全行 max ts_num。
+    // 方向偏保守：该 run 尾部少量行（run-end 落账等）不计入 delta（宁低估
+    // 不重复计——那些行本已含在 P 的末步 prompt 里）。
+    const lastRun = this.stmt(
+      'SELECT run FROM records WHERE conv = ? AND run IS NOT NULL AND ts_num IS NOT NULL ' +
+        'ORDER BY ts_num DESC, seq DESC LIMIT 1',
+    ).get(convId) as { run: string | null } | undefined;
+    if (lastRun === undefined || lastRun.run === null) return null; // 无 run 行 = P 无依据
+    const anchorRow = this.stmt(
+      'SELECT MAX(ts_num) AS anchor FROM records WHERE conv = ? AND run = ?',
+    ).get(convId, lastRun.run) as { anchor: number | null };
+    const anchorTs = anchorRow.anchor;
+    if (anchorTs === null) return null;
+    // 跨代守卫：锚早于任一域最新代 end_ts（含无 boundary 的滚事件代——
+    // cr-1192 小会话形态）即 P 属旧代，外推无意义
+    const gens = this.stmt(
+      'SELECT domain, MAX(generation) AS gen FROM compactions WHERE conv = ? GROUP BY domain',
+    ).all(convId) as Array<{ domain: string; gen: number }>;
+    for (const g of gens) {
+      const endTs = (this.stmt(
+        'SELECT end_ts FROM compactions WHERE conv = ? AND domain = ? AND generation = ?',
+      ).get(convId, g.domain, g.gen) as { end_ts: number | null }).end_ts;
+      if (endTs !== null && anchorTs <= endTs) return null;
+    }
+    // delta = 锚后活跃代行 est 合计（est_tokens 白名单单源：机制行 NULL、
+    // subcall 0、摘要行计入——cr-1190 Q2；NULL 行 SUM 自动跳过）
+    const since = this.stmt(
+      'SELECT SUM(est_tokens) AS total FROM records r WHERE r.conv = ? AND r.ts_num > ? AND r.generation = (' +
+        "  SELECT MAX(generation) FROM records r2 WHERE r2.conv = r.conv AND r2.domain = r.domain)",
+    ).get(convId, anchorTs) as { total: number | null };
+    return { anchorTs, estSince: since.total ?? 0 };
+  }
+
   /** 活跃上下文估算合计（cr-1160 P4——阈值/仪表直读面）：每域最新代行的
    *  est_tokens 跨域求和。未入账会话 = null（调用方回落盘读）；旧代行 =
    *  shadowed 不计。 */

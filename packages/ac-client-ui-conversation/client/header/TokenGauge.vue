@@ -4,9 +4,9 @@
 //  出厂贡献 order 20——direct/single 形态的 Token 仪表：头部占用 gauge
 //  (26px) + 点击详情弹层（四段堆叠条 + KV 走势，cr-231）。数据面：
 //  fetchSessionTokens（agents rosterApi）+ chatStore 固定开销估算 +
-//  session/kv-timeline；归档入口随弹层底部。cr-1135：盘读态经锚点
-//  校准比率（lastRunPrompt/tokenCount，idle 采样）吸收估算系统偏差，
-//  收束/续聊切换点连续。）
+//  session/kv-timeline；归档入口随弹层底部。cr-1194：idle 态 P+delta
+//  外推（末 run 真实 prompt + 锚后新行估算增量）——收束点按构造连续，
+//  取代 cr-1135 锚点校准比率。）
 // ============================================================
 
 <script setup lang="ts">
@@ -45,36 +45,24 @@ interface SessionTokens {
   tokenCount: number; messageCount: number; maxContextTokens: number; usagePercent: number;
   avgTokensPerMsg: number; estimatedMsgsRemaining: number; status: 'normal' | 'high' | 'critical';
   cache?: SessionTokensCache;
+  /** P+delta 外推面（cr-1194）：prompt = 末 run 真实 prompt（含全部固定
+   *  开销）；estSince = 锚（末次计量落点）后新行 est 合计。后端跨代守卫
+   *  已滤——在场即有效；缺席 = 降级净估算口径。 */
+  pdelta?: { prompt: number; estSince: number } | null;
   /** 压缩史（cr-1160 §2.8——弹层「压缩历史」区数据源） */
   compactions?: Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; summaryTokens?: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }>;
 }
 const sessionTokens = ref<SessionTokens | null>(null);
 
-// ── 锚点校准比率（cr-1135 收束/续聊跳变根修）──
-// 根因：displayTotal 在「run 中 = API 真实 prompt」与「收束后 = 回放估算
-// +固定开销」两套异构口径间硬切换，估算器系统偏差（系数/chat 模板/
-// 未取实值开销）在切换帧整体显现为跳变。修法（DSH token-meter 同思路
-// 的乘法形式）：idle 采样拍上锚点 P=cache.lastRunPrompt（最近一次 API
-// prompt，含系统提示/工具定义/模板全部真实开销）与盘读估算 E=tokenCount
-// 同拍配对，比率 r=P/E 吸收全部系统偏差；盘读态显示 E×r——切换点按
-// 构造连续（E×r=P），后续增长沿校准估算器走。归档使 E 骤缩而 P 停留
-// 旧值（r 失真）——归档即清除，回落无锚点口径直到下次 run 重校准。
-// 采样只在 idle 拍（turnInProgress=false）：run 中 fetch 的 P 仍是上一
-// run 的（计量桶 run 收束才更新），配对失真。钳制 [0.5,4] 防病态对。
-const anchorRatio = ref<number | null>(null);
-function sampleAnchorRatio(st: SessionTokens): void {
-  if (chatStore.turnInProgress) return;
-  const p = st.cache?.lastRunPrompt ?? 0;
-  if (p > 0 && st.tokenCount > 0) {
-    // cr-1191 跨代断层守卫：压缩后 P（旧代末 run prompt）与 E（新代盘读）
-    // 分属两代，比率病态（实测 451K/149K=3.03 落在原钳制带 [0.5,4] 内被
-    // 采信 → 校准值 450K 与归档清锚值 149K 来回拉锯）。超界弃样保持
-    // null（回落净估算口径），不再钳制采信。界 [0.33, 3]：正常系统偏差
-    //（估算系数/固定开销）<3x，跨代断层 ≥3x——分界保守取 3。
-    const r = p / st.tokenCount;
-    if (r >= 0.33 && r <= 3) anchorRatio.value = r;
-  }
-}
+// ── P+delta 外推（cr-1194，取代 cr-1135 锚点比率）──
+// 根因：锚点机制 E×r = E×(P/E) = P 绕圈重推 P 已知的答案——它真正想解
+// 的是「P 是上次 run 的值、账本又长了，如何外推」，而外推答案直接是
+// P + delta：P（末 run 真实 prompt，usage 覆盖轨）天然含 system/工具
+// 定义/模板/估算系数全部「固定开销」；delta 只是收束后新落的行，量小
+// 估算误差小；每轮收束自动重锚，误差不累积。锚点时代的病灶（P 语义
+// 漂移/E 绝对值口径分叉/三态切换跳变/cr-1191 跨代病理界）在 P+delta 下
+// 全部消失——跨代守卫归后端（锚早于末代 compaction → pdelta 缺席，
+// 归档回落净估算、下轮收束重锚），前端只消费有效锚。
 
 async function fetchTokenBaseline(clearFirst = false) {
   // single：会话键 = sid、承载 Agent = data.agentId（元数据 agentId 空 =
@@ -100,6 +88,7 @@ async function fetchTokenBaseline(clearFirst = false) {
       avgTokensPerMsg: data.avgTokensPerMsg ?? 0,
       estimatedMsgsRemaining: data.estimatedMsgsRemaining ?? 0,
       status: data.status ?? 'normal',
+      ...(data.pdelta ? { pdelta: data.pdelta } : {}),
       ...(data.compactions ? { compactions: data.compactions } : {}),
       ...(data.cache
         ? {
@@ -114,8 +103,6 @@ async function fetchTokenBaseline(clearFirst = false) {
         : {}),
     };
   } catch { /* 失败保留旧值，不闪烁 */ }
-  // idle 拍采样锚点（cr-1135；见 anchorRatio 注释）——基于同拍数据
-  if (sessionTokens.value) sampleAnchorRatio(sessionTokens.value);
 }
 let tokenFetchSeq = 0;
 
@@ -132,32 +119,32 @@ const tokenPanelOpen = ref(false);
 // cr-1162：切换会话时固定开销面复位（见 overheadKey 注释——本组件侧判定，
 // 不碰 chatStore 全局状态：那是 TokenGauge 与 SystemPromptPanel 共用的，
 // 就地清空会作废 SystemPromptPanel 正在飞的响应、让它空白且不重试）。
-watch(() => props.data.agentId, () => { anchorRatio.value = null; fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
-watch(() => props.data.single?.id, () => { anchorRatio.value = null; fetchTokenBaseline(true); tokenPanelOpen.value = false; });
+watch(() => props.data.agentId, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; }, { immediate: true });
+watch(() => props.data.single?.id, () => { fetchTokenBaseline(true); tokenPanelOpen.value = false; });
 watch(() => chatStore.lastStepEndAt, () => {
   fetchTokenBaseline();
   // 实时占用（cr-761）：run 进行中也拉 KV 步流——最新步 prompt 驱动占用环
   if (tokenPanelOpen.value || chatStore.turnInProgress) fetchKv();
 });
 watch(() => chatStore.hasMoreHistory, () => { if (!chatStore.hasMoreHistory) fetchTokenBaseline(); });
-// run 收束（cr-1135）：fresh 锚点对的采样拍——usage 自报信经邮局异步入账，
-// 收束帧先行；双拍重取（即时 + 800ms 迟到补采）跨过信封竞态
+// run 收束（cr-1194）：P 重锚拍——usage 自报信经邮局异步入账，收束帧
+// 先行；双拍重取（即时 + 800ms 迟到补采）跨过信封竞态
 watch(() => chatStore.lastRunSettledAt, () => {
   fetchTokenBaseline();
   setTimeout(() => { fetchTokenBaseline(); }, 800);
 });
-// 归档（cr-1135）：P 停留旧值而 E 骤缩——比率失真，清除回落无锚点口径；
-// cr-1191：KV 尾点同清——livePrompt 倒序捞「最近有 prompt 的点」会捞到
-// 旧代 451K 尾点（归档后新 run 未起时占位旧读数）
+// 归档（cr-1194）：本地 pdelta 先清（后端跨代守卫在重取响应前不留旧代
+// 外推值，回落净估算）；KV 尾点同清（cr-1191——livePrompt 倒序捞
+//「最近有 prompt 的点」会捞到旧代尾点占位旧读数）
 watch(() => chatStore.sessionArchivedAt, () => {
-  anchorRatio.value = null;
+  if (sessionTokens.value) sessionTokens.value.pdelta = undefined;
   kvPoints.value = [];
   fetchTokenBaseline();
 });
 // 会话模式/浏览器档快照变化（ChatInput 写口 bump——run 间隙生效）→ 装配面
 // ── 开销归属键（cr-1162：切换会话读数不跟随的根修）──
 // 根因：systemPromptContent/toolDefs 是 chatStore 全局单例（还与 SystemPromptPanel
-// 共用），而本组件无锚点态分子 = tokenCount + 系统提示 + 工具定义。切换会话后
+// 共用），而本组件降级态分子 = tokenCount + 系统提示 + 工具定义。切换会话后
 // 旧会话的开销仍留在分子里 → ①占比不跟随（只有点开弹层 refetchOverhead 才刷）
 // ②读数系统性偏高。
 // 判据：记下「本组件取开销时的视图键」，与当前视图键不符即视为 0（回落既有
@@ -235,30 +222,31 @@ const livePrompt = computed(() => {
   }
   return undefined;
 });
-/** 展示用总占用（cr-1135）：实时态优先（真实值）；盘读态有锚点按校准
- * 估算（E×r——r 已吸收系统提示/工具定义/模板全部固定偏差，不再叠加
- * 估算值防双计）；无锚点回落旧口径（净估算 + 固定开销实值/0） */
+/** 展示用总占用（cr-1194 两态）：run 中实时态（末步真实 prompt）；idle
+ * 态 P+delta 外推（P 已含全部固定开销，delta 不再叠加估算开销防双计）；
+ * 无 P 锚回落旧口径（净估算 + 固定开销实值/0——降级路径）。收束点按
+ * 构造连续：livePrompt 末值 = P、delta 从 0 起步。 */
 const displayTotal = computed(() => {
   const st = sessionTokens.value;
   if (!st) return 0;
   if (livePrompt.value !== undefined) return livePrompt.value;
-  if (anchorRatio.value !== null) return Math.round(st.tokenCount * anchorRatio.value);
+  if (st.pdelta) return st.pdelta.prompt + st.pdelta.estSince;
   return st.tokenCount + systemPromptTokens.value + toolDefsTokens.value;
 });
 /** 会话上下文段（四段条/aria 共源）：总量减固定开销估算（clamp ≥0）——
- * 有锚点/实时态时总量已含真实固定开销，差值即上下文净量；无锚点回落
+ * P+delta/实时态总量已含真实固定开销，差值即上下文净量；无 P 锚回落
  * 盘读净估算（与旧口径恒等） */
 const contextTokens = computed(() => {
   const st = sessionTokens.value;
   if (!st) return 0;
-  if (livePrompt.value !== undefined || anchorRatio.value !== null) {
+  if (livePrompt.value !== undefined || st.pdelta != null) {
     return Math.max(0, displayTotal.value - systemPromptTokens.value - toolDefsTokens.value);
   }
   return st.tokenCount;
 });
 
-/** 占用比例：分子 = displayTotal（cr-1135 三档：实时值 / 锚点校准值 /
- *  净估算+固定开销）；分母 = maxContextTokens。status 阈值档与后端
+/** 占用比例：分子 = displayTotal（cr-1194 两态：实时值 / P+delta 外推值，
+ *  降级 = 净估算+固定开销）；分母 = maxContextTokens。status 阈值档与后端
  *  session/tokens 的档位判定（<75/<90）同款（cr-122 三档收敛）。 */
 const usageWithOverhead = computed(() => {
   const st = sessionTokens.value;
@@ -279,8 +267,8 @@ const usageWithOverhead = computed(() => {
 const stackSegments = computed(() => {
   const st = sessionTokens.value;
   if (!st) return [];
-  // cr-1135：context 段与头行同 displayTotal 口径（contextTokens computed
-  // 共源——实时/锚点态减固定开销估算，无锚点回落净估算）。
+  // cr-1194：context 段与头行同 displayTotal 口径（contextTokens computed
+  // 共源——实时/P+delta 态减固定开销估算，降级回落净估算）。
   const rest = Math.max(0, st.maxContextTokens - displayTotal.value);
   return [
     { key: 'tooldefs', label: '工具定义', tokens: toolDefsTokens.value, color: '#ecc59a' },
@@ -407,7 +395,7 @@ const applicable = computed(() =>
     @click.stop="toggleTokenPanel()"
   >
     <!-- 环形进度条：占用率在环中心，语义色随状态（低→临界）
-         （占用比例分子 = displayTotal 三档口径；cr-1135 锚点校准值已含固定开销） -->
+         （占用比例分子 = displayTotal 两态口径；cr-1194 P+delta 外推值已含固定开销） -->
     <!-- title 挂触发区（环）而非含弹层的根节点（cr-239：弹层内悬停会弹原生 title 与 kit Tooltip 同屏双显）；读屏语义由根节点 aria-label 承担 -->
     <RingProgress
       class="gauge-ring"
@@ -426,7 +414,7 @@ const applicable = computed(() =>
         <div class="token-panel__bar-row">
           <div class="token-bar-topline">
             <span class="token-bar-pct">上下文占用 <strong>{{ Math.round(usageWithOverhead.pct) }}%</strong></span>
-            <span class="token-bar-limit">{{ livePrompt !== undefined || anchorRatio !== null ? '' : '~' }}{{ fmtTokenCount(displayTotal) }} / {{ fmtTokenCount(sessionTokens!.maxContextTokens) }}</span>
+            <span class="token-bar-limit">{{ livePrompt !== undefined || sessionTokens?.pdelta != null ? '' : '~' }}{{ fmtTokenCount(displayTotal) }} / {{ fmtTokenCount(sessionTokens!.maxContextTokens) }}</span>
           </div>
           <div
             class="token-stack"

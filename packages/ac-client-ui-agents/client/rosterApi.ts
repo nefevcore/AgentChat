@@ -143,6 +143,9 @@ export interface SessionTokens {
     miss?: number;
     lastRunPrompt?: number;
   };
+  /** P+delta 外推面（cr-1194）：P = 末 run 真实 prompt；estSince = 锚后新行
+   *  est 合计（后端跨代守卫已滤——出场即有效）。缺席 = 降级净估算。 */
+  pdelta?: { prompt: number; estSince: number };
   /** 压缩史（cr-1160 §2.8——弹层「压缩历史」区数据源；每代时刻/摘要长/stats） */
   compactions?: Array<{
     domain: string;
@@ -177,6 +180,7 @@ export async function fetchSessionTokens(
       miss?: number;
       lastRunPrompt?: number;
     };
+    pdelta?: { prompt: number; estSince: number };
     compactions?: Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; summaryTokens?: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }>;
   }>('session/tokens', {
     conversationId: opts?.conversationId ?? [VIEWER_ID.value, agentId].sort().join('~'),
@@ -201,6 +205,7 @@ export async function fetchSessionTokens(
           },
         }
       : {}),
+    ...(r.pdelta ? { pdelta: r.pdelta } : {}),
     ...(r.compactions ? { compactions: r.compactions } : {}),
   };
 }

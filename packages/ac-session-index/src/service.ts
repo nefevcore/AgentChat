@@ -102,6 +102,11 @@ export class SessionIndexService extends Service {
     return this.index.activeContextTokens(this.dataRoot, convId, opts);
   }
 
+  /** P+delta 锚面（cr-1194）——core.pdeltaAnchorOf 透传 */
+  pdeltaAnchorOf(convId: string, opts: { refresh?: boolean } = {}): { anchorTs: number; estSince: number } | null {
+    return this.index.pdeltaAnchorOf(this.dataRoot, convId, opts);
+  }
+
   /** 某 run 的子调用行（缺席 = []; 未入账 = undefined 回落全量读） */
   subcallLines(convId: string, domain: string, run: string): Array<Record<string, unknown>> | undefined {
     return this.index.subcallLines(this.dataRoot, convId, domain, run);

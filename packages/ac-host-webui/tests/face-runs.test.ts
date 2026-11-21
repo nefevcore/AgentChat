@@ -145,6 +145,51 @@ describe('session/tokens（宿主聚合）', () => {
     }
   });
 
+  it('cr-1194：P+delta 载荷——lastRunPrompt 有效时组装 pdelta；P=0 / 锚面缺席 / 跨代时不出场', async () => {
+    const root = tmpRoot('tokens-pdelta');
+    writeSession(root, 'a1', 'c1', [
+      { role: 'agent', agent_id: 'user', content: '你好', message_id: 'm1', timestamp: '2026-10-22T01:00:00Z' },
+    ]);
+    writeJournal(root, 'a1', 'c1', [
+      { type: 'journal-settled', run: 'r1', finish: 'ok', usage: { prompt: 1200, completion: 10, promptAccumulated: 300, steps: 2 } },
+    ]);
+    try {
+      // usage 桶在场（lastContextPrompt=1200）+ sessionIndex 锚面在场（estSince=37）
+      const ctxFull = { get: (k: string) => (k === 'usage'
+        ? { byConversation: () => ({ c1: { lastContextPrompt: 1200 } }) }
+        : k === 'sessionIndex'
+          ? { activeContextTokens: () => 50, pdeltaAnchorOf: () => ({ anchorTs: 1, estSince: 37 }) }
+          : undefined) } as unknown as Context;
+      const { web, handlers } = collect();
+      registerOpsFace(web, ctxFull, { dataRoot: root });
+      const out = await handlers.get('session/tokens')!({ conversationId: 'c1' }) as Record<string, unknown>;
+      expect(out.pdelta).toEqual({ prompt: 1200, estSince: 37 });
+      // 跨代守卫在锚面（返回 null）→ 载荷无 pdelta 字段（前端回落净估算）
+      const ctxCross = { get: (k: string) => (k === 'usage'
+        ? { byConversation: () => ({ c1: { lastContextPrompt: 1200 } }) }
+        : k === 'sessionIndex'
+          ? { activeContextTokens: () => 50, pdeltaAnchorOf: () => null }
+          : undefined) } as unknown as Context;
+      const { web: w2, handlers: h2 } = collect();
+      registerOpsFace(w2, ctxCross, { dataRoot: root });
+      const out2 = await h2.get('session/tokens')!({ conversationId: 'c1' }) as Record<string, unknown>;
+      expect('pdelta' in out2).toBe(false);
+      // P=0（无计量会话——journal 无 settled 行）→ 不出场
+      writeSession(root, 'a1', 'no-meter', [
+        { role: 'agent', agent_id: 'user', content: '没跑过 run', message_id: 'm1', timestamp: '2026-10-22T01:00:00Z' },
+      ]);
+      const ctxNoP = { get: (k: string) => (k === 'sessionIndex'
+        ? { activeContextTokens: () => 50, pdeltaAnchorOf: () => ({ anchorTs: 1, estSince: 37 }) }
+        : undefined) } as unknown as Context;
+      const { web: w3, handlers: h3 } = collect();
+      registerOpsFace(w3, ctxNoP, { dataRoot: root });
+      const out3 = await h3.get('session/tokens')!({ conversationId: 'no-meter' }) as Record<string, unknown>;
+      expect('pdelta' in out3).toBe(false);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('无账本会话 = 全零载荷（不抛）', async () => {
     const root = tmpRoot('tokens-empty');
     fs.mkdirSync(root, { recursive: true });

@@ -895,7 +895,7 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     const agentId = optStr(p.agentId) ?? owningAgentOf(conversationId);
     let promptTokens: number | null = null;
     const idx = ctx.get('sessionIndex', false) as
-      | { activeContextTokens(id: string, opts?: { refresh?: boolean }): number | null; compactionFactsOf(id: string): Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }> }
+      | { activeContextTokens(id: string, opts?: { refresh?: boolean }): number | null; pdeltaAnchorOf(id: string, opts?: { refresh?: boolean }): { anchorTs: number; estSince: number } | null; compactionFactsOf(id: string): Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }> }
       | undefined;
     let compactions: Array<{ domain: string; generation: number; endTs: number; summaryLen: number | null; stats: { shadowedRows?: number; estimatedTokens?: number } | null }> = [];
     if (idx !== undefined) {
@@ -937,6 +937,18 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
         }
       }
     }
+    // P+delta 外推面（cr-1194）：P = usage 桶 lastContextPrompt（usage.prompt
+    // 覆盖轨 = 末步 prompt，天然含 system/工具定义/模板/本 run 轨迹全部真实
+    // 开销）；锚/delta 由索引锚面给（跨代守卫在彼——锚早于末代 compaction
+    // 即 null）。P 无效（0/无计量）或锚面缺席 = pdelta 不出场，前端回落
+    // 净估算（cr-1193 降级路径）。
+    let pdelta: { prompt: number; estSince: number } | undefined;
+    if (lastRunPrompt > 0) {
+      try {
+        const anchor = idx !== undefined ? idx.pdeltaAnchorOf(conversationId, { refresh: false }) : undefined;
+        if (anchor != null) pdelta = { prompt: lastRunPrompt, estSince: anchor.estSince };
+      } catch { /* 索引故障回落净估算 */ }
+    }
     const maxContextTokens = archiveBudgetOf(agentId);
     const messageCount = projectUserReplay(deps.dataRoot, conversationId).length;
     const avgTokensPerMsg = messageCount > 0 ? promptTokens / messageCount : 0;
@@ -953,6 +965,7 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       status: usagePercent < 75 ? 'normal' : usagePercent < 90 ? 'high' : 'critical',
       ...(agentId !== undefined ? { agentId } : {}),
       cache: { lastHit, lastMiss, hit, miss, lastRunPrompt },
+      ...(pdelta !== undefined ? { pdelta } : {}),
       // cr-1160 §2.8 展示面：压缩史（每代时刻/摘要长/stats）
       ...(compactions.length > 0 ? { compactions } : {}),
     };

@@ -1,7 +1,7 @@
 # TokenGauge 显示算法 P+delta 重设计交接（token-gauge-p-delta-handoff）
 
 > 性质：交接——上下文占用仪表显示算法的重设计动机、方案与实施面，供新会话接力讨论与实施。
-> 状态：现行 · cr-1193 2026-11-21（动机分析定稿，方案已获原则认可，实施未启动——用户自领）。
+> 状态：已实施 · cr-1194 2026-11-21（方案定稿 cr-1193；两态落地——est-since 裁决后端精确值、锚 = 末次 run 在 records 的末行时刻〔纯 records 自足〕、跨代守卫归后端锚面）。
 > 读者：接手 TokenGauge 显示算法重构的开发者/会话（本仓前端 ac-client-ui-conversation + 宿主聚合面 ac-host-webui）。
 
 ## 一、背景与病灶（为什么重设计）
@@ -56,17 +56,19 @@ idle：  displayTotal = P + delta
 
 刷新时机沿用现有 watch 面（agentId/single 切换、步终值、run 收束双拍、归档）；归档时清 P（回落净估算）+ 清 kvPoints（cr-1191 已加）。
 
-## 四、未竟事项与接力入口
+## 四、未竟事项与接力入口（cr-1194 全部裁决实施）
 
-1. **est-since 的取源裁决**：后端给精确增量（session-index 索引 est_tokens 按 seq 范围求和，或盘读估算差分）vs 前端近似（messageCount 差 × 平均）——建议后端精确值，口径与 E 同源；
-2. **无 P 场景**（会话从未跑过 run / 归档后未重锚）：回落净估算态（现有第三态保留为降级路径）；
-3. **delta 的边界**：注入行/机制行是否计入——建议与回放注入同口径（estimateRowTokens 同判）；
+1. **est-since 的取源裁决** → **后端精确值**：session-index 新增 pdeltaAnchorOf 锚面（records 表活跃代 ts_num > 锚 求和，SQL 单源、口径与 activeContextTokens 同源）；
+2. **无 P 场景** → pdelta 缺席回落净估算态（原第三态保留为降级路径）——含「从未跑 run」「索引行缺席」「P=0」三形态；
+3. **delta 的边界** → est_tokens 白名单现状即与回放注入同口径（estimateRowTokens 单源：机制行 NULL、subcall 0、摘要行计入），不另设判；
 4. **四段堆叠条**（工具定义/系统提示/上下文/余量）：P+delta 态下固定开销已含在 P 里，contextTokens = displayTotal - 开销估算的减法语义需复核（可能与 cr-1162 的开销归属键联动）；
 5. **KV 走势 sparkline** 不受影响（独立数据面）。
 
 验证锚点：收束瞬间读数 = 末步 livePrompt（连续无跳）；随后每条新消息增量稳定；归档后回落净估算、下轮收束重锚。
 
 ## 五、关联档案
+
+- 实施档案：cr-1194（锚面/载荷/两态化/测试）
 
 - 病灶现场与三态演进：cr-1135（锚点校准）、cr-1191（跨代守卫 + 回落路径滤 shadowed）
 - 数据链：session/tokens（face-ops.ts）→ TokenGauge.vue displayTotal；session-index est_tokens 口径见 cr-1190 Q2 裁定
