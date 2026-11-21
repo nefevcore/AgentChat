@@ -1,6 +1,6 @@
 {
- "scannedHead": "b72af2e4ef8679e46a74ba4b32972d757ea8a050",
- "generatedAt": "2026-11-21T02:31:35.777Z",
+ "scannedHead": "cb489043dc1d640402b4b530d8c6e6cb7cce1a21",
+ "generatedAt": "2026-11-21T03:31:04.262Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4238,6 +4238,11 @@
     "sha": "352be8b990288d2f153a11506dcd1f8dab49b68c",
     "date": "2026-11-10",
     "subject": "fix(session): cr-978 v1 裸行容错 + runs/snapshot memo 化——修 runs/snapshot 恒崩与全根扫描风暴（首屏 17s 根因）"
+   },
+   {
+    "sha": "617735a48a819474c6ca679a6296e88c836054e0",
+    "date": "2026-11-21",
+    "subject": "feat(session-index): cr-1185 名册脱离 runs/snapshot——roster 小表单源 + 三通道新鲜度"
    }
   ],
   "979": [
@@ -5291,6 +5296,11 @@
     "sha": "6b52cbf1267dec72b108a1859292972a9c466b7a",
     "date": "2026-11-16",
     "subject": "fix(session): cr-1142 roster 预览权威化（发言口径）+ 高频面只读聚合约束"
+   },
+   {
+    "sha": "617735a48a819474c6ca679a6296e88c836054e0",
+    "date": "2026-11-21",
+    "subject": "feat(session-index): cr-1185 名册脱离 runs/snapshot——roster 小表单源 + 三通道新鲜度"
    }
   ],
   "1143": [
@@ -5715,6 +5725,23 @@
     "sha": "87fc84956385b2c7240634912d803d85910e5404",
     "date": "2026-11-21",
     "subject": "fix(unread): cr-1184 徽章复活与定位缺失双修——①restart_host 后已消徽章复活：正在看=已读语义只拦前端 live bump，host 三计数源（run 收束 tap/独立私信/群消息）无条件累积致观看期 host 有数本地无数，take 水合整包回放即复活；syncTake 活跃轴不入基线 + markRead 无条件 RPC（本地 0 不代表 host 0）+ 离开会话对旧轴定向清，三面归一。②SessionList 行徽章从未实现（single 无名册行，按钮成唯一提示位无从定位）——树行+搜索态行补角标（AgentList 同配方）；singles/group delete 连带 clearUnread 防僵尸计数；测试桩 take 改清零真语义 + 2 回归用例；设计档案 §11.2/11.4 同步"
+   },
+   {
+    "sha": "aa062a085a94e5fd12daf49e2bf289606bdb955a",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1184）"
+   }
+  ],
+  "1185": [
+   {
+    "sha": "cb489043dc1d640402b4b530d8c6e6cb7cce1a21",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-1185 台账索引登记——名册脱离 runs/snapshot"
+   },
+   {
+    "sha": "617735a48a819474c6ca679a6296e88c836054e0",
+    "date": "2026-11-21",
+    "subject": "feat(session-index): cr-1185 名册脱离 runs/snapshot——roster 小表单源 + 三通道新鲜度"
    }
   ]
  }
