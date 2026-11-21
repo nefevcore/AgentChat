@@ -1,6 +1,6 @@
 {
- "scannedHead": "1d17c5ee3eb6ef1260ea0ce011a26962bbb62f49",
- "generatedAt": "2026-11-21T14:42:43.632Z",
+ "scannedHead": "238d2d749065afca7f68b75a87d4967568672e8c",
+ "generatedAt": "2026-11-21T14:55:21.919Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5856,6 +5856,16 @@
     "sha": "b71361235e0cc70262937f709eb1cb6a83afb700",
     "date": "2026-11-21",
     "subject": "chore(cr): cr-commits 投影同步（cr-1192）"
+   },
+   {
+    "sha": "238d2d749065afca7f68b75a87d4967568672e8c",
+    "date": "2026-11-21",
+    "subject": "refactor(archive): cr-1192 调序——compaction 事件先落、摘要行后落（用户复核反馈）：原序「摘要先落→事件后落 + boundary 回读摘要行 seq-1」= 分界线反向读取自己之后将要保留的行，语义拧着。新序「事件先落（boundary = 事件前全表 max seq，锚自身位置）→ 摘要行（新代首行，seq>boundary + 时刻维 ts>endTs 双保险）」；摘要落账从编排外移入 archiveAndRebuild 同函数保序；无提交退化语义不变（无摘要时 boundary=archivedMaxSeq，回放头沿用上一代）。archive-row 10/10（调序断言：事件先于摘要、摘要 seq>boundary）+ affected 3439/3439 + typecheck 绿"
+   },
+   {
+    "sha": "7956d48536b56c879b30196cbb2b1a913903b297",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1192 同源补充）"
    }
   ]
  }
