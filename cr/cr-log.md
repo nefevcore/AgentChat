@@ -1197,4 +1197,9 @@
 - 【cr-1176 2026-11-20 修复 interaction/reply 无活壳即抛错：盘上定位持有 Agent、按需拉起后重投（重启后回复 ask_questions 无声失败的根因）】
 - 【cr-1177 2026-11-20 plugin/grant 回投链 R-1 冲突：uuid=会话键的信 participants 近似 [agent,host] 撞已登记 [user,agent]——回执滞留 outbox 静默 #bug】
 - 【cr-1178 2026-11-20 timer-v3 退役代码清理复查：v2 残留死代码判死（全仓求证含测试）与扫尾移除】
+- 【cr-1179 2026-11-21 auto-title 命名过滤补 uuid 形会话键闸：注入触发的对桶/子Agent会话 run 也是 user source，生成后 title.set 被 cr-1120 词汇锁拒收产 [E] 噪音；uuid 判词单源 ac-ledger/user.ts（壳行与宿主 singles 行同源）】
+- 【cr-1180 2026-11-21 timer-v3 停用但保留：enabled:false 条目面蒸发修复（list/update/cancel 不可达、set 整表写回丢条目、记账被 forget）+ 重新武装语义】
+- 【cr-1181 2026-11-21 fix: timer set 漏存 label——收参/回显在但构造条目时未放进对象，返回伪成功而 timer.json 无该字段】
+- 【cr-1182 2026-11-21 上下文注入改造：datetime 移除 DATETIME 段改全形态 before-run 落盘+间隔阈值注入；新增 ac-system-events 纯库（宿主事件日志 meta/system-events.jsonl）+ 宿主挂点；新增 ac-env-pulse 壳行（系统事件 delta 注入）】
+- 【cr-1183 2026-11-21 markdown 表格列宽优化：表宽 hug 收缩 + 渲染器列分类封顶贪婪列】
 
