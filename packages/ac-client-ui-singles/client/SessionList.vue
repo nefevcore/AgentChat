@@ -42,6 +42,11 @@ const roster = useRosterCore();
 // 注意：useClientContext = inject()，只能在 setup 期调用——事件处理器内调用
 // 恒 undefined（曾因此误判"无 RPC"直接落兜底弹窗）。所需面在 setup 顶部取好。
 const rpcFace = useClientContext()?.rpc ?? null;
+// 未读徽章（cr-1184：single 会话行级徽章——cr-1157 只做了按钮聚合，
+// single 无名册行，按钮成为唯一提示位而用户无从定位会话；缺服务 = 0 降级）
+const unreadStore = (useClientContext()?.sessions ?? null)?.unread ?? null;
+/** 未读数（会话行角标——single 轴键即会话 id，直查） */
+const unreadCountOf = (id: string): number => (unreadStore?.counts.value[id] ?? 0);
 const singlesBoard = useClientContext()?.singleBoard;
 const activeSingles = computed(() => singlesBoard?.activeSingles.value ?? []);
 const activeSingleId = computed(() => singlesBoard?.activeSingleId.value ?? '');
@@ -522,7 +527,7 @@ onUnmounted(() => {
          :class="{ 'is-selected': activeSingleId === item.id }"
          :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
          @click="selectSingle(item.id)">
-         <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
+         <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadCountOf(item.id) > 99 ? '99+' : unreadCountOf(item.id) }}</span></div>
          <div class="item-info">
            <div class="item-name">{{ item.title }}</div>
            <div class="item-sub">{{ wsNameOf(item) }} · {{ item.agentName }}</div>
@@ -593,7 +598,7 @@ onUnmounted(() => {
                   :class="{ 'is-selected': activeSingleId === item.id }"
                   :title="`${item.title} · ${item.agentName} · ${timeOf(item.lastActivity)}`"
                   @click="selectSingle(item.id)">
-                  <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /></div>
+                  <div class="item-avatar-wrap"><StarAvatar :src="roster.getAgentAvatar(item.agentId)" :name="item.agentName" :size="15" :color="colorOf(item.agentId)" fallback-icon="bot" plain-fallback :running="isSessionRunning(item.id)" /><span v-if="unreadCountOf(item.id) > 0" class="unread-badge">{{ unreadCountOf(item.id) > 99 ? '99+' : unreadCountOf(item.id) }}</span></div>
                   <div class="item-info">
                     <div class="item-name">{{ item.title }}</div>
                   </div>
@@ -795,6 +800,8 @@ html.dark .tree-scroll::-webkit-scrollbar-track{background:var(--bg-base)}
 /* hover 亮底由 .ui-row 承担（cr-122：hover 去边框、去微影）；
    选中态 = .ui-row.is-selected（--role-selected-bg 角色底 + 主色描边） */
 .item-avatar-wrap{position:relative;flex-shrink:0}
+/* 未读角标（cr-1184：AgentList .unread-badge 同配方——cr-1157 徽章重建谱系） */
+.unread-badge{position:absolute;top:-4px;right:-6px;min-width:14px;height:14px;padding:0 3px;border-radius:7px;background:var(--danger,#e5484d);color:#fff;font-size:10px;line-height:14px;text-align:center;font-weight:600;pointer-events:none;box-sizing:border-box;z-index:1}
 .item-info{flex:1;min-width:0}
 /* 待答徽标（cr-684）：行内右置，随列表行 flex 排布（gap 8px 已有间距） */
 .pending-ask-badge{flex-shrink:0;align-self:center}

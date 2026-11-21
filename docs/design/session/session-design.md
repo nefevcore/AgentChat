@@ -644,6 +644,7 @@ news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
 | 独立私信源 | user 桩 `onStandalone` → bump（幂等键 = requestId；轴 = `pairKey(agent,'user')`） |
 | 群消息源 | groups-row `group/send` → bump（幂等键 = 扇出 requestId；轴 = gid；`from !== 'user'` 门控） |
 | 扩展 | 新源 = 宿主装配点事件回调 → `bumpUnread(dataRoot, axisKey, key)`——源语义住挂点，计数器不知源 |
+| 删除即清 | singles/delete · group/delete 连带 `clearUnread`（cr-1184）：会话实体已删，滞留计数 = 永不可消的僵尸徽章 |
 
 ### 11.3 RPC 面（web-api）
 
@@ -655,10 +656,10 @@ news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
 ### 11.4 前端面（unreadStore）
 
 - `ac-client-ui-conversation/client/unreadStore.ts`：独立于 feed-core，自订阅 wire 事件流；
-- init/重连 → `session/unread` take 水合（离线累积补计）；10min 慢周期 take 兜底；
+- init/重连 → `session/unread` take 水合（离线累积补计；活跃轴不入基线——cr-1184）；10min 慢周期 take 兜底；
 - 三事件帧（run/settled · router/message-received · group/message-posted）到达 → 本地 +1（乐观增量，cr-1139 语义）；
-- 进入会话即清：`ConversationService` watch `activeDialogId` → `markRead`（本地即时 + RPC）；
-- 徽章 UI：AgentList 行角标（`unreadCountOf`——对桶轴折算 Agent 键聚合）+ ActivityBar 双按钮角标（`agentsTotal` 名册行口径〔对桶+群〕/ `sessionsTotal` single 口径——词法归 unreadStore，消费方零词法知识）；`SessionsClientFace.unread` 契约面。
+- 进入/离开会话即清：`ConversationService` watch `activeDialogId`（新轴 + 旧轴）→ `markRead`（本地即时 + 无条件 RPC——cr-1184：host 侧观看期照累积，RPC 早退即滞留，restart_host 后 take 回放 = 已消徽章复活）；
+- 徽章 UI：AgentList 行角标（`unreadCountOf`——对桶轴折算 Agent 键聚合）+ SessionList 行角标（cr-1184：single 会话行级徽章补位——single 无名册行，cr-1157 只做按钮聚合致用户无从定位会话）+ ActivityBar 双按钮角标（`agentsTotal` 名册行口径〔对桶+群〕/ `sessionsTotal` single 口径——词法归 unreadStore，消费方零词法知识）；`SessionsClientFace.unread` 契约面。
 
 ### 11.5 已退役
 

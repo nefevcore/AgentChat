@@ -31,7 +31,7 @@ import type { Plugin, Context } from '@agentchat/cordis';
 import { issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
 import { conversationDirs, forkConversation, isSingleSessionId, projectUserReplay, sessionDir, userMetaFile } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
-import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, fallbackTitle } from 'ac-core-utils';
+import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, clearUnread, fallbackTitle } from 'ac-core-utils';
 import type { HostServiceDesk } from './service-desk.ts';
 
 export interface SinglesHostRowOptions {
@@ -691,6 +691,8 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         // 元数据在第二层（meta/sessions/）——连带摘除
         fs.rmSync(userMetaFile(dataRoot, id), { force: true });
         conv()?.set(id, { model: null });
+        // 未读计数连带清（cr-1184）：会话已不存在，滞留计数 = 永不可消的僵尸徽章
+        clearUnread(dataRoot, id);
         emit(before ?? { id, agentId: '', status: 'archived', createdAt: '', updatedAt: '' }, 'removed');
         upsertEntry(id, null);
         return { deleted: true };

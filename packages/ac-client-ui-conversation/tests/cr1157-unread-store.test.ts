@@ -3,15 +3,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createUnreadStore } from '../client/unreadStore.ts';
 import type { RpcClientFace } from 'ac-client-runtime';
 
-/** rpc 桩：call 记录 + 可编程返回；onEvent/onOpen 收订阅 */
+/** rpc 桩：call 记录 + 可编程返回；onEvent/onOpen 收订阅。
+ *  session/unread 按 host 真语义桩：take 取走即清（下次返回空表）。 */
 function stubRpc(entries: Record<string, { n: number }> = {}) {
   const calls: Array<{ method: string; params: unknown }> = [];
   const handlers: Array<(type: string, args: unknown[]) => void> = [];
   const opens: Array<() => void> = [];
+  let taken = false;
   const rpc = {
     call: vi.fn(async (method: string, params?: unknown) => {
       calls.push({ method, params });
-      if (method === 'session/unread') return { entries };
+      if (method === 'session/unread') {
+        const out = taken ? { entries: {} as Record<string, { n: number }> } : { entries };
+        taken = true;
+        return out;
+      }
       return {};
     }),
     onEvent: (h: (type: string, args: unknown[]) => void) => { handlers.push(h); return () => {}; },
@@ -135,5 +141,33 @@ describe('unreadStore（cr-1157 前端面）', () => {
     s.emit('group/message-posted', ['g-1', { id: 'm1', from: 'beta' }]);
     expect(store.counts.value['alpha~user']).toBeUndefined();
     expect(store.counts.value['g-1']).toBe(1); // 非活跃轴照计
+  });
+
+  it('cr-1184：take 活跃轴不入基线（观看期 host 累积不回放）', async () => {
+    const s = stubRpc({ 'alpha~user': { n: 2 }, 'g-1': { n: 1 } });
+    const store = createUnreadStore(s.rpc);
+    store.setActiveAxis(() => 'alpha~user');
+    store.init();
+    await vi.advanceTimersByTimeAsync(10);
+    // 活跃轴被滤除、非活跃轴照常入基线
+    expect(store.counts.value['alpha~user']).toBeUndefined();
+    expect(store.counts.value['g-1']).toBe(1);
+    // 活跃轴离开后（非活跃）：下一次 take 照常回放（host 已被本次 take 清，
+    // 该轴此后累积 = 真未读）
+    store.setActiveAxis(() => undefined);
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(store.counts.value['alpha~user']).toBeUndefined(); // host 已清，无回放
+  });
+
+  it('cr-1184：markRead 本地 0 也发 RPC（host 侧观看期累积补清）', async () => {
+    const s = stubRpc({});
+    const store = createUnreadStore(s.rpc);
+    store.init();
+    await vi.advanceTimersByTimeAsync(10);
+    // 本地无计数（live 被活跃门控拦）——RPC 仍须发出（host 侧有累积）
+    store.markRead('alpha~user');
+    const marks = s.calls.filter((c) => c.method === 'session/mark-read');
+    expect(marks.length).toBeGreaterThanOrEqual(1);
+    expect((marks[0]!.params as { conversationId?: string }).conversationId).toBe('alpha~user');
   });
 });

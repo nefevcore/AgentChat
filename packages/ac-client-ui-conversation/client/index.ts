@@ -140,11 +140,15 @@ export class ConversationService extends Service {
     };
     // 正在看的会话不计数（cr-1057 语义——live 已可见）
     this.unread.setActiveAxis(() => axisOf(this.feed.activeDialogId.value));
-    // 进入会话即清（activeDialogId 变化 = 用户切到该分区——本地即时 +
-    // mark-read RPC 定向清 host 计数器）
-    watch(() => this.feed.activeDialogId.value, (id) => {
+    // 进入/离开会话即清（activeDialogId 变化 = 用户切换分区）：新轴清（进入
+    // 即读）+ 旧轴定向清（cr-1184：观看期 host 侧照累积——cr-1057 门控只拦
+    // 前端 live bump，host 无「正在看」消费面；不补清即 restart_host 后 take
+    // 水合回放 = 已消徽章复活）。
+    watch(() => this.feed.activeDialogId.value, (id, prev) => {
       const axis = axisOf(id);
       if (axis !== undefined) this.unread.markRead(axis);
+      const prevAxis = axisOf(prev);
+      if (prevAxis !== undefined && prevAxis !== axis) this.unread.markRead(prevAxis);
     });
   }
 

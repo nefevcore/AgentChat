@@ -27,7 +27,7 @@ import type { PostOffice } from 'ac-post-office';
 // 群配置纯读面（cr-712 下沉 ac-core-utils：壳侧 group 垫片共用读词汇——
 // 垫片 import 本包即壳→宿主反向依赖；本行改为单源消费，写面仍在下方）
 import {
-  assertGid, bumpUnread, listGroupConfigs, memberStreamKey, readGroupConfig, type GroupConfig,
+  assertGid, bumpUnread, clearUnread, listGroupConfigs, memberStreamKey, readGroupConfig, type GroupConfig,
 } from 'ac-core-utils';
 
 export type { GroupConfig } from 'ac-core-utils';
@@ -190,6 +190,8 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         fs.rmSync(groupDir(dataRoot, gid), { recursive: true, force: true });
         // 兼容窗旧位置残留一并摘除（防旧 group.json 复活已删群）
         fs.rmSync(path.join(dataRoot, 'groups', gid), { recursive: true, force: true });
+        // 未读计数连带清（cr-1184）：群已解散，gid 轴滞留计数 = 僵尸徽章
+        clearUnread(dataRoot, gid);
         emit('group/deleted', gid, group);
         return { deleted: true };
       });

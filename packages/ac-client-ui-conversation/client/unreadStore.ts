@@ -3,8 +3,10 @@
 //
 // 轴键 = host 计数器键（对桶 a~b / 群 gid / single uuid——与 routeDialog
 // 分区键同构的词法域）。数据面：启动/重连 take 对齐（session/unread
-// 取走并清零）+ live 帧乐观 +1（cr-1139 语义）+ 点开即清（mark-read
-// 定向）+ 10min 慢周期 take 兜底（帧丢失防护）。
+// 取走并清零；活跃轴不入基线——cr-1184：观看期累积只拦前端 live bump，
+// host 侧照计，take 回放即已消徽章复活）+ live 帧乐观 +1（cr-1139 语义）
+// + 点开/离开即清（mark-read 定向，无条件 RPC）+ 10min 慢周期 take 兜底
+//（帧丢失防护）。
 //
 // 独立于 feed-core（轴键映射与帧分发零耦合）：自订阅 wire 事件流
 //（rpc.onEvent 多订阅者），进会话的清零由消费方调 markRead。
@@ -89,9 +91,12 @@ export function createUnreadStore(rpc: RpcClientFace): UnreadStore {
       // 直接叠加即双计），响应回来后叠加到快照上——不丢也不重。
       taking = true;
       const res = await rpc.call<{ entries: Record<string, { n: number }> }>('session/unread', {});
+      // 活跃轴不入基线（cr-1184：take 前观看期累积 host 有计数、live 被
+      // 活跃门控拦截——直接入基线即「看着看着徽章亮起」；host 侧已被
+      // take 清零，两侧归一）。非活跃轴原样回放（离线累积提示）。
       const base: Record<string, number> = {};
       for (const [k, v] of Object.entries(res.entries)) {
-        if (v.n > 0) base[k] = v.n;
+        if (v.n > 0 && activeAxis() !== k) base[k] = v.n;
       }
       for (const [k, n] of pend) base[k] = (base[k] ?? 0) + n;
       pend.clear();
@@ -105,11 +110,14 @@ export function createUnreadStore(rpc: RpcClientFace): UnreadStore {
   }
 
   function markRead(axisKey: string): void {
+    // RPC 无条件（cr-1184）：本地 0 不代表 host 已清——观看期 host 侧照
+    // 累积（cr-1057 门控只拦 live bump，host 无「正在看」消费面），早退即
+    // host 滞留，restart_host 后 take 水合回放 = 已消徽章复活。
+    void rpc.call('session/mark-read', { conversationId: axisKey }).catch(() => { /* 失败静默 */ });
     if (!counts.value[axisKey]) return;
     const next = { ...counts.value };
     delete next[axisKey];
     counts.value = next;
-    void rpc.call('session/mark-read', { conversationId: axisKey }).catch(() => { /* 失败静默 */ });
   }
 
   function init(): void {
