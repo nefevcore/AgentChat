@@ -475,7 +475,12 @@ export class ArchiveShellService extends Service {
     const budget = Math.max(400, Math.ceil(this.budgetsFor(uuid).maxContextTokens * 0.004));
     const cap = this.digestCapOf(uuid);
     const self = uuid === this.agentId + '~' + this.agentId;
-    const other = uuid.split('~').find((p) => p !== this.agentId) ?? 'user';
+    // 对话方称呼（cr-1192 续修）：对桶键取对端 agent；single 会话键 = uuid
+    // 形（无 ~、不含 agentId）——split('~') 单元素命中自身，此前把整段
+    // uuid 当「对方」嵌进文案（现场：你与「01a1fe79-…」的会话）。single
+    // 的对话方恒为用户，直呼「用户」。
+    const pair = uuid.split('~');
+    const other = !uuid.includes('~') ? '用户' : (pair.find((p) => p !== this.agentId) ?? '用户');
     const subject = self
       ? '此前运行日志（含已有总结覆盖的更早内容）的关键事件、推送结论、失败教训与待跟进事项'
       : '这段会话（含已有总结覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项';

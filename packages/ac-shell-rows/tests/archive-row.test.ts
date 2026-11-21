@@ -359,6 +359,30 @@ describe('archive 行（cr-1189 V3）', () => {
     }
   }, 20_000);
 
+  it('cr-1192 续修：reviewPrompt 对话方称呼——single 会话（uuid 键）称「用户」而非裸键', async () => {
+    seedAgent('iota', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('iota', { digestText: '总结。' });
+    try {
+      // 触发一次真实归档，取落账的请求注入行文案（经 deliverRow 落账面）
+      await h.archive.requestArchive('single-uuid-key');
+      const dir = path.join(ROOT, 'agents', 'iota', 'sessions', 'single-uuid-key');
+      // 请求注入行随压缩边界出清（物理回收后住归档段）——文案从归档段验
+      const segTextAll = fs.readdirSync(path.join(dir, 'archive'))
+        .filter((n) => n.startsWith('history_'))
+        .map((n) => {
+          const raw = fs.readFileSync(path.join(dir, 'archive', n));
+          return n.endsWith('.gz') ? zlib.gunzipSync(raw).toString('utf-8') : raw.toString('utf-8');
+        })
+        .join('\n');
+      expect(segTextAll.includes('archive-review-request')).toBe(true);
+      // single：称「用户」，不把裸 uuid 当对方嵌进「你与「…」」
+      expect(segTextAll.includes('你与「用户」的会话')).toBe(true);
+      expect(segTextAll.includes('你与「single-uuid-key」')).toBe(false);
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
   it('cr-1192 同源：单事件 compaction 行永留主日志（多代叠加时旧代事件不随归档段搬离）', async () => {
     // 旧谓词只匹配 'compaction/' 前缀（三连形态）——单事件 type='compaction'
     // 漏判 → 可能计入 archivedOriginal 推高 boundary，或随归档段搬走致
