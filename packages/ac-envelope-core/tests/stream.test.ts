@@ -41,6 +41,10 @@ describe('M7.2 B3 流式旁带', () => {
     expect(isStreamFrame({ stream: 'bash-1', kind: 'job-event', phase: 'started' })).toBe(false); // 缺 job
     expect(isStreamFrame({ stream: 'sub-abc', kind: 'subagents-updated', info: { id: 'sub-abc' }, action: 'spawned' })).toBe(true);
     expect(isStreamFrame({ stream: 'sub-abc', kind: 'subagents-updated', action: 'spawned' })).toBe(false); // 缺 info
+    // cr-1188 低频机制事件帧：name 非空即合法（archive/completed 等）
+    expect(isStreamFrame({ stream: 'c1', kind: 'event', name: 'archive/completed', payload: {} })).toBe(true);
+    expect(isStreamFrame({ stream: 'c1', kind: 'event', name: '', payload: {} })).toBe(false); // 空名
+    expect(isStreamFrame({ stream: 'c1', kind: 'event', payload: {} })).toBe(false); // 缺 name
     expect(isStreamFrame({ ack: 'req-1', fresh: true })).toBe(false); // ack 帧
     expect(isStreamFrame({ uuid: 'u', requestId: 'r', sender: 'user', to: 'a', kind: 'message', budget: 3, payload: {} })).toBe(false); // 信封
     expect(isStreamFrame(null)).toBe(false);

@@ -257,6 +257,30 @@ describe('8.5d ShellStreamBridge（旁带 → 前端帧）', () => {
     expect(frames.filter((f) => f.type === 'job/settled')[0].data.args).toEqual([settled]);
   });
 
+  it('【cr-1188】event 帧（archive/completed）：宿主直转同名前端帧（args = [payload] 单参恒等透传）', () => {
+    const frames: FrontendFrame[] = [];
+    const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
+    const payload = { agentId: 'alpha', conversationId: 'user~alpha', archived: 12 };
+    bridge.ingest({ stream: 'user~alpha', kind: 'event', name: 'archive/completed', payload, meta: { agent: 'alpha', conversationId: 'user~alpha' } });
+    expect(frames).toEqual([{ type: 'archive/completed', data: { args: [payload] } }]);
+  });
+
+  it('【cr-1188】run-started 帧 runMeta 透传：meta.runMeta → args[0].meta（前端 archive-review 判定消费面）', () => {
+    const frames: FrontendFrame[] = [];
+    const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });
+    bridge.ingest({ stream: 'run-r1', kind: 'run-started', meta: { agent: 'alpha', conversationId: 'user~alpha', source: 'event', runId: 'run-r1', runMeta: { 'archive-review': true } } });
+    const started = frames.filter((f) => f.type === 'loop/run-started');
+    expect(started).toHaveLength(1);
+    expect(started[0].data.args).toEqual([{
+      agent: 'alpha', conversationId: 'user~alpha', source: 'event',
+      meta: { 'archive-review': true },
+    }]);
+    // 无 runMeta 帧：args[0] 不带 meta 键（形状与主线一致——旧帧兼容）
+    frames.length = 0;
+    bridge.ingest({ stream: 'run-r2', kind: 'run-started', meta: { agent: 'alpha', conversationId: 'user~alpha', source: 'user', runId: 'run-r2' } });
+    expect(frames[0].data.args).toEqual([{ agent: 'alpha', conversationId: 'user~alpha', source: 'user' }]);
+  });
+
   it('subagents-updated 帧（cr-677）：→ 主线 subagents/updated 帧形（args = [info, action] 参数序）', () => {
     const frames: FrontendFrame[] = [];
     const bridge = new ShellStreamBridge({ send: (f) => frames.push(f) });

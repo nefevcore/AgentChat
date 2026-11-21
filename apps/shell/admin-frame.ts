@@ -100,7 +100,14 @@ export function handleAdminFrame(ctx: Context, frame: AdminFrame): unknown {
   if (frame.op === 'session-archive') {
     const archive = requireService<{ requestArchive(uuid: string): Promise<void> }>(ctx, 'archive', 'archive');
     if (frame.conversationId === undefined || frame.conversationId === '') throw new Error('admin 帧缺 conversationId（session-archive）');
-    return archive.requestArchive(frame.conversationId).then(() => ({ triggered: true, conversationId: frame.conversationId }));
+    // cr-1188 受理语义：归档编排（整理 run 分钟级 + 重建）壳内后台执行，帧
+    // 立即返回。此前 await 全流程——撞宿主 ipc 15s 回帧超时（用户侧「归档
+    // 触发失败:ipc回帧超时」）；执行结果由 archive/completed 广播面呈报，
+    // 失败仅落日志。
+    void archive.requestArchive(frame.conversationId).catch((err: unknown) => {
+      ctx.logger.warn('[archive] 归档请求失败（' + frame.conversationId + '）: ' + String(err));
+    });
+    return { triggered: true, conversationId: frame.conversationId };
   }
   if (frame.op === 'tool-defs') {
     // 生效工具集（agents/tool-defs 估算面——Token 仪表固定开销，cr-582）

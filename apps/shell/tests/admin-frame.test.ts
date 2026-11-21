@@ -75,11 +75,23 @@ describe('admin 控制帧路由（goal / todo）', () => {
       .toEqual({ agents: [{ childId: 'kid1', status: 'ready', pid: 1, busy: true }] });
   });
 
-  it('session-archive 返回受理回执（整理 run 后台进行）', async () => {
-    const ctx = fakeCtx({ archive: { requestArchive: async () => ({}) } });
-    await expect(handleAdminFrame(ctx, { ctrl: 'admin', op: 'session-archive', agentId: 'a1', conversationId: 'c1' }))
-      .resolves.toEqual({ triggered: true, conversationId: 'c1' });
-    expect(() => handleAdminFrame(ctx, { ctrl: 'admin', op: 'session-archive', agentId: 'a1' })).toThrow(/conversationId/);
+  it('session-archive 受理即回帧（cr-1188）：requestArchive 后台执行——帧不等分钟级整理 run，不撞宿主 ipc 15s 超时', async () => {
+    let started = false;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => { release = r; });
+    const ctx = fakeCtx({
+      archive: { requestArchive: async () => { started = true; await gate; } },
+      // ctx.logger——admin-frame catch 路径消费（fakeCtx 只装 get，补最小面）
+    }, ) as unknown as Context;
+    // fakeCtx 无 logger——直接注入（catch 分支 err→logger.warn）
+    (ctx as unknown as { logger?: unknown }).logger = { warn: () => {} };
+    // 未 resolve 的 gate 悬着——回帧必须先于后台完成
+    const reply = await handleAdminFrame(ctx, { ctrl: 'admin', op: 'session-archive', agentId: 'a1', conversationId: 'c1' });
+    expect(reply).toEqual({ triggered: true, conversationId: 'c1' });
+    expect(started).toBe(true); // 已启动（受理语义）
+    release(); // 放后台走完（不漏 unhandled rejection）
+    await new Promise((r) => setTimeout(r, 0));
+    expect(() => handleAdminFrame(fakeCtx({ archive: { requestArchive: async () => {} } }), { ctrl: 'admin', op: 'session-archive', agentId: 'a1' })).toThrow(/conversationId/);
   });
 
   it('queue 三 op 走 conversation 队列面（帧带 conversationId / id）', async () => {

@@ -81,6 +81,9 @@ export function streamFrameToFrontend(
           conversationId: frame.meta?.conversationId,
           sender: frame.meta?.sender,
           source: frame.meta?.source,
+          // cr-1188 run 机制旗标透传（runMeta → meta）：前端 archive-review
+          // 判定消费面（feed-core 整理 run 门控）据此路由。
+          ...(frame.meta?.runMeta !== undefined ? { meta: frame.meta.runMeta } : {}),
         }],
       },
     });
@@ -165,6 +168,12 @@ export function streamFrameToFrontend(
     // 主线 subagents/updated 帧形（args = [info, action] 参数序）：前端
     // subagentBoard.onEvent 重拉 subagents/list（帧载荷仅触发器）。
     send({ type: 'subagents/updated', data: { args: [frame.info, frame.action] } });
+    return;
+  }
+  if (frame.kind === 'event') {
+    // cr-1188 低频机制事件直通（archive/completed 等）：宿主直转同名前端帧，
+    // payload = args[0] 单参（主线 bridge-events 恒等 wire 同形）。
+    send({ type: frame.name, data: { args: [frame.payload] } });
     return;
   }
   send({ type: 'llm/delta-end', data: { args: [{ model: undefined, meta: frame.meta }, frame.meta] } });

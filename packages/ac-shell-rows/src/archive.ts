@@ -34,6 +34,21 @@ import {
 import { foldSession, foldStepsOf, foldSummaryOf, readDomainFacts, readLedger, rowShadowedBy, summaryTextOf, type LedgerRow } from 'ac-ledger';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
+declare module '@agentchat/cordis' {
+  interface Events {
+    /**
+     * 归档完成广播（emit；cr-1188）：归档编排（整理 run + 逻辑压缩/物理回收）
+     * 全部收束。壳 boot 侧监听转 event 帧上行，宿主直转同名前端帧——前端
+     * 归档 pending 收口（pendingArchiveConv 复位）与会话流刷新唯一驱动源。
+     * 载荷与主线 archive/completed 前端帧同形（chat-core onSessionArchived
+     * args[0]）。
+     * @mode emit
+     * @scope archive
+     */
+    'archive/completed'(payload: { agentId: string; conversationId: string; archived: number }): void;
+  }
+}
+
 export interface ArchiveRowOptions {
   dataRoot: string;
   agentId: string;
@@ -190,6 +205,11 @@ export class ArchiveShellService extends Service {
     return this.estimateOf(uuid, { activeOnly: true });
   }
 
+  /** cr-1188 完成广播（前端 pending 收口 / 会话流刷新驱动源） */
+  private completedOf(uuid: string, archived: number): void {
+    this.ctx.emit('archive/completed', { agentId: this.agentId, conversationId: uuid, archived });
+  }
+
   /**
    * 请求归档（幂等）：整理 run → 概要（亲写文件优先 / 回退回复文本）→
    * 归档重建。超时（闸②）abort 整理 → 强制归档（概要不动）。
@@ -205,7 +225,8 @@ export class ArchiveShellService extends Service {
         | undefined;
       if (conv === undefined) {
         this.ctx.logger.warn('[archive] conversation 服务缺席——整理不可用，直接归档（概要不动）');
-        await this.archiveAndRebuild(uuid, undefined, requestedAt);
+        const archived = await this.archiveAndRebuild(uuid, undefined, requestedAt);
+        this.completedOf(uuid, archived); // cr-1188 降级路径同样呈报——前端收口同门
         return;
       }
       const runId = requestedAt + '-review-' + uuid;
@@ -235,7 +256,8 @@ export class ArchiveShellService extends Service {
         const candidate = text !== '' ? text : outcome.text.trim();
         if (candidate !== '' && summaryCommittable(candidate)) summary = candidate;
       }
-      await this.archiveAndRebuild(uuid, summary, requestedAt);
+      const archived = await this.archiveAndRebuild(uuid, summary, requestedAt);
+      this.completedOf(uuid, archived); // cr-1188 完成广播——前端 pending 收口 / 会话流刷新
     } finally {
       this.pending.delete(uuid);
     }
@@ -268,7 +290,9 @@ export class ArchiveShellService extends Service {
   /**
    * 归档重建：读账本 → splitForArchive 分割（ac-archive-core）→ 落语义
    * 边界（v2：compaction 事件）→ ctx.ledger.compactFor（分段 + 重写 +
-   * 概要滚动）。概要缺省（整理失败/降级）= 概要不动。
+   * 概要滚动）。概要缺省（整理失败/降级）= 概要不动。返回归档条数
+   *（逻辑 shadow 域行数——未回收路径行留主日志但回放已排除；cr-1188
+   * 完成广播载荷）。
    * cr-974 v2（§2.3 压缩事件化 + S5 物理回收）：分割在富化行（伪段行
    * 承载步级体积）上计量；shadowed 前缀 = 原 rows 中 seq ≤ boundary 的
    * 全部行（相位/收束行随迁——append-only 真序整体搬移），整段单流 gzip
@@ -276,11 +300,11 @@ export class ArchiveShellService extends Service {
    * 命名）；主日志保留 = header + compaction 事件（经 B1 窗口 late-merge
    * 自然留存——audit 面永在）+ 尾部行。v1 会话走原 compact 流程不动。
    */
-  async archiveAndRebuild(uuid: string, summary: string | undefined, requestedAt: number): Promise<void> {
+  async archiveAndRebuild(uuid: string, summary: string | undefined, requestedAt: number): Promise<number> {
     const ledger = this.ctx.ledger;
     const dir = this.sessionDir(uuid);
     const { header, rows } = readLedger(dir);
-    if (rows.length === 0) return;
+    if (rows.length === 0) return 0;
     const anchor = ledger.archiveAnchorOf(uuid);
     const budgets = this.budgetsFor(uuid);
     const lastArchived = anchor !== null && anchor.seq !== undefined
@@ -327,8 +351,8 @@ export class ArchiveShellService extends Service {
       // 行留主日志（回放已滤，不占上下文），下次触发再评估。
       const budgetsNow = this.budgetsFor(uuid);
       const shadowedEst = archivedOriginal.reduce((n, r) => n + estimateReplayTokens([r as never], this.agentId), 0);
-      if (shadowedEst <= keepBudgetOf(budgetsNow) * 2) return; // 未超回收阈——只落事件
-      if (archivedOriginal.length === 0) return; // 零移出（尾部水位未越）——只滚摘要
+      if (shadowedEst <= keepBudgetOf(budgetsNow) * 2) return archivedOriginal.length; // 未超回收阈——只落事件（行已逻辑 shadow，回放排除）
+      if (archivedOriginal.length === 0) return 0; // 零移出（尾部水位未越）——只滚摘要
       // 尾部保留 = 引用不在归档集的行 + compaction 事件行（永留主日志——
       // 边界前的机制行不随 shadowed 前缀搬移，audit 面跨轮在场）。cr-1155：
       // 引用对齐统一口径——无 seq v1 行按位置进出，与归档集互补成全划分。
@@ -342,7 +366,7 @@ export class ArchiveShellService extends Service {
       this.ctx.logger.info(
         '[archive] 已归档 ' + report.archived + ' 条 → ' + (report.segment ?? '') + '（压缩段；保留尾部 ' + report.kept + ' 条）',
       );
-      return;
+      return report.archived;
     }
     const split = splitForArchive(rows, budgets, lastArchived);
     const baselineSeq = rows.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
@@ -357,6 +381,7 @@ export class ArchiveShellService extends Service {
         '[archive] 已归档 ' + report.archived + ' 条 → ' + (report.segment ?? '') + '（保留尾部 ' + report.kept + ' 条）',
       );
     }
+    return report.archived;
   }
 
   // ============================================================

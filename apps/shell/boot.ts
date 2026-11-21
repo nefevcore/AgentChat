@@ -1078,7 +1078,15 @@ export async function bootShell(
   // 与 end 收束同流。发射失败静默（无连接即丢）——瞬态语义。meta 全套
   // 路由键随帧携带（8.5d：前端按 agent/conversationId/stepId 寻址——
   // loop 组装的 input.meta 即身份贯通面）。
+  // cr-1188 整理 run 隐藏查表（对齐主线 ws-bridge isHiddenRun 语义）：archive
+  // review run 的流式内容不进前端——主线在宿主桥接层过滤（isArchiveReviewRun
+  // 查表），新架构壳链路此前无等价物，整理 run 的思考/正文直接泄进用户会话。
+  // run-started 登记（runMeta['archive-review']），run 收束清表。
+  const hiddenReviewRuns = new Set<string>();
   ctx.on('llm/delta', (input: { meta?: StreamMeta }, chunk: LlmStreamChunk) => {
+    // runId = stepId 前缀（'run-xxx:0' 前缀 = runId）；整理 run 整流丢弃
+    const rid = input.meta?.stepId?.split(':')[0] ?? input.meta?.runId;
+    if (rid !== undefined && hiddenReviewRuns.has(rid)) return;
     for (const frame of streamFrameFromDelta(input.meta, chunk)) emitStreamFrame(frame);
   });
   // run 收束旁带（cr-591）随 cr-976 B 案退役：前端收敛信号 = run-end 行
@@ -1108,7 +1116,7 @@ export async function bootShell(
   // 帧，D3-1 两时标承认不经落盘。step-started/after-step 旁带随 cr-976 退役
   // ——durable 步事实走 ledger-event，载体创建改前端惰性（delta 按 stepId
   // 直达）。发射失败静默（瞬态）。
-  ctx.on('loop/run-started', (request: { runId?: string; agent?: string; conversationId?: string; sender?: string; source?: string }) => {
+  ctx.on('loop/run-started', (request: { runId?: string; agent?: string; conversationId?: string; sender?: string; source?: string; meta?: Record<string, unknown> }) => {
     if (request.runId === undefined) return;
     emitStreamFrame({
       stream: request.runId,
@@ -1119,8 +1127,18 @@ export async function bootShell(
         sender: request.sender,
         source: request.source,
         runId: request.runId,
+        // cr-1188 run 机制旗标透传：LoopRunRequest.meta（archive-review 等标记）
+        // 随帧全程——此前在此丢弃，前端判定恒 false，归档整理 run 被当普通
+        // run 点亮 busy + 状态卡（timer 会话状态卡计时锚到数十小时前 viewer
+        // 消息的直接触发链）。
+        ...(request.meta !== undefined ? { runMeta: request.meta } : {}),
       },
     });
+    // cr-1188 整理 run 隐藏登记：archive-review run 的流式内容不进前端
+    //（对齐主线 ws-bridge isHiddenRun 语义；清表见 loop/after-run）。
+    if (request.meta?.['archive-review'] === true) {
+      hiddenReviewRuns.add(request.runId);
+    }
   });
   // 工具执行旁带（cr-593）：tool/started·progress → 对应帧（宿主直转主线
   // 同名前端帧——run_code 子调用占位 / 长任务进度；流时序帧，D3-1 两时标
@@ -1207,6 +1225,20 @@ export async function bootShell(
   // 子Agent 清单变更旁带（cr-677）：subagents/updated（壳内 subagent 行 emit）
   // → subagents-updated 帧（宿主桥接成主线同名前端帧——subagentBoard 帧驱动
   // 刷新唯一源）。info/action 原样透传。发射失败静默（瞬态）。
+  // 归档完成旁带（cr-1188）：archive/completed（壳内 archive 行 emit）→
+  // event 帧（宿主直转同名前端帧——前端归档 pending 收口〔pendingArchiveConv
+  // 复位〕与会话流刷新唯一驱动源。D11 迁移曾丢 emit，前端等待永不到来）。
+  // 发射失败静默（瞬态）。
+  ctx.on('archive/completed', (payload: { agentId: string; conversationId: string; archived: number }) => {
+    if (payload.conversationId === '') return;
+    emitStreamFrame({
+      stream: payload.conversationId,
+      kind: 'event',
+      name: 'archive/completed',
+      payload,
+      meta: { agent: payload.agentId || args.agentId, conversationId: payload.conversationId },
+    });
+  });
   ctx.on('subagents/updated', (info: { id?: string; parentId?: string }, action: string) => {
     if (info.id === undefined) return;
     emitStreamFrame({
@@ -1303,6 +1335,7 @@ export async function bootShell(
       request.runId ?? '', request.conversationId ?? '', request.source ?? '', request.model].join('\t'));
   });
   ctx.on('loop/after-run', (request: LoopRunRequest, result: LoopRunResult) => {
+    if (request.runId !== undefined) hiddenReviewRuns.delete(request.runId); // cr-1188 整理 run 隐藏清表
     const fields = [
       request.runId ?? '', request.conversationId ?? '', result.finish,
       String(result.usage.steps), String(result.usage.totalAccumulated ?? result.usage.prompt),

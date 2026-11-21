@@ -63,7 +63,11 @@ export type StreamFrame =
   /** 子Agent 清单变更通知（cr-677）：主线 subagents/updated 事件旁带——
    * 前端 subagentBoard（运行跟踪面板子Agent 区）帧驱动刷新唯一源。
    * stream = 子 Agent id；info = 变更后投影（list 口径）；action = 变更词。 */
-  | { stream: StreamId; kind: 'subagents-updated'; info: unknown; action: string; meta?: StreamMeta };
+  | { stream: StreamId; kind: 'subagents-updated'; info: unknown; action: string; meta?: StreamMeta }
+  /** 低频机制事件直通（cr-1188）：壳 cordis 事件（archive/completed 等）帧化
+   * 上行，宿主直转同名前端帧（args = [payload] 单参）。stream = conversationId
+   *（路由键）；name = 事件名；payload 原样透传。 */
+  | { stream: StreamId; kind: 'event'; name: string; payload: unknown; meta?: StreamMeta };
 
 /** 队列快照行（主线 ConversationQueuedItem 同形——前端 useQueuedMessages 直接套用） */
 export interface QueuedItemFrame {
@@ -86,6 +90,10 @@ export interface StreamMeta {
   source?: string;
   runId?: string;
   stepId?: string;
+  /** run 机制旗标透传（cr-1188）：run-started 帧携带 LoopRunRequest.meta 全程——
+   * archive-review 等标记；前端 archive-review 判定等消费面据此路由。此前
+   * 在宿主桥接段丢失（run meta 丢弃 = 判定恒 false）。 */
+  runMeta?: Record<string, unknown>;
 }
 
 /**
@@ -146,6 +154,7 @@ export function isStreamFrame(payload: unknown): payload is StreamFrame {
   if (f.kind === 'context-injected' && typeof (f as { source?: unknown }).source === 'string') return true;
   if (f.kind === 'job-event' && ((f as { phase?: unknown }).phase === 'started' || (f as { phase?: unknown }).phase === 'settled') && 'job' in f) return true;
   if (f.kind === 'subagents-updated' && 'info' in f) return true;
+  if (f.kind === 'event' && typeof (f as { name?: unknown }).name === 'string' && (f as { name: string }).name !== '') return true;
   return false;
 }
 
