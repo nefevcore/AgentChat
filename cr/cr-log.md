@@ -1211,4 +1211,5 @@
 - 【cr-1190 2026-11-21 压缩 V3 实施：注入驱动整理轮 + session_digest 结构化提交（B1-B6）】
 - 【cr-1191 2026-11-21 fix(session): 压缩后续用双缺陷——recordsFor 不滤压缩边界（技能跨 run 去重误判「已注入」→ load_skill 静默无注入）+ 占用读数跳变（回落路径不滤 shadowed 口径分叉 650K↔149K、锚点跨代毒对 P/E=3.03 被钳制采信、KV 尾点旧代 prompt 残留）】
 - 【cr-1192 2026-11-21 fix(archive): 小会话归档边界恒 0——archivedOriginal 为空时 boundary 兜底取摘要行前（V2「物理搬运才需边界」残留语义在 V3 逻辑边界下失效：摘要照落、零 shadow、回放全量且请求行/摘要行逐代堆积）】
+- 【cr-1193 2026-11-21 docs(session): TokenGauge 显示算法 P+delta 重设计交接档——三态层积（净估算→KV 实时→锚点校准）收敛为两态（实时/P+delta 外推），锚点比率「E×(P/E)=P 绕圈」病灶归档，用户自领实施】
 
