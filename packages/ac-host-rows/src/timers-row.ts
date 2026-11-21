@@ -15,6 +15,10 @@
 //   · 投递面原样保留：agents/<id>/entries/timer.json 数据面、agentsEdit
 //     单写者口、邮局唤醒信（conversationId 烘焙/对角线缺省/机制任务
 //     直调）、乐观并发 storedSnapshot（ISSUE-24）、诊断面、心跳。
+//   · 停用但保留（cr-1180）：entriesByAgent 装载全量条目（停用条目留在
+//     条目面——list 可见、update/cancel 可达、不参与排程分发）；停用落
+//     pausedAt 记号；重新启用即基点快进（armedAt 抬到恢复时刻、lastSeq
+//     快进到源现值）——停用期间刻度不回补、事件不补投。
 // 记账（state.json）：lastFiredAt / firedCount / armedAt（catchup 下界
 // 与 after-last 锚）/ nextAtCache（时钟跳变检测——nextAt 恒可由 entry +
 // now 重算，缓存只剩告警价值，断点不再承载排程语义）。审计行落
@@ -88,6 +92,8 @@ interface TimerPersistedState {
   lastSeq?: Record<string, number>;
   /** 心跳存活信号（诊断面——不参与任何逻辑） */
   heartbeatAt?: string;
+  /** 停用时刻（cr-1180 停用但保留——list 投影；启用着落不写） */
+  pausedAt?: number;
 }
 
 /** 完成条目归档记录（cancelled = 用户撤销——cr-1171 cancel 归档） */
@@ -389,8 +395,10 @@ export class HostTimersService extends Service {
     this.saveState();
     for (const agentId of listAgentIds(this.dataRoot)) {
       const stored = this.readStored(agentId);
-      const enabled = stored?.entries.filter((e) => e.enabled !== false) ?? [];
-      if (enabled.length > 0) this.entriesByAgent.set(agentId, enabled);
+      // cr-1180：全量装载（含停用条目）——条目面不因 enabled:false 蒸发；
+      // 排程/分发点按启用过滤（arm / onSourceUpdated / syncPull）。
+      const entries = stored?.entries ?? [];
+      if (entries.length > 0) this.entriesByAgent.set(agentId, entries);
     }
     const globalEntries = this.configEntries();
     if (globalEntries.length > 0) this.entriesByAgent.set(GLOBAL_TIMER_OWNER, globalEntries);
@@ -452,6 +460,8 @@ export class HostTimersService extends Service {
     nextAt?: string;
     chained?: boolean;
     dormantReason?: string;
+    /** 停用时刻（cr-1180 停用但保留——list 投影；启用着落不写） */
+    pausedAt?: string;
     /** 源健康（cr-1172：§七「list 源健康」——meta 现读，数组 = 条目全部订阅） */
     sources?: Array<{ source: string; view: string; generatedAt: string; seq: number; stale: boolean }>;
     lastSkipAt?: string;
@@ -493,6 +503,7 @@ export class HostTimersService extends Service {
       ...(next !== undefined ? { nextAt: localISO(new Date(next), tz) } : {}),
       ...(chained ? { chained: true } : {}),
       ...(ps?.dormantReason ? { dormantReason: ps.dormantReason } : {}),
+      ...(ps?.pausedAt !== undefined ? { pausedAt: localISO(new Date(ps.pausedAt), tz) } : {}),
       ...(skip ? { lastSkipAt: skip.at, lastSkipReason: skip.reason, skipStreak: skip.streak } : {}),
       ...(err ? { lastErrorAt: err.at, lastError: err.message, errorStreak: err.streak } : {}),
       ...(note ? { lastNoteAt: note.at, lastNote: note.text } : {}),
@@ -556,23 +567,44 @@ export class HostTimersService extends Service {
       this.writeStored(owner, stored);
     }
     this.stopAgent(owner);
-    const enabled = valid.filter((e) => e.enabled !== false);
-    if (enabled.length > 0) this.entriesByAgent.set(owner, enabled);
+    // cr-1180：全量装载（含停用条目——UI 整表保存后 list 仍可见）；
+    // 翻转检测基准 = 覆盖前内存表（wasEnabled 在 set 之前取）
+    const prev = this.entriesByAgent.get(owner);
+    const wasEnabledOf = (id: string): boolean => prev?.find((x) => x.id === id)?.enabled !== false;
+    if (valid.length > 0) this.entriesByAgent.set(owner, valid);
     else this.entriesByAgent.delete(owner);
-    const validKeys = new Set(enabled.map((e) => `${owner}/${e.id}`));
+    const validKeys = new Set(valid.map((e) => `${owner}/${e.id}`));
     for (const key of this.persisted.keys()) {
       if (key.startsWith(`${owner}/`) && !validKeys.has(key)) this.forget(key);
     }
-    // 新条目 armedAt = 现在（既有条目保留原 armedAt——catchup 下界稳定）
+    // 新条目 armedAt = 现在；既有条目保留原 armedAt（catchup 下界稳定）；
+    // 启停翻转（cr-1180 停用但保留）：停用落 pausedAt（启停时刻记号），
+    // 启用即基点快进——armedAt 抬到恢复时刻（停用期间刻度不回补）、
+    // lastSeq 快进到各订阅源现值（停用期间事件不补投）。save 是整表写，
+    // 同一次保存里 UI 可能翻转多条——逐条对照覆盖前状态判定。
     const now = Date.now();
-    for (const e of enabled) {
+    for (const e of valid) {
       const key = `${owner}/${e.id}`;
       const ps = this.persisted.get(key);
-      if (ps === undefined) this.persisted.set(key, { armedAt: now });
-      else if (ps.armedAt === undefined) this.persisted.set(key, { ...ps, armedAt: now });
+      if (ps === undefined) { this.persisted.set(key, { armedAt: now }); continue; }
+      const wasEnabled = wasEnabledOf(e.id);
+      if (e.enabled === false) {
+        if (wasEnabled && ps.pausedAt === undefined) this.persisted.set(key, { ...ps, pausedAt: now });
+      } else if (!wasEnabled) {
+        // 重新启用：基点快进（armedAt 抬到恢复时刻 + lastSeq 快进 + 清 pausedAt）
+        const { pausedAt, ...keep } = ps;
+        const next: TimerPersistedState = { ...keep, armedAt: Math.max(ps.armedAt ?? now, now) };
+        for (const t of e.when) {
+          if (t.kind !== 'source') continue;
+          const meta = readMeta(path.join(this.dataRoot, 'exports', t.source, t.view));
+          if (meta === null) continue; // 源从未物化——快进到 0 与缺省同，跳过
+          next.lastSeq = { ...(next.lastSeq ?? {}), [t.source + '/' + t.view]: Math.max(next.lastSeq?.[t.source + '/' + t.view] ?? 0, meta.seq) };
+        }
+        this.persisted.set(key, next);
+      } else if (ps.armedAt === undefined) this.persisted.set(key, { ...ps, armedAt: now });
     }
     this.saveState();
-    for (const entry of enabled) this.arm(owner, entry);
+    for (const entry of valid) this.arm(owner, entry);
     return { ok: true };
   }
 
@@ -586,15 +618,16 @@ export class HostTimersService extends Service {
   }
 
   private adoptStored(owner: string, disk: TimerStoreEntry | null): void {
-    const enabled = disk?.entries.filter((e) => e.enabled !== false) ?? [];
-    if (enabled.length > 0) this.entriesByAgent.set(owner, enabled);
+    // cr-1180：全量装载（含停用条目）——与 reload/save 同口径
+    const entries = disk?.entries ?? [];
+    if (entries.length > 0) this.entriesByAgent.set(owner, entries);
     else this.entriesByAgent.delete(owner);
-    const valid = new Set(enabled.map((e) => `${owner}/${e.id}`));
+    const valid = new Set(entries.map((e) => `${owner}/${e.id}`));
     for (const key of this.persisted.keys()) {
       if (key.startsWith(`${owner}/`) && !valid.has(key)) this.forget(key);
     }
     this.saveState();
-    for (const entry of enabled) this.arm(owner, entry);
+    for (const entry of entries) this.arm(owner, entry);
   }
 
   /**
@@ -704,6 +737,7 @@ export class HostTimersService extends Service {
   private onSourceUpdated(source: string, view: string, seq: number): void {
     for (const [owner, entries] of this.entriesByAgent) {
       for (const entry of entries) {
+        if (entry.enabled === false) continue; // cr-1180：停用条目不投
         const trigs = this.sourceTriggersOf(entry).filter((t) => t.source === source && t.view === view);
         if (trigs.length === 0) continue;
         // 二道闸（cr-1166）：未授权条目不投——直改 timer.json 注入的订阅绕不过
@@ -777,7 +811,8 @@ export class HostTimersService extends Service {
    * 10s 地板（防兜底扫描风暴——§六防线表）。
    */
   private syncPull(): void {
-    const needPull = [...this.entriesByAgent.values()].some((entries) => entries.some((e) => this.sourceTriggersOf(e).length > 0));
+    // cr-1180：仅启用条目参与 pull/stale 扫描（停用条目不订阅源事件面）
+    const needPull = [...this.entriesByAgent.values()].some((entries) => entries.some((e) => e.enabled !== false && this.sourceTriggersOf(e).length > 0));
     if (needPull && this.pullDispose === undefined) {
       let lastSweep = 0;
       this.pullDispose = this.ctx.interval(() => {
@@ -905,7 +940,17 @@ export class HostTimersService extends Service {
   private arm(owner: string, entry: TimerEntry): void {
     const key = `${owner}/${entry.id}`;
     this.cancel(key);
-    if (entry.enabled === false) return;
+    if (entry.enabled === false) {
+      // cr-1180：直接落盘/adopt 的停用条目（未经 save 翻转链）补 pausedAt——
+      // boot reload 的 arm 调用点在这，启动装载即有停用记号（list 投影完整）。
+      // 无记账记录也建（显示记号；armedAt 不写——从未武装，无快进基准可言）
+      const ps = this.persisted.get(key);
+      if (ps?.pausedAt === undefined) {
+        this.persisted.set(key, { ...(ps ?? {}), pausedAt: Date.now() });
+        this.saveState();
+      }
+      return;
+    }
     const now = Date.now();
     const tz = this.tzOf(owner);
     // armedAt 落账（boot 首见即固定——catchup 下界与 after-last 锚）

@@ -590,10 +590,12 @@ export function describeTrigger(t: WhenTrigger): string {
   }
 }
 
+/** 人读摘要：停用条目带前缀（cr-1180 停用但保留——list / UI 单源） */
 export function describeEntry(e: TimerEntry): string {
   const parts = e.when.map(describeTrigger);
   const gates = e.gates?.map((g) => g.kind === 'hours' ? g.from + '-' + g.to : g.kind === 'workday' ? '工作日' : '节假日').join(' 且 ') ?? '';
-  return parts.join(' 或 ') + (gates ? '｜' + gates : '') + (e.until ? '｜' + ('count' in e.until ? '满 ' + e.until.count + ' 次' : '至 ' + e.until.date) : '');
+  const base = parts.join(' 或 ') + (gates ? '｜' + gates : '') + (e.until ? '｜' + ('count' in e.until ? '满 ' + e.until.count + ' 次' : '至 ' + e.until.date) : '');
+  return e.enabled ? base : '已停用｜' + base;
 }
 
 // ============================================================

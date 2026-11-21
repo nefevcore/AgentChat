@@ -246,6 +246,9 @@ describe('人读摘要 / 留存内核', () => {
   it('isTimeTrigger / describeEntry', () => {
     expect(isTimeTrigger({ kind: 'source', source: 's', view: 'v', on: 'stale' })).toBe(false);
     expect(describeEntry(entry([{ kind: 'daily', at: '09:00' }], { gates: [{ kind: 'workday' }], until: { count: 5 } }))).toContain('每天 09:00');
+    // cr-1180 停用但保留：停用条目带前缀（list / UI 单源）
+    expect(describeEntry(entry([{ kind: 'daily', at: '09:00' }], { enabled: false }))).toMatch(/^已停用｜/);
+    expect(describeEntry(entry([{ kind: 'daily', at: '09:00' }]))).not.toContain('已停用');
   });
   it('parseInterval / localISO', () => {
     expect(parseInterval('30ms')).toBe(30);

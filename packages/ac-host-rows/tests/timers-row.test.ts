@@ -458,6 +458,123 @@ describe('宿主 timers 行（v3 哑触发层）', () => {
   }, 15_000);
 });
 
+describe('停用但保留（cr-1180）', () => {
+  it('停用条目不投递不计时，list 可见、记账保留、恢复不回补', async () => {
+    seedAgent('alpha', [{
+      id: 'paused', enabled: false,
+      when: [{ kind: 'every', iv: '1s' }],
+      action: { text: 'tick' },
+    }]);
+    const h = await boot();
+    try {
+      await wait(2_500);
+      // 停用条目：不投递（1s 间隔跑 2.5s 应有 2+ 次——停用即零投）
+      expect(h.received.length).toBe(0);
+      // 条目面不蒸发：entries/list 可见 + pausedAt 记号在（boot arm 兜底补写）
+      const entries = h.timers.entries('alpha');
+      expect(entries).toHaveLength(1);
+      expect(entries[0]!.enabled).toBe(false);
+      const st = h.timers.scheduleState('alpha', 'paused');
+      expect(st.pausedAt).toBeTruthy();
+      expect(st.nextAt).toBeUndefined(); // 停用不排程
+      // 记账保留（fire 后 firedCount 会推进——停用期间冻结）
+      const state = JSON.parse(fs.readFileSync(path.join(ROOT, 'meta', 'timer', 'state.json'), 'utf-8')) as Record<string, { pausedAt?: number }>;
+      expect(state['alpha/paused']?.pausedAt).toBeGreaterThan(0);
+      // 恢复：update 链（face 语义）在行侧 = save 整表；这里直接行侧翻转
+      const resumed = { ...entries[0]!, enabled: true };
+      h.timers.save('alpha', [resumed]);
+      await wait(2_500);
+      // 恢复后正常投递（armedAt 快进到恢复时刻——从现在起每 1s 一次）
+      expect(h.received.length).toBeGreaterThanOrEqual(1);
+      expect(h.received.length).toBeLessThanOrEqual(3);
+      const st2 = h.timers.scheduleState('alpha', 'paused');
+      expect(st2.pausedAt).toBeUndefined(); // 恢复清记号
+      expect(st2.nextAt).toBeTruthy();
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
+  it('save 整表不丢停用条目 + 翻转检测（启用→停用落 pausedAt）', async () => {
+    seedAgent('alpha', [onceNear(60_000), { id: 'off', enabled: false, when: [{ kind: 'daily', at: '09:00' }], action: { text: 'x' } }]);
+    const h = await boot();
+    try {
+      // 整表保存（face set 语义：entries + 新条目）不丢停用条目
+      const before = h.timers.entries('alpha');
+      expect(before).toHaveLength(2);
+      const res = h.timers.save('alpha', [...before, { id: 'new', enabled: true, when: [{ kind: 'daily', at: '10:00' }], action: { text: 'y' } }]);
+      expect(res.ok).toBe(true);
+      expect(h.timers.entries('alpha')).toHaveLength(3); // 停用条目仍在
+      const onDisk = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'alpha', 'entries', 'timer.json'), 'utf-8'));
+      expect(onDisk.entries).toHaveLength(3);
+      expect(onDisk.entries.find((e: { id: string }) => e.id === 'off')?.enabled).toBe(false);
+      // 翻转：启用条目改停用 → pausedAt 落账
+      const flipped = before.map((e) => e.id === 'near' ? { ...e, enabled: false } : e);
+      const res2 = h.timers.save('alpha', flipped);
+      expect(res2.ok).toBe(true);
+      const st = h.timers.scheduleState('alpha', 'near');
+      expect(st.pausedAt).toBeTruthy();
+      expect(h.timers.entries('alpha').find((e) => e.id === 'near')?.enabled).toBe(false);
+      // 再恢复：记号清 + 投递恢复
+      const res3 = h.timers.save('alpha', before);
+      expect(res3.ok).toBe(true);
+      expect(h.timers.scheduleState('alpha', 'near').pausedAt).toBeUndefined();
+    } finally {
+      await h.dispose();
+    }
+  }, 15_000);
+
+  it('停用源条目：事件到达不投 + 恢复时不补投停用期间事件', async () => {
+    seedAgent('alpha', [{
+      id: 'src', enabled: false,
+      when: [{ kind: 'source', source: 'fs', view: 'docs', on: 'rows-added' }],
+      action: { text: '新文件' },
+    }]);
+    fs.writeFileSync(path.join(ROOT, 'agents', 'alpha', 'auth.json'), JSON.stringify({
+      version: 1, agentId: 'alpha',
+      grants: [{ inline: { kind: 'inline', spec: { kind: 'source-view', source: 'fs', view: 'docs' } } }],
+      denials: [],
+    }), 'utf-8');
+    const h = await boot();
+    try {
+      const { materializeSnapshot } = await import('ac-source-core');
+      const dir = path.join(ROOT, 'exports', 'fs', 'docs');
+      const r1 = materializeSnapshot(dir, [{ path: 'a.md', mtime: 1, size: 5 }], 60_000);
+      h.ctx.emit('source/updated', { source: 'fs', view: 'docs', seq: r1.seq });
+      await wait(400);
+      // 停用条目：事件到达不投
+      expect(h.received.length).toBe(0);
+      // 恢复（save 翻转）→ lastSeq 快进到源现值：重启后 pull 兜底不重投 r1
+      const cur = h.timers.entries('alpha');
+      h.timers.save('alpha', cur.map((e) => ({ ...e, enabled: e.id === 'src' ? true : e.enabled })));
+      await h.dispose(); // 模拟宿主重启（pull 兜底通道验证）
+      const h2 = await boot();
+      try {
+        await wait(500); // pull 兜底扫（10s 地板内首扫立即）
+        expect(h2.received.length).toBe(0); // lastSeq 已快进——seq1 不判新行
+      } finally {
+        await h2.dispose();
+      }
+    } finally {
+      if (h.ctx) await h.dispose();
+    }
+  }, 15_000);
+
+  it('cancel 停用条目：可达（撤销归档不留表）', async () => {
+    seedAgent('alpha', [{ id: 'off2', enabled: false, when: [{ kind: 'daily', at: '09:00' }], action: { text: 'x' } }]);
+    const h = await boot();
+    try {
+      const res = h.timers.cancelEntry('alpha', 'off2');
+      expect(res.ok).toBe(true);
+      expect(h.timers.entries('alpha')).toHaveLength(0);
+      const archive = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'alpha', 'entries', 'timer-archive.json'), 'utf-8'));
+      expect(archive.find((a: { id: string }) => a.id === 'off2')).toMatchObject({ status: 'cancelled' });
+    } finally {
+      await h.dispose();
+    }
+  });
+});
+
 describe('timers 行 entries 单写者收口（cr-551）', () => {
   it('agentsEdit 注入：save 落盘经编辑面 saveEntry', async () => {
     seedAgent('alpha', []);

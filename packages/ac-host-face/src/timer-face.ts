@@ -40,8 +40,11 @@ const err = (msg: string): { ok: false; error: string } => ({ ok: false, error: 
  *       dormantReason / chained 新增；lastGate* / lagMs 退役；schedule 人读摘要
  *   v6: cr-1172 源健康——scheduleState 新增 sources[]（generatedAt/seq/stale
  *       现读投影）；纯增量字段，v5 消费方不受影响
+ *   v7: cr-1180 停用但保留——停用条目 list 可见（enabled:false + pausedAt
+ *       + schedule 前缀「已停用」+ 无 nextAt）；update enabled:false 停用
+ *       保留条目（取消计时），enabled:true 重新武装（恢复时刻起算，不回补）
  */
-const LIST_VERSION = 6;
+const LIST_VERSION = 7;
 
 /** timers 服务最小面（HostTimersService） */
 interface TimersFace {
@@ -180,6 +183,9 @@ async function executeTimer(
     };
   }
   if (action === 'set') {
+    // enabled 参数仅 update 语义（cr-1180）——set 无「建停用条目」用例，
+    // 显式报错防 LLM 面 s误会（set 建 enabled:false 条目无意义且丢暂停语义）
+    if (args.enabled !== undefined) return err('set 不接受 enabled——set 恒建启用条目；停用用 update(entry_id, enabled:false)，可再 update(enabled:true) 恢复');
     // v2 遗留参数显式报错（cr-1167）：v2 的 set({code/mode/time/hint/delay/...}) 在
     // v3 schema 下会静默丢失——迁移者会误判已生效。fail-loud 指引正确词汇。
     const v2Keys = ['code', 'mode', 'time', 'hint', 'delay', 'delayMin', 'delayMax', 'repeatCount', 'activeHours'];
@@ -297,13 +303,15 @@ async function executeTimer(
     }
     const res = timers.update(owner, entry);
     if (!res.ok) return err(res.error ?? '更新失败');
+    const paused = entry.enabled === false;
     return {
       ok: true,
       result: {
         entry_id: id,
+        ...(paused ? { paused: true, note: '条目已停用（保留在 timer.json，不投递不计时）——update(enabled:true) 恢复，恢复从当时起算不回补停用期间' } : {}),
         conversationId: entry.action.conversationId,
         schedule: describeEntry(entry),
-        preview: previewOf(timers, owner, entry).fires,
+        ...(paused ? {} : { preview: previewOf(timers, owner, entry).fires }),
       },
     };
   }
@@ -321,7 +329,7 @@ export function makeTimerFaceRow(): Plugin {
           description:
             '管理定时任务（cr-1164 哑触发层：到点唤醒 = 声明式触发词汇，无脚本无代码执行）。set 安排一条定时（when = 触发器数组 OR 语义）；update 按 entry_id 幂等改写（未传字段继承现值——改 when/text/conversationId/enabled 不丢记账）；test 静态预览未来触发点；list 查看条目（nextAt/lastAt/triggeredCount/dormantReason/conversationId）；cancel 按 id 取消（归档留痕 timer-archive）。'
             + ' when 触发词汇：{kind:"once", at:"ISO"} 单次；{kind:"daily", at:"HH:mm"}；{kind:"weekly", dow:0-6(0=周日), at:"HH:mm"}；{kind:"every", iv:"30m", base?, jitter?} 间隔网格（base 缺省 wall=墙钟网格对齐 cron 心智；{at:"HH:mm"} 显式锚如「每小时的 :20」= iv:"1h"+base:{at:"00:20"}；"after-last" 链式=上次投递起算）；{kind:"source", source, view, on:"rows-added"|"stale", match?, cooldown?} 源事件（需对应 source 行已安装，否则条目 dormant；且需该视图的读授权——未授权会被拒，请让用户在授权面板授予 inline grant {kind:"source-view",source,view}）。'
-            + ' gates 时间门（AND）：{kind:"workday"}/{kind:"holiday"}/{kind:"hours", from, to}（from>to 为跨午夜形）。until 终结：{count:n}（按投递次数）或 {date:ISO}。missed 停机策略："skip"（缺省，周期触发错过直跳未来）或 "catchup-once"（once 缺省——错过补投一次）。conversationId：唤醒信投递的会话键（缺省 = 发起会话；定时任务建议用 <agent>~<agent> 自会话与用户聊天解耦，须归属本 Agent）。'
+            + ' gates 时间门（AND）：{kind:"workday"}/{kind:"holiday"}/{kind:"hours", from, to}（from>to 为跨午夜形）。until 终结：{count:n}（按投递次数）或 {date:ISO}。missed 停机策略："skip"（缺省，周期触发错过直跳未来）或 "catchup-once"（once 缺省——错过补投一次）。enabled 启停（update）：false = 停用但保留（条目留在 list，不投递不计时；别用 cancel——那会归档删除），true = 恢复（从恢复时刻起算，不回补停用期间）。conversationId：唤醒信投递的会话键（缺省 = 发起会话；定时任务建议用 <agent>~<agent> 自会话与用户聊天解耦，须归属本 Agent）。'
             + ' 语义判断归你：唤醒信只是「时间到/有事件」，值不值得做、做什么由 run 内判定。test 可验证 when 词汇与 match 求值（传 simulate_row 模拟源行）。时区按 owner（agent）配置。',
           parameters: {
             type: 'object',
@@ -335,7 +343,7 @@ export function makeTimerFaceRow(): Plugin {
               missed: { type: 'string', enum: ['skip', 'catchup-once'], description: '[set] 停机策略（周期缺省 skip；once 缺省 catchup-once）' },
               conversationId: { type: 'string', description: '[set] 唤醒信投递的会话键（缺省 = 发起本条目的会话）。定时任务建议指向自己的自会话 <agent>~<agent>（与用户聊天线程解耦）；须归属本 Agent：a~b 键一侧为己方，或自己名下已存在的会话键' },
               entry_id: { type: 'string', description: '[cancel/update] 条目 id（list 可见）' },
-              enabled: { type: 'boolean', description: '[update] 启停条目（缺省继承现值）' },
+              enabled: { type: 'boolean', description: '[update] 启停条目（缺省继承现值）：false = 停用但保留（不投递不计时，list 可见可恢复），true = 恢复（从恢复时刻起算，不回补停用期间）' },
               simulate_row: { type: 'object', description: '[test] 模拟源行（求值 source 触发器的 match）' },
             },
             required: ['action'],
@@ -343,7 +351,7 @@ export function makeTimerFaceRow(): Plugin {
         }],
         sections: [{
           name: 'GUIDELINES_TIMER',
-          text: '主动安排：值得持续跟进或适时提醒的事项，主动用 timer(action="set") 安排，不必等用户指令。定时器 = 哑触发层：when 触发词汇（once/daily/weekly/every/source）声明「何时叫醒你」，gates 时间门（工作日/时段）限定窗口，until 限定次数——唤醒信只是「时间到」，值不值得做、做什么由你 run 内判定（语义判断不进触发器）。外部状态变化（如新消息）用 source 触发器（需对应 source 行 + 该视图读授权）；test 可静态预览触发点，list 查健康度（nextAt/triggeredCount/dormantReason）。',
+          text: '主动安排：值得持续跟进或适时提醒的事项，主动用 timer(action="set") 安排，不必等用户指令。定时器 = 哑触发层：when 触发词汇（once/daily/weekly/every/source）声明「何时叫醒你」，gates 时间门（工作日/时段）限定窗口，until 限定次数——唤醒信只是「时间到」，值不值得做、做什么由你 run 内判定（语义判断不进触发器）。外部状态变化（如新消息）用 source 触发器（需对应 source 行 + 该视图读授权）；test 可静态预览触发点，list 查健康度（nextAt/triggeredCount/dormantReason）。暂时停用一条定时用 update(entry_id, enabled:false)——停用但保留（list 可见，恢复不回补停用期间），别误用 cancel（那是撤销归档，条目会删除）。',
           promise: true,
           gate: { toolsAny: ['timer'] },
         }],

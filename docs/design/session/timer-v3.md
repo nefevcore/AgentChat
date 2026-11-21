@@ -89,6 +89,7 @@ timer 自身：**哑的事件匹配器 + 排程器**——不采集、不判定�
 
 | 字段 | 形态 | 语义 |
 |---|---|---|
+| `enabled` | boolean | 停用但保留（cr-1180）：`false` = 条目留在 timer.json 与条目面（list 可见、update/cancel 可达）但不参与排程与分发（不投递不计时）；恢复 `true` = 基点快进——armedAt 抬到恢复时刻（停用期间刻度不回补）、lastSeq 快进到各订阅源现值（停用期间事件不补投）。别与 cancel 混淆：cancel 是撤销归档（条目删除） |
 | `gates` | 数组，AND | 时间门：`workday` / `holiday` / `hours{from,to}`（from > to 为跨午夜形） |
 | `until` | `{count:n}` 或 `{date:ISO}` 或缺席 | 终结条件；count 按投递次数记账 |
 | `missed` | `skip` 或 `catchup-once` | 停机策略；周期触发缺省 skip，once 缺省 catchup-once |
@@ -159,7 +160,7 @@ R0b 三问：独立消费方（timer 条目 / 将来 webui 面板）✓；摘除
 | 重启 | nextAt / lastSeq 落 state.json；nextAt 可重算（缓存，§四）；源触发按 lastSeq 续读，补不补循 missed |
 | 行缺席降级 | 订阅的 source/view 未安装或无读授权 → 条目 dormant（不报错，list 可见） |
 
-- 记账（state.json，结构化——取代 scriptState）：`lastFiredAt / firedCount / lastSeq{source,view} / dormantReason?`。
+- 记账（state.json，结构化——取代 scriptState）：`lastFiredAt / firedCount / lastSeq{source,view} / dormantReason? / pausedAt?`（停用时刻——cr-1180 停用但保留的启停记号，list 投影用；启用着落不写）。
 - 审计行：每次投递 append 一行 `{ at, cause: 'time'|'source', trigger, seq?, matched?, target, budget }`（滚动文件；落位见 §十一）。
 - 心跳沿用（诊断面存活信号，不触发任何逻辑）。
 
@@ -167,7 +168,7 @@ R0b 三问：独立消费方（timer 条目 / 将来 webui 面板）✓；摘除
 
 - `set` = 纯数据写入：schema 校验 + match 算子合法性 + 源 / 视图存在性与读授权检查。**无 dry-run**（无可执行物）。
 - `test` = 静态预览：算出未来三次触发点（wall / anchor 完整、after-last 标注链式）；模拟给定事件是否命中（含 match 求值）。
-- `list`：每条目 nextAt（时间触发）、事件订阅态 + 源健康（经 source 行服务）、记账、dormant 原因、链式标注。
+- `list`：每条目 nextAt（时间触发）、事件订阅态 + 源健康（经 source 行服务）、记账、dormant 原因、链式标注；停用条目全字段可见 + `pausedAt` + schedule 前缀「已停用」（无 nextAt——不排程，cr-1180）。
 - `cancel` 原样。
 - 权限：set 降敏为普通数据写（不再是「安装持久化代码」）；源订阅受视图读授权约束（未授权视图校验拒）。
 - 指南段（ac-agent-loop sections）与 TimerPane：探测循环 / 模式编辑语言 → 触发词汇分栏表单（随实现 CR 换轨）。
