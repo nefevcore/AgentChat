@@ -1,7 +1,7 @@
 # 会话压缩与概要 V2（compaction-v2 redesign）
 
 > 性质：域深设计（现行压缩机制的重新评估与 V2 设计——取代 cr-974 §2.3 压缩三态的演进稿，实施后并入 session-design.md §3.4）。
-> 状态：已实施（B1-B5 落地） · cr-1160 2026-11-20 · 承接 cr-974（事件日志 v2）/ cr-1155（僵尸行）/ cr-1156（边界时刻维度）；结论已并入 session-design.md §3.4。
+> 状态：已实施（B1-B5 落地）；驱动面与提交面已被 [compaction-v3-injection.md](compaction-v3-injection.md) 取代（P1/P2/P4 骨架仍现行） · cr-1160 2026-11-20 · 承接 cr-974（事件日志 v2）/ cr-1155（僵尸行）/ cr-1156（边界时刻维度）；结论已并入 session-design.md §3.4。
 > 读者：动 ac-ledger 压缩面 / ac-shell-rows archive 行 / 回放投影 / session-index 的人。
 
 ---

@@ -1204,4 +1204,8 @@
 - 【cr-1183 2026-11-21 markdown 表格列宽优化：表宽 hug 收缩 + 渲染器列分类封顶贪婪列】
 - 【cr-1184 2026-11-21 unread 修复：活跃轴语义对齐 host 计数器（restart_host 复活）+ SessionList 行徽章补位】
 - 【cr-1185 2026-11-21 名册脱离 runs/snapshot：session-index roster 小表 + 帧驱动定向入账 + session/roster RPC + 前端名册改道 #session-index #webui →cr-1142 →cr-1138】
+- 【cr-1186 2026-11-21 fix(roster): user 虚拟身份被保留字闸误伤除名——isAgentIdentity 回归词形单义，名册/头像恢复】
+- 【cr-1187 2026-11-21 fix(conversation): 状态卡计时锚钉陈旧 viewer 消息——机制触发 run（timer 唤醒/归档整理）超先行窗时锚定 runStartAt，长会话计时不再从数十小时前起算】
+- 【cr-1188 2026-11-21 fix(shell): session-archive admin 帧改受理即回执——requestArchive 后台执行，不再撞宿主 ipc 15s 回帧超时（前端本就等 archive/completed 广播收口）】
+- 【cr-1189 2026-11-21 压缩 V3 设计稿：注入驱动整理轮 + session_digest 结构化提交——摘要全文住注入行（compaction 事件只带边界+stats）、reviewRun 机制面退役、无提交不压缩（取代 cr-1160 P3 启发式提交）】
 
