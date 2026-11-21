@@ -1,6 +1,6 @@
 {
- "scannedHead": "238d2d749065afca7f68b75a87d4967568672e8c",
- "generatedAt": "2026-11-21T14:55:21.919Z",
+ "scannedHead": "1853b18c32079bbeb7f5fa15e2ce925295b67c64",
+ "generatedAt": "2026-11-21T15:11:01.758Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5866,6 +5866,18 @@
     "sha": "7956d48536b56c879b30196cbb2b1a913903b297",
     "date": "2026-11-21",
     "subject": "chore(cr): cr-commits 投影同步（cr-1192 同源补充）"
+   },
+   {
+    "sha": "b4f918cd62ea68060a0841c591eaed25580a5105",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1192 调序）"
+   }
+  ],
+  "1193": [
+   {
+    "sha": "1853b18c32079bbeb7f5fa15e2ce925295b67c64",
+    "date": "2026-11-21",
+    "subject": "docs(session): cr-1193 TokenGauge 显示算法 P+delta 重设计交接档——三态层积（净估算→KV实时→锚点校准，每层给上层打补丁）收敛为两态（实时/P+delta 外推）；锚点比率 E×(P/E)=P 绕圈病灶归档；实施面/未竟裁决/接力入口成文（用户自领实施）"
    }
   ]
  }
