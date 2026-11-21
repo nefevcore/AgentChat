@@ -378,6 +378,7 @@ export class ArchiveShellService extends Service {
       }
       // digest 捞取：登记簿（壳内观察面）∪ run 事实回捞（跨重启/多路径兜底）
       const digest = this.takeDigestOf(uuid, runId);
+      const summaryRequestId = requestId + '-summary';
       if (digest !== undefined) {
         await this.ctx.ledger.deliverRow(uuid, [this.agentId], 'user', {
           role: 'context',
@@ -385,11 +386,11 @@ export class ArchiveShellService extends Service {
           content: digest,
           label: '归档总结',
           agent_id: this.agentId,
-          requestId: requestId + '-summary',
+          requestId: summaryRequestId,
           uuid,
         });
       }
-      const archived = await this.archiveAndRebuild(uuid, requestedAt);
+      const archived = await this.archiveAndRebuild(uuid, requestedAt, digest !== undefined ? summaryRequestId : undefined);
       this.completedOf(uuid, archived); // cr-1188 完成广播——前端 pending 收口 / 会话流刷新
     } finally {
       this.pending.delete(uuid);
@@ -508,7 +509,7 @@ export class ArchiveShellService extends Service {
    * 命名）；主日志保留 = header + compaction 事件（经 B1 窗口 late-merge
    * 自然留存——audit 面永在）+ 尾部行。v1 会话走原 compact 流程不动。
    */
-  async archiveAndRebuild(uuid: string, requestedAt: number): Promise<number> {
+  async archiveAndRebuild(uuid: string, requestedAt: number, summaryRequestId?: string): Promise<number> {
     const ledger = this.ctx.ledger;
     const dir = this.sessionDir(uuid);
     const { header, rows } = readLedger(dir);
@@ -563,8 +564,20 @@ export class ArchiveShellService extends Service {
       // split.archive 取（cr-1190 续修 3）：split 集含伪行与刚落账的摘要行
       //（伪行尾部追加使摘要行位置落进归档段），boundary 盖过摘要行 = 自
       // shadow、回放头蒸发。排除后 boundary ≤ 摘要行 seq-1，天然不 shadow。
+      // cr-1192 小会话兜底：估算 < 尾部保留预算（keep 覆盖全表）时
+      // archivedOriginal 为空 → boundary=0 = 零 shadow——V2「物理搬运才需
+      // 边界」的残留语义，V3 下摘要已落、事件已落即逻辑生效，边界必须出清
+      // 摘要行之前的全部内容（含请求行、旧代摘要行、整理轮轨迹——否则逐代
+      // 堆积，越归档越臃肿）。锚 = 摘要行 seq-1：盖到摘要行前、不 shadow
+      // 摘要行自身（isCompactionRow 已排除它，双保险）。无提交代（摘要行
+      // 缺席）保持 boundary=0 只滚事件——无摘要可锚，强行出清会丢记忆。
       const archivedMaxSeq = archivedOriginal.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
-      const boundary = Math.max(lastArchived?.seq ?? 0, archivedMaxSeq, 0);
+      const summaryRow = summaryRequestId !== undefined
+        ? rows.find((r) => (r as { source?: unknown }).source === ARCHIVE_SUMMARY_SOURCE
+          && (r as { requestId?: unknown }).requestId === summaryRequestId) as { seq?: number } | undefined
+        : undefined;
+      const summaryAnchorSeq = summaryRow !== undefined && typeof summaryRow.seq === 'number' ? summaryRow.seq - 1 : 0;
+      const boundary = Math.max(lastArchived?.seq ?? 0, archivedMaxSeq, summaryAnchorSeq, 0);
       // 语义边界先 durable（cr-1160 P1 单事件 + cr-1189 V3：**不携带 summary
       // 字段**——摘要全文住 archive-summary 注入行，单一事实源；无新总结压缩
       // 时摘要行缺席、回放头沿用上一代。stats 随行审计面。摘要滚动即使零移出

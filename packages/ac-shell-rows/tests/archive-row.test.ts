@@ -322,6 +322,41 @@ describe('archive 行（cr-1189 V3）', () => {
   }, 20_000);
 
 
+  it('cr-1192：小会话归档边界兜底——keep 覆盖全表（archivedOriginal 空）时 boundary = 摘要行 seq-1，旧内容出清', async () => {
+    // 现场形态（01a1fe79）：估算远小于尾部保留预算 → splitForArchive keep 全表
+    // → archivedOriginal 空 → V3 下摘要/事件已落而边界 0 = 零 shadow（回放全量
+    // 且逐代堆积）。修后 boundary 锚摘要行 seq-1。
+    seedAgent('eta', { archive: { maxContextTokens: 1_000_000, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('eta', { digestText: '小会话总结：测试手工归档行为。' });
+    try {
+      // 小会话：几行短消息（远小于 30K keep 预算）
+      await h.ledger.deliverRow('user~eta', ['eta', 'user'], 'user', {
+        role: 'agent', content: '你好，等会我做个测试，我会手工进行上下文压缩归档', agent_id: 'user', requestId: 'q1', uuid: 'user~eta',
+      });
+      await h.ledger.settleRun('user~eta', ['eta', 'user'], 'user', {
+        role: 'agent', content: '好的，收到。你随时可以发起压缩归档。', agent_id: 'eta', requestId: 'reply-q1', uuid: 'user~eta', run: 'run-q1',
+      }, 'run-q1', 'ok');
+      await h.archive.requestArchive('user~eta');
+      const dir = path.join(ROOT, 'agents', 'eta', 'sessions', 'user~eta');
+      const after = readLedger(dir);
+      // compaction 事件在场且 boundary > 0（锚摘要行 seq-1）
+      const cmp = after.rows.find((r) => (r as { type?: string }).type === 'compaction') as { boundarySeq?: number } | undefined;
+      expect(cmp).toBeDefined();
+      expect((cmp?.boundarySeq ?? 0)).toBeGreaterThan(0);
+      const sumRow = after.rows.find((r) => (r as { source?: string }).source === ARCHIVE_SUMMARY_SOURCE) as { seq?: number } | undefined;
+      expect(sumRow?.seq).toBeDefined();
+      expect(cmp?.boundarySeq).toBe((sumRow?.seq ?? 0) - 1);
+      // 回放：开场白被 shadow（不在回放），摘要行 + 尾部在场
+      const fold = foldSession(ROOT, 'user~eta', [dir]);
+      expect(foldDigestOf(fold)).toBe('小会话总结：测试手工归档行为。');
+      const hist = h.ledger.historyMessagesFor('user~eta');
+      expect(hist.some((m) => String(m.content).includes('你好，等会我做个测试'))).toBe(false); // 旧内容出清
+      expect(hist.some((m) => String(m.content).includes('小会话总结'))).toBe(true); // 摘要行在场
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
   it('cr-1155：无 seq 的 v1 僵尸行随位置归档出清——不再永踞主日志', async () => {
     seedAgent('theta', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
     const h = await bootShellRows('theta', { digestText: '总结。' });
