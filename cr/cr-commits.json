@@ -1,6 +1,6 @@
 {
- "scannedHead": "7ecf503656477d66cda03ba559952862a0281214",
- "generatedAt": "2026-11-21T13:03:26.509Z",
+ "scannedHead": "043aea39085e03bb0858c9f9189c9e2314ea43f9",
+ "generatedAt": "2026-11-21T13:56:07.784Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5802,6 +5802,18 @@
     "sha": "7ecf503656477d66cda03ba559952862a0281214",
     "date": "2026-11-21",
     "subject": "feat(session): cr-1190 压缩 V3 实施——注入驱动整理轮 + session_digest 结构化提交（B1-B6）：archive-review-request 请求注入行 + 机制信 deliver 唤醒整理轮（reviewRun 机制面退役）；摘要单一事实源住 archive-summary 注入行（compaction 事件只带边界+stats，foldDigestOf 单源回放头，digest 行在场时 v2 事件摘要头停发）；触发器注册式（token 阈值缺省可扩展）；无提交退化合法态（边界照落、摘要行缺席）；前端 compressSession→archiveSession 符号统一；请求行 wrapper 回放档 + 摘要行永留主日志（isCompactionRow 扩展）；writer 实证三连修：v1/v2 混合会话行面判定（header.version 分流错位）、splitForArchive 补 viewer 回放计量（伪行 32.5 万 token 漏计归档恒空）、boundary 改 archivedOriginal 取源（防摘要行自 shadow 回放头蒸发）；整理 hint 瘦身（删主线 ac-archive 遗物条目）；archive-row.test 重写 V3 断言全集 51/51、全量单测 3345"
+   },
+   {
+    "sha": "e6a354011124a83adbefc73f2b96fc5c2c0d7bb9",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1190）"
+   }
+  ],
+  "1191": [
+   {
+    "sha": "043aea39085e03bb0858c9f9189c9e2314ea43f9",
+    "date": "2026-11-21",
+    "subject": "fix(session): cr-1191 压缩后续用双缺陷根修——① 技能加载失效：recordsFor 不滤压缩边界，被 shadow 的旧技能注入行（本会话 seq=176 vs boundary 1084 实测）仍被 ac-skill 跨 run 去重看见→误判「已注入」→ load_skill 回执 injected 而正文永不重注；修：recordsFor 加 rowShadowedBy 单源过滤（回放口径在场判定）；② 占用读数新旧跳变：回落路径 replayTokensOf 全量盘读不滤 shadowed（650K）与索引 activeContextTokens（149K）口径分叉 + 锚点跨代毒对（P=451K 旧代/E=149K 新代→r=3.03 落钳制带内被采信，与归档清锚值来回拉锯）+ KV 尾点旧代 prompt 残留；修：回落路径滤边界（与 archive.estimateOf activeOnly 同型）、V3 摘要单源（digest 行在场不再加 summary 头防双计——estimateOf 同步）、TokenGauge 锚点跨代守卫（P/E 超界弃样不钳制采信）+ 归档清 kvPoints。测试：recordsFor 压缩过滤用例 + face-runs 压缩回落路径用例；3437/3437 绿 + typecheck/webui build/lint/check:deps 全绿"
    }
   ]
  }
