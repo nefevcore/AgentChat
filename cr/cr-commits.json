@@ -1,6 +1,6 @@
 {
- "scannedHead": "1853b18c32079bbeb7f5fa15e2ce925295b67c64",
- "generatedAt": "2026-11-21T15:11:01.758Z",
+ "scannedHead": "f8c22dd8321a133e828c4904caf4d1fc8873d87a",
+ "generatedAt": "2026-11-21T15:17:16.063Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5871,6 +5871,11 @@
     "sha": "b4f918cd62ea68060a0841c591eaed25580a5105",
     "date": "2026-11-21",
     "subject": "chore(cr): cr-commits 投影同步（cr-1192 调序）"
+   },
+   {
+    "sha": "f8c22dd8321a133e828c4904caf4d1fc8873d87a",
+    "date": "2026-11-21",
+    "subject": "fix(archive): cr-1192 续修 reviewPrompt 对话方称呼——single 会话键（uuid 形，无 ~ 不含 agentId）split('~') 单元素命中自身，整段 uuid 被当「对方」嵌进文案（现场：你与「01a1fe79-…」的会话（会话键 01a1fe79-…）同串出现两次）；修：无 ~ 键对话方恒为用户直称「用户」。测试从归档段 gzip 验文案（请求行随压缩边界出清物理入段）。archive-row 11/11 + affected 3440/3440 + typecheck 绿"
    }
   ],
   "1193": [
@@ -5878,6 +5883,11 @@
     "sha": "1853b18c32079bbeb7f5fa15e2ce925295b67c64",
     "date": "2026-11-21",
     "subject": "docs(session): cr-1193 TokenGauge 显示算法 P+delta 重设计交接档——三态层积（净估算→KV实时→锚点校准，每层给上层打补丁）收敛为两态（实时/P+delta 外推）；锚点比率 E×(P/E)=P 绕圈病灶归档；实施面/未竟裁决/接力入口成文（用户自领实施）"
+   },
+   {
+    "sha": "4ae32a8423319e8df5d3e759da917c57340c7ee2",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1193）"
    }
   ]
  }
