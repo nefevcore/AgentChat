@@ -10,6 +10,18 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
+/**
+ * singles 独立会话键词法（cr-1120）：uuid 形（v4/v7 兼容）——签发源恒此形
+ * （服务端 issueConversationId / 前端 issueLocalConversationId）。agents 域
+ * sessions/ 另住对桶键 'a~b'（agent⇄agent / 群成员流 gid~member）与子 Agent
+ * 键 'sub_*'——非 singles 身份。判词单源（cr-1179）：宿主 singles 行与壳侧
+ * auto-title 行同源——壳行据此只命名 singles 会话（非此形键 title.set 必被
+ * 宿主词汇锁拒收）。
+ */
+export function isSingleSessionId(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
 /** user 会话目录（viewer 投影轴——cr-973 起仅存量兼容读与 singles
  *  身份目录词汇；与 agents/ 身份树平级且刻意异名：cr-609 前名
  *  users/user 与 agents/user 一字之差曾致混淆） */

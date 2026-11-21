@@ -25,7 +25,7 @@
 // ============================================================
 import type { Context, Plugin } from '@agentchat/cordis';
 import { DATE_SNAPSHOT_PREFIX, cleanTitle, fallbackTitle, isArchiveReviewRun, titlePrompt } from 'ac-core-utils';
-import { readSessionTitle } from 'ac-ledger';
+import { isSingleSessionId, readSessionTitle } from 'ac-ledger';
 import type { LoopRunRequest, LoopStepRecord } from 'ac-agent-loop';
 
 /** 行配置（boot 装配参数） */
@@ -122,6 +122,7 @@ export function makeAutoTitleRow(options: AutoTitleRowOptions): Plugin {
       const stage = (request: LoopRunRequest): void => {
         const sid = request.conversationId;
         if (options.postOfficeAddress === undefined || sid === undefined || sid === '') return;
+        if (!isSingleSessionId(sid)) return; // 只命名 singles 会话（cr-1179）：注入自会话/对桶键的 user run 非此形，title.set 必被宿主词汇锁拒收
         if (settled.has(sid) || staged.has(sid)) return;
         if (isArchiveReviewRun(request.meta)) return; // 机制 run 不是用户对话
         if (request.source !== 'user') return; // 只命名用户会话

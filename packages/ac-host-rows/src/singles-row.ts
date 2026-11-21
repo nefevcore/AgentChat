@@ -29,7 +29,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
-import { conversationDirs, forkConversation, projectUserReplay, sessionDir, userMetaFile } from 'ac-ledger';
+import { conversationDirs, forkConversation, isSingleSessionId, projectUserReplay, sessionDir, userMetaFile } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
 import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, fallbackTitle } from 'ac-core-utils';
 import type { HostServiceDesk } from './service-desk.ts';
@@ -89,19 +89,8 @@ function metaSessionsDir(dataRoot: string): string {
 
 
 
-// singles 会话键词汇锁（cr-1120）：uuid 形（v4/v7 兼容）。签发源恒此形——
-// 服务端 issueConversationId（uuidv7）与前端 issueLocalConversationId
-//（同构）。agents 域 sessions/ 还住对桶键 'a~b'（agent⇄agent / 群成员
-// 流 gid~member）与子 Agent 键 'sub_*'（run_code 编排会话）——无差别
-// 并集曾把它们误收进用户会话清单（未分组幻影行 + 帧路由串台：
-// knownSingles 污染后对桶/子Agent 帧误路由 single 分区，unread 命中
-// 幻影行不可清除）。uuid 形词法即身份：非此形的 agents 域目录不是
-// singles，meta/sessions 里的非 uuid 残留（title-request 历史误写）
-// 同样不收。
-function isSingleSessionId(id: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-}
-
+// singles 键词法锁（cr-1120）判词已并源 ac-ledger/user.ts isSingleSessionId
+//（cr-1179——壳侧 auto-title 行同源共用法）。
 function assertSingleId(id: string): void {
   if (!isSingleSessionId(id)) {
     throw new Error('会话 id "' + id + '" 非法（须 uuid 形独立会话键）');

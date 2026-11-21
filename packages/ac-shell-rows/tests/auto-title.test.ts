@@ -1,7 +1,7 @@
 // ============================================================
 // auto-title.test.ts —— 壳侧会话命名行（cr-672）：首步后 LLM 概括 →
 // 标题请求信封 → 邮局（本测监听真 ipc，帧捕获断言）；幂等 / 回落 / 无邮局
-// 三面。数据根恒 sandbox（红线）。
+// 三面。cr-1179：会话键闸（uuid 形 singles 键才命名）。数据根恒 sandbox（红线）。
 // ============================================================
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -12,6 +12,8 @@ import { listenIpc, type IpcServer } from 'ac-envelope-core';
 import { socketPathFor, type Envelope } from 'ac-envelope-core';
 
 const ROOT = path.resolve('sandbox', 'test-auto-title-' + process.pid);
+
+// singles 键恒 uuid 形（cr-1179 闸后非此形直接不挂账——uuid 负例在「非用户会话」用例）
 
 interface ChatCall { model: string; messages: Array<{ role: string; content: string }>; [key: string]: unknown }
 
@@ -41,7 +43,7 @@ async function waitFor(fn: () => boolean, ms = 3000): Promise<void> {
 const runRequest = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   model: 'mock',
   messages: [{ role: 'user', content: '继续 AgentChat preview 轨' }],
-  conversationId: 'c1',
+  conversationId: '11111111-1111-4111-8111-111111111111',
   sender: 'user',
   source: 'user',
   ...over,
@@ -51,7 +53,7 @@ const step = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
   index: 0, text: '', reasoning: '用户在继续 preview 轨的重建工作', toolCalls: [], ...over,
 });
 
-const envelopeOf = (conversationId = 'c1'): Record<string, unknown> => ({ conversationId, sender: 'user', source: 'user' });
+const envelopeOf = (conversationId = '11111111-1111-4111-8111-111111111111'): Record<string, unknown> => ({ conversationId, sender: 'user', source: 'user' });
 
 async function boot(postOfficeAddress?: string) {
   const ctx = new Context();
@@ -80,7 +82,7 @@ describe('壳侧会话命名行（cr-672）', () => {
       await waitFor(() => frames.length > 0);
       const frame = frames[0] as { svc: string; reqId: string; payload: { conversationId: string; title: string; agent: string } };
       expect(frame.svc).toBe('title.set');
-      expect(frame.payload).toMatchObject({ conversationId: 'c1', title: '会话命名标题', agent: 'alpha' });
+      expect(frame.payload).toMatchObject({ conversationId: '11111111-1111-4111-8111-111111111111', title: '会话命名标题', agent: 'alpha' });
       // 思考禁用双词汇 + 素材含用户消息与 Agent 首步思考
       expect(h.llm.calls).toHaveLength(1);
       expect(h.llm.calls[0]).toMatchObject({ model: 'mock', thinking: { type: 'disabled' }, reasoning_effort: 'none' });
@@ -100,7 +102,7 @@ describe('壳侧会话命名行（cr-672）', () => {
   it('盘上已有标题（含用户手改）→ 不生成不投递', async () => {
     const dir = path.join(ROOT, 'meta', 'sessions');
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'c1.json'), JSON.stringify({ id: 'c1', title: '手改标题' }), 'utf-8');
+    fs.writeFileSync(path.join(dir, '11111111-1111-4111-8111-111111111111.json'), JSON.stringify({ id: '11111111-1111-4111-8111-111111111111', title: '手改标题' }), 'utf-8');
     const address = socketPathFor(ROOT, 'po-existing');
     const frames: unknown[] = [];
     const server = await listenIpc(address, (frame) => { frames.push(frame); return { reqId: (frame as { reqId?: string }).reqId ?? '', ok: true, result: { applied: true } }; });
@@ -123,10 +125,15 @@ describe('壳侧会话命名行（cr-672）', () => {
     const server = await listenIpc(address, (frame) => { frames.push(frame); return { reqId: (frame as { reqId?: string }).reqId ?? '', ok: true, result: { applied: true } }; });
     const h = await boot(address);
     try {
-      h.emit('loop/run-started', runRequest({ conversationId: 'agent-pair', source: 'agent' }));
-      h.emit('loop/after-step', 'alpha', step(), envelopeOf('agent-pair'));
+      h.emit('loop/run-started', runRequest({ conversationId: 'tester~tester', source: 'agent' }));
+      h.emit('loop/after-step', 'alpha', step(), envelopeOf('tester~tester'));
       h.emit('loop/run-started', runRequest({ conversationId: 'mech', meta: { 'archive-review': true } }));
       h.emit('loop/after-step', 'alpha', step(), envelopeOf('mech'));
+      // cr-1179：注入自会话/对桶键的 run 是 user source——键非 uuid 形即不挂账（title.set 必被宿主拒收）
+      h.emit('loop/run-started', runRequest({ conversationId: 'tester~tester' }));
+      h.emit('loop/after-step', 'alpha', step(), envelopeOf('tester~tester'));
+      h.emit('loop/run-started', runRequest({ conversationId: 'sub_run-code-1' }));
+      h.emit('loop/after-step', 'alpha', step(), envelopeOf('sub_run-code-1'));
       h.emit('loop/run-started', runRequest({ conversationId: 'dated', messages: [{ role: 'user', content: '[当前时间] 2026-10-24 周五' }] }));
       h.emit('loop/after-step', 'alpha', step(), envelopeOf('dated'));
       await new Promise((r) => setTimeout(r, 120));
@@ -146,8 +153,8 @@ describe('壳侧会话命名行（cr-672）', () => {
     h.llm.fail = true;
     try {
       const long = '这是一条非常长的用户消息'.repeat(4);
-      h.emit('loop/run-started', runRequest({ conversationId: 'c2', messages: [{ role: 'user', content: long }] }));
-      h.emit('loop/after-step', 'alpha', step(), envelopeOf('c2'));
+      h.emit('loop/run-started', runRequest({ conversationId: '22222222-2222-4222-8222-222222222222', messages: [{ role: 'user', content: long }] }));
+      h.emit('loop/after-step', 'alpha', step(), envelopeOf('22222222-2222-4222-8222-222222222222'));
       await waitFor(() => frames.length > 0);
       const title = (frames[0] as Envelope & { payload: { title: string } }).payload.title;
       expect(title.endsWith('…')).toBe(true);
@@ -165,8 +172,8 @@ describe('壳侧会话命名行（cr-672）', () => {
     const h = await boot(address);
     try {
       // after-run 兜底同样走 LLM（只是没有 Agent 首步素材——素材面缺省）
-      h.emit('loop/run-started', runRequest({ conversationId: 'c3' }));
-      h.emit('loop/after-run', runRequest({ conversationId: 'c3' }));
+      h.emit('loop/run-started', runRequest({ conversationId: '33333333-3333-4333-8333-333333333333' }));
+      h.emit('loop/after-run', runRequest({ conversationId: '33333333-3333-4333-8333-333333333333' }));
       await waitFor(() => frames.length > 0);
       expect((frames[0] as Envelope & { payload: { title: string } }).payload.title).toBe('会话命名标题');
       expect(h.llm.calls).toHaveLength(1);
