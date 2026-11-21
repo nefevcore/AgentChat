@@ -1,6 +1,6 @@
 {
- "scannedHead": "bd3b5dcde19be845417ef183bc288bae277297d2",
- "generatedAt": "2026-11-20T16:07:46.389Z",
+ "scannedHead": "6b89d865e819dfe0ce600a832540ae522b31e526",
+ "generatedAt": "2026-11-21T02:04:47.011Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5044,6 +5044,11 @@
   ],
   "1114": [
    {
+    "sha": "149b41804ae6ca6418c9261a8c014f7c30258b45",
+    "date": "2026-11-21",
+    "subject": "fix(test): cr-1174 vitest setup 摘 AGENTCHAT_DEV_MODE 环境渗漏（同 DATA_ROOT 先例：在场即 warn+delete）——六次踩坑（cr-1114/1121/1142/1149/1165/1166）根断：开发者 shell 渗漏继承致系统域双禁默认表解除 → sandbox-core 两例假红；dev mode 语义测试显式自设 env 不受影响"
+   },
+   {
     "sha": "462b59e3f03815794f13d010c9792f4454f21eba",
     "date": "2026-11-16",
     "subject": "feat(mcp): cr-1122 listChanged 通知接线——ac-mcp-core 连接抽象暴露 onToolsListChanged 订阅（SDK 内建 ClientOptions.listChanged 面接入，能力门控+300ms debounce 由 SDK 承担，autoRefresh=false 重发现归对账链）+ ac-mcp 建连订阅触发 redetect 复用 cr-1114 对账全链（diff/发现缓存/tools/source-changed）；顺带修 prepareRun 静默吞错（.then(next,next) 改 warn+放行）；真实数据根配置 deepwiki 公开服务器 + per-agent 授权，运行时验证通过"
@@ -5057,11 +5062,6 @@
     "sha": "1f7cea8f37b895cac46ba37a7f845cec047f1d62",
     "date": "2026-11-15",
     "subject": "feat(tools): cr-1114 工具源统一批1+2——host-face boot 静态承诺面(spec 下沉 core+段拆承诺/补位)+prepare 缝对账重建(emit tools/source-changed)+rowTools 活查询化(listWithOwner+fiberNames 桥,boot 反查退役审计面)+前缀快照正文域漂移升③重算(diff 句退役)+ToolSource 契约与两源实现+MCP 发现缓存(meta/mcp-discovery def-hash 键)与发现对账(redetect)——修 timer 三面失明"
-   },
-   {
-    "sha": "149b41804ae6ca6418c9261a8c014f7c30258b45",
-    "date": "2026-11-21",
-    "subject": "fix(test): cr-1174 vitest setup 摘 AGENTCHAT_DEV_MODE 环境渗漏（同 DATA_ROOT 先例：在场即 warn+delete）——六次踩坑（cr-1114/1121/1142/1149/1165/1166）根断：开发者 shell 渗漏继承致系统域双禁默认表解除 → sandbox-core 两例假红；dev mode 语义测试显式自设 env 不受影响"
    }
   ],
   "1115": [
@@ -5405,6 +5405,26 @@
   ],
   "1157": [
    {
+    "sha": "28db4b617c1c4ccc0a7a10320024c774c980cbc2",
+    "date": "2026-11-19",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1157 修三/负路径真链回归）"
+   },
+   {
+    "sha": "bf8673159cbde5e6c9434cfd56df0712d30676f3",
+    "date": "2026-11-19",
+    "subject": "test(unread): cr-1157 负路径真链回归——沙箱真壳跑 a~a 自会话 run，断言 settled 后无自会话轴；变异测试证明用例能捕捉修复前行为（非假阴性）"
+   },
+   {
+    "sha": "9132c15abc4ac196366781d1ffc0b8a35a889cba",
+    "date": "2026-11-19",
+    "subject": "fix(unread): cr-1157 修三——前端 take 在途窗 live 帧暂存（快照已含同事件时再 bump = 偶发双计）；e2e 注释归位（负路径由判据单测锁，e2e 锁正路径真链）"
+   },
+   {
+    "sha": "cd03c501a59fc59723cd4c7deba5bbdb6e3764d2",
+    "date": "2026-11-19",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1157 修二/判据单源/判据收紧）"
+   },
+   {
     "sha": "838012adae3dd9e63a0dfd683c2904674f287b5d",
     "date": "2026-11-19",
     "subject": "fix(unread): cr-1157 判据收紧——非标准会话键不再回落猜成 agent⇄user 轴（真实数据实证：probe 残留曾被猜进 news~user，与用户报的串台同族）；只有 conv===agent 的旧形态直答才归对桶"
@@ -5423,26 +5443,6 @@
     "sha": "bf55c95b0fa7b415bbb9d03c5e8eb6da3e615621",
     "date": "2026-11-19",
     "subject": "feat(unread): cr-1157 计数器方案——三源事件计数（run 收束/独立私信/群消息，lastKey 幂等）+ session/unread take 与 mark-read 定向清 + 前端徽章面重建（unreadStore + AgentList/ActivityBar 角标）+ session-index 未读派生面退役（hint 语义，精准对账路线终结）"
-   },
-   {
-    "sha": "bf8673159cbde5e6c9434cfd56df0712d30676f3",
-    "date": "2026-11-19",
-    "subject": "test(unread): cr-1157 负路径真链回归——沙箱真壳跑 a~a 自会话 run，断言 settled 后无自会话轴；变异测试证明用例能捕捉修复前行为（非假阴性）"
-   },
-   {
-    "sha": "9132c15abc4ac196366781d1ffc0b8a35a889cba",
-    "date": "2026-11-19",
-    "subject": "fix(unread): cr-1157 修三——前端 take 在途窗 live 帧暂存（快照已含同事件时再 bump = 偶发双计）；e2e 注释归位（负路径由判据单测锁，e2e 锁正路径真链）"
-   },
-   {
-    "sha": "cd03c501a59fc59723cd4c7deba5bbdb6e3764d2",
-    "date": "2026-11-19",
-    "subject": "chore(cr): cr-commits 投影同步（cr-1157 修二/判据单源/判据收紧）"
-   },
-   {
-    "sha": "28db4b617c1c4ccc0a7a10320024c774c980cbc2",
-    "date": "2026-11-19",
-    "subject": "chore(cr): cr-commits 投影同步（cr-1157 修三/负路径真链回归）"
    }
   ],
   "1158": [
@@ -5466,7 +5466,7 @@
   ],
   "1160": [
    {
-    "sha": "bd3b5dcde19be845417ef183bc288bae277297d2",
+    "sha": "75fd34b838de382e298c988f4ee0a46eb07305c3",
     "date": "2026-11-21",
     "subject": "chore(cr): 台账批量登记——cr-1160/1162/1172/1173/1174/1176/1178 批次索引与详情落档，cr-1175/1177 状态补录"
    },
@@ -5621,7 +5621,7 @@
   ],
   "1175": [
    {
-    "sha": "bd3b5dcde19be845417ef183bc288bae277297d2",
+    "sha": "75fd34b838de382e298c988f4ee0a46eb07305c3",
     "date": "2026-11-21",
     "subject": "chore(cr): 台账批量登记——cr-1160/1162/1172/1173/1174/1176/1178 批次索引与详情落档，cr-1175/1177 状态补录"
    },
@@ -5658,6 +5658,46 @@
     "sha": "b1ab8a2f84f265ea0c5b813768d1a9417f66f00d",
     "date": "2026-11-20",
     "subject": "feat(post-office): cr-1175 服务帧通道传输层 + cr-1177 R-1 保留端点严格定位——ServiceFrame 协议位（svc 键）/ IpcClient serviceCall·serviceReport 两档 / listenIpc 扩 senderSocket；邮局 listen 按协议位分派（desk 缺席 request 回 ok:false）；router 对保留端点回投按 uuid 登记集放行不重算 participants（修 plugin/grant 回执撞 conflict 滞留 outbox 的存量缺陷）；四请求信封构造器与判定器随批 3b 退役（payload schema/validate/receipt 保留）"
+   }
+  ],
+  "1179": [
+   {
+    "sha": "0ba094b4bdd1ee9da48319247977ba84f8842959",
+    "date": "2026-11-21",
+    "subject": "fix(shell): cr-1179 auto-title 补 uuid 形会话键闸——定时/注入触发的 agent~agent 与 sub_* run 也是 user source，生成后 title.set 被 singles 词汇锁拒收（白花 LLM 调用 + 宿主/壳各一条 [E]）；stage() 挂账前加 isSingleSessionId 闸（非 uuid 形键不挂账不生成不投递）；判词并源 ac-ledger/user.ts——壳行与宿主 singles 行同源，两侧各持正则必走散"
+   }
+  ],
+  "1180": [
+   {
+    "sha": "e8ea1ca25718e84d7d25072cdc95daf180bd4496",
+    "date": "2026-11-21",
+    "subject": "fix(timer): cr-1180 timer-v3 停用但保留语义补全——enabled:false 条目面蒸发修复：装载 filter 吞停用条目（list 不可见、update/cancel 不可达）、set 整表写回丢盘上停用条目、save forget 停用记账；全量装载（reload/save/adoptStored 三口）+ 翻转检测（停用落 pausedAt、恢复基点快进不回补）+ 排程/分发点启用过滤；describeEntry 已停用前缀；LIST_VERSION 6→7；set 拒 enabled 防建停用条目；工具描述/指南段补停用语义与 cancel 边界；设计稿补 enabled 字段语义"
+   }
+  ],
+  "1181": [
+   {
+    "sha": "6b89d865e819dfe0ce600a832540ae522b31e526",
+    "date": "2026-11-21",
+    "subject": "fix(timer): cr-1181 timer set 漏存 label——收参/回显在场但构造条目对象未携带，返回伪成功而 timer.json 无字段；构造带 label（trim 空不落，与 update 分支同语义）+ 回显单源 entry.label（原从入参直取正是掩盖点）；回归锁直读磁盘断言字段在"
+   }
+  ],
+  "1182": [
+   {
+    "sha": "fe5e308a4494ab23f120a14154924f12903ea8bb",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-1182 详情落档——上下文注入改造四处运行时缺陷记录（作用域噪声/存量兼容/respawn 漏记/接管误报）"
+   },
+   {
+    "sha": "15f8856509db48f6681c87a323bb093cde0bb04d",
+    "date": "2026-11-21",
+    "subject": "feat(context-injection): cr-1182 上下文注入改造——datetime 落盘 + 系统事件日志 + 环境脉搏注入"
+   }
+  ],
+  "1183": [
+   {
+    "sha": "0855504cd0055469076087e2e306d807a8661f76",
+    "date": "2026-11-21",
+    "subject": "fix(webui): cr-1183 markdown 表格列宽优化——表宽 hug 收缩 + 贪婪列封顶"
    }
   ]
  }
