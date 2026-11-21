@@ -259,7 +259,11 @@ export class ArchiveShellService extends Service {
       ? rows.filter((r) => !shadowed(typeof r.seq === 'number' ? r.seq : undefined, tsOf(r)))
       : rows;
     const fold = foldSession(this.dataRoot, uuid, [dir]);
-    const summary = foldDigestOf(fold) ?? foldSummaryOf(fold)?.text ?? summaryTextOf(dir);
+    // cr-1191 V3 摘要单源：digest 行在场时其正文已在 picked 内（行计一次），
+    // 不再加 summary 头——防双计（digest 行 agent_id=本域 agent，viewer 口径
+    // 计入）；v2 存量代（事件摘要头单发）/v1（summary.md）才作头。
+    const digest = foldDigestOf(fold);
+    const summary = digest !== null ? '' : (foldSummaryOf(fold)?.text ?? summaryTextOf(dir));
     return estimateReplayTokens([...picked, ...pseudo], this.agentId, summary !== '' ? { summary } : {});
   }
 

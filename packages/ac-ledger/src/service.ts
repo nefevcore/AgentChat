@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
 import { summaryTextOf, UNCOMMITTED_TOOL_ERROR } from './reader.ts';
-import { foldDigestOf, foldLlmReplay, foldSession, foldSummaryOf, foldTextReplay } from './fold.ts';
+import { foldDigestOf, foldLlmReplay, foldSession, foldSummaryOf, foldTextReplay, rowShadowedBy } from './fold.ts';
 import { REPLAY_BUILTIN_WORDS, type ReplayDecl, type ReplayKind } from './replay.ts';
 import { wrapSystemReminder } from 'ac-core-utils';
 import { readDomainFacts, type RunFactsV2 } from './events-v2.ts';
@@ -499,8 +499,28 @@ export class LedgerService extends Service {
     } catch {
       return [];
     }
+    // cr-1191 压缩边界过滤：被任一代 shadow 的行不在回放（LLM 不可见），
+    // 「在场判定」类消费（ac-skill 跨 run 去重 / ac-memory 锚检测）必须按
+    // 回放口径——物理在场≠回放在场。V3 压缩后旧技能注入行物理在账本但
+    // 已 shadow，不去重过滤会让 load_skill 回执 injected 而正文永不重注
+    //（本会话活体复现：seq=176 技能行 vs boundary 1084）。谓词单源
+    // rowShadowedBy（时刻放行 → seq 位置维 → 时刻维）；v1 无 seq 无数字
+    // ts 行保守放行（无位置信息——与 estimateOf 口径一致）。
+    const boundaries = facts.compactions;
+    const shadowedOf = (seq: number | undefined, ts: number | undefined): boolean => {
+      if (boundaries.length === 0 || (seq === undefined && ts === undefined)) return false;
+      return boundaries.some((b) => rowShadowedBy(
+        { ...(seq !== undefined ? { seq } : {}), ...(ts !== undefined ? { ts } : {}) }, b,
+      ));
+    };
+    const tsOf = (iso: unknown): number | undefined => {
+      if (typeof iso !== 'string' || iso === '') return undefined;
+      const parsed = Date.parse(iso);
+      return Number.isFinite(parsed) ? parsed : undefined;
+    };
     const out: Array<LedgerRecordRow & { seq?: number }> = [];
     for (const c of facts.contexts) {
+      if (shadowedOf(c.seq, tsOf(c.timestamp))) continue;
       out.push({
         role: 'context', source: c.source, agent_id: c.agentId, content: c.content,
         ...(c.injectSource !== undefined ? { injectSource: c.injectSource } : {}),
@@ -513,6 +533,7 @@ export class LedgerService extends Service {
     for (const rf of facts.runs.values()) {
       for (const ev of rf.events) {
         if (ev.kind !== 'inject') continue;
+        if (shadowedOf(ev.seq, ev.ts)) continue;
         out.push({
           role: 'context', source: ev.injectSource ?? 'inject', agent_id: this.agentId, content: ev.content,
           ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}),

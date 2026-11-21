@@ -66,7 +66,13 @@ function sampleAnchorRatio(st: SessionTokens): void {
   if (chatStore.turnInProgress) return;
   const p = st.cache?.lastRunPrompt ?? 0;
   if (p > 0 && st.tokenCount > 0) {
-    anchorRatio.value = Math.min(4, Math.max(0.5, p / st.tokenCount));
+    // cr-1191 跨代断层守卫：压缩后 P（旧代末 run prompt）与 E（新代盘读）
+    // 分属两代，比率病态（实测 451K/149K=3.03 落在原钳制带 [0.5,4] 内被
+    // 采信 → 校准值 450K 与归档清锚值 149K 来回拉锯）。超界弃样保持
+    // null（回落净估算口径），不再钳制采信。界 [0.33, 3]：正常系统偏差
+    //（估算系数/固定开销）<3x，跨代断层 ≥3x——分界保守取 3。
+    const r = p / st.tokenCount;
+    if (r >= 0.33 && r <= 3) anchorRatio.value = r;
   }
 }
 
@@ -140,8 +146,14 @@ watch(() => chatStore.lastRunSettledAt, () => {
   fetchTokenBaseline();
   setTimeout(() => { fetchTokenBaseline(); }, 800);
 });
-// 归档（cr-1135）：P 停留旧值而 E 骤缩——比率失真，清除回落无锚点口径
-watch(() => chatStore.sessionArchivedAt, () => { anchorRatio.value = null; fetchTokenBaseline(); });
+// 归档（cr-1135）：P 停留旧值而 E 骤缩——比率失真，清除回落无锚点口径；
+// cr-1191：KV 尾点同清——livePrompt 倒序捞「最近有 prompt 的点」会捞到
+// 旧代 451K 尾点（归档后新 run 未起时占位旧读数）
+watch(() => chatStore.sessionArchivedAt, () => {
+  anchorRatio.value = null;
+  kvPoints.value = [];
+  fetchTokenBaseline();
+});
 // 会话模式/浏览器档快照变化（ChatInput 写口 bump——run 间隙生效）→ 装配面
 // ── 开销归属键（cr-1162：切换会话读数不跟随的根修）──
 // 根因：systemPromptContent/toolDefs 是 chatStore 全局单例（还与 SystemPromptPanel

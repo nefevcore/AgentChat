@@ -69,4 +69,29 @@ describe('recordsFor（cr-1102/1103 统一行读面）', () => {
     expect(rows[1].content).toBe('v2 新行');
     expect(typeof rows[1].seq).toBe('number');
   });
+
+  it('cr-1191：压缩代会话 shadowed 行不出现在投影——回放口径在场判定（技能去重根修）', async () => {
+    const ctx = new Context();
+    const fiber = ctx.plugin(makeLedgerRow({ dataRoot: ROOT, agentId: 'alpha' }));
+    fibers.push(fiber);
+    await fiber;
+    const svc = ctx.ledger as unknown as {
+      deliverRow(u: string, p: string[], k: string, row: Record<string, unknown>): Promise<boolean>;
+      journalInject(u: string, run: string, content: string, requestId?: string, extra?: { injectSource?: string }): Promise<void>;
+      recordsFor(u: string): Array<{ role: string; source?: string; seq?: number; content: string }>;
+      compactionFor(u: string, run: string, opts?: { shadowedSeq?: number }): Promise<number>;
+    };
+    const uid = 'user~alpha';
+    // 压缩前：技能注入行（会被 boundary 划入旧代）
+    await svc.journalInject(uid, 'run-1', '<system-reminder>已加载技能\n<skill_content name="archived-skill">\n旧正文\n</skill_content></system-reminder>', 'steer-1', { injectSource: 'skill' });
+    // 压缩代：boundary 盖过技能行（本会话现场形态：seq=176 技能行 vs boundary 1084）
+    const boundary = await svc.compactionFor(uid, 'run-1', {});
+    // 压缩后：新技能注入行（boundary 之后落账）
+    await svc.journalInject(uid, 'run-2', '<system-reminder>已加载技能\n<skill_content name="fresh-skill">\n新正文\n</skill_content></system-reminder>', 'steer-2', { injectSource: 'skill' });
+    const rows = svc.recordsFor(uid);
+    // shadowed 旧行不在投影——ac-skill 去重不再误判「已注入」；新行在场
+    expect(rows.some((r) => r.content.includes('archived-skill'))).toBe(false);
+    expect(rows.some((r) => r.content.includes('fresh-skill'))).toBe(true);
+    expect(boundary).toBeGreaterThan(0);
+  });
 });

@@ -121,6 +121,30 @@ describe('session/tokens（宿主聚合）', () => {
     }
   });
 
+  it('cr-1191：压缩会话回落路径不计 shadowed 旧代 + V3 digest 行单源不双计（sessionIndex 缺席 = replayTokensOf 盘读）', async () => {
+    const root = tmpRoot('tokens-archived');
+    // 现场形态（01a1fd60）：旧代 user 行 + 旧代技能注入行 + digest 行 + compaction 事件
+    const digestText = '# 会话总结（归档整理版）';
+    writeSession(root, 'a1', 'c9', [
+      { role: 'agent', agent_id: 'user', content: '旧代消息（很长——足以让旧代读数显著大于新代）' + 'x'.repeat(4000), message_id: 'm1', timestamp: '2026-11-21T12:00:00Z', seq: 10 },
+      { role: 'context', source: 'skill', content: '<skill_content name="old">\n' + 'y'.repeat(4000) + '\n</skill_content>', agent_id: 'a1', timestamp: '2026-11-21T12:00:01Z', seq: 11 },
+      { role: 'context', source: 'archive-summary', content: digestText, agent_id: 'a1', label: '归档总结', timestamp: '2026-11-21T13:01:24Z', seq: 12 },
+      { type: 'compaction', run: 'r-arch', boundarySeq: 11, ts: Date.parse('2026-11-21T13:01:25Z') },
+      { role: 'agent', agent_id: 'user', content: '新代消息', message_id: 'm2', timestamp: '2026-11-21T13:02:00Z', seq: 13 },
+    ]);
+    try {
+      const { web, handlers } = collect();
+      registerOpsFace(web, ctx, { dataRoot: root });
+      const out = await handlers.get('session/tokens')!({ conversationId: 'c9' }) as Record<string, unknown>;
+      const tokens = out.contextTokens as number;
+      // 旧代两行（~8000 字符 ≈ 2400+ est）被 shadow 不计；新代 = digest(短) + 新消息
+      expect(tokens).toBeGreaterThan(0);
+      expect(tokens).toBeLessThan(500); // 旧代若漏滤将 >2400
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('无账本会话 = 全零载荷（不抛）', async () => {
     const root = tmpRoot('tokens-empty');
     fs.mkdirSync(root, { recursive: true });
