@@ -1,6 +1,6 @@
 {
- "scannedHead": "b953bac99cd7119f5db74ef20d9578c9baa95407",
- "generatedAt": "2026-11-21T13:59:00.616Z",
+ "scannedHead": "e262acaa55ffe6234c99cc0285247d0fcb37d69c",
+ "generatedAt": "2026-11-21T14:39:38.976Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5834,6 +5834,18 @@
     "sha": "dc38273573f55f8364fc954afd9f7dbc8f347c35",
     "date": "2026-11-21",
     "subject": "chore(cr): cr-commits 投影同步（cr-1191 验证记录）"
+   },
+   {
+    "sha": "a07a9db0ee3ee252da8680c6ab726bcc2a94c59c",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1191 闭环实证）"
+   }
+  ],
+  "1192": [
+   {
+    "sha": "e262acaa55ffe6234c99cc0285247d0fcb37d69c",
+    "date": "2026-11-21",
+    "subject": "fix(archive): cr-1192 小会话归档边界恒 0 根修——V2「物理搬运才需边界」残留语义在 V3 逻辑边界下失效：估算 < 尾部保留预算（keep 覆盖全表）时 archivedOriginal 为空 → boundary=0 = 零 shadow，但摘要行/compaction 事件已落即逻辑生效——宣称归档却什么都不出清，且回放里请求行/摘要行/整理轮轨迹逐代堆积，越归档越臃肿（现场 01a1fe79：两代 boundarySeq 均 0，回放全量 44 行）。修：boundary 兜底锚本轮摘要行 seq-1（requestId 显式传递匹配——requestedAt 裸时间戳与 archive-run- 前缀不同串，按 source 匹配会误锚旧代）；盖到摘要行前 = 出清旧内容，天然不 shadow 摘要行自身；无提交代（摘要缺席）保持 boundary=0 只滚事件。archive-row 9/9（新用例锁小会话边界 >0 且 = 摘要行 seq-1、开场白出清、摘要在场）+ affected 3438/3438 + typecheck 绿"
    }
   ]
  }
