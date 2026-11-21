@@ -147,6 +147,45 @@ http://example.com
     ]);
   });
 
+  // ---- 表格贪婪列分类（cr-1183：渲染器列级 md-col-clamp 标记）----
+  it('table：含超长 token 的列被标记 md-col-clamp，短列不受影响', async () => {
+    const { useMarkdown } = await import('../client/useMarkdown.ts');
+    const { render } = useMarkdown();
+    const html = render(`| 字段 | 链接 | 备注 |
+| --- | --- | --- |
+| 文档 | https://example.com/a/very/long/path/with/many/segments?q=1 | 说明文字 |
+| 接口 | https://api.internal.example.com/v2/endpoint?with=full,payload | - |`);
+    // wrapper 包裹不变
+    expect(html).toContain('<div class="md-table-wrapper"><table>');
+    // 第 2 列（链接）含超长 URL → clamp；表头与数据行同列同标记
+    expect(html).toContain('<th class="md-col-clamp">链接</th>');
+    expect(html).toContain('<td class="md-col-clamp">');
+    // 第 1/3 列短内容 → 不标记
+    expect(html).toContain('<th>字段</th>');
+    expect(html).toContain('<th>备注</th>');
+  });
+
+  it('table：全短列表格零 clamp；同一渲染器实例连续渲染多表不串扰', async () => {
+    const { useMarkdown } = await import('../client/useMarkdown.ts');
+    const { render } = useMarkdown();
+    const short = render(`| 键 | 值 |
+| --- | --- |
+| 端口 | 8080 |`);
+    expect(short).not.toContain('md-col-clamp');
+    // 跨渲染复用同一 md 实例：先渲染带 clamp 列的表，再渲染全短表，
+    // clampCols 闭包态必须被 table_open 重置（不得残留上一表的标记）
+    const greedy = render(`| a | b |
+| --- | --- |
+| x | e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 |`);
+    expect(greedy).toContain('md-col-clamp');
+    const shortAgain = render(`| 键 | 值 |
+| --- | --- |
+| 端口 | 8080 |`);
+    expect(shortAgain).not.toContain('md-col-clamp');
+    // 列号对齐：clamp 只落在第 2 列，第 1 列不受影响
+    expect(greedy).toContain('<th>a</th>');
+  });
+
   // ---- 本地图片 src 重写（cr-1005：多模态下行表达力）----
   it('image：workspace 本地路径 → /api/workspace/raw 直链（files/ 前缀与绝对路径）', async () => {
     const { useMarkdown } = await import('../client/useMarkdown.ts');

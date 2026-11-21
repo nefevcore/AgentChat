@@ -275,7 +275,10 @@
     margin: 12px 0;
 }
 .markdown-body .md-table-wrapper table {
-    width: 100%;
+    /* cr-1183：表宽 hug——小表收缩内容宽，宽表封顶容器宽（此前 width:100%
+       恒拉满气泡，2 列键值小表也被撑到全宽，右侧大片空白） */
+    width: max-content;
+    max-width: 100%;
     box-sizing: border-box;
     border-collapse: collapse;
     margin: 0;
@@ -307,6 +310,19 @@
 }
 .markdown-body tr:last-child td {
     border-bottom: none;
+}
+
+/* ── cr-1183 贪婪列封顶：渲染器按列内容分类（任一单元格含 ≥25 连续非
+   空白 token——URL/SHA/长路径）的列标 md-col-clamp。auto 布局按
+   max-content 比例分宽，这类列会吃光表宽饿死其他列（break-word 只影响
+   min-content，治不了贪婪）。封顶 + anywhere 允许 token 内断行，实测
+   720px 容器贪婪列 643px → 286px（20em），短列恢复可读宽。── */
+.markdown-body th.md-col-clamp {
+    max-width: 20em;
+}
+.markdown-body td.md-col-clamp {
+    overflow-wrap: anywhere;
+    max-width: 20em;
 }
 
 /* ===================================================================

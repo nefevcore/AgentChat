@@ -226,6 +226,37 @@ function renderFrontmatterBlock(yamlText: string): string {
     return `<table class="md-frontmatter"><tbody>${rows.join('')}</tbody></table>`;
 }
 
+/** cr-1183：超长不可断 token 判定（≥25 连续非空白——URL/哈希/长路径） */
+const TABLE_LONG_TOKEN_RE = /[^\s]{25,}/;
+
+/** 单元格 inline children 是否含超长 token（text/code_inline 均查；
+ *  softbreak 已把跨行串切成段，天然不误判。children 可能缺席（空单元格） */
+function cellHasLongToken(children?: any[]): boolean {
+    for (const c of children ?? []) {
+        if ((c.type === 'text' || c.type === 'code_inline') && TABLE_LONG_TOKEN_RE.test(c.content)) return true;
+    }
+    return false;
+}
+
+/** cr-1183 列级分类：前瞻本表 token 树，任一单元格（含表头）含超长
+ *  token 的列 → clamp（auto 布局按 max-content 比例分宽，长串列会吃光
+ *  表宽饿死其他列；break-word 只影响 min-content 治不了贪婪，须封顶） */
+function detectClampColumns(tokens: any[], tableOpenIdx: number): boolean[] {
+    const clamp: boolean[] = [];
+    let col = 0;
+    for (let i = tableOpenIdx + 1; i < tokens.length; i++) {
+        const t = tokens[i];
+        if (t.type === 'table_close') break;
+        if (t.type === 'tr_open') { col = 0; continue; }
+        if (t.type === 'th_open' || t.type === 'td_open') {
+            const inlineTok = tokens[i + 1];
+            if (inlineTok?.type === 'inline' && cellHasLongToken(inlineTok.children)) clamp[col] = true;
+            col++;
+        }
+    }
+    return clamp;
+}
+
 /**
  * 本地图片 src 词表（image 重写安全门）：files/ 前缀（数据根上传/Agent
  * 专用空间约定形）或 Windows 盘符/UNC/POSIX 根锚定的绝对路径。裸相对
@@ -316,9 +347,33 @@ function createBaseInstance(trusted = false): MarkdownIt {
         return defaultImage(tokens, idx, options, env, self);
     };
 
-    // 自定义表格渲染 —— 包裹滚动容器
-    md.renderer.rules.table_open = () => '<div class="md-table-wrapper"><table>';
+    // 自定义表格渲染 —— 包裹滚动容器 + 贪婪列分类（cr-1183）
+    // clampCols/cellCol 是渲染期闭包态：md.render 同步执行不重入，跨渲染不串扰
+    let clampCols: boolean[] = [];
+    let cellCol = 0;
+    md.renderer.rules.table_open = (tokens: any[], idx: number) => {
+        clampCols = detectClampColumns(tokens, idx);
+        return '<div class="md-table-wrapper"><table>';
+    };
     md.renderer.rules.table_close = () => '</table></div>';
+    md.renderer.rules.tr_open = () => { cellCol = 0; return '<tr>'; };
+    // th/td open 改写：clamp 列 attrJoin('class')（合并既有 attrs），随后走
+    // 默认链——markdown-it 未给这些键注册专属 rules（缺席时 render 内部回落
+    // renderToken，类型层标为必有是误报），捕获在覆写前与 link_open/image 同款
+    const renderOpenDefault = (ts: any[], i: number, o: any, _e: any, s: any) => s.renderToken(ts, i, o);
+    const rulesMap: Record<string, any> = md.renderer.rules;
+    const thOpenDefault = rulesMap.th_open ?? renderOpenDefault;
+    const tdOpenDefault = rulesMap.td_open ?? renderOpenDefault;
+    md.renderer.rules.th_open = (tokens: any[], idx: number, options: any, env: any, self: any) => {
+        if (clampCols[cellCol]) tokens[idx].attrJoin('class', 'md-col-clamp');
+        cellCol++;
+        return thOpenDefault(tokens, idx, options, env, self);
+    };
+    md.renderer.rules.td_open = (tokens: any[], idx: number, options: any, env: any, self: any) => {
+        if (clampCols[cellCol]) tokens[idx].attrJoin('class', 'md-col-clamp');
+        cellCol++;
+        return tdOpenDefault(tokens, idx, options, env, self);
+    };
 
     // 自定义 YAML frontmatter —— 文档首部 --- 元数据块 → 键值网格
     //（规则与浅解析见文件头部 frontmatter 段）
