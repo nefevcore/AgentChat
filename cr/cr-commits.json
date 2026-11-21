@@ -1,6 +1,6 @@
 {
- "scannedHead": "05c480005b32aa7d008d3dd0f1b76636b9b96bb5",
- "generatedAt": "2026-11-21T13:58:20.729Z",
+ "scannedHead": "b953bac99cd7119f5db74ef20d9578c9baa95407",
+ "generatedAt": "2026-11-21T13:59:00.616Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5824,6 +5824,16 @@
     "sha": "0f04b3e728b3c849570e42337422e45de3e303d0",
     "date": "2026-11-21",
     "subject": "chore(cr): cr-commits 投影同步（cr-1191）"
+   },
+   {
+    "sha": "b953bac99cd7119f5db74ef20d9578c9baa95407",
+    "date": "2026-11-21",
+    "subject": "docs(cr): cr-1191 补落账闭环实证——旧代技能行 shadowed=true / 新行 1607 shadowed=false，去重判定面正确；占用读数单值稳定 297K"
+   },
+   {
+    "sha": "dc38273573f55f8364fc954afd9f7dbc8f347c35",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1191 验证记录）"
    }
   ]
  }
