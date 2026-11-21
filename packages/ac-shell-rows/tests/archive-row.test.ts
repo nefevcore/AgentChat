@@ -339,13 +339,15 @@ describe('archive 行（cr-1189 V3）', () => {
       await h.archive.requestArchive('user~eta');
       const dir = path.join(ROOT, 'agents', 'eta', 'sessions', 'user~eta');
       const after = readLedger(dir);
-      // compaction 事件在场且 boundary > 0（锚摘要行 seq-1）
-      const cmp = after.rows.find((r) => (r as { type?: string }).type === 'compaction') as { boundarySeq?: number } | undefined;
+      // compaction 事件在场且 boundary > 0（兜底 = 事件前全表 max seq）
+      const cmp = after.rows.find((r) => (r as { type?: string }).type === 'compaction') as { boundarySeq?: number; seq?: number } | undefined;
       expect(cmp).toBeDefined();
       expect((cmp?.boundarySeq ?? 0)).toBeGreaterThan(0);
       const sumRow = after.rows.find((r) => (r as { source?: string }).source === ARCHIVE_SUMMARY_SOURCE) as { seq?: number } | undefined;
       expect(sumRow?.seq).toBeDefined();
-      expect(cmp?.boundarySeq).toBe((sumRow?.seq ?? 0) - 1);
+      // 调序断言：事件先落（分界线锚自身位置）、摘要行后落（新代首行）
+      expect((sumRow?.seq ?? 0)).toBeGreaterThan((cmp?.seq ?? 0));
+      expect((sumRow?.seq ?? 0)).toBeGreaterThan((cmp?.boundarySeq ?? 0)); // 摘要行不被 shadow
       // 回放：开场白被 shadow（不在回放），摘要行 + 尾部在场
       const fold = foldSession(ROOT, 'user~eta', [dir]);
       expect(foldDigestOf(fold)).toBe('小会话总结：测试手工归档行为。');
