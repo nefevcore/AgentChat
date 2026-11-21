@@ -1203,4 +1203,5 @@
 - 【cr-1182 2026-11-21 上下文注入改造：datetime 移除 DATETIME 段改全形态 before-run 落盘+间隔阈值注入；新增 ac-system-events 纯库（宿主事件日志 meta/system-events.jsonl）+ 宿主挂点；新增 ac-env-pulse 壳行（系统事件 delta 注入）】
 - 【cr-1183 2026-11-21 markdown 表格列宽优化：表宽 hug 收缩 + 渲染器列分类封顶贪婪列】
 - 【cr-1184 2026-11-21 unread 修复：活跃轴语义对齐 host 计数器（restart_host 复活）+ SessionList 行徽章补位】
+- 【cr-1185 2026-11-21 名册脱离 runs/snapshot：session-index roster 小表 + 帧驱动定向入账 + session/roster RPC + 前端名册改道 #session-index #webui →cr-1142 →cr-1138】
 
