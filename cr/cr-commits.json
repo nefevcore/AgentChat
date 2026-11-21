@@ -1,6 +1,6 @@
 {
- "scannedHead": "4f42974f914893dbf0a55e5ca16600d0de71b60f",
- "generatedAt": "2026-11-21T03:48:36.458Z",
+ "scannedHead": "c5ba7d6ae57d267192343b03618274b50da3e143",
+ "generatedAt": "2026-11-21T09:10:33.991Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5752,6 +5752,44 @@
     "sha": "549c55385e3431284b7832d6b40e78216de13bf7",
     "date": "2026-11-21",
     "subject": "feat(session-index): cr-1185 名册脱离 runs/snapshot——roster 小表单源 + 三通道新鲜度"
+   },
+   {
+    "sha": "e37c3be89106a48483de26996de834a3578fee84",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1185 性能修复）"
+   }
+  ],
+  "1186": [
+   {
+    "sha": "c5ba7d6ae57d267192343b03618274b50da3e143",
+    "date": "2026-11-21",
+    "subject": "fix(agents): cr-1186 user 虚拟身份被保留字闸误伤除名——isAgentIdentity 回归词形单义（user/host 放行、~ 拒斥），名册/头像恢复；e2e 回归锁 agents/list 必投影 user 虚拟身份"
+   },
+   {
+    "sha": "434429061222e4dc3851740f309e63bb3a68e137",
+    "date": "2026-11-21",
+    "subject": "docs(session): cr-1189 压缩 V3 设计稿——注入驱动整理轮 + session_digest 结构化提交：摘要全文住注入行（compaction 事件只带边界+stats）、提交零格式门槛（长度提示引导非硬闸）、触发检测机制注册式（token 阈值为缺省可扩展 run-count 等场景）、术语分层（归档/压缩/总结）；reviewRun 机制面退役清单 + 批切分 B1-B6 + 验证目标 V1-V7；V2 档头部标注部分被取代；CR 台账随批（cr-1186~1189）"
+   }
+  ],
+  "1187": [
+   {
+    "sha": "730b24fc86c8b97ec55bbf177a2bde132e48ce14",
+    "date": "2026-11-21",
+    "subject": "fix(conversation): cr-1187 状态卡计时锚钉陈旧 viewer 消息——机制触发 run（timer 唤醒/归档整理等无新 viewer 行）锚定 runStartAt，长会话不再显示数十小时陈旧读数"
+   }
+  ],
+  "1188": [
+   {
+    "sha": "29e8cd76ed33ca856159204009db42e796664c72",
+    "date": "2026-11-21",
+    "subject": "fix(shell): cr-1188 归档三连缺陷根修——① session-archive admin 帧改受理即回执（requestArchive 后台执行，不撞宿主 ipc 15s 回帧超时）② archive/completed 发射链补齐（壳 emit→event 帧上行→宿主直转前端帧；D11 迁移曾丢 emit，前端 pending 永不复位）③ archive-review 旗标透传（StreamMeta.runMeta 全程携带）+ 壳侧整理 run 流式隐藏过滤（hiddenReviewRuns 查表——主线 isHiddenRun 语义对齐，整理内容不再泄进用户会话）"
+   }
+  ],
+  "1189": [
+   {
+    "sha": "434429061222e4dc3851740f309e63bb3a68e137",
+    "date": "2026-11-21",
+    "subject": "docs(session): cr-1189 压缩 V3 设计稿——注入驱动整理轮 + session_digest 结构化提交：摘要全文住注入行（compaction 事件只带边界+stats）、提交零格式门槛（长度提示引导非硬闸）、触发检测机制注册式（token 阈值为缺省可扩展 run-count 等场景）、术语分层（归档/压缩/总结）；reviewRun 机制面退役清单 + 批切分 B1-B6 + 验证目标 V1-V7；V2 档头部标注部分被取代；CR 台账随批（cr-1186~1189）"
    }
   ]
  }
