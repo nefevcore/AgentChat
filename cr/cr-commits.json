@@ -1,6 +1,6 @@
 {
- "scannedHead": "043aea39085e03bb0858c9f9189c9e2314ea43f9",
- "generatedAt": "2026-11-21T13:56:07.784Z",
+ "scannedHead": "05c480005b32aa7d008d3dd0f1b76636b9b96bb5",
+ "generatedAt": "2026-11-21T13:58:20.729Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5814,6 +5814,16 @@
     "sha": "043aea39085e03bb0858c9f9189c9e2314ea43f9",
     "date": "2026-11-21",
     "subject": "fix(session): cr-1191 压缩后续用双缺陷根修——① 技能加载失效：recordsFor 不滤压缩边界，被 shadow 的旧技能注入行（本会话 seq=176 vs boundary 1084 实测）仍被 ac-skill 跨 run 去重看见→误判「已注入」→ load_skill 回执 injected 而正文永不重注；修：recordsFor 加 rowShadowedBy 单源过滤（回放口径在场判定）；② 占用读数新旧跳变：回落路径 replayTokensOf 全量盘读不滤 shadowed（650K）与索引 activeContextTokens（149K）口径分叉 + 锚点跨代毒对（P=451K 旧代/E=149K 新代→r=3.03 落钳制带内被采信，与归档清锚值来回拉锯）+ KV 尾点旧代 prompt 残留；修：回落路径滤边界（与 archive.estimateOf activeOnly 同型）、V3 摘要单源（digest 行在场不再加 summary 头防双计——estimateOf 同步）、TokenGauge 锚点跨代守卫（P/E 超界弃样不钳制采信）+ 归档清 kvPoints。测试：recordsFor 压缩过滤用例 + face-runs 压缩回落路径用例；3437/3437 绿 + typecheck/webui build/lint/check:deps 全绿"
+   },
+   {
+    "sha": "05c480005b32aa7d008d3dd0f1b76636b9b96bb5",
+    "date": "2026-11-21",
+    "subject": "docs(cr): cr-1191 补活体验证——壳/宿主重启后技能正文真实注入 + 两路径读数对齐（0.6% vs 修复前 4.4 倍断层）"
+   },
+   {
+    "sha": "0f04b3e728b3c849570e42337422e45de3e303d0",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1191）"
    }
   ]
  }
