@@ -29,6 +29,7 @@ import * as configRow from 'ac-config';
 import * as toolsRow from 'ac-tools';
 import * as permissionGateRow from 'ac-permission-gate';
 import * as datetimeRow from 'ac-datetime';
+import * as envPulseRow from 'ac-env-pulse';
 import * as personaRow from 'ac-persona';
 import * as conductRow from 'ac-conduct';
 import * as artifactsRow from 'ac-artifacts';
@@ -75,6 +76,7 @@ export const IMPORTED_ROWS: Record<string, Plugin> = {
   'tools': toolsRow as unknown as Plugin,
   'permission-gate': permissionGateRow as unknown as Plugin,
   'datetime': datetimeRow as unknown as Plugin,
+  'env-pulse': envPulseRow as unknown as Plugin,
   'persona': personaRow as unknown as Plugin,
   // cr-881：system-prompt 行退役——分块装配拆散至各 owner 包的 PromptSection 段
   'conduct': conductRow as unknown as Plugin,
@@ -150,6 +152,8 @@ export function rowOptionsFor(dataRoot: string, agentDir?: string): Record<strin
   return {
     config: { root: dataRoot },
     memory: { root: dataRoot },
+    datetime: { root: dataRoot },
+    'env-pulse': { root: dataRoot },
     skill: { root: dataRoot },
     'file-snapshots': { root: path.join(dataRoot, 'file-snapshots') },
     browser: { dataRoot },

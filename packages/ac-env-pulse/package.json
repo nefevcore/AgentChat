@@ -1,0 +1,30 @@
+{
+  "name": "ac-env-pulse",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "环境脉搏注入行（cr-1182 批3）：loop/before-run 读系统事件 delta（meta/system-events.jsonl，per-agent×会话水位）注入 [系统状态] 行——持久化 Agent 的环境感知注入面",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "dependencies": {
+    "ac-system-events": "workspace:*",
+    "ac-core-utils": "workspace:*"
+  },
+  "devDependencies": {
+    "@agentchat/cordis": "workspace:*",
+    "ac-agent-loop": "workspace:*",
+    "ac-agents": "workspace:*",
+    "ac-extension-core": "workspace:*",
+    "ac-llm": "workspace:*",
+    "ac-tools": "workspace:*",
+    "vitest": "^4.1.10"
+  },
+  "agentchat": {
+    "plugin": true
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

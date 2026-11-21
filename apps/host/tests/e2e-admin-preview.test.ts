@@ -102,15 +102,16 @@ describe('agent-admin 跨进程 dry-run（cr-552 e2e）', () => {
       expect(a.assembly.tools.enabled).toEqual(expect.arrayContaining(['math', 'timer', 'update_agent_profile']));
       expect(a.assembly.tools.catalog.map((t) => t.name)).toContain('math');
       // 写口：加 system 字段经 update-config（另一条已验路径），assembly/update 改 tools
+      //（cr-1182 批2 后 datetime 是骨架行——include 不再是能力行装配语义，改用 math 断言）
       const up = await rpc<{ changed: string[] }>(ws, 'agents/assembly/update', {
-        agentId: 'alpha', patch: { rows: { include: ['math', 'datetime'] } },
+        agentId: 'alpha', patch: { rows: { include: ['math', 'fs-search'] } },
       });
       expect(up.changed).toEqual(['rows']);
       // 再预览：system-prompt 干跑按新落盘 config（工具面变化不进 system 文本——
       // 验证链路往返即可；assembly 再读见新意图
       const a2 = await rpc<{ assembly: { tools: { enabled: string[] } } }>(ws, 'agents/assembly', { agentId: 'alpha' });
       // cr-1114 批1：骨架行承诺面工具恒可见（同 L101 断言语义）
-      expect(a2.assembly.tools.enabled).toEqual(expect.arrayContaining(['math', 'datetime', 'timer', 'update_agent_profile']));
+      expect(a2.assembly.tools.enabled).toEqual(expect.arrayContaining(['math', 'fs-search', 'timer', 'update_agent_profile']));
     } finally {
       ws.close();
     }

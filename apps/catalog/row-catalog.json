@@ -265,6 +265,20 @@
       "path": "packages/ac-agent-loop"
     },
     {
+      "id": "datetime",
+      "tree": "shell",
+      "zone": "skeleton",
+      "description": "日期注入（cr-1182 批2：before-run 落日期锚 context 行 + 间隔超阈值注入时间信息行——system 全静态）",
+      "path": "packages/ac-datetime"
+    },
+    {
+      "id": "env-pulse",
+      "tree": "shell",
+      "zone": "skeleton",
+      "description": "环境脉搏（cr-1182 批3：run 启动注入系统事件 delta——宿主重启/壳拉起/行集变化，水位 per-agent×会话）",
+      "path": "packages/ac-env-pulse"
+    },
+    {
       "id": "persona",
       "tree": "shell",
       "zone": "skeleton",
@@ -355,13 +369,6 @@
         "conversation"
       ],
       "path": "packages/ac-collab-tools"
-    },
-    {
-      "id": "datetime",
-      "tree": "shell",
-      "zone": "capability",
-      "description": "日期时间",
-      "path": "packages/ac-datetime"
     },
     {
       "id": "fs-search",

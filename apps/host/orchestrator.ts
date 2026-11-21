@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { type PostOffice, type ReachabilityTable } from 'ac-post-office';
 import { probeIpc } from 'ac-envelope-core';
 import { isReservedEndpointId } from 'ac-agents-core';
+import { appendSystemEvent } from 'ac-system-events';
 import { manageRoundTrip } from 'ac-envelope-core';
 import { adoptShell } from './orchestrate.ts';
 import { hostLog } from './host-log.ts';
@@ -157,10 +158,18 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
   // socket-only 句柄（无 spawn）；后续 respawn 走常规 spawn 链（kill 后锁已
   // 自然释放，ensureAgent 语义不变）。
   const takeoverLocks = new Map<string, { bootId: string; pid: number; hint: string }>();
+  /**
+   * 接管确认集（cr-1182 修正）：adoptLiveShells 的首拉是**接管活壳**（socket-only，
+   * 壳进程没死——保壳保 run 的全部意义）。它不产生 shell-start 事件：告知 Agent
+   * 「你的壳重启、进程内状态已重置」是**假信息**（会诱使它重做在途工作）。
+   * adopter 打标记，取证钩子消费后即清（只影响该次 adoption）。
+   */
+  const takeoverAdoption = new Set<string>();
   const adopter: SuperviseAdopter = async (input) => {
     const lock = takeoverLocks.get(input.agentId);
     if (lock !== undefined) {
       takeoverLocks.delete(input.agentId);
+      takeoverAdoption.add(input.agentId);
       return adoptSocketShell(
         { agentId: input.agentId, bootId: lock.bootId, pid: lock.pid, hint: lock.hint },
         {
@@ -250,6 +259,21 @@ export function createOrchestrator(options: OrchestratorOptions): OrchestratorHa
           release();
         }
         spawnCooldownUntil.delete(agentId);
+        // 系统事件（cr-1182 批1）：**壳进程新起** = 换代事实——落 shell-start
+        //（agentId 走归属位 = per-agent 作用域）。两条边界：
+        //  · 挂 onAdopted 而非本次 spawn 点：restart_shell（exit 42）/ 崩溃重拉
+        //    走 warden 内部 respawn 链，不经本函数——只有 adopted 回调能覆盖
+        //    全部拉起形态（supervise L226 每次 adoption 触发）。
+        //  · 接管活壳（adoptLiveShells 的 socket-only 首拉）不算重启——壳没死，
+        //    记了即假信息。takeoverAdoption 标记消费后跳过。
+        // 已 adopted 的情形单独补记（回调只对未来生效），与 re-tap 同款两段式。
+        // fail-soft（纯库内吞写失败）。
+        const recordShellStart = (): void => {
+          if (takeoverAdoption.delete(agentId)) return; // 接管 ≠ 重启
+          appendSystemEvent(options.dataRoot, 'shell-start', {}, agentId);
+        };
+        handle.onAdopted(recordShellStart);
+        if (handle.superviseEvents.some((e) => e.type === 'adopted')) recordShellStart();
         if (options.tap !== undefined) {
           handle.onAdopted((hint) => { void options.tap!(agentId, hint); });
           const hint = handle.superviseEvents.find((e) => e.type === 'adopted')?.transportHint;

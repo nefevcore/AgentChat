@@ -241,9 +241,14 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
         await new Promise((r) => setTimeout(r, 100));
       }
       // web 读面回放（webui 消费面同链）：session/history 与账本对齐
+      //（cr-1182 批2：datetime 日期锚 context 行计入 records——内容断言过滤锚行）
       const history = await rpc<{ records: Array<{ role: string; content: string }>; total: number }>(ws, 'session/history', { conversationId: outcome.uuid });
-      expect(history.total).toBe(2);
-      expect(history.records.map((r) => r.content)).toEqual(['壳半边全链问', '[mock 回复 壳半边全链问]']);
+      // cr-1182 批2：datetime 日期锚 context 行入账（时序与用户消息入账竞态——不锁位，锁存在性）
+      const contents = history.records.map((r) => r.content);
+      expect(contents).toContain('壳半边全链问');
+      expect(contents).toContain('[mock 回复 壳半边全链问]');
+      expect(contents.filter((c) => c.startsWith('[当前时间] '))).toHaveLength(1);
+      expect(history.total).toBe(3);
     } finally {
       ws.close();
     }

@@ -88,7 +88,9 @@
     "ac-envelope-core": "workspace:*",
     "ac-plugin-core": "workspace:*",
     "ac-rowset-core": "workspace:*",
-    "ac-post-office": "workspace:*"
+    "ac-post-office": "workspace:*",
+    "ac-env-pulse": "workspace:*",
+    "ac-system-events": "workspace:*"
   },
   "devDependencies": {
     "ac-shell-conversation": "workspace:*",

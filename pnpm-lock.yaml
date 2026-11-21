@@ -591,6 +591,9 @@ importers:
       ac-supervisor-core:
         specifier: workspace:*
         version: link:../../packages/ac-supervisor-core
+      ac-system-events:
+        specifier: workspace:*
+        version: link:../../packages/ac-system-events
       ac-webui-core:
         specifier: workspace:*
         version: link:../../packages/ac-webui-core
@@ -2247,16 +2250,16 @@ importers:
 
   packages/ac-datetime:
     dependencies:
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
+    devDependencies:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
-      ac-core-utils:
-        specifier: workspace:*
-        version: link:../ac-core-utils
-    devDependencies:
       ac-extension-core:
         specifier: workspace:*
         version: link:../ac-extension-core
@@ -2288,6 +2291,37 @@ importers:
 
   packages/ac-edit-core:
     devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/ac-env-pulse:
+    dependencies:
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
+      ac-system-events:
+        specifier: workspace:*
+        version: link:../ac-system-events
+    devDependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-extension-core:
+        specifier: workspace:*
+        version: link:../ac-extension-core
+      ac-llm:
+        specifier: workspace:*
+        version: link:../ac-llm
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
       vitest:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
@@ -3412,6 +3446,9 @@ importers:
       ac-durable-interaction:
         specifier: workspace:*
         version: link:../ac-durable-interaction
+      ac-env-pulse:
+        specifier: workspace:*
+        version: link:../ac-env-pulse
       ac-envelope-core:
         specifier: workspace:*
         version: link:../ac-envelope-core
@@ -3487,6 +3524,9 @@ importers:
       ac-str-replace-editor:
         specifier: workspace:*
         version: link:../ac-str-replace-editor
+      ac-system-events:
+        specifier: workspace:*
+        version: link:../ac-system-events
       ac-text-budget:
         specifier: workspace:*
         version: link:../ac-text-budget
@@ -3660,6 +3700,12 @@ importers:
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
   packages/ac-supervisor-core:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/ac-system-events:
     devDependencies:
       vitest:
         specifier: ^4.1.10

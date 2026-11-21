@@ -1,4 +1,4 @@
-# ac-base-version: 8
+# ac-base-version: 9
 # shell 进程基座源文档（cr-902 / cr-1022 批2 双区化 / cr-1033 B3 能力
 # 定义归包后单区化）：本档只承载骨架区——会话循环结构性前提 + 平台设施
 #（恒装面，投影 zone=skeleton）。能力定义事实源 = 各能力包 package.json
@@ -54,6 +54,12 @@
   requires:
     - llm
     - tools
+- id: datetime
+  name: link:packages/ac-datetime
+  description: 日期注入（cr-1182 批2：before-run 落日期锚 context 行 + 间隔超阈值注入时间信息行——system 全静态）
+- id: env-pulse
+  name: link:packages/ac-env-pulse
+  description: 环境脉搏（cr-1182 批3：run 启动注入系统事件 delta——宿主重启/壳拉起/行集变化，水位 per-agent×会话）
 - id: persona
   name: link:packages/ac-persona
   description: 身份数据只读

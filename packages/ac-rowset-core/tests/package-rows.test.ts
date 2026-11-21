@@ -15,12 +15,12 @@ const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const byId = (rows: Array<{ id: string }>) => [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
 describe('cr-1033 包自述能力行聚合', () => {
-  it('聚合面：26 行覆盖全部能力行（id 全集锚定——cr-1118 archive 归基座）', () => {
+  it('聚合面：25 行覆盖全部能力行（id 全集锚定——cr-1118 archive 归基座；cr-1182 datetime 归基座）', () => {
     const aggregated = byId(aggregatePackageRows(REPO_ROOT));
-    expect(aggregated).toHaveLength(26);
+    expect(aggregated).toHaveLength(25);
     expect(aggregated.map((r) => r.id)).toEqual([
       'artifacts', 'ask-questions', 'auto-title', 'bench', 'browser', 'collab-tools',
-      'datetime', 'fs-search', 'fs-tools', 'goal', 'harness-tools', 'issue-tools', 'math', 'mcp',
+      'fs-search', 'fs-tools', 'goal', 'harness-tools', 'issue-tools', 'math', 'mcp',
       'memory', 'plugin-dev', 'restart', 'run-code', 'sap-adt', 'session-query', 'shell-tools',
       'skill', 'str-replace-editor', 'subagent', 'todo', 'web-tools',
     ]);

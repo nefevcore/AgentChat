@@ -28,6 +28,7 @@
     "ac-host-rows": "workspace:*",
     "ac-import": "workspace:*",
     "ac-credentials-core": "workspace:*",
+    "ac-system-events": "workspace:*",
     "@agentchat/cordis": "workspace:*"
   },
   "devDependencies": {

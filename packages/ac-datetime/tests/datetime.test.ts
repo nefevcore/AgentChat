@@ -1,25 +1,26 @@
 // ============================================================
-// ac-datetime/tests/datetime.test.ts —— 日期注入
-//
-// · 日期行格式（仅日期 + 星期，一天内稳定——KV cache 友好）
-// · conversationId 缺省（子 Agent / loop 直连）不注入
-// · 段注册制（cr-881）：DATETIME 段（SECTION_ORDER 表尾）绝对收尾，
-//   与行加载/注册顺序无关；多步 run 恰一条（run 级一次组装）
+// ac-datetime/tests —— 日期注入（cr-1182 批2 全形态统一 before-run）
 // ============================================================
 import { describe, it, expect, afterEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { Context, type Fiber } from '@agentchat/cordis';
 import type { LlmChatInput, LlmStreamChunk } from 'ac-llm';
 import * as agentsRow from 'ac-agents';
 import * as llmRow from 'ac-llm';
 import * as loopRow from 'ac-agent-loop';
 import * as toolsRow from 'ac-tools';
-import * as personaRow from 'ac-persona';
 import * as datetimeRow from '../src/index';
+import {
+  datetimeLine, timeInfoLine, formatElapsed,
+} from '../src/index';
 
 const booted: Array<{ ctx: Context; fibers: Fiber[] }> = [];
 const captured: LlmChatInput[] = [];
+/** recordContext 捕获面（session 服务替身） */
+const recorded: Array<{ id: string; agent: string; content: string; source: string; label?: string }> = [];
 
-/** 脚本 provider：单步文本收束，捕获到达 LLM 的完整请求 */
 function scriptedProvider() {
   return () => ({
     stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
@@ -30,27 +31,10 @@ function scriptedProvider() {
   });
 }
 
-/** 双步脚本 provider：首步工具调用（触发第二步），末步文本收束 */
-function twoStepProvider() {
-  let step = 0;
-  return () => ({
-    stream: async function* (input: LlmChatInput): AsyncIterable<LlmStreamChunk> {
-      captured.push(input);
-      if (step++ === 0) {
-        yield { delta: '', toolCalls: [{ index: 0, id: 't1', name: 'noop', argumentsDelta: '{}' }] };
-        yield { delta: '', finish: 'tool_calls' };
-      } else {
-        yield { delta: 'done' };
-        yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
-      }
-    },
-  });
-}
-
-async function boot(ctx: Context, rows: unknown[]) {
+async function boot(ctx: Context, rows: unknown[], options?: Record<string, unknown>) {
   const fibers: Fiber[] = [];
   for (const row of rows) {
-    const fiber = ctx.plugin(row as any);
+    const fiber = options === undefined ? ctx.plugin(row as any) : ctx.plugin(row as any, options);
     await fiber;
     fibers.push(fiber);
   }
@@ -74,6 +58,20 @@ function standardRows() {
   ];
 }
 
+/** session 替身行：recordContext 捕获到数组 */
+function sessionStubRow() {
+  return {
+    name: 'session-stub',
+    apply(c: Context) {
+      c.provide('session', {
+        recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string }) {
+          recorded.push({ id, agent, content, source: extra.source, ...(extra.label !== undefined ? { label: extra.label } : {}) });
+        },
+      });
+    },
+  };
+}
+
 afterEach(async () => {
   for (const { fibers } of booted.splice(0)) {
     for (const fiber of [...fibers].reverse()) {
@@ -82,141 +80,137 @@ afterEach(async () => {
   }
 });
 
-describe('datetimeLine 纯函数', () => {
-  it('仅日期 + 星期（YYYY-MM-DD 周X）', () => {
-    expect(datetimeRow.datetimeLine(new Date('2026-08-23T10:00:00'))).toBe(
-      '[当前时间] 2026-08-23 周日',
-    );
-    expect(datetimeRow.datetimeLine(new Date('2026-01-05T23:59:59'))).toBe(
-      '[当前时间] 2026-01-05 周一',
-    );
+describe('纯函数', () => {
+  it('datetimeLine：仅日期 + 星期（YYYY-MM-DD 周X）', () => {
+    expect(datetimeLine(new Date('2026-08-23T10:00:00Z'), 'UTC')).toBe('[当前时间] 2026-08-23 周日');
+    expect(datetimeLine(new Date('2026-01-05T23:59:59Z'), 'UTC')).toBe('[当前时间] 2026-01-05 周一');
   });
 
-  it('一天内稳定（同日任意时刻同输出——前缀缓存跨轮命中）', () => {
-    const a = datetimeRow.datetimeLine(new Date('2026-08-23T00:00:00'));
-    const b = datetimeRow.datetimeLine(new Date('2026-08-23T23:59:59'));
-    expect(a).toBe(b);
+  it('时区换算：同一时刻不同 tz 墙上日期不同', () => {
+    const t = new Date('2026-08-23T20:00:00Z'); // UTC 20:00 = 上海 8/24 04:00
+    expect(datetimeLine(t, 'UTC')).toContain('2026-08-23');
+    expect(datetimeLine(t, 'Asia/Shanghai')).toContain('2026-08-24');
+  });
+
+  it('timeInfoLine：日期 + 时刻 + 间隔', () => {
+    const line = timeInfoLine(new Date('2026-08-23T10:30:00Z'), 'UTC', 25 * 60 * 60 * 1000);
+    expect(line).toBe('[当前时间] 2026-08-23 周日 10:30（距上次回复已过 25 小时）');
+  });
+
+  it('formatElapsed：分钟/小时组合', () => {
+    expect(formatElapsed(30_000)).toBe('1 分钟');
+    expect(formatElapsed(5 * 60_000)).toBe('5 分钟');
+    expect(formatElapsed(60 * 60_000)).toBe('1 小时');
+    expect(formatElapsed(90 * 60_000)).toBe('1 小时 30 分钟');
+  });
+
+  it('timeInfoLine 间隔格式：小时整 / 小时+分钟', () => {
+    expect(timeInfoLine(new Date('2026-08-23T10:30:00Z'), 'UTC', 60 * 60 * 1000)).toContain('已过 1 小时');
   });
 });
 
-describe('ac-datetime 日期注入', () => {
-  it('有会话键 → 日期行追加到 system 尾部', async () => {
+describe('行为（before-run 注入链）', () => {
+  it('有会话键 + session 在场：日期锚落盘；system 不含日期行', async () => {
     captured.length = 0;
+    recorded.length = 0;
     const ctx = new Context();
-    await boot(ctx, [...standardRows(), datetimeRow]);
+    await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], undefined);
     await ctx.agentLoop.run({
-      model: 'mock-1',
-      system: 'BASE',
-      conversationId: 'c1',
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c1',
       messages: [{ role: 'user', content: 'hi' }],
     });
     const system = String(captured[0].messages[0].content);
-    expect(system).toMatch(/^BASE\n\n\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]$/);
+    expect(system).toBe('BASE'); // DATETIME 段已移除——system 全静态
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0].source).toBe('datetime');
+    expect(recorded[0].content).toMatch(/^\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]$/);
+    expect(recorded[0].id).toBe('c1');
   });
 
-  it('conversationId 缺省（子 Agent / loop 直连）→ 不注入', async () => {
+  it('conversationId 缺省（子 Agent / loop 直连）→ 不落盘不注入', async () => {
     captured.length = 0;
+    recorded.length = 0;
     const ctx = new Context();
-    await boot(ctx, [...standardRows(), datetimeRow]);
-    await ctx.agentLoop.run({
-      model: 'mock-1',
-      system: 'BASE',
-      messages: [{ role: 'user', content: 'hi' }],
-    });
-    expect(captured[0].messages[0]).toEqual({ role: 'system', content: 'BASE' });
-  });
-
-  it('与 ac-persona 组合：persona 前置、日期行在尾部', async () => {
-    captured.length = 0;
-    const ctx = new Context();
-    await boot(ctx, [...standardRows(), personaRow, datetimeRow]);
-    ctx.agents.register({ id: 'd2', model: 'mock-1', settings: { persona: '海盗' } });
-    await ctx.agentLoop.run({
-      agent: 'd2',
-      model: 'mock-1',
-      conversationId: 'c3',
-      messages: [{ role: 'user', content: 'hi' }],
-    });
+    await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], undefined);
+    await ctx.agentLoop.run({ model: 'mock-1', system: 'BASE', messages: [{ role: 'user', content: 'hi' }] });
+    expect(recorded).toHaveLength(0);
     const system = String(captured[0].messages[0].content);
-    expect(system.startsWith('<persona>')).toBe(true);
-    expect(system).toContain('[当前时间] ');
+    expect(system).toBe('BASE');
   });
 
-  it('DATETIME 段绝对收尾：晚于任意低 order 段（与注册顺序无关）', async () => {
+  it('session 行未装 → 跳过（防重复注入）', async () => {
     captured.length = 0;
+    recorded.length = 0;
     const ctx = new Context();
-    await boot(ctx, [...standardRows(), datetimeRow]);
-    // 竞争者：GUIDELINES 段（低 order）——晚于 datetime 注册也要排在它前面
-    ctx.agentLoop.registerPromptSection({
-      name: 'GUIDELINES_FS',
-      text: '[指引] REF-LATE',
-    }, 'test');
+    await boot(ctx, [...standardRows(), datetimeRow], undefined);
     await ctx.agentLoop.run({
-      model: 'mock-1',
-      system: 'BASE',
-      conversationId: 'c4',
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c2',
       messages: [{ role: 'user', content: 'hi' }],
     });
-    const system = String(captured[0].messages[0].content);
-    const posRef = system.indexOf('[指引] REF-LATE');
-    const posDate = system.lastIndexOf('[当前时间]');
-    expect(posRef).toBeGreaterThan(0);
-    expect(posDate).toBeGreaterThan(posRef);
-    expect(system).toMatch(/\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]$/);
+    expect(recorded).toHaveLength(0);
+    expect(String(captured[0].messages[0].content)).toBe('BASE');
   });
 
-  it('对话信息段（CONVERSATION）先于日期段（DATETIME）——具名位定序', async () => {
-    captured.length = 0;
+  it('同日第二 run：状态文件已锚定今日 → 不重复落盘', async () => {
+    recorded.length = 0;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dt-'));
+    const anchorFile = path.join(root, 'files', '__standard__', 'datetime', '.day-anchor.json');
+    fs.mkdirSync(path.dirname(anchorFile), { recursive: true });
+    fs.writeFileSync(anchorFile, JSON.stringify({ c3: datetimeLine(new Date(), 'UTC') }), 'utf-8');
     const ctx = new Context();
-    await boot(ctx, [...standardRows(), datetimeRow]);
-    // 晚注册的高位段（动态名 order 890 < 910）仍居日期行之前（cr-944：
-    // CONVERSATION/DATETIME 为保留名，测试用动态段名验证同一定序语义）
-    ctx.agentLoop.registerPromptSection({
-      name: 'test-conversation',
-      order: 890,
-      text: '[当前对话对象] 你正在与 风栗（user）对话',
-    }, 'test');
+    await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], { root });
     await ctx.agentLoop.run({
-      model: 'mock-1', system: 'BASE', conversationId: 'c6',
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c3',
       messages: [{ role: 'user', content: 'hi' }],
     });
-    const system = String(captured[0].messages[0].content);
-    expect(system.indexOf('[当前对话对象]')).toBeGreaterThan(0);
-    expect(system.indexOf('[当前对话对象]')).toBeLessThan(system.indexOf('[当前时间]'));
+    expect(recorded).toHaveLength(0);
+  });
+});
+
+describe('间隔注入（状态文件基准）', () => {
+  it('距上次回复 ≥1h → 时间信息行追加到信封尾', async () => {
+    captured.length = 0;
+    recorded.length = 0;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dt-'));
+    const stateFile = path.join(root, 'files', '__standard__', 'datetime', '.last-reply.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(stateFile, JSON.stringify({ lastReplyAt: Date.now() - 2 * 60 * 60 * 1000 }), 'utf-8');
+    const ctx = new Context();
+    await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], { root });
+    await ctx.agentLoop.run({
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c4',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    const last = captured[0].messages.at(-1);
+    expect(String(last?.content)).toMatch(/\[当前时间\].*距上次回复已过 2 小时/);
   });
 
-  it('多步 run 恰一条日期行：run 级一次组装，不随步重注入', async () => {
+  it('距上次回复 <1h → 不注入时间信息行', async () => {
     captured.length = 0;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dt-'));
+    const stateFile = path.join(root, 'files', '__standard__', 'datetime', '.last-reply.json');
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(stateFile, JSON.stringify({ lastReplyAt: Date.now() - 5 * 60_000 }), 'utf-8');
     const ctx = new Context();
-    const rows = standardRows();
-    rows[2] = {
-      name: 'mock-provider',
-      inject: ['llm'],
-      apply(c: Context) {
-        c.llm.register('mock', twoStepProvider(), { models: ['mock-1'] });
-      },
-    };
-    await boot(ctx, [...rows, datetimeRow]);
-    ctx.tools.register({
-      name: 'noop',
-      description: 'no-op',
-      parameters: { type: 'object', properties: {} },
-      async execute() {
-        return { ok: true, output: { content: 'ok' } };
-      },
-    });
+    await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], { root });
     await ctx.agentLoop.run({
-      model: 'mock-1',
-      system: 'BASE',
-      conversationId: 'c5',
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c5',
       messages: [{ role: 'user', content: 'hi' }],
     });
-    expect(captured.length).toBe(2); // 两步
-    for (const input of captured) {
-      const system = String(input.messages[0].content);
-      const occurrences = system.split('[当前时间]').length - 1;
-      expect(occurrences).toBe(1);
-      expect(system).toMatch(/^BASE\n\n\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]$/);
-    }
+    const last = captured[0].messages.at(-1);
+    expect(String(last?.content)).toBe('hi'); // 尾部仍是用户消息——未注入
+  });
+
+  it('after-run 记录最后回复时刻（状态文件）', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dt-'));
+    const ctx = new Context();
+    await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], { root });
+    await ctx.agentLoop.run({
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c6',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    const stateFile = path.join(root, 'files', '__standard__', 'datetime', '.last-reply.json');
+    const raw = JSON.parse(fs.readFileSync(stateFile, 'utf-8')) as { lastReplyAt: number };
+    expect(raw.lastReplyAt).toBeGreaterThan(Date.now() - 60_000);
   });
 });

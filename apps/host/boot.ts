@@ -329,6 +329,21 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
     hostLog('W', 'host', '数据根顶层未知项「' + name + '」——不在分层契约内（docs/design/assembly/data-root-layers.md）');
   }
 
+  // ---- 系统事件日志（cr-1182 批1）：装配终检通过 = 宿主本代就绪——
+  // append-only 落 host-boot 事件（壳侧 ac-env-pulse 按水位读 delta 注入）。
+  // 行集指纹与上一代比对：不同 → 先追加 rowset-changed（增删摘要）。fail-soft。
+  {
+    const { appendSystemEvent, rowsetFingerprintOf, lastHostBootRowsetFp } = await import('ac-system-events');
+    const fp = rowsetFingerprintOf(derived.rowIds);
+    const prevFp = lastHostBootRowsetFp(dataRoot);
+    if (prevFp !== undefined && prevFp !== fp) {
+      // 上一代行集已不可得（boot 派生即本代），diff 摘要退化为指纹标注——
+      // 变化事实本身由指纹不等承载
+      appendSystemEvent(dataRoot, 'rowset-changed', { rowsetFp: fp, summary: '宿主换代伴随行集变化（指纹 ' + prevFp + ' → ' + fp + '）' });
+    }
+    appendSystemEvent(dataRoot, 'host-boot', { pid: process.pid, rowsetFp: fp });
+  }
+
   // ---- viewer 投影对账自愈（cr-973 退役）：终稿层 = agent 域账本读时
   // 投影（projectUserReplay），viewer 不再物化——「清 viewer 树自愈」成为
   // 读面固有属性，boot 无需补建。 ----

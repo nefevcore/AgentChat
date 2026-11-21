@@ -26,10 +26,10 @@ const skeletonDefs = skeletonRows.map(toDef);
 const capabilityDefs = capabilityRows.map(toDef);
 
 describe('行集目录对账（manifest R8 恒等式）', () => {
-  it('总行数 70 = 宿主 28 + 壳 42（cr-1121：host-face 贡献行 +2；cr-1165：fs-source 采集行；cr-1066：permission-gate 骨架新增；cr-1158 net-monitor）', () => {
-    expect(catalog.rows).toHaveLength(70);
+  it('总行数 71 = 宿主 28 + 壳 43（cr-1121：host-face 贡献行 +2；cr-1165：fs-source 采集行；cr-1066：permission-gate 骨架新增；cr-1158 net-monitor；cr-1182 datetime 归骨架 + env-pulse 骨架新增）', () => {
+    expect(catalog.rows).toHaveLength(71);
     expect(catalog.rows.filter((r) => r.tree === 'host')).toHaveLength(28);
-    expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(42);
+    expect(catalog.rows.filter((r) => r.tree === 'shell')).toHaveLength(43);
   });
 
   it('每树内 id 唯一（跨树同名 = 基座双计，合法）', () => {

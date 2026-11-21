@@ -1,0 +1,20 @@
+{
+  "name": "ac-system-events",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "系统事件日志纯库（零 cordis 依赖）：宿主单写者 append-only 事件流 meta/system-events.jsonl（host-boot/shell-start/rowset-changed），壳侧按水位读 delta——持久化 Agent 环境感知的数据面",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  },
+  "keywords": [
+    "agentchat"
+  ]
+}

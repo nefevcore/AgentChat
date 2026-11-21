@@ -15,8 +15,7 @@
     "todo",
     "skill",
     "math",
-    "mcp",
-    "datetime"
+    "mcp"
   ],
   "levels": {
     "browser": "observe"
