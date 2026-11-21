@@ -357,6 +357,33 @@ describe('archive 行（cr-1189 V3）', () => {
     }
   }, 20_000);
 
+  it('cr-1192 同源：单事件 compaction 行永留主日志（多代叠加时旧代事件不随归档段搬离）', async () => {
+    // 旧谓词只匹配 'compaction/' 前缀（三连形态）——单事件 type='compaction'
+    // 漏判 → 可能计入 archivedOriginal 推高 boundary，或随归档段搬走致
+    // fold.compactions 少代。多代场景锁：两代事件都在主日志。
+    seedAgent('theta', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('theta', { digestText: '第一代总结。' });
+    try {
+      await seedBulkyConversation(h.ledger, 'user~theta', 'theta', 6);
+      await h.archive.requestArchive('user~theta');
+      await seedBulkyConversation(h.ledger, 'user~theta', 'theta', 6);
+      await h.archive.requestArchive('user~theta');
+      const dir = path.join(ROOT, 'agents', 'theta', 'sessions', 'user~theta');
+      const after = readLedger(dir);
+      // 两代单事件 compaction 均在主日志（未随归档段搬离）
+      const cmps = after.rows.filter((r) => (r as { type?: string }).type === 'compaction');
+      expect(cmps.length).toBe(2);
+      // fold 侧同样看到两代（边界事实完整）
+      const fold = foldSession(ROOT, 'user~theta', [dir]);
+      expect(fold.compactions.length).toBe(2);
+      // 各自 run-end 也在场（机制标记随行保护）
+      const cmpRuns = new Set(cmps.map((r) => (r as { run?: string }).run));
+      for (const run of cmpRuns) expect(run).toBeDefined();
+    } finally {
+      await h.dispose();
+    }
+  }, 30_000);
+
   it('cr-1155：无 seq 的 v1 僵尸行随位置归档出清——不再永踞主日志', async () => {
     seedAgent('theta', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
     const h = await bootShellRows('theta', { digestText: '总结。' });

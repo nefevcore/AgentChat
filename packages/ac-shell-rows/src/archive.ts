@@ -550,13 +550,21 @@ export class ArchiveShellService extends Service {
       // cr-1189：摘要行是回放头事实源——foldDigestOf 读主日志 contexts，物理
       // 搬走 = 下一代刷新后回放头蒸发。请求行/机制信行照常随代出清）。
       // 其 run-end 同留——机制标记）
+      // cr-1192 同源补充：单事件形态（cr-1160 起现行写法）type='compaction'
+      // 不被 'compaction/' 前缀匹配——旧谓词只认三连形态（compaction/start|summary|end），
+      // 致单事件行可能被计入 archivedOriginal（推高 boundary → 无提交代时
+      // 盖过上一代摘要行 = 回放头蒸发）或随归档段搬离主日志（边界事实丢失，
+      // fold.compactions 少代）。机制行谓词按词汇全族收口。
       const compactionRuns = new Set(rows
-        .filter((r) => String((r as { type?: unknown }).type ?? '').startsWith('compaction/'))
+        .filter((r) => {
+          const t = String((r as { type?: unknown }).type ?? '');
+          return t === 'compaction' || t.startsWith('compaction/');
+        })
         .map((r) => (r as { run?: unknown }).run));
       const isCompactionRow = (r: LedgerRow): boolean => {
         const t = String((r as { type?: unknown }).type ?? '');
         if ((r as { source?: unknown }).source === ARCHIVE_SUMMARY_SOURCE) return true;
-        return t.startsWith('compaction/') || (t === 'run-end' && compactionRuns.has((r as { run?: unknown }).run));
+        return t === 'compaction' || t.startsWith('compaction/') || (t === 'run-end' && compactionRuns.has((r as { run?: unknown }).run));
       };
       const archivedOriginal = rows.filter((r) => archivedSet.has(r) && !isCompactionRow(r));
       const baselineSeq = rows.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
