@@ -78,6 +78,18 @@ interface SessionIndexFace {
   };
 }
 
+/** 名册面窄接口（cr-1185——ctx.sessionIndex 结构子集；同 SessionIndexFace
+ *  窄接口纪律：零 import，同形窄化） */
+interface SessionRosterFace {
+  refresh(convId: string): unknown;
+  rosterGaps(): string[];
+  rosterSnapshot(): Array<{
+    key: string; kind: 'pair' | 'single' | 'group' | 'other';
+    lastSpeechAt: string | null; lastAgent: string | null; lastRole: string | null; lastText: string | null;
+    lastAt: string | null; speech: number; total: number; messageCount: number;
+  }>;
+}
+
 /** SessionMeta 结构面（cr-1138——ac-session-index SessionMeta 同形窄化） */
 interface SessionMetaRow {
   key: string;
@@ -565,6 +577,18 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         // ——不报覆盖度即被当成平台全貌）；full = true 显式预热全部会话
         //（首次代价高，仪表板冷启动用；此后索引增量维护）。
         return index.sessionByDay(undefined, p.full === true);
+      });
+
+      // session/roster（cr-1185）：名册列表单源——roster 小表全表零盘读。
+      // warm 热度同 session/meta：boot 预热（face-ops warm-up 面）已跑时
+      // 报 'warm'（缺口空），前端可据此区分「子集冷态」与「全量就绪」；
+      // 前端在冷态可自补（warm:true 显式填缺口——与 full 同姿势）。
+      web.registerRpc('session/roster', (params) => {
+        const index = ctx.get('sessionIndex') as SessionRosterFace | undefined;
+        if (index === undefined) throw new Error('sessionIndex 服务未装配（session-index 行不在宿主行集）——session/roster 不可用');
+        const p = obj(params);
+        if (p.warm === true) for (const convId of index.rosterGaps()) index.refresh(convId);
+        return { rows: index.rosterSnapshot(), warm: index.rosterGaps().length === 0 ? 'warm' : 'cold' };
       });
 
       // ---- 会话级覆盖面（cr-565）----

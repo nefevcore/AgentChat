@@ -62,20 +62,26 @@ function toGroupInfo(g: PGroupConfig): GroupInfo {
   };
 }
 
-/** 群名册（P4：聚合 runs/snapshot 群会话桶 lastActivity；snapshot 失败静默降级） */
+/** 群名册（cr-1185：活动面单源 = session/roster 群行〔宿主成员流折叠〕
+ *  ——脱离 runs/snapshot；RPC 失败静默降级〔无 lastActivity〕。冷态自补
+ *  warm 拉满全量。群 lastActivity 因此来自真实成员账本——修复旧链路以
+ *  gid 匹配 conversations 键恒落空〔gid 无账本目录〕的死数据形态） */
 export async function fetchGroups(rpc: Pick<RpcClientFace, 'call'>): Promise<{ groups: GroupInfo[] }> {
-  const [r, snapR] = await Promise.all([
+  const [r, rosterR] = await Promise.all([
     rpc.call<{ groups?: PGroupConfig[] }>('group/list'),
     rpc
-      .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number }> }>('runs/snapshot')
-      // digest 短路轻载荷（unchanged=true）无 conversations → 按空降级（同 catch 语义）
-      .then((r) => (!(r as { unchanged?: boolean }).unchanged ? r : undefined))
+      .call<{ rows?: Array<{ key: string; kind: string; lastSpeechAt: string | null; lastAt: string | null }> }>('session/roster', { warm: true })
       .catch(() => undefined),
   ]);
-  const convOf = new Map((snapR?.conversations ?? []).map((c) => [c.conversationId, c]));
+  const actOf = new Map<string, number>();
+  for (const row of rosterR?.rows ?? []) {
+    if (row.kind !== 'group') continue;
+    const t = Date.parse(row.lastSpeechAt ?? row.lastAt ?? '');
+    if (Number.isFinite(t)) actOf.set(row.key, t);
+  }
   return {
     groups: (r.groups ?? []).map((g) => {
-      const lastActivity = convOf.get(g.id)?.updatedAt;
+      const lastActivity = actOf.get(g.id);
       return { ...toGroupInfo(g), ...(lastActivity !== undefined ? { lastActivity } : {}) };
     }),
   };

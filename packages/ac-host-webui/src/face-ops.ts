@@ -939,7 +939,6 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
   // 运行矩阵快照（主线 runs/snapshot 同构）：指纹阶段只 stat（零文件读）；
   // 活跃集 = 活壳 run-state 帧（busy 壳才成条——闲壳在跑不等于有 run）。
   // digest 短路：请求带上一轮 digest 且当前一致 → unchanged 轻载荷。
-  // cr-978 展开摘要 memo（cid → 指纹关联摘要——见展开阶段注释）
   // cr-980 性能收口（perf-followups 2026-11-10 #1-#3）：
   //   · single-flight——冷启动期并发调用共享同一趟扫描（曾 5 路并发各 ~8s
   //     全量展开在单线程宿主上串行叠加，把 singles/list 与首批轻 RPC 拖住）；
@@ -947,7 +946,7 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
   //   · 指纹源优先 sessionIndex 行账面（零盘 IO）：变更面（running 集 ∪
   //     近期 running 余温 ∪ 未入账新会话）定向 stat 入账；行缺席回落全量
   //     stat 扫；周期空闲对账兜底外部写（crash 壳收束尾部 / 绕过通知的写）。
-  const convSummaryMemo = new Map<string, { size: number; mtimeMs: number; messageCount: number; last?: { role: string; text: string; ts: string; agent_id?: string } }>();
+
   let lastRunsDigest: string | null = null;
   /** 近期活跃会话余温集（cid → 最近在 running 集的时刻）：run 收束发生在
    *  两次快照之间时，终稿尾部追加在上次定向刷新之后——余温窗口内的会话
@@ -958,7 +957,7 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     | { unchanged: true; digest: string; generatedAt: number }
     | {
       digest: string; generatedAt: number;
-      conversations: Array<{ conversationId: string; messageCount: number; size: number; updatedAt: number; last?: { role: string; text: string; ts: string; agent_id?: string } }>;
+      conversations: Array<{ conversationId: string; messageCount: number; size: number; updatedAt: number }>;
       running: Array<{ agentId: string; conversationId: string; handle: string; startedAt: number }>;
       groups: Array<{ groupId: string; name: string; memberCount: number; members: string[] }>;
       usageTotals?: unknown;
@@ -1041,58 +1040,18 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     ].join('::');
     const digest = hashFingerprint(fingerprint);
     lastRunsDigest = digest;
-    // 展开阶段（digest 变化或首轮）：此刻才读账本（messageCount + 尾部摘要）。
-    // cr-978：按会话指纹 memo（size+mtime 未变 = 摘要未变——append-only 下
-    // 成立）——digest 变化通常只涉少数会话（后台 run 追加），只重读变化面；
-    // 冷首轮全量（一次性）。单会话读失败降级缺席（一颗坏行不再炸整拍快照
-    // ——崩溃曾使 runs/snapshot 恒 500 + 全根扫描风暴拖死宿主）。时间片
-    // 让出（cr-980 #2：批粒度 16 → ~12ms 时间片——冷首轮不饿死并发 RPC）。
-    const conversations = [] as Array<{ conversationId: string; messageCount: number; size: number; updatedAt: number; last?: { role: string; text: string; ts: string; agent_id?: string } }>;
+    // 展开阶段（cr-1185 批3：SQL 单源零盘读）：messageCount = roster 小表
+    // speech 列；尾部摘要 last 已随名册脱离退役（消费方 = session/roster 的
+    // lastText——发言口径 + 断连不漂移）。cr-978 指纹 memo 与 cr-1142
+    // sessionMeta 内嵌读取一并退役（展开不再读账本——memo 无存在必要）；
+    // 单会话行缺席（未入账）= messageCount 0 诚实值（轮询/帧驱动/warm-up
+    // 三通道分钟内补齐，冷首拍短暂）。时间片让出保留（cr-980 #2）。
+    const rosterOf = new Map((index !== undefined ? index.rosterSnapshot() : []).map((r) => [r.key, r]));
+    const conversations = [] as Array<{ conversationId: string; messageCount: number; size: number; updatedAt: number }>;
     let sliceAt = Date.now();
     for (let i = 0; i < convsMeta.length; i++) {
       const c = convsMeta[i]!;
-      let e = convSummaryMemo.get(c.cid);
-      if (e === undefined || e.size !== c.size || e.mtimeMs !== c.mtimeMs) {
-        try {
-          const rows = projectUserReplay(deps.dataRoot, c.cid);
-          const last = rows.at(-1);
-          // cr-1142 roster 预览权威化：last 身份/时标改发言口径（sessionMeta
-          // SQL 单源）——replay 末行常是 run-end/step 等事件行（无 role，
-          // 真实数据实证），把它当「最后谁说了话」会漂移。索引在场即以
-          // sessionMeta 为准（发言末行）；缺席 = 旧形态回落（任意末行）。
-          // 正文与计数仍取 replay（SQL 不载正文——盘读照旧 memo 化）。
-          const meta = index !== undefined ? index.sessionMeta(c.cid, { refresh: false }) : null;
-          e = {
-            size: c.size,
-            mtimeMs: c.mtimeMs,
-            messageCount: rows.length,
-            ...(last !== undefined
-              ? {
-                last: meta !== null && meta.lastRole !== null
-                  ? {
-                    // 入站用户行的账本原形 = role:'agent' + agent_id:'user'（投影层
-                    // 才归一 'user'）——viewer 归一与旧形态同判：lastAgent 为
-                    // viewer 端点即用户侧发言。
-                    role: meta.lastAgent === 'user' ? 'user' : 'assistant',
-                    text: last.content.slice(0, 120),
-                    ts: meta.lastSpeechAt ?? last.timestamp,
-                    ...(meta.lastAgent !== null && meta.lastAgent !== 'user' ? { agent_id: meta.lastAgent } : {}),
-                  }
-                  : {
-                    role: last.role === 'user' ? 'user' : 'assistant',
-                    text: last.content.slice(0, 120),
-                    ts: last.timestamp,
-                    ...(last.role !== 'user' ? { agent_id: last.agentId } : {}),
-                  },
-              }
-              : {}),
-          };
-          convSummaryMemo.set(c.cid, e);
-        } catch {
-          e = { size: c.size, mtimeMs: c.mtimeMs, messageCount: 0 };
-        }
-      }
-      conversations.push({ conversationId: c.cid, messageCount: e.messageCount, size: c.size, updatedAt: c.mtimeMs, ...(e.last !== undefined ? { last: e.last } : {}) });
+      conversations.push({ conversationId: c.cid, messageCount: rosterOf.get(c.cid)?.messageCount ?? 0, size: c.size, updatedAt: c.mtimeMs });
       if (Date.now() - sliceAt > SLICE_MS) {
         await new Promise<void>((r) => setImmediate(r));
         sliceAt = Date.now();
@@ -1138,7 +1097,15 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
   // boot 预热（cr-980 #1）：注册即发一趟——首屏 RPC 到达前完成 memo / 索引
   // 账面的冷填充（首调用直接 join 本航班）。不 await：boot 继续走，扫描
   // 时间片让出不挡装配；预热无观测面，失败静默。
-  void snapshotOnce().catch(() => undefined);
+  // cr-1185：预热航班收尾接名册 warm-up（首屏 session/roster 通常已暖）。
+  // 尾链自带兜底（桩 ctx 无 get 的测试面不产 unhandled——预热本就静默）。
+  void snapshotOnce()
+    .catch(() => undefined)
+    .then(() => {
+      const index = ctx.get('sessionIndex') as SessionIndexStatsFace | undefined;
+      if (index !== undefined) void warmRoster(index).catch(() => undefined);
+    })
+    .catch(() => undefined);
 
   // 周期空闲对账（cr-980 #3 外部写兜底）：全量 stat 入账一轮——crash 壳
   // 收束尾部 / 绕过通知的外部写（digest 新鲜度上限 = 对账周期 + 一拍）。
@@ -1160,7 +1127,30 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       for (const row of index.catalog()) {
         if (!dirs.has(row.conv)) index.drop(row.conv);
       }
+      // cr-1185 名册罗盘缺口填充：stat 对账后跑一趟（boot 预热之外的常规
+      // 兜底——外部写绕过帧驱动的会话由此在分钟级补齐）。增量语义：无
+      // 缺口时零成本；缺口面通常只在冷启动后首轮出现。
+      await warmRoster(index);
     } catch { /* 数据根暂不可访问（测试清理竞态）——下轮再试 */ }
+  };
+  // cr-1185 名册 warm-up：罗盘缺口逐会话增量入账（时间片让出——冷首轮
+  // 不饿死并发 RPC）；完成后广播 session/roster-warmed——冷态拉过
+  // session/roster 的前端借此帧重拉（零轮询转纯事件驱动）。boot 预热
+  // 航班收尾与周期 reconcile 都走这里（幂等：缺口空 = 零成本）。
+  const warmRoster = async (index: SessionIndexStatsFace): Promise<void> => {
+    const gaps = index.rosterGaps();
+    let sliceAt = Date.now();
+    for (const cid of gaps) {
+      index.refresh(cid);
+      if (Date.now() - sliceAt > SLICE_MS) {
+        await new Promise<void>((r) => setImmediate(r));
+        sliceAt = Date.now();
+      }
+    }
+    if (gaps.length > 0) {
+      (ctx.webServer as unknown as { broadcast(type: string, data?: unknown): void })
+        .broadcast('session/roster-warmed', { args: [{ filled: gaps.length }] });
+    }
   };
   const reconcileTimer = setInterval(() => { void reconcile(); }, 60_000);
   (reconcileTimer as { unref?: () => void }).unref?.();
@@ -1221,5 +1211,14 @@ interface SessionIndexStatsFace {
   /** 会话元数据聚合（cr-1142 roster 预览权威化——发言口径末行身份/时标）。
    *  只读模式：本面是高频聚合（60s 轮询 + 事件驱动），绝不隐式建索引
    *  （cr-1138 裁决：全量预热是显式动作）——未入账会话返回 null 走回落。 */
-  sessionMeta(convId: string, opts: { refresh?: boolean }): { lastRole: string | null; lastAgent: string | null; lastSpeechAt: string | null; speech: number } | null;
+  /** 会话指针行增量入账（含 roster 同源重算——cr-1185 名册通道） */
+  refresh(convId: string): unknown;
+  /** 名册缺口对账（stat 指纹 vs roster 行——cr-1185） */
+  rosterGaps(): string[];
+  /** 名册小表快照（零盘读——cr-1185） */
+  rosterSnapshot(): Array<{
+    key: string; kind: 'pair' | 'single' | 'group' | 'other';
+    lastSpeechAt: string | null; lastAgent: string | null; lastRole: string | null; lastText: string | null;
+    lastAt: string | null; speech: number; total: number; messageCount: number;
+  }>;
 }

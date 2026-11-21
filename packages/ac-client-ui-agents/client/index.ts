@@ -83,6 +83,21 @@ interface PConvTail {
   last?: { role: string; text: string; ts: string; agent_id?: string; name?: string };
 }
 
+/** session/roster 行（cr-1185 名册单源——宿主 roster 小表零盘读投影） */
+interface PRosterRow {
+  key: string;
+  kind: 'pair' | 'single' | 'group' | 'other';
+  lastSpeechAt: string | null;
+  lastAgent: string | null;
+  lastRole: string | null;
+  lastText: string | null;
+  lastAt: string | null;
+  speech: number;
+  total: number;
+  /** 发言行数（runs/snapshot messageCount 同源——前端名册不消费，契约同形） */
+  messageCount: number;
+}
+
 /** AgentConfig[] + running + snapshot → AgentInfo[]（名册合成：name←
  *  name??description（显示名单源 + 存量回退）；头像恒指真实端点，404 由
  *  <img> onerror 回退；P4/M19：名册活动源 = viewer⇄agent 直答对桶
@@ -158,19 +173,45 @@ export function toAgentList(
   };
 }
 
-/** Agent 名册（P4：聚合 runs/snapshot 取 1v1 会话 lastActivity/lastMessage——snapshot 失败静默降级旧形态） */
+/** 名册行 → PConvTail 投影（session/roster 行 → toAgentList 既有合成管线）
+ *  · updatedAt（lastActivity 排序键）= 发言口径时标回落活动口径（roster
+ *    双口径都有——比 snapshot 的 stat mtime 更准）；
+ *  · last 身份 = lastAgent（账本原形：入站用户行 agent_id 'user'）——
+ *    toAgentList 端归一 role（cr-1142 同判）。 */
+function rosterToTails(rows: PRosterRow[]): PConvTail[] {
+  const at = (r: PRosterRow): number => {
+    const t = Date.parse(r.lastSpeechAt ?? r.lastAt ?? '');
+    return Number.isFinite(t) ? t : 0;
+  };
+  return rows
+    .filter((r) => r.kind === 'pair' && (r.lastSpeechAt !== null || r.lastAt !== null))
+    .map((r) => ({
+      conversationId: r.key,
+      updatedAt: at(r),
+      ...(r.lastSpeechAt !== null
+        ? {
+          last: {
+            role: r.lastAgent === 'user' ? 'user' : 'assistant',
+            text: r.lastText ?? '',
+            ts: r.lastSpeechAt,
+            ...(r.lastAgent !== null && r.lastAgent !== 'user' ? { agent_id: r.lastAgent } : {}),
+          },
+        }
+        : {}),
+    }));
+}
+
+/** Agent 名册（cr-1185：名册活动面单源 = session/roster——脱离 runs/snapshot；
+ *  RPC 失败静默降级旧形态〔空活动面〕；冷态自补 warm 拉满全量） */
 export async function fetchAgents(rpc: Pick<RpcClientFace, 'call'>): Promise<{ agents: AgentInfo[] }> {
-  const [agentsR, statsR, snapR] = await Promise.all([
+  const [agentsR, statsR, rosterR] = await Promise.all([
     rpc.call<{ agents: PAgentConfig[] }>('agents/list'),
     rpc.call<{ running: Array<{ agentId: string; conversationId: string }> }>('conversation/stats'),
     rpc
-      .call<{ conversations?: Array<{ conversationId: string; updatedAt?: number; last?: { role: string; text: string; ts: string; name?: string } }> }>('runs/snapshot')
-      // digest 短路轻载荷（unchanged=true，runview 轮询请求带的）无
-      // conversations → catch 之外按缺省空处理，名册静默降级旧形态
-      .then((r) => (!(r as { unchanged?: boolean }).unchanged ? r : undefined))
+      .call<{ rows?: PRosterRow[]; warm?: string }>('session/roster', { warm: true })
       .catch(() => undefined),
   ]);
-  return toAgentList(agentsR.agents, statsR.running, snapR?.conversations ?? []);
+  return toAgentList(agentsR.agents, statsR.running, rosterToTails(rosterR?.rows ?? []));
 }
 
 export async function fetchAgentPresets(rpc: Pick<RpcClientFace, 'call'>): Promise<{ presets: AgentPresetInfo[] }> {

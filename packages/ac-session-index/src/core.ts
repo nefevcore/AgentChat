@@ -55,6 +55,30 @@ const FILE_SHAPES: FileShape[] = [
  *  （与 estimateReplayTokens 的 opts.summary 同口径）。 */
 const EST_TOKENS_VERSION = '4';
 
+/** cr-1185 名册小表行（会话列表预览——IM thread 表形态）：发言口径
+ *  末行身份/时标/正文摘录 + 活动口径末时标，refreshConversation 事务外
+ *  同源重算（records 聚合 + 末发言行指针 seek 回源取正文——索引仍是
+ *  纯缓存，roster 行可全量重建）。群行由成员流（g-<gid>~<member>，词法
+ *  上是 pair）在 rosterSnapshot 读面折叠聚合——gid 本身无账本目录。 */
+export interface RosterRow {
+  key: string;
+  kind: SessionKind;
+  /** 发言口径末行时标（ISO；null = 无发言行） */
+  lastSpeechAt: string | null;
+  /** 末发言者（账本原形：入站用户行 = agent_id 'user'） */
+  lastAgent: string | null;
+  lastRole: string | null;
+  /** 末发言正文摘录（截 120 字符；seek 回源派生） */
+  lastText: string | null;
+  /** 活动口径末时标（ISO——含 step/run-end 等机制行，排序浮顶用） */
+  lastAt: string | null;
+  speech: number;
+  total: number;
+  /** 发言行数（cr-1185 批3：runs/snapshot messageCount 换源口径——
+   *  数值从 replay 投影行数变为 SQL 发言行数，语义更准但会变） */
+  messageCount: number;
+}
+
 /** journal 行类型判别（readJournal 同款：只认四种已知判别行，未知 type 安全忽略） */
 const JOURNAL_TYPES = ['journal-step', 'journal-inject', 'journal-tool-result', 'journal-settled'];
 function journalLineType(text: string): string | null {
@@ -188,7 +212,7 @@ export class SessionIndex {
     const cmpCols = (this.db.prepare('PRAGMA table_info(compactions)').all() as Array<{ name?: unknown }>).map((c) => c.name);
     const cmpStale = cmpCols.length > 0 && !cmpCols.includes('summary_tokens');
     if ((cols.length > 0 && (!cols.includes('type') || !cols.includes('ts_num') || !cols.includes('generation'))) || cmpStale) {
-      this.db.exec('DROP TABLE IF EXISTS records; DROP TABLE IF EXISTS journal_lines; DROP TABLE IF EXISTS subcalls; DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS compactions;');
+      this.db.exec('DROP TABLE IF EXISTS records; DROP TABLE IF EXISTS journal_lines; DROP TABLE IF EXISTS subcalls; DROP TABLE IF EXISTS files; DROP TABLE IF EXISTS compactions; DROP TABLE IF EXISTS roster;');
     }
     this.db.exec(
       'CREATE TABLE IF NOT EXISTS files (' +
@@ -211,6 +235,11 @@ export class SessionIndex {
       'CREATE TABLE IF NOT EXISTS subcalls (' +
         'conv TEXT, domain TEXT, run TEXT, tool_call_id TEXT, ' +
         'byte_offset INTEGER, line_len INTEGER); ' +
+      // cr-1185：名册小表（每会话一行——files 表 stat 指纹随行，
+      // 供缺口对账：fp 不匹配 = records 待增量 + roster 待重算）
+      'CREATE TABLE IF NOT EXISTS roster (' +
+        'conv TEXT PRIMARY KEY, kind TEXT, last_speech_ms INTEGER, last_agent TEXT, last_role TEXT, ' +
+        'last_text TEXT, last_at_ms INTEGER, speech INTEGER, total INTEGER, fp_size INTEGER, fp_mtime REAL); ' +
       // cr-1160：口径版本元表（估算语义演进 → 版本不符整库重建）
       'CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);'
     );
@@ -220,7 +249,7 @@ export class SessionIndex {
     const hasRows = (this.db.prepare('SELECT 1 AS hit FROM records LIMIT 1').get() as { hit?: unknown } | undefined) !== undefined;
     // 无标记但有账面行 = 本版本前建立（est_tokens 口径未知）→ 同样视为陈旧
     if (seen !== EST_TOKENS_VERSION && (seen !== undefined || hasRows)) {
-      this.db.exec('DELETE FROM records; DELETE FROM compactions; DELETE FROM journal_lines; DELETE FROM subcalls; DELETE FROM files;');
+      this.db.exec('DELETE FROM records; DELETE FROM compactions; DELETE FROM journal_lines; DELETE FROM subcalls; DELETE FROM files; DELETE FROM roster;');
     }
     this.db.prepare("INSERT INTO meta (key, value) VALUES ('est_tokens_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(EST_TOKENS_VERSION);
   }
@@ -240,10 +269,14 @@ export class SessionIndex {
     this.stmts.clear();
   }
 
-  /** 刷新某会话全部域 × 三源文件的指针行（重建/增量对账见文件头）。 */
+  /** 刷新某会话全部域 × 三源文件的指针行（重建/增量对账见文件头）。
+   *  cr-1185：尾部同源重算 roster 行（records 聚合 + 末发言正文 seek
+   *  回源；stat 指纹随行——rosterGaps 据此找陈旧行）。零源目录时**不**落
+   *  roster 行（null kind 表示「会话不存在」，清账归 drop）。 */
   refreshConversation(dataRoot: string, convId: string): RefreshReport {
     const report: RefreshReport = { appended: 0, rebuilt: [] };
-    for (const dir of sessionDirs(dataRoot, convId)) {
+    const dirs = sessionDirs(dataRoot, convId);
+    for (const dir of dirs) {
       const domain = domainOf(dir);
       for (const shape of FILE_SHAPES) {
         const file = path.join(dir, shape.file);
@@ -251,6 +284,7 @@ export class SessionIndex {
         this.indexFile(file, shape.kind, convId, domain, report);
       }
     }
+    if (dirs.length > 0) this.recomputeRoster(dataRoot, convId);
     return report;
   }
 
@@ -302,6 +336,57 @@ export class SessionIndex {
     } finally {
       fs.closeSync(fd);
     }
+  }
+
+  /** roster 行重算（cr-1185——refreshConversation 尾部调用）：records
+   *  SQL 聚合身份/时标 + 末发言行指针 seek 回源取正文截断；stat 复合
+   *  指纹随行（rosterGaps 对账燃料）。索引行缺席（records 无行）时按
+   *  空会话落全零行——目录在即合法态。 */
+  private recomputeRoster(dataRoot: string, convId: string): void {
+    const agg = this.stmt(
+      "SELECT COUNT(*) AS total, SUM(CASE WHEN role IN ('user','agent') THEN 1 ELSE 0 END) AS speech, " +
+        'MAX(ts_num) AS last_at_ms FROM records WHERE conv = ?',
+    ).get(convId) as { total: number; speech: number | null; last_at_ms: number | null };
+    // 末发言行（含指针与正文口径键——seek 回源用）：ts_num 前提上再要求
+    // role 在场，排除「带 role 的脏事件行」；seq DESC 域内稳序。
+    const last = this.stmt(
+      "SELECT agent_id AS lastAgent, role AS lastRole, ts_num AS lastMs, domain, byte_offset, line_len, seq FROM records " +
+        "WHERE conv = ? AND role IN ('user','agent') AND ts_num IS NOT NULL " +
+        'ORDER BY ts_num DESC, seq DESC LIMIT 1',
+    ).get(convId) as { lastAgent: string | null; lastRole: string | null; lastMs: number; domain: string; byte_offset: number; line_len: number; seq: number } | undefined;
+    let lastText: string | null = null;
+    if (last !== undefined && last.line_len > 0) {
+      // 正文 seek 回源（单行读——指针索引本色：内容不驻索引）
+      const file = path.join(dataRoot, 'agents', last.domain, 'sessions', convId, 'messages.jsonl');
+      try {
+        const fd = fs.openSync(file, 'r');
+        try {
+          const buf = Buffer.alloc(last.line_len);
+          fs.readSync(fd, buf, 0, last.line_len, last.byte_offset);
+          const row = JSON.parse(buf.toString('utf-8')) as { content?: unknown; text?: unknown };
+          const text = typeof row.content === 'string' ? row.content : typeof row.text === 'string' ? row.text : null;
+          if (text !== null && text !== '') lastText = text.slice(0, 120);
+        } finally { fs.closeSync(fd); }
+      } catch { /* 回源失败 = lastText null（身份/时标不受影响） */ }
+    }
+    // stat 复合指纹（三源文件——rosterGaps 对账同公式）
+    let fpSize = 0; let fpMtime = 0;
+    for (const dir of sessionDirs(dataRoot, convId)) {
+      for (const shape of FILE_SHAPES) {
+        try {
+          const st = fs.statSync(path.join(dir, shape.file));
+          fpSize += st.size; fpMtime = Math.max(fpMtime, st.mtimeMs);
+        } catch { /* 缺席不参与 */ }
+      }
+    }
+    this.stmt(
+      'INSERT INTO roster (conv, kind, last_speech_ms, last_agent, last_role, last_text, last_at_ms, speech, total, fp_size, fp_mtime) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ' +
+        'ON CONFLICT(conv) DO UPDATE SET kind = excluded.kind, last_speech_ms = excluded.last_speech_ms, ' +
+        'last_agent = excluded.last_agent, last_role = excluded.last_role, last_text = excluded.last_text, ' +
+        'last_at_ms = excluded.last_at_ms, speech = excluded.speech, total = excluded.total, ' +
+        'fp_size = excluded.fp_size, fp_mtime = excluded.fp_mtime',
+    ).run(convId, sessionKindOf(convId), last?.lastMs ?? null, last?.lastAgent ?? null, last?.lastRole ?? null, lastText, agg.last_at_ms, agg.speech ?? 0, agg.total, fpSize, fpMtime);
   }
 
   /** 当前行应落的压缩代（cr-1160 P4）：已入账 compactions 的 max+1——
@@ -522,6 +607,73 @@ export class SessionIndex {
     };
   }
 
+  /** 名册缺口对账（cr-1185）：全部会话目录的**新鲜 stat 复合指纹** vs
+   *  roster 行随存指纹——不匹配（未入账/陈旧）即需 refreshConversation。
+   *  stat 指纹公式与 face-ops runs/snapshot 指纹源同构（size 求和 +
+   *  mtime 取最大，跨域三源文件）；stat 走 readdir/stat 现取，不建索引行
+   *  （缺口填充是显式读面动作，与 cr-1142 高频面禁隐式建索引不冲突）。 */
+  rosterGaps(dataRoot: string): string[] {
+    const byConv = new Map<string, { size: number; mtimeMs: number }>();
+    for (const convId of this.allConversationIds(dataRoot)) {
+      for (const dir of sessionDirs(dataRoot, convId)) {
+        for (const shape of FILE_SHAPES) {
+          try {
+            const st = fs.statSync(path.join(dir, shape.file));
+            const cur = byConv.get(convId) ?? { size: 0, mtimeMs: 0 };
+            byConv.set(convId, { size: cur.size + st.size, mtimeMs: Math.max(cur.mtimeMs, st.mtimeMs) });
+          } catch { /* 缺席文件不参与 */ }
+        }
+      }
+    }
+    const rows = this.db.prepare('SELECT conv, fp_size, fp_mtime FROM roster').all() as Array<{ conv: string; fp_size: number | null; fp_mtime: number | null }>;
+    const fpOf = new Map(rows.map((r) => [r.conv, r.fp_size !== null && r.fp_mtime !== null ? (r.fp_size + ':' + r.fp_mtime) : null]));
+    const gaps: string[] = [];
+    for (const [convId, meta] of byConv) {
+      if (fpOf.get(convId) !== meta.size + ':' + meta.mtimeMs) gaps.push(convId);
+    }
+    return gaps;
+  }
+
+  /** 名册小表快照（cr-1185——每会话一行零盘读；群行由成员流折叠：kind
+   *  折 'group'、last_* 取成员行最大、speech/total 跨成员求和。调用方
+   *  （face-ops boot 预热）先跑 rosterGaps 填缺口再取本面。） */
+  rosterSnapshot(): RosterRow[] {
+    const rows = this.db.prepare(
+      'SELECT conv, kind, last_speech_ms, last_agent, last_role, last_text, last_at_ms, speech, total FROM roster',
+    ).all() as Array<{ conv: string; kind: string; last_speech_ms: number | null; last_agent: string | null; last_role: string | null; last_text: string | null; last_at_ms: number | null; speech: number | null; total: number | null }>;
+    const iso = (ms: number | null): string | null => (ms !== null ? new Date(ms).toISOString() : null);
+    const base = new Map<string, RosterRow>();
+    for (const r of rows) {
+      const kind = (['pair', 'single', 'group', 'other'] as const).includes(r.kind as never) ? (r.kind as SessionKind) : 'other';
+      const row: RosterRow = {
+        key: r.conv, kind,
+        lastSpeechAt: iso(r.last_speech_ms), lastAgent: r.last_agent, lastRole: r.last_role, lastText: r.last_text,
+        lastAt: iso(r.last_at_ms), speech: r.speech ?? 0, total: r.total ?? 0,
+        messageCount: r.speech ?? 0,
+      };
+      // 群成员流（g-<gid>~<member>——sessionKindOf 判 group）折叠进 gid 键：
+      // last_* 取成员行最大、speech/total 求和——群 lastActivity 因此来自
+      // 真实成员账本（修复旧 fetchGroups 以 gid 匹配 conversations 的死键）。
+      const m = /^((g-[^~]+)~.+)$/.exec(r.conv);
+      if (m !== null && kind === 'group') {
+        const gid = m[2]!;
+        const prev = base.get(gid);
+        if (prev === undefined) base.set(gid, { ...row, key: gid, kind: 'group' });
+        else {
+          if ((row.lastSpeechAt ?? '') > (prev.lastSpeechAt ?? '')) {
+            prev.lastSpeechAt = row.lastSpeechAt; prev.lastAgent = row.lastAgent;
+            prev.lastRole = row.lastRole; prev.lastText = row.lastText;
+          }
+          if ((row.lastAt ?? '') > (prev.lastAt ?? '')) prev.lastAt = row.lastAt;
+          prev.speech += row.speech; prev.total += row.total;
+        }
+        continue;
+      }
+      base.set(r.conv, row);
+    }
+    return [...base.values()];
+  }
+
   /** 全量会话键枚举（agents/*\/sessions/* 目录名去重——索引维护面，
    *  非读面：供显式预热/覆盖度统计用） */
   allConversationIds(dataRoot: string): string[] {
@@ -618,6 +770,7 @@ export class SessionIndex {
       this.stmt('DELETE FROM journal_lines WHERE conv = ?').run(convId);
       this.stmt('DELETE FROM subcalls WHERE conv = ?').run(convId);
       this.stmt('DELETE FROM compactions WHERE conv = ?').run(convId);
+      this.stmt('DELETE FROM roster WHERE conv = ?').run(convId);
       this.db.exec('COMMIT');
     } catch (err) {
       this.db.exec('ROLLBACK');

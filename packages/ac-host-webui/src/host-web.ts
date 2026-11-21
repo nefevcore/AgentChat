@@ -29,6 +29,7 @@ import { pathToFileURL } from 'node:url';
 import { makeWebuiRowV3 } from 'ac-ui-app/v3';
 import { tapShellStream, ShellStreamBridge, type StreamTapHandle } from 'ac-post-office';
 import { bumpUnread } from 'ac-core-utils';
+import { isSingleSessionId } from 'ac-ledger';
 // 未读轴键判据单源（ac-wire-format 纯库——webui 前端同源消费）
 import { unreadAxisKeyOf, userPairAxisKey } from 'ac-wire-format';
 
@@ -131,6 +132,36 @@ export async function assembleWebServer(ctx: Context, options: WebRingOptions): 
  * 前置：ctx 内 webServer 服务已在位（assembleWebServer）。
  */
 export async function attachWebSurface(ctx: Context, options: WebRingOptions): Promise<WebRing> {
+  // cr-1185 帧驱动定向入账：消息/run 落盘时刻同步推进该会话的 records
+  // + roster 行（增量对账 stat+尾片，微秒级）。conv 归一同 unread 轴键
+  // 判据（ac-wire-format 单源）——但**不筛 viewer 参与**：名册要的是全部
+  // 会话的新鲜度（agent⇄agent / 自会话同样入账；群 gid 无账本目录跳过
+  // ——成员流经各自 run 收束入账）。setImmediate 出帧路径（不挡
+  // broadcast）；同拍多帧微批合并；索引行缺席时跳过（冷填充归 face-ops
+  // warm-up 面——高频帧不隐式建索引，cr-1142 裁决）。
+  const settledConvOf = (agent: string | undefined, conversationId: string | undefined): string | undefined => {
+    if (conversationId === undefined || conversationId === '') return undefined;
+    if (conversationId.includes('~')) return conversationId;
+    if (isSingleSessionId(conversationId)) return conversationId;
+    if (agent !== undefined && agent !== '' && conversationId === agent) return userPairAxisKey(agent);
+    return undefined;
+  };
+  const pendingIndexRefresh = new Set<string>();
+  const scheduleIndexRefresh = (conv: string | undefined): void => {
+    if (conv === undefined || conv === '') return;
+    const index = ctx.get('sessionIndex', false) as { refresh(id: string): unknown } | undefined;
+    if (index === undefined) return;
+    pendingIndexRefresh.add(conv);
+    if (pendingIndexRefresh.size > 1) return; // 已排程——并入本批
+    setImmediate(() => {
+      const batch = [...pendingIndexRefresh];
+      pendingIndexRefresh.clear();
+      for (const cid of batch) {
+        try { index.refresh(cid); } catch { /* 增量失败静默——warm/兜底接管 */ }
+      }
+    });
+  };
+
   // viewer 账本追加通知 → 事件（cr-870：singles 行订阅做注册表条目失效）。
   // 独立私信直播（cr-1144）：send_agent(to:'user') 非回信信封 →
   // router/message-received 前端帧（前端 feed 既有 case 直消费：直播行
@@ -144,8 +175,15 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
     // cr-1157 独立私信未读计数：幂等键 = requestId（邮局重投不双计）。
     // 会话键 = viewer⇄agent 对桶轴（与前端 feed 分区键同构，判据单源）。
     bumpUnread(options.dataRoot, userPairAxisKey(agentId), requestId);
+    // cr-1185：独立私信入站行落账即入账（uuid = 独立会话键）
+    scheduleIndexRefresh(uuid);
   });
   user.start();
+
+  // cr-1185 群成员流的新鲜度不经此面：'group/message-posted' 只是 WS 帧
+  //（groups-row emit = webServer.broadcast，非 cordis 事件），且 gid 本身
+  // 无账本目录——成员流的新行随「成员 run 收束」settled 路径入账
+  //（conversationId 即成员流键），外部写由 60s reconcile warmRoster 兜底。
 
   const fibers: Fiber[] = [];
   // webui v3 行（cr-932 cutover）：装配态锚——分层文档（<dataRoot>/profile
@@ -214,6 +252,8 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
               // 轴键归一判据单源（ac-core-utils unreadAxisKeyOf——前端同款消费）
               const key = unreadAxisKeyOf(agent, conv);
               if (key !== undefined) bumpUnread(options.dataRoot, key, run);
+              // cr-1185：run 收束落盘即定向入账（全量会话——非仅 viewer 参与）
+              scheduleIndexRefresh(settledConvOf(agent, conv));
             }
           }
         },

@@ -9,9 +9,9 @@
 // ============================================================
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
-import { SessionIndex, type RefreshReport, type SessionMeta, type SessionKind } from './core.ts';
+import { SessionIndex, type RefreshReport, type SessionMeta, type SessionKind, type RosterRow } from './core.ts';
 
-export type { SessionMeta, SessionKind };
+export type { SessionMeta, SessionKind, RosterRow };
 
 /** 行配置（boot 装配参数） */
 export interface SessionIndexRowOptions {
@@ -65,6 +65,16 @@ export class SessionIndexService extends Service {
    *  会话返回 null；索引仍由 RPC/historyView 等显式读面按需建立） */
   sessionMeta(convId: string, opts: { refresh?: boolean } = {}): SessionMeta | null {
     return this.index.sessionMeta(this.dataRoot, convId, opts);
+  }
+
+  /** 名册缺口对账（cr-1185）——core.rosterGaps 透传（显式读面动作） */
+  rosterGaps(): string[] {
+    return this.index.rosterGaps(this.dataRoot);
+  }
+
+  /** 名册小表快照（cr-1185——零盘读；群行已由成员流折叠） */
+  rosterSnapshot(): RosterRow[] {
+    return this.index.rosterSnapshot();
   }
 
   /** 日聚合（cr-1138）：单会话权威（带 refresh）/ 全局已索引子集

@@ -977,6 +977,12 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       roster().requestAgents();
       return;
     }
+    // cr-1185：宿主名册 warm-up 补齐完成（冷启动首轮缺口填充后广播）——
+    // 冷态首拉过的名册重拉拿全量（零轮询：转纯事件驱动的收口帧）。
+    if (type === 'session/roster-warmed') {
+      roster().requestAgents();
+      return;
+    }
     if (type === 'archive/completed') {
       onSessionArchived(args[0] as { agentId?: string; conversationId?: string; archived?: number; kept?: number });
       return;

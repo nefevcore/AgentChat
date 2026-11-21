@@ -98,7 +98,9 @@ export interface RunsSnapshot {
 
 // ---- 宿主 RPC 原始形状（preview 形）+ 域投影合成管线 ----
 
-/** runs/snapshot 原始载荷（宿主 preview 形状） */
+/** runs/snapshot 原始载荷（宿主 preview 形状）。cr-1185 批3：尾部摘要
+ * last 已退役（名册单源 = session/roster lastText）；messageCount 换源
+ * roster 小表 speech 列（发言行数口径）。 */
 export interface PRunsSnapshot {
   conversations: Array<{
     conversationId: string;
@@ -107,8 +109,6 @@ export interface PRunsSnapshot {
     updatedAt?: number;
     /** 热力时间窗（后端按记录时间戳统计；缺失 = 旧后端，UI 回退总量色阶） */
     windows?: WindowCounts;
-    /** 尾部一条摘要（名册 lastMessage 合成源） */
-    last?: { role: string; text: string; ts: string; name?: string };
   }>;
   running: Array<{ agentId: string; conversationId: string; handle: string; startedAt: number }>;
   groups: Array<{ groupId: string; name: string; memberCount: number }>;
