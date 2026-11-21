@@ -1,6 +1,6 @@
 {
- "scannedHead": "c5ba7d6ae57d267192343b03618274b50da3e143",
- "generatedAt": "2026-11-21T09:10:33.991Z",
+ "scannedHead": "7ecf503656477d66cda03ba559952862a0281214",
+ "generatedAt": "2026-11-21T13:03:26.509Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -5769,6 +5769,11 @@
     "sha": "434429061222e4dc3851740f309e63bb3a68e137",
     "date": "2026-11-21",
     "subject": "docs(session): cr-1189 压缩 V3 设计稿——注入驱动整理轮 + session_digest 结构化提交：摘要全文住注入行（compaction 事件只带边界+stats）、提交零格式门槛（长度提示引导非硬闸）、触发检测机制注册式（token 阈值为缺省可扩展 run-count 等场景）、术语分层（归档/压缩/总结）；reviewRun 机制面退役清单 + 批切分 B1-B6 + 验证目标 V1-V7；V2 档头部标注部分被取代；CR 台账随批（cr-1186~1189）"
+   },
+   {
+    "sha": "ae0ad1d49c368490d1aa86e163bffd2a58cc3bdd",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1186~1189 批）"
    }
   ],
   "1187": [
@@ -5790,6 +5795,13 @@
     "sha": "434429061222e4dc3851740f309e63bb3a68e137",
     "date": "2026-11-21",
     "subject": "docs(session): cr-1189 压缩 V3 设计稿——注入驱动整理轮 + session_digest 结构化提交：摘要全文住注入行（compaction 事件只带边界+stats）、提交零格式门槛（长度提示引导非硬闸）、触发检测机制注册式（token 阈值为缺省可扩展 run-count 等场景）、术语分层（归档/压缩/总结）；reviewRun 机制面退役清单 + 批切分 B1-B6 + 验证目标 V1-V7；V2 档头部标注部分被取代；CR 台账随批（cr-1186~1189）"
+   }
+  ],
+  "1190": [
+   {
+    "sha": "7ecf503656477d66cda03ba559952862a0281214",
+    "date": "2026-11-21",
+    "subject": "feat(session): cr-1190 压缩 V3 实施——注入驱动整理轮 + session_digest 结构化提交（B1-B6）：archive-review-request 请求注入行 + 机制信 deliver 唤醒整理轮（reviewRun 机制面退役）；摘要单一事实源住 archive-summary 注入行（compaction 事件只带边界+stats，foldDigestOf 单源回放头，digest 行在场时 v2 事件摘要头停发）；触发器注册式（token 阈值缺省可扩展）；无提交退化合法态（边界照落、摘要行缺席）；前端 compressSession→archiveSession 符号统一；请求行 wrapper 回放档 + 摘要行永留主日志（isCompactionRow 扩展）；writer 实证三连修：v1/v2 混合会话行面判定（header.version 分流错位）、splitForArchive 补 viewer 回放计量（伪行 32.5 万 token 漏计归档恒空）、boundary 改 archivedOriginal 取源（防摘要行自 shadow 回放头蒸发）；整理 hint 瘦身（删主线 ac-archive 遗物条目）；archive-row.test 重写 V3 断言全集 51/51、全量单测 3345"
    }
   ]
  }
