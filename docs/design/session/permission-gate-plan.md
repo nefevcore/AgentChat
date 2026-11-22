@@ -63,7 +63,7 @@
               → 批准(call/run) → 放行 / 拒绝·超时 → 拒绝
 ```
 
-特判：risk 函数 throw → 按建议 'ask'（fail-closed 方向）。run 级批准缓存（scope=run）：Map<runKey>，loop/before-run 清——批准一次，本轮后续 ask 建议全免；缓存命中与首批准同权注入 full-access（cr-1071：免问 ≠ 降权，同一授权的后续兑现）。
+特判：risk 函数 throw → 按建议 'ask'（fail-closed 方向）。run 级批准缓存（scope=run）：Map<runKey>，loop/before-run 清——批准一次，本轮后续 ask 建议全免；缓存命中注入 sandbox-access（cr-1248：免问 ≠ 免检——缓存免的是「同一轮反复弹卡」，后续命令人未逐条看过，边界检查照跑。预授权设置链 allow 同拍降 sandbox-access；「知情通过即 full」——full 唯一注入点 = 弹卡批准，payload 含完整命令）。
 
 ## 三、分批切分（文件级）
 

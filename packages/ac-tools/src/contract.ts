@@ -130,11 +130,14 @@ export interface ToolCall {
    */
   onProgress?: (chunk: string) => void;
   /**
-   * 执行边界档位（cr-1082 access 轴退役后两态）：'full-access' = 唯一
-   * 授权态，合法来源唯一 = 权限门注入（cr-1082「通过即 full」：设置链
-   * allow / 弹卡批准 / run 缓存命中——防伪造不变量）；缺席与一切其他值
-   * = 沙箱缺省态（所有人的执行底座，常量语义——无 per-Agent 配置）。
-   * 身份由调用方（loop / 门行）装配；工具行与安全行只读取。
+   * 执行边界档位（cr-1082 access 轴退役后两态；cr-1248 修订注入分级）：
+   * 'full-access' = 唯一授权态，合法来源唯一 = 权限门**弹卡批准**注入
+   * （cr-1248「知情通过即 full」——弹卡 payload 含完整命令，批准即知情
+   * 授权；设置链 allow / run 缓存命中注入的是 'sandbox-access'：免弹卡
+   * 但保留沙箱检查——预授权放行的是类别执行，不是解除一切检查）；
+   * 缺席与一切其他值 = 沙箱缺省态（所有人的执行底座，常量语义——无
+   * per-Agent 配置）。身份由调用方（loop / 门行）装配；工具行与安全行
+   * 只读取。
    */
   access?: 'sandbox-access' | 'full-access';
   /**

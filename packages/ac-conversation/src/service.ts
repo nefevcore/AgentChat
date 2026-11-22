@@ -374,7 +374,8 @@ export class ConversationService extends Service {
     // ---- 会话安全档位段已退役（cr-1082 access 轴退役）----
     // 旧链（写键留痕 / event 继承 / sanitizeAccess / 只升不降）整段删除：
     // 会话键 access 整体退役（approval 键承接语义），机制 run 档位 =
-    // Agent 底座（沙箱常量），full 唯一发放者 = 权限门（通过即 full）。
+    // Agent 底座（沙箱常量），full 唯一发放者 = 权限门弹卡批准（cr-1248
+    // 「知情通过即 full」；预授权/缓存命中注 sandbox——见 gate 行）。
     // deliver 的 options.access 随输入框选档退役而无合法写方——遗留
     // 调用方值不再进信封（剥除）。
     const effOptions: ConversationDeliverOptions =

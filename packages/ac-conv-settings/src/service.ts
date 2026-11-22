@@ -63,8 +63,9 @@ export interface ConvSettingsKeyDef {
 
 const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
   { key: 'model', description: '会话级模型覆盖（name@model 引用或裸模型名）' },
-  //（cr-1082：access 键随轴整体退役——「会话级武装 full」语义并入 approval
-  // 键〔设置链 allow = 通过即 full〕；存量 857 键清理见迁移脚本）
+  //（cr-1082：access 键随轴整体退役——「会话级武装」语义并入 approval
+  // 键〔设置链 allow = 免弹卡，注 sandbox-access——cr-1248 注入分级〕；
+  // 存量 857 键清理见迁移脚本）
   {
     // cr-1049 开放词：核心两档 + 扩展档（tc- 前缀任意——注册表校验在投影
     // 端兜底，未注册词回退常规面 + warn〔cr-1021〕，写入面不跨进程查表）

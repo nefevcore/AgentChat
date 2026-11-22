@@ -236,7 +236,7 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1);
   });
 
-  it('会话键 allow → 不弹卡直过且注入 full（cr-1082「通过即 full」）；deny → 拒（V3）', async () => {
+  it('会话键 allow → 不弹卡直过且注入 sandbox-access（cr-1248「知情通过即 full」——预授权保留沙箱检查）；deny → 拒（V3）', async () => {
     const accesses: unknown[] = [];
     const { ctx } = await boot({ convSettings: { 'user~alice': { approval: 'allow' }, 'user~bob': { approval: 'deny' } } });
     const f = ctx.plugin({ name: 'ac-test-asker', inject: ['tools'], apply(c: Context) {
@@ -246,12 +246,12 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
     const rA = await ctx.tools.execute({ name: 'asker', args: {}, conversationId: 'user~alice' });
     expect(rA.ok).toBe(true);
     expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0);
-    expect(accesses).toEqual(['full-access']); // 设置链 allow = 预授权通过 → full 注入
+    expect(accesses).toEqual(['sandbox-access']); // 设置链 allow = 预授权 → sandbox 注入（cr-1248）
     const rB = await ctx.tools.execute({ name: 'asker', args: {}, conversationId: 'user~bob' });
     expect(rB.ok).toBe(false);
   });
 
-  it('Agent settings 层 allow → 同款 full 注入（三层同权——cr-1082 批A V1）', async () => {
+  it('Agent settings 层 allow → 同款 sandbox 注入（三层同权——cr-1248 后预授权统一 sandbox）', async () => {
     const accesses: unknown[] = [];
     const { ctx } = await boot({ agentSettings: { 'permission-gate': { onAsk: 'allow' } } });
     const f = ctx.plugin({ name: 'ac-test-allow-inject', inject: ['tools'], apply(c: Context) {
@@ -261,10 +261,10 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
     // 无人桶（news~news）+ Agent settings allow = news 现场形态
     const r = await ctx.tools.execute({ name: 'allow-inject', args: {}, conversationId: 'news~news', agentId: 'news' });
     expect(r.ok).toBe(true);
-    expect(accesses).toEqual(['full-access']);
+    expect(accesses).toEqual(['sandbox-access']);
   });
 
-  it('全局 config 层 allow → 同款 full 注入', async () => {
+  it('全局 config 层 allow → 同款 sandbox 注入', async () => {
     const accesses: unknown[] = [];
     const { ctx } = await boot({ globalConfig: { settings: { 'permission-gate': { onAsk: 'allow' } } } });
     const f = ctx.plugin({ name: 'ac-test-global-inject', inject: ['tools'], apply(c: Context) {
@@ -273,7 +273,7 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
     await f; booted.at(-1)!.fibers.push(f);
     const r = await ctx.tools.execute({ name: 'global-inject', args: {}, conversationId: 'g-abc~news' });
     expect(r.ok).toBe(true);
-    expect(accesses).toEqual(['full-access']);
+    expect(accesses).toEqual(['sandbox-access']);
   });
 
   it('Agent settings 层：会话键缺席时 settings onAsk 生效', async () => {
@@ -327,7 +327,7 @@ describe('守护（cr-1070 锚定 → cr-1082 改锚）：full 只来自门—�
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1); // 弹卡了
   });
 
-  it('full 注入只来自门路径：弹卡批准（cr-1071）/设置链 allow（cr-1082「通过即 full」）', async () => {
+  it('full 注入只来自门路径：弹卡批准（cr-1071 唯一 full 注入点；设置链 allow 注 sandbox——cr-1248 分级）', async () => {
     const { ctx } = await boot();
     await reg(ctx, { name: 'full-tool', needPermission: true });
     const r = await runWithReply(ctx, { name: 'full-tool', args: {}, conversationId: 'user~a', agentId: 'alice' });
@@ -442,7 +442,7 @@ describe('run 级批准缓存（V2）', () => {
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(2);
   });
 
-  it('run 缓存命中 = 与首批准同权 full-access（cr-1071——免问不撞沙箱墙）', async () => {
+  it('run 缓存命中注入 sandbox-access（cr-1248：免问 ≠ 免检）；首批准弹卡仍 full', async () => {
     const { ctx } = await boot();
     const accesses: unknown[] = [];
     const f = ctx.plugin({ name: 'ac-test-runscope-probe', inject: ['tools'], apply(c: Context) {
@@ -456,11 +456,12 @@ describe('run 级批准缓存（V2）', () => {
     booted.at(-1)!.fibers.push(f);
     const r1 = await runWithReply(ctx, { name: 'runscope-probe', args: {}, conversationId: 'user~a', runId: 'run-1' }, { approved: true, scope: 'run' });
     expect(r1.ok).toBe(true);
-    // 第二次同 run：免问直过（无新卡）且同权注入 full-access
+    // 第二次同 run：免问直过（无新卡）但注入 sandbox-access（cr-1248——后续
+    // 命令人未逐条看过，边界检查照跑；首条是弹卡批准的知情 full）
     const r2 = await ctx.tools.execute({ name: 'runscope-probe', args: {}, conversationId: 'user~a', runId: 'run-1' });
     expect(r2.ok).toBe(true);
     expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1);
-    expect(accesses).toEqual(['full-access', 'full-access']);
+    expect(accesses).toEqual(['full-access', 'sandbox-access']);
   });
 });
 
@@ -474,6 +475,32 @@ describe('提权注入：批准 = 单次按 full 执行', () => {
       execute: (_args, call) => { seenAccess = call.access; return { ok: true }; },
     });
     const r = await runWithReply(ctx, { name: 'elev', args: {} });
+    expect(r.ok).toBe(true);
+    expect(seenAccess).toBe('full-access');
+  });
+});
+
+describe('注入分级（cr-1248）：预授权 ≠ 解除检查——倒挂回归锚', () => {
+  it('预授权（会话键 allow）下 ask 工具拿 sandbox-access：isFullAccessCall 判 false——executor 命令扫描/写白名单照拦', async () => {
+    const { ctx } = await boot({ convSettings: { 'user~attacker': { approval: 'allow' } } });
+    let seenAccess: unknown;
+    const f = ctx.plugin({ name: 'ac-test-varprobe', inject: ['tools'], apply(c: Context) {
+      c.tools.register({ name: 'varprobe', risk: () => 'ask', execute: (_a, call) => { seenAccess = call.access; return { ok: true }; } });
+    } });
+    await f; booted.at(-1)!.fibers.push(f);
+    const r = await ctx.tools.execute({ name: 'varprobe', args: {}, conversationId: 'user~attacker' });
+    expect(r.ok).toBe(true);
+    expect(seenAccess).toBe('sandbox-access'); // 倒挂现场：变量拼接命令（risk 恒 ask）预授权下不再拿 full 免检
+  });
+
+  it('弹卡批准仍是 full（知情授权）——预授权与弹卡分级存在', async () => {
+    const { ctx } = await boot();
+    let seenAccess: unknown;
+    const f = ctx.plugin({ name: 'ac-test-cardprobe', inject: ['tools'], apply(c: Context) {
+      c.tools.register({ name: 'cardprobe', risk: () => 'ask', execute: (_a, call) => { seenAccess = call.access; return { ok: true }; } });
+    } });
+    await f; booted.at(-1)!.fibers.push(f);
+    const r = await runWithReply(ctx, { name: 'cardprobe', args: {}, conversationId: 'user~a' });
     expect(r.ok).toBe(true);
     expect(seenAccess).toBe('full-access');
   });

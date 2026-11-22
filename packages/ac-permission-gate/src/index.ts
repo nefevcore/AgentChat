@@ -14,12 +14,14 @@
 //   4 建议 allow → 直通（可信工具已自审——信任的收益）
 //   5 建议 ask：s := 设置链（会话键 approval〔仅有人会话〕> Agent settings
 //     ['permission-gate'].onAsk > 全局 config settings['permission-gate'].onAsk
-//     > 缺省 'deny'）；s=allow 放行并注入 full-access（cr-1082「通过即
-//     full」——含无人桶：运营者预授权，问不出的问题不问）/ s=deny 拒绝 /
+//     > 缺省 'deny'）；s=allow 放行并注入 sandbox-access（cr-1248「知情通过
+//     即 full」——预授权免弹卡但保留沙箱检查；含无人桶：运营者预授权，
+//     问不出的问题不问）/ s=deny 拒绝 /
 //     s=ask → 无人桶（humanPresentOf === false：self/agent~agent/g~member
 //     ——问人不可达）→ 拒（D7 fail-closed：仅压「要弹卡」这一格，预授权
 //     层照常生效）；有人桶 → durableInteraction approval 审批卡 → 批准
-//     （call/run）→ 变异 call.access='full-access' 放行 / 拒绝·超时 → 拒。
+//     （call/run）→ 变异 call.access='full-access' 放行（弹卡 payload 含
+//     完整命令 = 知情授权，唯一 full 注入点）/ 拒绝·超时 → 拒。
 // run 级批准缓存：Map<runId>，loop/before-run 清（批准一次本轮 ask 全免）。
 // 门缺席 = dontAsk 化（D9：沙箱边界轴照拦——workdir/命令级扫描在工具内）。
 // ============================================================
@@ -190,11 +192,13 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
     // 决策序 5：ask → 设置链先行（预授权在无人桶同样生效——问不出的
     // 问题不问，cr-1079 D7 修订：无人桶只压「要弹卡」这一格）
     const s = onAskOf(call);
-    // 设置链 allow = 预授权通过——「通过即 full」注入（cr-1082 批A：审批轴
-    // 成为 full 唯一发放者；与弹卡批准/缓存命中同款变异。原语义 allow 仅
-    // 免弹卡、调用仍按沙箱执行——access 轴退役后两条路径必须同权）
+    // 设置链 allow = 预授权通过（免弹卡）。注入 sandbox-access 而非
+    // full-access（cr-1248 修订 cr-1082「通过即 full」为「知情通过即 full」：
+    // 预授权放行的是「类别的执行」，运营者没看过具体命令——命令扫描/写
+    // 白名单/readDeny 照拦。倒挂现场：含 $ 变量拼接的命令（risk 恒 ask）
+    // 在 approval=allow 会话反而拿 full 免检，坦白的字面量命令却撞扫描）。
     if (s.value === 'allow') {
-      execution.call = { ...call, access: 'full-access' };
+      execution.call = { ...call, access: 'sandbox-access' };
       return next();
     }
     if (s.value === 'deny') {
@@ -211,7 +215,9 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
     // 缓存命中 = 本 run 已获人批准——与首批准同权注入 full-access（否则
     // base 档免问调用仍撞工具内沙箱墙，比首调用更严，违背「本轮全免」）
     if (call.runId !== undefined && runApproved.has(call.runId)) {
-      execution.call = { ...call, access: 'full-access' };
+      // run 缓存命中 → sandbox-access（cr-1248：缓存兑现的是「本轮免再问」，
+      // 后续命令与首条不同、人未逐条看过——边界检查照跑，与预授权同拍）
+      execution.call = { ...call, access: 'sandbox-access' };
       return next();
     }
     const decision = await askApproval(call);
