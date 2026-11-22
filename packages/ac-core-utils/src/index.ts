@@ -114,6 +114,23 @@ export function pairKey(a: string, b: string): string {
 }
 
 /**
+ * 会话键键形反演（cr-1213 根除 R-1 首见近似登记制）：participants 权威
+ * 从键本身反解，不再从首封信封的 sender/to 推导——任何一封信都无法
+ * 毒化会话键的参与者登记（cr-641/1046/1177 三连点修的终极语义）。
+ * 键形词汇：1v1 对键（a~b 两段）名册 = 两端点——唯一可反演键形。单段键
+ * （裸身份 / UUIDv7 会话键）与三段+ 键面无权威名册，恒 undefined——归
+ * registry 首见 [sender, to]（对话两端）。**群成员流键（gid~member）词法
+ * 同形但名册 = 群全名册**——键面不可分辨，权威归群行 authoritative 注入面
+ * （registry lookup-first：登记集优先于键形反演）。
+ */
+export function participantsOfKey(key: string): string[] | undefined {
+  if (key === '') return undefined;
+  const parts = key.split('~');
+  if (parts.length === 2 && parts[0] !== '' && parts[1] !== '') return parts; // 1v1 对键 → 两端点（与 pairKey 产物对称；两端可重合 = 自会话对角线）
+  return undefined; // 其余（单段含 UUIDv7/裸身份、三段+）键面无权威名册——归 registry 首见 [sender, to]
+}
+
+/**
  * 群成员私有转录流键（cr-4，原住 ac-group）：sessions/<gid>~<member>/——
  * runAddress 同形（member 恒最右，右起解析无歧义；gid 禁 ~ 使拆分唯一）。
  * 撞形防线：群 id 禁 ~（规约）+ 双向名册校验（create/register 双卡）+

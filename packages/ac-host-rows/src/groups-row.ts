@@ -130,12 +130,14 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         return group;
       };
 
-      /** 成员流 uuid 预登记（R-1 多发送方：全名册 ∪ user；群变更时全量重放） */
+      /** 成员流 uuid 预登记（R-1 多发送方：全名册 ∪ user；群变更时全量重放）。
+       *  cr-1213：改走 setRoster（authoritative 注入）——名册演化无条件覆盖，
+       *  boot 窗口键形反演的临时误登（群流键与 1v1 键同形）由重放矫正。 */
       const syncRegistry = (group: GroupConfig): void => {
         if (options.postOffice === undefined) return;
         const roster = [...new Set(['user', ...group.members])];
         for (const m of group.members) {
-          options.postOffice.registry.register(memberStreamKey(group.id, m), roster);
+          options.postOffice.registry.setRoster(memberStreamKey(group.id, m), roster);
         }
       };
 
@@ -223,8 +225,8 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         if (at < 0) return { left: false };
         group.members.splice(at, 1);
         writeGroupConfig(dataRoot, group);
-        // 该成员的流内容一并清（registry 预登记为内存态超集——无注销面，
-        // 子集校验天然放行残留名册内的合法来信）
+        // 该成员的流内容一并清（registry 内存态由群行 boot/变更重放维护——
+        // cr-1213 起名册权威归 setRoster 注入，无注销面）
         fs.rmSync(path.join(dataRoot, 'agents', agentId, 'sessions', memberStreamKey(gid, agentId)), { recursive: true, force: true });
         // 成员流快照连带清（cr-1208——与流内容同生命周期）
         snapshots.dropConversation(memberStreamKey(gid, agentId));

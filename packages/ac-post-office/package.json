@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "ac-agents-core": "workspace:*",
+    "ac-core-utils": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-wire-format": "workspace:*"
   },

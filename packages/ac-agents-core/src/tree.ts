@@ -55,6 +55,16 @@ export function isReservedEndpointId(id: string): boolean {
 }
 
 /**
+ * 机制域端点（cr-1213 R-1 豁免面——比保留字窄）：host 服务帧域 + @ 群
+ * 地址。user **不**豁免——它是真会话参与者（终稿回投目标/群名册成员），
+ * uuid 登记校验按名册成员正常裁决。豁免语义 = 该 sender 的信是机制信
+ * 投递（uuid = 目标会话键），非会话发言，不参与名册校验。
+ */
+export function isMechanismEndpointId(id: string): boolean {
+  return id === 'host' || id.startsWith('@');
+}
+
+/**
  * Agent 身份词形（主线 M19 承重墙同款）：id 禁 `~`——对键桶 conversationId
  * = pairKey(a,b) 排序 `~` 连接，身份若也含 `~` 会与对键撞键、破坏
  * runAddress 从右解析的歧义性。agents/ 树内含 `~` 的目录 = 会话流域

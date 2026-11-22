@@ -21,7 +21,7 @@ afterEach(() => fs.rmSync(ROOT, { recursive: true, force: true }));
 
 function msg(init: Partial<Pick<Envelope, 'uuid' | 'requestId' | 'sender' | 'to' | 'budget' | 'kind'>> & { text?: string } = {}): Envelope {
   return makeEnvelope({
-    uuid: init.uuid ?? 'u-po',
+    uuid: init.uuid ?? 'user~alpha',
     requestId: init.requestId ?? 'rq',
     sender: init.sender ?? 'user',
     to: init.to ?? 'alpha',
@@ -33,26 +33,96 @@ function msg(init: Partial<Pick<Envelope, 'uuid' | 'requestId' | 'sender' | 'to'
 
 // —— M4.1 单元面（cr-525 覆写事故后按源码重构） ——
 
-describe('M4.1 registry：uuid 登记校验（R-1 序无关一致）', () => {
-  it('首次登记 → registered；同集合异序 → consistent；异集合 → conflict', () => {
+describe('M4.1 registry：uuid 登记校验（cr-1213 键形权威制）', () => {
+  it('1v1 键：名册 = 键两端；任一端发言 consistent；集外 sender conflict', () => {
     const reg = new ConversationRegistry();
-    const r1 = reg.register('u1', ['user', 'alpha']);
+    const r1 = reg.register('user~alpha', 'user');
     expect(r1.kind).toBe('registered');
     if (r1.kind === 'registered') expect(r1.entry.participants).toEqual(['alpha', 'user']); // 规范化排序
-    expect(reg.register('u1', ['alpha', 'user']).kind).toBe('consistent'); // 序无关
-    const r3 = reg.register('u1', ['user', 'beta']);
-    expect(r3.kind).toBe('conflict'); // 身份冒用 fail-loud
-    // 子集一致（cr-576 群成员流）：来信端点全部已在登记名册内 = 同一群的
-    // 另一参与方发言/回信——consistent；集外端点（真冒用）仍 conflict
+    expect(reg.register('user~alpha', 'alpha').kind).toBe('consistent'); // 键另一端发言
+    expect(reg.register('user~alpha', 'beta').kind).toBe('conflict'); // 集外 sender fail-loud
+  });
+
+  it('键形反演免疫乱序首达：机制回投先于用户首信到达不毒化', () => {
+    const reg = new ConversationRegistry();
+    // host 回执先到（cr-1177 反序案例——修复前首见近似会登记 [alpha, host]，
+    // 之后 user 首信撞 conflict，会话键被永久阻断）。新制：defer 不建条目 +
+    // 首信键反演 [alpha, user]——毒化面不存在
+    expect(reg.register('user~alpha', 'host').kind).toBe('consistent');
+    expect(reg.register('user~alpha', 'user').kind).toBe('registered');
+    expect(reg.lookup('user~alpha')?.participants).toEqual(['alpha', 'user']);
+  });
+
+  it('机制域 sender（host/@）恒放行（机制信投递语义）；普通 sender 集外 conflict', () => {
+    const reg = new ConversationRegistry();
+    reg.register('user~alpha', 'user'); // 先建立（键反演 [alpha, user]）
+    expect(reg.register('user~alpha', 'host').kind).toBe('consistent'); // host 回投放行
+    expect(reg.register('user~alpha', '@g-team').kind).toBe('consistent'); // @ 群地址同款豁免
+    expect(reg.register('user~alpha', 'intruder').kind).toBe('conflict');
+  });
+
+  it('群流键：setRoster 权威注入名册；成员发言放行、集外 conflict；重放演化（join/leave）覆盖', () => {
+    const reg = new ConversationRegistry();
+    reg.setRoster('g1~m1', ['user', 'm1', 'm2']);
+    expect(reg.register('g1~m1', 'm2').kind).toBe('consistent'); // 名册成员发言
+    expect(reg.register('g1~m1', 'user').kind).toBe('consistent');
+    expect(reg.register('g1~m1', 'intruder').kind).toBe('conflict');
+    reg.setRoster('g1~m1', ['user', 'm1', 'm2', 'm3']); // join m3——无条件覆盖
+    expect(reg.register('g1~m1', 'm3').kind).toBe('consistent');
+    // 未注入名册的群流键（boot 窗口先达）：键形反演兜底登记 [g1, m1]，
+    // 群行重放后矫正为权威名册
     const reg2 = new ConversationRegistry();
-    reg2.register('g1~m1', ['user', 'm1', 'm2']);
-    expect(reg2.register('g1~m1', ['m1', 'm2']).kind).toBe('consistent');
-    expect(reg2.register('g1~m1', ['user', 'm1']).kind).toBe('consistent');
-    expect(reg2.register('g1~m1', ['user', 'm1', 'intruder']).kind).toBe('conflict');
+    expect(reg2.register('g2~mx', 'user').kind).toBe('registered');
+    expect(reg2.lookup('g2~mx')?.participants).toEqual(['g2', 'mx']);
+    reg2.setRoster('g2~mx', ['user', 'mx', 'my']);
+    expect(reg2.register('g2~mx', 'my').kind).toBe('consistent');
+  });
+
+  it('机制前缀键（restart-host-<会话键>，词法上=两段键）：反演名册含幻影端点（惰性无害）；真 sender 放行', () => {
+    const reg = new ConversationRegistry();
+    expect(reg.register('restart-host-user~alpha', 'alpha').kind).toBe('registered');
+    // 两段键反演 [alpha, restart-host-user]——幻影端点 restart-host-user 永不
+    // 发言（机制域 sender 只有 host/@，走豁免面）、to 不参与校验 → 惰性无害
+    expect(reg.lookup('restart-host-user~alpha')?.participants).toEqual(['alpha', 'restart-host-user']);
+    expect(reg.register('restart-host-user~alpha', 'alpha').kind).toBe('consistent');
+    expect(reg.register('restart-host-user~alpha', 'beta').kind).toBe('conflict');
+    expect(reg.register('restart-host-user~alpha', 'host').kind).toBe('consistent'); // 机制域豁免
+  });
+
+  it('真非键形键（三段）：首用建立 [sender, to]（对话两端），两端放行、他人 conflict', () => {
+    const reg = new ConversationRegistry();
+    expect(reg.register('mech~a~b', 'alpha', 'beta').kind).toBe('registered');
+    expect(reg.lookup('mech~a~b')?.participants).toEqual(['alpha', 'beta']);
+    expect(reg.register('mech~a~b', 'beta').kind).toBe('consistent'); // 对端回信
+    expect(reg.register('mech~a~b', 'gamma').kind).toBe('conflict');
+  });
+
+  it('UUIDv7 形会话键（R-1 原始形态——发送方签发）：首见 [sender, to] 双向对话放行', () => {
+    const reg = new ConversationRegistry();
+    const v7 = '01a2011e-54fe-7a4f-b1e3-3fcd8e58e174';
+    expect(reg.register(v7, 'user', 'alpha').kind).toBe('registered');
+    expect(reg.register(v7, 'alpha').kind).toBe('consistent'); // agent 终稿回信（e2e-user 场景）
+    expect(reg.register(v7, 'beta').kind).toBe('conflict');
+  });
+
+  it('机制域 sender 首见 defer：不建条目（回执先于真实首信不毒化），真实首信正常建立', () => {
+    const reg = new ConversationRegistry();
+    expect(reg.register('user~alpha', 'host').kind).toBe('consistent'); // 未登记——defer 不建
+    expect(reg.lookup('user~alpha')).toBeUndefined();
+    expect(reg.register('user~alpha', 'user').kind).toBe('registered'); // 真实首信建立键反演名册
+    expect(reg.register('user~alpha', 'host').kind).toBe('consistent'); // 再回投——已登记放行
+  });
+
+  it('单段键（含 UUIDv7/裸身份）：首见 [sender, to]（对话两端），两端放行、他人 conflict', () => {
+    const reg = new ConversationRegistry();
+    expect(reg.register('alpha', 'user', 'alpha').kind).toBe('registered'); // auth fallback 形：uuid=agent id
+    expect(reg.lookup('alpha')?.participants).toEqual(['alpha', 'user']);
+    expect(reg.register('alpha', 'alpha').kind).toBe('consistent'); // agent 终稿回信
+    expect(reg.register('alpha', 'beta').kind).toBe('conflict');
   });
 
   it('空 uuid 拒绝', () => {
-    expect(() => new ConversationRegistry().register('', ['a'])).toThrow(/uuid/);
+    expect(() => new ConversationRegistry().register('', 'a')).toThrow(/uuid/);
   });
 });
 
@@ -80,24 +150,20 @@ describe('M4.1 router：三通道决策', () => {
     expect(o[0]).toMatchObject({ channel: 'outbox', reason: 'no-hint' });
   });
 
-  it('cr-1177：保留端点（host）回投已登记会话——放行不重算 participants（uuid 精确定位）', () => {
+  it('cr-1177 场景（键形权威制收编）：保留端点（host）回投会话键——恒放行（机制信非会话发言）；冒用照旧 conflict', () => {
     const reach = new ReachabilityTable();
     reach.markReachable('creator-1', 'sock-c');
     const registry = new ConversationRegistry();
-    // 用户会话先登记 [creator-1, user]
+    // 用户会话首信——键形反演登记 [creator-1, user]
     routeEnvelope(msg({ uuid: 'user~creator-1', requestId: 'u-1', sender: 'user', to: 'creator-1' }), { registry, reach });
-    // 宿主回投（sender=host、uuid=同会话键、to=creator-1）——修复前：近似 [creator-1, host] 撞 conflict
+    // 宿主回投（sender=host、uuid=同会话键、to=creator-1）——放行（infra 豁免）
     const receipt = msg({ uuid: 'user~creator-1', requestId: 'plugin-r1', sender: 'host', to: 'creator-1' });
     expect(() => routeEnvelope(receipt, { registry, reach })).not.toThrow();
-    // 未登记 uuid 的保留端点信仍走登记面（fail-loud 保真——不放宽冒用防线）
-    const fresh = new ConversationRegistry();
-    routeEnvelope(msg({ uuid: 'fresh-conv', requestId: 'r1', sender: 'host', to: 'creator-1' }), { registry: fresh, reach });
-    expect(fresh.lookup('fresh-conv')?.participants).toEqual(['creator-1', 'host']);
-    // 普通参与者冒用已登记会话键照旧 conflict
+    // 普通参与者冒用已登记会话键照旧 conflict（防冒用面不放宽）
     expect(() => routeEnvelope(msg({ uuid: 'user~creator-1', requestId: 'bad', sender: 'intruder', to: 'creator-1' }), { registry, reach })).toThrow(/uuid 登记冲突/);
   });
 
-  it('多播扇出：群地址展开逐成员，跳过发送方；登记面 = 全员集合', () => {
+  it('多播扇出：群地址展开逐成员，跳过发送方；成员表 = setRoster 权威注入', () => {
     const reach = new ReachabilityTable();
     reach.markReachable('alpha', 's-a');
     reach.markReachable('beta', 's-b');
@@ -322,7 +388,7 @@ describe('cr-962 flushOutbox 不可达补拉', () => {
     const ensured: string[] = [];
     const po = new PostOffice({ dataRoot: ROOT });
     po.setEnsureHook((target) => { ensured.push(target); });
-    // beta 不可达落箱 ×2（同目标去重）+ user 可达直投（uuid 逐封唯一——登记校验 R-1）
+    // beta 不可达落箱 ×2（同目标去重）+ user 可达直投（uuid 逐封唯一——登记校验 R-1 键形权威制）
     let seq = 0;
     const env = (init: Parameters<typeof msg>[0]) => msg({ uuid: 'u-bp-' + (++seq), ...init });
     po.registerLocal('user', async (e) => ({ ack: e.requestId, fresh: true }));

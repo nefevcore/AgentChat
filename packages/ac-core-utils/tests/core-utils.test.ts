@@ -14,6 +14,7 @@ import {
   memberStreamKey,
   normalizeToolSpecs,
   pairKey,
+  participantsOfKey,
   runAddress,
   TITLE_MAX_LEN,
   cleanTitle,
@@ -21,6 +22,35 @@ import {
   titleMaterialOf,
   titlePrompt,
 } from '../src/index.ts';
+
+describe('participantsOfKey（cr-1213 键形反演）', () => {
+  it('1v1 对键 → 两端点名册（与 pairKey 产物对称）', () => {
+    expect(participantsOfKey('user~alpha')).toEqual(['user', 'alpha']);
+    expect(participantsOfKey('beta~news')).toEqual(['beta', 'news']);
+  });
+
+  it('自会话对角线（a~a）→ 两端重合名册', () => {
+    expect(participantsOfKey('alpha~alpha')).toEqual(['alpha', 'alpha']);
+  });
+
+  it('单段键（裸身份 / UUIDv7）→ undefined（键面无权威名册，归 registry 首见 [sender, to]）', () => {
+    expect(participantsOfKey('alpha')).toBeUndefined();
+    expect(participantsOfKey('01a2011e-54fe-7a4f-b1e3-3fcd8e58e174')).toBeUndefined();
+  });
+
+  it('群流键词法同形——键面不可分辨，返回两端（区分归 registry lookup-first 优先级）', () => {
+    // g1~m1 既可能是群流键也可能是 1v1 键——participantsOfKey 无法区分；
+    // registry 对已注入名册的键用登记集（setRoster 权威），仅 miss 时反演
+    expect(participantsOfKey('g1~m1')).toEqual(['g1', 'm1']);
+  });
+
+  it('多段 / 空段键 → undefined（非键形）', () => {
+    expect(participantsOfKey('a~b~c')).toBeUndefined();
+    expect(participantsOfKey('')).toBeUndefined();
+    expect(participantsOfKey('user~')).toBeUndefined();
+    expect(participantsOfKey('~alpha')).toBeUndefined();
+  });
+});
 
 describe('GROUP_HINT_META / isGroupHint', () => {
   it('标记键恒为 group-hint（wire 协议锁定）', () => {
