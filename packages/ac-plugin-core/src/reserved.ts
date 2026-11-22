@@ -38,7 +38,7 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'grep_history', 'read_history',
   // ac-memory（memory timeline 重构 cr-4：工具回归——时间线结构化条目
   // 需宿主铸造头，fs 裸写无法承载；旧裁决〔2026-09-03 收敛为 fs 工具〕推翻）
-  'memory_write', 'memory_grep',
+  'memory_write', 'memory_grep', 'memory_forget', // cr-1252 遗忘口（回收站语义）
   // ac-subagent / ac-durable-interaction / ac-timer-tools
   'subagent', 'ask_questions', 'timer',
   // ac-run-code（程序化模式 PTC：tc-programmatic 标签门禁——标签即模式）

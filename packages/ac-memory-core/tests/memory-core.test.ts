@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   grepEntries,
+  maxSeqOf,
   mintEntry,
+  mintForgotten,
   parseTimeline,
   renderDelta,
   renderGrepResult,
@@ -69,6 +71,38 @@ describe('parseTimeline', () => {
   });
 });
 
+describe('cr-1252 物化 seq 标记', () => {
+  it('materialized：头注释带 seq:N → true；无 seq 头 → undefined（位置派生兜底）', () => {
+    const withSeq = parseTimeline(mintEntry({ at: now, origin: 'o', seq: 7, content: '带号' }));
+    expect(withSeq[0].seq).toBe(7);
+    expect(withSeq[0].materialized).toBe(true);
+    const noSeq = parseTimeline(mintEntry({ at: now, origin: 'o', content: '无号' }));
+    expect(noSeq[0].seq).toBe(1); // 位置派生
+    expect(noSeq[0].materialized).toBeUndefined();
+  });
+
+  it('maxSeqOf：行级扫描取最大物化号（无 seq 文本归 0）', () => {
+    const text = [
+      mintEntry({ at: now, origin: 'o', seq: 3, content: 'a' }),
+      mintEntry({ at: now, origin: 'o', seq: 11, content: 'b' }),
+      mintEntry({ at: now, origin: 'o', content: 'c' }),
+    ].join('');
+    expect(maxSeqOf(text)).toBe(11);
+    expect(maxSeqOf('无任何 seq 字段')).toBe(0);
+  });
+
+  it('mintForgotten：原字段 + forgotten + reason，可被 parseTimeline 读回（复原面）', () => {
+    const [e] = parseTimeline(mintEntry({ at: now, origin: 'g:群', seq: 5, peers: ['alice'], content: '[教训] 待忘条目' }));
+    const line = mintForgotten(e, '2026-11-22T15:00:00.000Z', '已失效');
+    expect(line).toContain('seq:5');
+    expect(line).toContain('forgotten:2026-11-22T15:00:00.000Z');
+    expect(line).toContain('reason:已失效');
+    const [back] = parseTimeline(line);
+    expect(back.seq).toBe(5);
+    expect(back.origin).toBe('g:群');
+    expect(back.content).toContain('[教训] 待忘条目'); // content 含宿主铸的 [date] 前缀
+  });
+});
 describe('renderSnapshot（确定性）', () => {
   it('空时间线 → 空态说明行', () => {
     expect(renderSnapshot([])).toContain('为空');
