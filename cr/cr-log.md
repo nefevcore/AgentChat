@@ -1214,4 +1214,15 @@
 - 【cr-1193 2026-11-21 docs(session): TokenGauge 显示算法 P+delta 重设计交接档——三态层积（净估算→KV 实时→锚点校准）收敛为两态（实时/P+delta 外推），锚点比率「E×(P/E)=P 绕圈」病灶归档，用户自领实施】
 - 【cr-1194 2026-11-21 TokenGauge 显示算法 P+delta 实施（cr-1193 交接）：displayTotal 三态收敛两态——ac-session-index 增锚面（末 journal-settled ts + 活跃代锚后 est 合计），face-ops session/tokens 载 pdelta（锚早于末代 compaction 即跨代失效），TokenGauge 删锚点校准层改 P+delta 外推，净估算保留为降级态】
 - 【cr-1195 2026-11-21 TokenGauge 显示算法 P+delta 实施（cr-1193 交接）：displayTotal 三态收敛两态，净估算保留为降级态】
+- 【cr-1196 2026-11-21 fix(ac-cr): check 路径劝告降噪——正则收紧+git 历史/gitignore 豁免+存量白名单（85 处归零）】
+- 【cr-1197 2026-11-21 subagent list 缺省视图净化（无键条目退出缺省面）+ glob 跨锚点 path 基准修正（rel 空间与匹配空间归位搜索根）】
+- 【cr-1198 2026-11-22 ac-datetime 用例日期锚时区口径对齐产线（UTC 硬编码 → 缺省时区），修复 Asia/Shanghai 00:00-08:00 窗口恒败】
+- 【cr-1199 2026-11-22 config 写面注册化：白名单 CONFIG_KEY_PREFIXES 改 ac.rows[].configKeys 注册聚合 + 新增 config/merge（patch 语义）】
+- 【cr-1200 2026-11-22 live 会话步边界乱序丢段根修：流式载体跨步冒领防护（step/journaled 迟到/丢失时 delta 冒领他步载体+终值全量替换抹空——思考正文消失只剩工具卡）】
+- 【cr-1201 2026-11-22 vitest 测试时区显式收口为配置项：config 加载期钉缺省 DEFAULT_TZ（Asia/Shanghai，与产线单源绑定），外部 TZ 显式传入优先——消灭宿主 TZ 隐式继承漂移轴（cr-1198 教训）】
+- 【cr-1202 2026-11-22 timers-row 全局设置层死键修复：agents.settings → settings（与 ac-agents settingsOf 主线同键）——时区落 config.json settings.timers.timezone 的宿主消费链补通（cr-1053 词汇 + cr-1199 写面已就绪，本 CR 修唯一断点）】
+- 【cr-1203 2026-11-22 workspace-files 全局设置层死键清理：agents.settings → settings（与 cr-1202 同款漂移，security.workdir 全局层语义补通）】
+- 【cr-1204 2026-11-22 回退 cr-1201：vitest.config.ts 撤 TZ 显式钉死（产品侧时区已有 config.json 显式配置项 cr-1202，测试基建的时区钉死会掩盖跨时区 bug——恢复继承宿主 env）】
+- 【cr-1205 2026-11-22 fs-search grep 双收口：file-snapshots 快照镜像树排除出搜索面（命中注水 75%+扫描浪费）+ rg 二进制解析改主包 rgPath（平台子包解析靠主目录偶遇副本，干净机器静默降级 Node 回退）】
+- 【cr-1206 2026-11-22 data-root-layers 补全必须备份清单：config.json 归第二层（provider 定义/settings/source.fs 源定义不可重建），§三规则2清单补行】
 
