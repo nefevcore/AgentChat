@@ -1,6 +1,6 @@
 {
- "scannedHead": "9b602461241344af07efc0dcd1c0baf8165fc501",
- "generatedAt": "2026-11-22T02:50:19.171Z",
+ "scannedHead": "1d2931493d59e0e1fbbef1ae31a6687a5fc46c13",
+ "generatedAt": "2026-11-22T03:13:56.815Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -6118,6 +6118,11 @@
     "sha": "82375bb84231ebfd5958e9dcba31f2133d78a62f",
     "date": "2026-11-22",
     "subject": "fix(post-office): registry 键形权威制——participants 不再由首封信封近似推导，根除 uuid 登记冲突永久阻断会话对（cr-1213）"
+   },
+   {
+    "sha": "41e855716b33a36e059eab1fc64afbd7834fdcae",
+    "date": "2026-11-22",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1213）"
    }
   ],
   "1214": [
@@ -6135,6 +6140,13 @@
     "sha": "79baf4b78c681c56aa0d7df1f1582b09e7c66539",
     "date": "2026-11-22",
     "subject": "fix(archive): compaction recovers from over-limit sessions (cr-1214)"
+   }
+  ],
+  "1215": [
+   {
+    "sha": "1d2931493d59e0e1fbbef1ae31a6687a5fc46c13",
+    "date": "2026-11-22",
+    "subject": "chore(cr): ledger registration cr-1215"
    }
   ]
  }
