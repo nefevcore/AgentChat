@@ -4,6 +4,7 @@
 > 状态：现行 · 2026-11-07 立（上游事故与决策过程见
 > [data-root-layering-handoff.md](../archive/assembly/data-root-layering-handoff.md)）；
 > cr-1008 2026-11-11 批1 检阅：viewer 语义按 cr-973/cr-998 更新（物化账本退役、投影树物理删除）。
+> cr-1206 2026-11-22 检阅：§三规则 2 必须备份清单补 `config.json`（第二层文件形，此前遗漏）。
 > 读者：新增数据域的写者（要么进本契约、要么住 meta/）、做数据根备份/清理操作的人。
 > 机器面：boot doctor（ac-host-rows data-root-audit `auditDataRootLayers`）——顶层未知项 warn。
 
@@ -62,7 +63,8 @@
 
 1. **可整树删**：只有 `viewer/` 和 `.runtime/`；
 2. **必须备份**：`agents/`、`meta/`、`credentials/`、`files/`、
-   `file-snapshots/`、`sap-adt/`、`outbox/`；
+   `file-snapshots/`、`sap-adt/`、`outbox/`、`config.json`（第二层文件形——
+   provider 定义 / settings / source.fs 源定义等用户域源数据）；
 3. **删了静默丢功能**：`outbox/`（在途 run）、`credentials/`、
    `meta/remote/`（配对失联）、`meta/timer/state.json`（停机补偿错乱）。
 
