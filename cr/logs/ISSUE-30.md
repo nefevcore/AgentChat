@@ -21,9 +21,13 @@ lastFiredAt / nextAtCache` 四个结果字段，**不记录决策过程**；host
 ## 建议日志格式（含验收中实际踩过坑的字段）
 
 ```
-[timers] arm key=<owner>/<entryId> boot=<bootId> now=<ISOZ> anchor=<ISOZ>
-        grid=<ISOZ> jitter=<n>min rand=<0.xxxx> cand=<ISOZ>
-        lf=<ISOZ|null> armed=<ISOZ|首次武装> consumed=<bool> dev=<n>min
+[timers] arm key=<owner>/<entryId> boot=<bootId> now=<ISOZ>
+       anchor=<ISOZ>            ← 本次 ngs 用的锚（评估时刻当日 00:00，跨日重置）
+       sampleGrid=<ISOZ>        ← ngs(now)，采样格（决定 cand 落点）
+       grid=<ISOZ> jitter=<n>min rand=<0.xxxx> cand=<ISOZ>
+       lf=<ISOZ|null> armed=<ISOZ|首次武装> dev=<n>min
+       consumeGrid=<ISOZ>       ← consumed 判定拿 lf 与哪个格比（≠ sampleGrid）
+       consumed=<bool>
 [timers] fire key=<owner>/<entryId> plannedAt=<ISOZ> firedAt=<ISOZ> lag=<n>ms result=<ok|fail>
 ```
 
@@ -50,6 +54,9 @@ cr-1231 验收中发现同一投递涉及**两个不同的格**，极易混淆�
 
 cr-1231 实例：采样格 = `ngs(11/22 23:44:09)` = **11/23 06:00**（跨日格）；
 投后重算格 = `ngs(11/23 05:20:58)` = **07:30**。两者不同，只记一个必然误判。
+
+**字段化**：日志里分别记 `sampleGrid`（= ngs(now)，决定 cand 落点）与
+`consumeGrid`（= consumed 判定所比的格）。这两个字段一旦记录，本节描述的混淆不可能再发生。
 
 ## 影响与优先级
 
