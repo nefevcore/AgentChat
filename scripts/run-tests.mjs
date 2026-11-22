@@ -20,7 +20,9 @@
 // workspace/test，而各 worker 的 cwd 正是其下分桶（workspace/test/wN——见
 // vitest-setup-chdir.mjs）。projects 并发触发各自的 globalSetup → 一边
 // worker 驻留 wN，另一边把整棵树删掉：Windows 句柄被占即 EPERM，Linux 上
-// worker cwd 失效。故分档只能是【进程级隔离】。
+// worker cwd 失效。cr-1211 起每轮根为 test-run-<pid>，跨进程互踩已消，但
+// projects 是【同进程多 globalSetup】——同 pid 同根，清根与驻留 cwd 的冲突
+// 同构存在，论证不变。故分档只能是【进程级隔离】。
 //
 // 附加参数透传：node scripts/run-tests.mjs unit --reporter=verbose
 // ============================================================
@@ -75,9 +77,8 @@ function runVitest(profile, watch) {
   });
 }
 
-// pnpm -r test 不受支持（也不应支持）：127 包并行起 vitest 进程会在
-// 共享测试数据根 workspace/test 上互相踩踏（globalSetup 模块加载期
-// rmSync 重建，见 vitest-global-setup.mjs）——pnpm 任务图还因「同脚本
+// pnpm -r test 不受支持（也不应支持）：127 包并行起 vitest 进程的机器负载
+// 不可行，且 pnpm 任务图因「同脚本
 // 委派」判环 ERR_PNPM_TASK_CYCLE。全仓测试走根目录 pnpm test（单次
 // vitest，worker 级分桶隔离）；包内 test 脚本 = 定向跑本包用例。
 let code = 0;

@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 import vue from '@vitejs/plugin-vue';
 import Icons from 'unplugin-icons/vite';
 import { fileURLToPath, URL } from 'node:url';
+import { join } from 'node:path';
 
 // ============================================================
 // 测试分档（2026-01-00 梳理）：277 个测试文件里 37 个（79% 的执行时长）是
@@ -15,6 +16,16 @@ import { fileURLToPath, URL } from 'node:url';
 // 独立配置与 preview:* 脚本。
 // ============================================================
 const PROFILE = process.env.VITEST_PROFILE ?? 'all'; // 'all' = 不加 include/exclude 过滤
+
+// 每轮专属测试根（cr-1211）：workspace/test-run-<pid>。此前所有轮次共享
+// workspace/test 且 globalSetup 每轮整树 rmSync——多会话并发测试（或双终端
+// 各跑一轮）时一边 worker/子进程 cwd 驻留树内，另一边清树即 EPERM（cr-1181
+// 双轮互踩、cr-1197/1199 残留句柄均此形态）。注入点在 config 求值而非
+// test.env：test.env 只达 worker，globalSetup 主进程不可见（探针实证）；
+// config 求值与 globalSetup 同进程，直写 process.env 两端均可见、worker
+// 经继承拿到。watch 同 pid 复用同根；死轮残根由 globalSetup 开工 GC。
+const REPO_ROOT = fileURLToPath(new URL('./', import.meta.url));
+process.env.AGENTCHAT_TEST_ROOT = join(REPO_ROOT, 'workspace', `test-run-${process.pid}`);
 // desktop/tests = 桌面壳域测试（main.mjs 桥/更新/树杀回归，cr-481 自
 // ac-client-ui-desktop-storage/tests 归位——被测面在 desktop/，与被测物同住）
 const ALL_TESTS = ['packages/**/tests/**/*.test.ts', 'apps/**/tests/**/*.test.ts', 'desktop/tests/**/*.test.ts'];

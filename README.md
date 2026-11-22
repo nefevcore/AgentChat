@@ -223,7 +223,7 @@ mobile/                    Android 壳（Capacitor + transport 模块）
 scripts/                   构建 / 验证 / 运行维护脚本（build-bundle、run-tests、check-deps…）
 dist/                      发布产物（build:bundle 组装：宿主+壳双 bundle + 资产面）
 sandbox/                   本机临时工作区与测试数据根（不入库）
-workspace/                 开发数据根（workspace/home）与测试树（workspace/test）
+workspace/                 开发数据根（workspace/home）与测试树（test-run-<pid> 每轮独立，死轮由下轮 GC；cr-1211）
 ```
 
 ## 🔧 开发命令（源码）

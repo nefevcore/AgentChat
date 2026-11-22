@@ -26,7 +26,9 @@ function resolveRepoRoot() {
 }
 
 const REPO_ROOT = resolveRepoRoot();
-const TEST_ROOT = join(REPO_ROOT, 'workspace', 'test');
+// cr-1211：本轮专属根由 vitest.config.ts 求值期注入（同进程直写 env，探针
+// 实证 worker 继承可见）；回落 workspace/test 兼容自定义配置直跑形态。
+const TEST_ROOT = process.env.AGENTCHAT_TEST_ROOT ?? join(REPO_ROOT, 'workspace', 'test');
 
 // ac-ask-questions 的 ASK_WAIT_WINDOW_MS 注释）。
 
