@@ -364,7 +364,15 @@ export function evaluateExpression(
   try {
     const result = new Evaluator(tokenize(expression)).evaluate();
     if (typeof result === 'number') {
-      // 浮点精度归一化（0.1+0.2 → 0.3）
+      // 整数保真（cr-1247 2026-11-22）：整数直出 String()，不走 toPrecision(15)
+      // ——归一化会把 2**50~2**53 等双精度精确整数静默截成 15 位有效数字
+      // （1125899906842624 → …20），ID/哈希/大额金额场景错误值比报错更危险。
+      // String() 自带两形：< 1e21 纯数字；≥ 1e21 科学计数法且保全长精度
+      // （2**70 → 1.1805916207174113e+21），均优于 15 位舍入。
+      if (Number.isInteger(result)) {
+        return { ok: true, value: String(result) };
+      }
+      // 浮点精度归一化（0.1+0.2 → 0.3）——仅施于非整数
       const v = Math.abs(result) < 1e-12 ? 0 : Number(result.toPrecision(15));
       return { ok: true, value: String(v) };
     }

@@ -44,6 +44,15 @@ describe('ac-math', () => {
     expect(evaluateExpression('0x10 + 0b101')).toEqual({ ok: true, value: '21' });
   });
 
+  it('整数保真（cr-1247）：双精度精确整数不做 15 位舍入，浮点归一化不回归', () => {
+    expect(evaluateExpression('2**50')).toEqual({ ok: true, value: '1125899906842624' });
+    expect(evaluateExpression('2**53')).toEqual({ ok: true, value: '9007199254740992' });
+    expect(evaluateExpression('1234567890123456')).toEqual({ ok: true, value: '1234567890123456' });
+    expect(evaluateExpression('2**70')).toEqual({ ok: true, value: '1.1805916207174113e+21' });
+    expect(evaluateExpression('0.1+0.2')).toEqual({ ok: true, value: '0.3' });
+    expect(evaluateExpression('sqrt(2)')).toEqual({ ok: true, value: '1.4142135623731' });
+  });
+
   it('沙箱语义：非白名单标识符/JS 语法一律解析失败（vm 逃逸载荷回归）', () => {
     expect(evaluateExpression('process').ok).toBe(false);
     expect(evaluateExpression('require').ok).toBe(false);
