@@ -11,6 +11,10 @@
 //     服务拿新值，零引用技巧；
 //   · 重载丢默认值（chat~admin~undefined 事故）→ 本服务不注入默认值
 //     （默认值是消费方词汇）；文件即全量，reload 只重读。
+//   · 跨进程写盘无人调 reload（宿主 WebUI 写盘后壳读不到新配置，须重启
+//     壳——cr-1246）→ 构造挂目录 fs.watch，防抖后 reload：深等价去重使
+//     自身写盘回声零广播（内存态已含新值），外部写盘（宿主/其他进程）
+//     实时吸收并广播 config/changed。
 //
 // 写入原子性：临时文件 + rename（继承 timer 状态文件模式，资产 #8）。
 // 快照隔离双侧对称：读侧 all/get 与写侧 set/merge 值均深拷贝——服务
@@ -37,6 +41,47 @@ export class ConfigService extends Service {
     super(ctx, 'config');
     this.file = path.resolve(options.root ?? process.env.AGENTCHAT_DATA_ROOT ?? './data', 'config.json');
     this.data = this.readFile();
+    // 跨进程热同步 watch 面（cr-1246）：随本服务 fiber 回收
+    ctx.effect(() => this.watchFile());
+  }
+
+  /**
+   * 目录 watch → 防抖 reload（外部写盘同步入口的自动接线，cr-1246）。
+   * · 目录 watch（非文件 watch）：rename 原子替换与 config.json 首建都触发
+   *   （watchLedger / watchAsksOf 先例同款形态）；
+   * · persistent:false——不阻进程 idle-exit 收割；
+   * · 深等价去重天然幂等：自身 set/merge 写盘的回声 reload 判等价即静默
+   *   （零自激）；外部写入 → reload 吸收 + config/changed 广播。
+   * 目录缺席（数据根未物化）不炸构造，但留下 warn（静默失败 = 运维盲区——
+   * 跨进程热更失效时无从诊断）。
+   */
+  private watchFile(): () => void {
+    let timer: NodeJS.Timeout | null = null;
+    let watcher: fs.FSWatcher;
+    try {
+      watcher = fs.watch(path.dirname(this.file), { persistent: false }, () => {
+        if (timer !== null) return; // 事件合并（Windows 高频 rename+change）
+        timer = setTimeout(() => {
+          timer = null;
+          const prev = this.data;
+          this.reload();
+          // reload 换引用 = 内容确有变化（深等价保持原引用）——热载留痕
+          if (this.data !== prev) this.ctx.logger.info('[config] 外部写盘热载：%s', this.file);
+        }, 100);
+      });
+    } catch (err) {
+      this.ctx.logger.warn(
+        '[config] 配置 watch 未挂上（%s）：%s——跨进程热更在该进程失效',
+        path.dirname(this.file),
+        err instanceof Error ? err.message : String(err),
+      );
+      return () => {}; // 无 watch 面
+    }
+    watcher.on('error', () => watcher.close());
+    return () => {
+      if (timer !== null) clearTimeout(timer);
+      watcher.close();
+    };
   }
 
   /** 全量快照（深拷贝——外部变异不回写内存态；订阅刷新模式下旧引用可安全持有） */

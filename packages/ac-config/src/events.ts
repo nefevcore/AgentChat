@@ -13,6 +13,8 @@ declare module '@agentchat/cordis' {
      * 【重查 ctx.config 服务】拿新值，不要缓存旧引用。
      * 载荷 = 配置文件路径 + 变更键清单（set/merge = 写入键的点路径/顶层键，
      * reload = 内容有异的顶层键；对齐订阅方按需重查而非恒全量）。
+     * 跨进程写盘由各进程的 watch 面自动吸收（目录 fs.watch → 防抖 reload，
+     * cr-1246）：宿主 WebUI 写盘后壳内也广播本事件（免重启壳生效）。
      * @mode emit
      * @scope host
      */

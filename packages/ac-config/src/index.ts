@@ -14,7 +14,7 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'config',
   label: '全局配置',
-  description: '全局配置（ctx.config）：数据根 config.json 原子读写 + config/changed 热重载',
+  description: '全局配置（ctx.config）：数据根 config.json 原子读写 + config/changed 热重载 + 跨进程写盘自动热同步（目录 watch → reload，cr-1246）',
   automatic: true,
 };
 

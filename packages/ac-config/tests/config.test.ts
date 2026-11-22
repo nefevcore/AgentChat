@@ -1,8 +1,9 @@
 // ============================================================
 // ac-config：读写 / 点路径 / 原子写 / 热重载 / config/changed
 // + 深等价提交去重 / 写侧快照隔离 / 载荷变更键（cr-377）
+// + 跨进程写盘热同步：目录 watch → 防抖 reload（cr-1246）
 // ============================================================
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -172,6 +173,34 @@ describe('ac-config', () => {
     val.deep.y = 999;
     expect(ctx.config.get('m')).toEqual({ deep: { y: 2 } });
     expect(events).toEqual([['m']]);
+  });
+
+  it('跨进程写盘热同步（cr-1246）：外部写盘 → watch 防抖 reload → config/changed 广播 + 读值翻新', async () => {
+    const root = tmpRoot();
+    const ctx = await boot(root);
+    ctx.config.set('a', 1); // 先落一份（顺带让目录就位）
+    const seen: Array<{ p: string; changed?: string[] }> = [];
+    ctx.on('config/changed', (p, changed) => seen.push({ p, changed }));
+    // 外部进程形态：绕过服务直写盘（原子写——临时文件 + rename）
+    const file = path.join(root, 'config.json');
+    const tmp = `${file}.external.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ a: 100, b: 2 }), 'utf-8');
+    fs.renameSync(tmp, file);
+    await vi.waitFor(() => expect(seen).toHaveLength(1), { timeout: 3000 });
+    expect(seen[0]).toEqual({ p: file, changed: ['a', 'b'] });
+    expect(ctx.config.get('a')).toBe(100); // 读值翻新（订阅刷新模式语义）
+  });
+
+  it('自身写盘回声零自激（cr-1246）：set 写盘 → watch 触发 reload → 深等价静默，无第二轮广播', async () => {
+    const root = tmpRoot();
+    const ctx = await boot(root);
+    let fires = 0;
+    ctx.on('config/changed', () => fires++);
+    ctx.config.set('a', 1); // 自身写盘（第一轮广播 = set 本义）
+    expect(fires).toBe(1);
+    await new Promise((r) => setTimeout(r, 400)); // 过防抖窗（100ms）等回声
+    expect(fires).toBe(1); // 回声 reload 深等价——零自激
+    expect(ctx.config.get('a')).toBe(1);
   });
 });
 
