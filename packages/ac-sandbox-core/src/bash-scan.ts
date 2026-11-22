@@ -147,7 +147,7 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
       continue; // 段内 Unix 绝对路径全在白名单内 → 放行
     }
     // 3. cd 越界：cd .. / cd ../x / cd 绝对路径（目标解析后判断）
-    const cd = seg.match(/\bcd\s+("?[^\s"]+"?)/);
+    const cd = seg.match(/\b(?:cd|Set-Location|pushd|chdir)\s+("?[^\s"]+"?)/i);
     if (cd) {
       const target = cd[1].replace(/^["']|["']$/g, '');
       if (
@@ -166,11 +166,16 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
     //    行首/空白/引号/=/括号——原实现要求前邻是行首或空白，引号包裹的
     //    cat ../../x 形态整条绕过扫描（真机复现：无引号拦、单双引号均放行）。
     //    token 内 ..（git diff a..b）第二个点后非斜杠，本正则不匹配，行为不变。
-    const refs = seg.match(/(?<![^\s"'`=(])\.\.[\\/][^\s;|&"'`]*/g);
+    const refs = seg.match(/[^\s;|&"'`]*\.\.[\\/][^\s;|&"'`]*/g);
     if (refs) {
       for (const ref of refs) {
         const p = ref.trim();
-        if (!isAllowed(p)) {
+        // 选项前缀会让整体 resolve 与真实访问位置偏差：`--file=..` 被当普通
+        // 目录名吃掉一次上跳（--file=../../x resolve 到根内，实际访问在根外）。
+        // 故对「去掉前缀的上跳后缀」再判一次——多拦不少拦，安全侧。
+        const cut = p.search(/\.\.[\\/]/);
+        const tail = cut > 0 ? p.slice(cut) : undefined;
+        if (!isAllowed(p) || (tail !== undefined && !isAllowed(tail))) {
           return `命令包含 ".." 相对路径引用（${p}），解析后越出允许范围，被沙箱拦截。仅这一个越界路径被拦——工作目录与 security.allowedPaths 白名单内的绝对/相对路径均可正常使用。`;
         }
       }
