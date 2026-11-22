@@ -469,9 +469,43 @@ describe('archive 行（cr-1189 V3）', () => {
       const dir = path.join(ROOT, 'agents', 'lambda', 'sessions', 'user~lambda');
       (h.ctx as unknown as { emit(name: string, ...args: unknown[]): void })
         .emit('loop/after-run', { agent: 'lambda', conversationId: 'user~lambda', runId: 'run-t-err' }, { finish: 'error' });
-      const cmpCount = () => readLedger(dir).rows.filter((r) => (r as { type?: string }).type === 'compaction').length;
-      for (let i = 0; i < 50 && cmpCount() === 0; i++) await new Promise((r) => setTimeout(r, 100));
-      expect(cmpCount()).toBe(1);
+      // 轮询看 pending 而非读文件：读句柄与 writer 的 renameSync 在 Windows 上互斥
+      const pendingOf = () => (h.archive as unknown as { pending: Map<string, string> }).pending;
+      for (let i = 0; i < 100 && pendingOf().has('user~lambda'); i++) await new Promise((r) => setTimeout(r, 100));
+      expect(readLedger(dir).rows.filter((r) => (r as { type?: string }).type === 'compaction').length).toBe(1);
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
+  it('cr-1206④：journal 老代 run（旧 seq 命中不了行面、无 ts）不得吃光 keep——保留的尾部必须是真实行', async () => {
+    // 现场形态（news~news）：journal/partials.jsonl 残留上一生成代的 run，
+    // 其 seq 属旧空间（物理重写后重置）、相位事件不带 ts → 三锚全失效。
+    // 若归到「尾部兜底」，伪行体量（此处 2 万字符）会把 keep 预算吃尽，
+    // 保留集里一条真实行都没有 → 落盘后回放只剩旧摘要。
+    seedAgent('nu', { archive: { maxContextTokens: 1000, archiveTokenRatio: 0.5, keepRecentRatio: 0.5 } });
+    const h = await bootShellRows('nu', { digestText: null });
+    try {
+      const dir = path.join(ROOT, 'agents', 'nu', 'sessions', 'user~nu');
+      fs.mkdirSync(path.join(dir, 'journal'), { recursive: true });
+      const rowLine = (seq: number, content: string) => JSON.stringify({
+        type: 'message', role: 'agent', content, agent_id: 'nu', message_id: 'm-' + seq, timestamp: new Date(2026, 0, 1, 0, 0, seq).toISOString(), seq,
+      });
+      fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+        JSON.stringify({ type: 'session-header', version: 1, createdAt: new Date().toISOString(), participants: ['nu', 'user'], kind: 'agent-pair' }),
+        ...Array.from({ length: 40 }, (_, i) => rowLine(i + 1, (i === 39 ? '最新一条 ' : '') + 'y'.repeat(100))),
+      ].join('\n') + '\n', 'utf-8');
+      // 老代 journal 行：seq 99 属旧空间（行面是 1..40，命中不了），且不带 ts
+      fs.writeFileSync(path.join(dir, 'journal', 'partials.jsonl'), JSON.stringify({
+        type: 'journal-step', run: 'old-run', step: 1, seq: 99, content: 'z'.repeat(20000), toolCalls: [],
+      }) + '\n', 'utf-8');
+      await h.archive.requestArchive('user~nu');
+      const after = readLedger(dir);
+      expect(after.rows.filter((r) => (r as { type?: string }).type === 'compaction').length).toBe(1);
+      // 保留集含最新真实行（不是只剩伪行——伪行不落盘）
+      expect(after.rows.some((r) => typeof r.content === 'string' && r.content.includes('最新一条'))).toBe(true);
+      const hist = h.ledger.historyMessagesFor('user~nu');
+      expect(hist.some((m) => String(m.content).includes('最新一条'))).toBe(true);
     } finally {
       await h.dispose();
     }

@@ -31,7 +31,9 @@ import {
   SUMMARY_TOKEN_CAP,
   estimateReplayTokens,
   keepBudgetOf,
+  replayTokensOf,
   splitForArchive,
+  truncateTail,
   thresholdOf,
   type ArchiveBudgets,
 } from 'ac-archive-core';
@@ -564,50 +566,122 @@ export class ArchiveShellService extends Service {
     const hasV2Rows = rows.some((r) => r.type !== undefined || r.seq !== undefined);
     if ((header?.version ?? 1) >= 2 || hasV2Rows) {
       // 富化行（估算/水位计量面）——分割边界取回原 rows 的 seq 锚。
-      // cr-1206：伪行按 run 末事实 seq 插入**时间序**（不是尾部追加）——
+      // cr-1206：伪行按 run 事实的**时间序位置**插入（不是尾部追加）——
       // 尾部追加会让 keep 预算被伪行整块吃尽：最近的真实会话行全部进归档段，
       // 而伪行本身不可持久（物理回收后由 run 事实重建，事实已随段搬走）→
       // 回放只剩旧摘要、整段历史蒸发（news~news 实测：keep 63 行全伪行，
       // 回收后回放 1 条 1390 字旧摘要）。时间序下 keep 保留的是真实尾行，
       // 其 run 事实随之留在主日志，伪行可在回放时自然重建。
+      // 锚两维（缺一不可）：v2 run 有 seq → 按 seq 定位；v1 journal 派生的
+      // run 无 seq（journal-step 多数不带 seq）→ 只有 ts。只用 seq 锚会让
+      // 这批伪行全部落到「尾部兜底」，正是上一版的病灶（带 journal 的实测
+      // 复现：keep 被吃光、boundary 吃到全表、回放只剩摘要）。
       const facts = readDomainFacts(dir, this.agentId);
+      const tsOfRow = (r: LedgerRow): number | undefined => {
+        const raw = (r as unknown as Record<string, unknown>).ts;
+        if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+        if (typeof r.timestamp === 'string' && r.timestamp !== '') {
+          const parsed = Date.parse(r.timestamp);
+          return Number.isFinite(parsed) ? parsed : undefined;
+        }
+        return undefined;
+      };
       const pseudoByRun = new Map<string, LedgerRow>();
-      const lastSeqByRun = new Map<string, number>();
+      const seqKeyByRun = new Map<string, number>();
+      const tsKeyByRun = new Map<string, number>();
+      const headKeyByRun: string[] = [];
+      // seq 空间会随物理重写重置（journal 里的老代 run 带着旧 seq）——只有
+      // 能在当前行面命中的 seq 才是可用锚，否则退回时刻维（news~news 实测：
+      // 327 个 run 的旧 seq 全部命中不了，退化成「尾部兜底」→ keep 被 63 个
+      // 伪行吃光，与修前同款事故）。
+      const rowSeqSet = new Set<number>();
+      for (const r of rows) if (typeof r.seq === 'number') rowSeqSet.add(r.seq);
       for (const [run, rf] of facts.runs) {
         const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
         if (steps.length === 0) continue;
         pseudoByRun.set(run, { role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
-        let last = 0;
-        for (const ev of rf.events) if (ev.seq !== undefined && ev.seq > last) last = ev.seq;
-        if (last > 0) lastSeqByRun.set(run, last);
+        let lastSeq = 0;
+        let lastTs = 0;
+        for (const ev of rf.events) {
+          if (ev.seq !== undefined && ev.seq > lastSeq) lastSeq = ev.seq;
+          if (ev.ts !== undefined && ev.ts > lastTs) lastTs = ev.ts;
+        }
+        for (const s of steps) {
+          if (typeof s.ts === 'number' && s.ts > lastTs) lastTs = s.ts;
+        }
+        if (lastSeq > 0 && rowSeqSet.has(lastSeq)) seqKeyByRun.set(run, lastSeq);
+        else if (lastTs > 0) tsKeyByRun.set(run, lastTs);
+        // 无锚（journal 老代 run：相位事件与步都不带 ts，旧代 seq 也命中不了
+        // 当前行面）→ 视为最旧：当前行面每行都有 seq/ts，无锚只可能是上一个
+        // 生成代遗留在 journal 的材料。
+        else headKeyByRun.push(run);
       }
-      const runsEndingAt = new Map<number, string[]>();
-      for (const [run, seq] of lastSeqByRun) {
-        const bucket = runsEndingAt.get(seq);
+      // seq 锚（v2 run）：紧跟其末事实行之后
+      const afterSeq = new Map<number, string[]>();
+      for (const [run, seq] of seqKeyByRun) {
+        const bucket = afterSeq.get(seq);
         if (bucket !== undefined) bucket.push(run);
-        else runsEndingAt.set(seq, [run]);
+        else afterSeq.set(seq, [run]);
       }
+      // 时刻锚（v1 run）：插到「首个时刻更晚的行」之前（无更晚行 = 表尾）
+      const rowTs = rows.map(tsOfRow);
+      const beforeIndex = new Map<number, Array<{ run: string; ts: number }>>();
+      for (const [run, ts] of tsKeyByRun) {
+        let idx = rows.length;
+        for (let i = 0; i < rows.length; i++) {
+          const t = rowTs[i];
+          if (t !== undefined && t > ts) { idx = i; break; }
+        }
+        const bucket = beforeIndex.get(idx);
+        if (bucket !== undefined) bucket.push({ run, ts });
+        else beforeIndex.set(idx, [{ run, ts }]);
+      }
+      if (headKeyByRun.length > 0) {
+        const bucket = beforeIndex.get(0) ?? [];
+        for (const run of headKeyByRun) bucket.push({ run, ts: Number.NEGATIVE_INFINITY });
+        beforeIndex.set(0, bucket);
+      }
+      for (const bucket of beforeIndex.values()) bucket.sort((a, b) => a.ts - b.ts);
       const enriched: LedgerRow[] = [];
-      const flushed = new Set<string>();
-      for (const r of rows) {
+      const emitted = new Set<string>();
+      const emitPseudo = (run: string): void => {
+        if (emitted.has(run)) return;
+        const pseudoRow = pseudoByRun.get(run);
+        if (pseudoRow === undefined) return;
+        enriched.push(pseudoRow);
+        emitted.add(run);
+      };
+      for (let i = 0; i < rows.length; i++) {
+        for (const item of beforeIndex.get(i) ?? []) emitPseudo(item.run);
+        const r = rows[i]!;
         enriched.push(r);
         if (typeof r.seq !== 'number') continue;
-        for (const run of runsEndingAt.get(r.seq) ?? []) {
-          const pseudoRow = pseudoByRun.get(run);
-          if (pseudoRow !== undefined && !flushed.has(run)) {
-            enriched.push(pseudoRow);
-            flushed.add(run);
-          }
-        }
+        for (const run of afterSeq.get(r.seq) ?? []) emitPseudo(run);
       }
-      for (const [run, pseudoRow] of pseudoByRun) {
-        if (!flushed.has(run)) enriched.push(pseudoRow); // 无 seq 事实的 run：尾部兜底
-      }
+      for (const item of beforeIndex.get(rows.length) ?? []) emitPseudo(item.run);
       // viewer 必传（cr-1190 续修 2）：缺省 content-only 会让伪行（content=''
       // 轨迹全在 steps）est=0——truncateTail 零成本吃完全表 → archive 恒空、
       // boundary=0（user~writer 实锤：伪行真实体积 32.5 万 token 全漏计）。
       // 传 viewer 后尾部预算按回放口径（轨迹展开）计量，与 estimateOf 同源。
-      const split = splitForArchive(enriched as never[], budgets, lastArchived, { viewer: this.agentId });
+      let split = splitForArchive<LedgerRow>(enriched, budgets, lastArchived, { viewer: this.agentId });
+      // 兜底闸（cr-1206）：keep 里没有一条真实行 = 尾部被伪行占满。伪行不可
+      // 持久（物理回收后只能由 run 事实重建，而事实随行进段）→ 这样的 keep
+      // 落盘即空，回放只剩旧摘要。此时改按真实行重算尾部：伪行一律进归档集
+      //（它们本就不落盘；对应 run 若在保留集内，回放时自然重建）。
+      const pseudoSet = new Set<unknown>(pseudoByRun.values());
+      const keepBudget = keepBudgetOf(budgets);
+      if (!split.keep.some((r) => !pseudoSet.has(r))) {
+        // 只保留最近的少量真实行（不是按预算重算）：真实 v2 事件行的
+        // content 多为空，其体积全在伪行上，单按行计量会一路吃回上百行。
+        const keepReal = rows.slice(-20);
+        const keepSet = new Set<unknown>(keepReal);
+        split = {
+          archive: enriched.filter((r) => !keepSet.has(r)),
+          keep: keepReal,
+          cutoff: split.cutoff,
+          truncStart: split.truncStart,
+        };
+      }
       // cr-1155 归档对齐口径修正：split 切片是 enriched 数组的引用切片——
       // 用引用集对齐（位置语义）替代 seq 集匹配，无 seq 的 v1 存量行按其
       // 文件位置自然进归档集/保留集，不再被 (seq ?? Infinity) 永久钉在主日志
