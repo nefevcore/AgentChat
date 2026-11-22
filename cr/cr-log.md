@@ -1240,4 +1240,27 @@
 - 【cr-1219 2026-11-22 probe-should-be-denied】
 - 【cr-1220 2026-11-22 probe-verify-denied】
 - 【cr-1221 2026-11-22 x C:/Windows/win.ini】
+- 【cr-1222 2026-11-22 fix(run-code): 最近名建议加编辑距离阈值 max(1,⌊len/3⌋)——ISSUE-15 无阈值建议曾把 memory_write 引向语义不等价的 write】
+- 【cr-1223 2026-11-22 fix(shell-tools): 命令未找到归因两修——补 PS7 中文「术语X不会被识别为」提取模式 + 管道/组合命令不猜名（ISSUE-18）；invocation-error 基线文案不再被翻译提示顶掉（ISSUE-21）】
+- 【cr-1224 2026-11-22 fix(sandbox-core): bash-scan 剥离 node -e/python -c/pwsh -Command 引号载荷 + 裸 / 不判路径——ISSUE-17 JS 正则字面量与除号被误判 Unix 路径】
+- 【cr-1225 2026-11-22 fix(timer): 预览应用 gates（previewFires 过 gatesPass，ISSUE-23③）+ test 校验错误前缀改「条目非法」（ISSUE-23④）】
+- 【cr-1226 2026-11-22 feat(host-rows): groups 行 boot 打「群注册表装载 N 条」日志行——ISSUE-19 静默空窗可观测性】
+- 【cr-1227 2026-11-22 fix(shell-tools): 命令未找到点名后补裸管道病因提示（ISSUE-18 建议③漏项——实测裸|切断时归因正确但缺病因指引）】
+- 【cr-1228 2026-11-22 2026-11-22 timers 排程静默停摆 2h（11:06~13:05 全量无 audit，宿主存活无错误行）三道防线：①排程/心跳/pull 的定时器改挂本行自有 fiber（原 ctx.timeout 是 TimerService 的 effect——mixin 的 this.ctx 恒解析为服务自身 ctx，timer 行重载会静默清空宿主全域排程而本行 schedules 仍持陈旧 dispose → 永不重排）②新增排程看门狗（60s 独立节拍：启用时间触发条目必须在排且有途，缺排/到期未动即重排 + warn，把静默死亡从「直到重启」压到「至多一拍」）③投递加 30s 上限（dispatch 内 client.connect 无超时，挂死会让整条链永久悬停）+ fire 链 catch 后退避重排（防 async 裸调吞成 unhandled rejection）】
+- 【cr-1229 2026-11-22 2026-11-22 cr-1228 副作用根修：物理回收闸的阴影体量必须含轨迹伪行——原实现只加 archivedOriginal（真行）逐行体积，而 v2 事件行 content 多为空、体积全在伪行 steps 上 → 系统性低估。admin~admin 实测真行合计 23,210 vs 闸 24,000（差 790 永远搬不动），含伪行真实阴影量 887,541（低估 38 倍）。后果不止不回收：字节恒超 ledger-bytes 阈值 ⇒ 每 run 收束都重新触发一次完整归档编排（整理轮 LLM run + 落事件），越归档越臃肿。修：shadowedEst 改用 split.archive 全量（含伪行）按回放口径计量。沙箱实演 8,111,670B/2265行 → 123,506B/59行 + history_1.jsonl.gz + 回放 21 条；新增回归用例（已验证旧实现为红、新实现为绿）。与 cr-1214 同族第三处（估算漏轨迹） ->cr-1214 ->cr-1228】
+- 【cr-1230 2026-11-22 给 admin 装载 restart 行：agent.patch.yml 菜单片段加行定义 + 活壳优雅退出按需重拉生效】
+- 【cr-1231 2026-11-22 2026-11-22 neko t-pofx4t 定时器同秒双投（jitter 刻度缺陷）：该条目 every 7h30m + jitter 2h15m，实测 3 对同秒双投（间隔 22ms/19ms/113ms），投递间隔序列 6h/2.5h/5h/1.2h/1.3h/7.3h/0.5h/1m 无规律。根因方向：jitter 重算后 nextAt 可能落在 now 之前（或恰好相等），刻度生成侧未施加「nextAt 必须 > now」下限，导致同一刻度被立即重算一次→同秒二次投递。治本方案：在刻度生成侧对 jitter 结果施加 now 下限（且需 ≥ 一个最小间隔，避免抖动退化为 0）；不要在 dispatch 层去重——那只是掩盖症状，会让「已投递但记账未推进」的堆叠隐藏起来。待补：需要一份最小复现（构造 nextAt-now < jitter 余量的场景）。 ->timer】
+- 【cr-1232 2026-11-22 2026-11-22 jitter 同刻度重投（neko t-pofx4t 一个刻度投 5 次）：nextGridMs 的抖动负偏可把投递点推到刻度之前，此刻 now 仍早于该刻度 → 投递完重算时 nextGridStrict 又返回同一刻度 → 同刻度反复投递；若某次候选落在过去，schedulePlan 的 wait=max(due-now,0)=0 → 立即投递，与上一条叠成同秒双投（22/19/113ms）。真机审计（meta/timer/audit.jsonl）：t-pofx4t（every 7h30m + jitter 2h15m）在 2026-11-22 对 07:30 刻度投了 5 次（06:29:34x2 + 07:00:04 + 07:01:10x2），15:00 刻度在 13:13:48(-106min) 与 15:48:09(+48min) 各投一次；全部 13 条审计中 11 条为负偏(early)。修法两道：①lastFiredAt 落在本刻度抖动窗内(|lf-grid|<=jitter) ⇒ 该刻度已消费，取下一格；②候选不得落回过去，越界退化为刻度本身(仍严格在未来)。不在 dispatch 层去重（掩盖症状）。回归用例 cr-1231①② 已验证旧实现红/新实现绿，③为防过度修复的约束用例。ac-timer-core 39/39、ac-host-rows 138/138、全仓 typecheck 绿。 ->timer】
+- 【cr-1233 2026-11-22 previewSystemPrompt 干跑泄漏：before-run waterfall 的落账副作用（datetime/env-pulse/memory）在预览面真实落账——凭空创建 __pending__ 哨兵会话（新会话两张悬挂注入卡）+ 预览吃掉水位（真实 run 丢注入）。修法：LoopRunRequest 增 dryRun 词，previewSystemPrompt 标记，注入行早退】
+- 【cr-1234 2026-11-22 fix archive: physical recycle deadlocks when anchor seq collides with seq-space regression (admin~user ledger-bytes trigger loop)】
+- 【cr-1235 2026-11-22 账本不变量守护立项：词汇单源 + doctor 校验器 + cr-1036 共基座——8 案复发链（cr-1155/1156/1190/1191/1192/1214/1229/1234）的结构收口，计划成文 docs/design/session/ledger-invariants-plan.md #ledger-invariants →cr-1036 --status doing】
+- 【cr-1236 2026-11-22 会话键词法学单源立项：键形解析纯库词汇化 + run-origin 联动——键词 5 案（cr-1120/1137/1179/1186/1192）+ run 身份反推 5 案（cr-1133/1140/1179/1187/1192）的结构收口，计划成文 docs/design/session/conv-key-lexicon-plan.md #key-lexicon →cr-1179 --status doing】
+- 【cr-1237 2026-11-22 近期改动结构性分析（cr-1116~1234 七活跃日聚类）：账本不变量/键词法两主线立项成文，fiber 陷阱与设置键漂移两项小活另册 →ledger-invariants-plan →conv-key-lexicon-plan】
+- 【cr-1238 2026-11-22 conv-key-lexicon B0 裁决落锤（§五 五题记回）+ B1 全仓盘点（键形态/调用点分类/触发面三表进附录）】
+- 【cr-1239 2026-11-22 conv-key-lexicon B2 键库 ac-conv-keys 落地（parseKey 总函数+谓词族+构造词迁入+保留字迁入 D1/D2/D3）+ core-utils/agents-core/ledger re-export 兼容】
+- 【cr-1240 2026-11-22 conv-key-lexicon B3 宿主侧迁移收口：13 包判定点改读 ac-conv-keys（sessionKindOf 保 g-优先序、unread-axis 删本地正则、archive cr-1192 收口）——3437 单测全绿】
+- 【cr-1241 2026-11-22 conv-key-lexicon B4 前端迁移收口：4 包改读 ac-conv-keys（routeDialog 词法闸/uuid 正则副本退役转键库/runview parseConvKey 注记异族）——webui:typecheck+webui:build 纯度门过、352 单测绿】
+- 【cr-1242 2026-11-22 conv-key-lexicon B5 run-origin 契约化：origin 一等字段+账本 run-end 行持久化+直播透传+四触发面写入+auto-title 消费切换——3437 单测+99 集成全绿】
+- 【cr-1243 2026-11-22 conv-key-lexicon 收官：守门脚本 check-conv-lexicon（白名单 14）+ 守门补扫迁移（两 .vue/collab-tools/双 boot senderOf）+ 词汇表移交 session-design §12 + 计划档归档】
+- 【cr-1244 2026-11-22 fix timers-row text 唤醒 sender 伪造 'user'：带 conversationId 的 timer 信封在 cr-1213 键形权威制下 uuid 登记冲突（news~news 名册 ['news'] 不含 user）→ 永久退避重试——sender 按键形名册分派（pairIncludes(convId,'user') ? 'user' : target，对齐 archive-all 自会话姿势）】
 
