@@ -434,7 +434,7 @@ function registerEvents(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
 
 
 /** 默认行集目录（apps/catalog/row-catalog.json） */
-const DEFAULT_CATALOG_FILE = fileURLToPath(new URL('../../../apps/catalog/row-catalog.json', import.meta.url));
+export const DEFAULT_CATALOG_FILE = fileURLToPath(new URL('../../../apps/catalog/row-catalog.json', import.meta.url));
 
 /**
  * 工作区域（cr-568）：本机目录浏览 / 原生文件夹选择 / 系统打开。

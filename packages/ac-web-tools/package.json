@@ -12,6 +12,7 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "ac": {
+    "configDomains": ["searchProviders", "tool"],
     "rows": [
       {
         "id": "web-tools",

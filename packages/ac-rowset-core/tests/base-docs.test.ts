@@ -24,7 +24,7 @@ const GENERATED = JSON.parse(fs.readFileSync(REPO_CATALOG, 'utf-8')) as RowsetCa
 
 describe('投影等价（cr-1033 B2 合并语义：骨架归基座 / 能力归包聚合）', () => {
   it('readCatalog 合并 == row-catalog.json 生成物（逐行 deep equal——gen 再现锁）', () => {
-    expect(readCatalog(REPO_CATALOG)).toEqual({ rows: GENERATED.rows });
+    expect(readCatalog(REPO_CATALOG)).toEqual({ rows: GENERATED.rows, configDomains: GENERATED.configDomains });
   });
 
   it('能力行新鲜度锁：JSON 能力区 == 包 ac.rows 聚合投影（gen 忘跑即红）', async () => {
@@ -91,7 +91,7 @@ describe('投影等价（cr-1033 B2 合并语义：骨架归基座 / 能力归�
 
 describe('readCatalog 双读 → 合并（cr-1033 B2）', () => {
   it('仓库目录：基座在场 → 宿主/骨架取基座 + 能力取 JSON 投影', () => {
-    expect(readCatalog(REPO_CATALOG)).toEqual({ rows: GENERATED.rows });
+    expect(readCatalog(REPO_CATALOG)).toEqual({ rows: GENERATED.rows, configDomains: GENERATED.configDomains });
   });
 
   it('合并语义：基座骨架赢 + JSON 能力区并入', () => {

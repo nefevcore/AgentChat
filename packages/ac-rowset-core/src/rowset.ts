@@ -31,6 +31,9 @@ export interface RowDescriptor {
 /** 全局行集目录（静态全集——两树同源单表） */
 export interface RowsetCatalog {
   rows: RowDescriptor[];
+  /** 全局 config.json 可写域（域 → 声明包——cr-1199 注册化白名单单源；
+   *  旧档缺席 = 未声明，消费面自决缺省） */
+  configDomains?: Record<string, string>;
 }
 
 // —— 宿主行集派生（偏好文件——宿主单例无实例差量层） ——

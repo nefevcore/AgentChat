@@ -43,5 +43,8 @@
     "ac-agent-loop": "workspace:*",
     "ac-host-app": "workspace:*",
     "vitest": "^4.1.10"
+  },
+  "ac": {
+    "configDomains": ["timer"]
   }
 }

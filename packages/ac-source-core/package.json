@@ -19,6 +19,9 @@
     "ac-extension-core": "workspace:*",
     "vitest": "^4.1.10"
   },
+  "ac": {
+    "configDomains": ["source"]
+  },
   "agentchat": {
     "plugin": true
   },

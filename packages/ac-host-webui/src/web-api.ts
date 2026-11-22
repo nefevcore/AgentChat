@@ -25,7 +25,7 @@ import { assembleSessionView, conversationDirs, deleteConversationRow, historyVi
 import { listAgentIds, readAgentConfig, isAgentIdentity, isPresetId, materializedChildIds } from 'ac-agents-core';
 import { humanPresentOf } from 'ac-agents'; // conv-scope 批3：无人桶写键 fail-loud 门
 import { pairKey, takeUnread, clearUnread } from 'ac-core-utils';
-import { registerOpsFace, runningOf, type FaceOpsDeps } from './face-ops.ts';
+import { registerOpsFace, runningOf, DEFAULT_CATALOG_FILE, type FaceOpsDeps } from './face-ops.ts';
 import {
   avatarPathOf,
   guessContentType,
@@ -40,6 +40,7 @@ import {
   type WorkspaceContext,
 } from 'ac-host-rows';
 import { registerShellFace, type ShellAdminPort } from './face-shell.ts';
+import { readCatalog } from 'ac-rowset-core';
 import {
   backfillPoolMasks,
   createPoolCredentials,
@@ -50,6 +51,7 @@ import {
   removeConfigKey,
   saveConfigDomains,
   writeConfigKey,
+  type ConfigDomains,
   type ConfigFace,
   type PoolCredentialFace,
 } from './config-face.ts';
@@ -472,6 +474,12 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         return service;
       };
       const creds: PoolCredentialFace = createPoolCredentials(deps.dataRoot);
+      // 可写域集合（cr-1199 注册化）：row-catalog 顶层 configDomains
+      // （事实源 = 各包 package.json ac.configDomains）——旧档缺席 = 空集
+      //（fail-closed 全拒），新档随 gen 产出。
+      const domains: ConfigDomains = new Set(Object.keys(
+        readCatalog(deps.catalogFile ?? DEFAULT_CATALOG_FILE).configDomains ?? {},
+      ));
 
       web.registerRpc('config/get', () => {
         const all = config().all();
@@ -482,19 +490,19 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       web.registerRpc('config/set', (params) => {
         const p = obj(params);
         const key = reqStr(p, 'key');
-        const warnings = writeConfigKey(config(), creds, key, p.value);
+        const warnings = writeConfigKey(config(), creds, domains, key, p.value);
         return { set: true, key, ...(warnings.length > 0 ? { warnings } : {}) };
       });
 
       web.registerRpc('config/delete', (params) => {
         const key = reqStr(obj(params), 'key');
-        removeConfigKey(config(), key);
+        removeConfigKey(config(), domains, key);
         return { deleted: true, key };
       });
 
       // 全量保存（settings 底部「保存配置」）：白名单域内 replace 语义
       web.registerRpc('config/save', (params) => {
-        const warnings = saveConfigDomains(config(), creds, obj(params).config);
+        const warnings = saveConfigDomains(config(), creds, domains, obj(params).config);
         return { saved: true, ...(warnings.length > 0 ? { warnings } : {}) };
       });
 
@@ -502,7 +510,7 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
       // 改配置的正路（config/save 是 replace 语义，只送一个域会删掉其余域
       // ——cr-1168 实测事故面）。
       web.registerRpc('config/merge', (params) => {
-        const warnings = mergeConfigDomains(config(), creds, obj(params).config);
+        const warnings = mergeConfigDomains(config(), creds, domains, obj(params).config);
         return { merged: true, ...(warnings.length > 0 ? { warnings } : {}) };
       });
 

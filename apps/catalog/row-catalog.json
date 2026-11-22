@@ -563,5 +563,16 @@
       ],
       "path": "packages/ac-web-tools"
     }
-  ]
+  ],
+  "configDomains": {
+    "llm": "ac-client-ui-settings",
+    "llmProviders": "ac-llm-pool",
+    "searchProviders": "ac-web-tools",
+    "session": "ac-client-ui-settings",
+    "settings": "ac-client-ui-settings",
+    "source": "ac-source-core",
+    "timer": "ac-host-rows",
+    "tool": "ac-web-tools",
+    "ui": "ac-client-ui-settings"
+  }
 }

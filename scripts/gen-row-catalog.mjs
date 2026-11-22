@@ -16,6 +16,7 @@ import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { readBaseCatalog, projectBaseEntry } from '../packages/ac-rowset-core/src/base-docs.ts';
 import { aggregatePackageRows } from '../packages/ac-rowset-core/src/package-rows.ts';
+import { aggregateConfigDomains } from '../packages/ac-rowset-core/src/config-domains.ts';
 import { aggregateConfigChains } from '../packages/ac-agents-core/src/config-chain.ts';
 import { validateChain } from '../packages/ac-migration-core/src/chain.ts';
 
@@ -42,7 +43,7 @@ for (const [rowId, chain] of Object.entries(configChains.chains)) {
   }
 }
 
-const next = JSON.stringify({ version: 1, rows }, null, 2) + '\n';
+const next = JSON.stringify({ version: 1, rows, configDomains: aggregateConfigDomains(REPO_ROOT) }, null, 2) + '\n';
 const prev = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf-8') : '';
 if (next === prev) {
   console.log('row-catalog.json 已同步（' + rows.length + ' 行）');

@@ -106,7 +106,7 @@
 | ac-fingerprint-core | Merkle 内容树 + 规范化 + 子指纹（R-7）——两形态同根断言的物理载体 | guardian verify 节拍（宿主）+ 壳 boot stdout 自报 |
 | ac-auth-core | 授权投影算法（授权草稿 C） | 壳 tools 门（每 run 前重读现算） |
 | ac-agents-core | AgentConfig 契约 owning + 词汇纯函数（tierOf / toolModeOf / resolveToolNames / narrowToolsByMode / displayNameOf）+ settingsOf 纯函数化 + agents/&lt;id&gt;/ 树直读 + children 嵌套解析（R-6 直读第四层）+ agent.patch 迁移链（cr-1036）+ 行内 config 迁移链（cr-1037：声明聚合 + 执行语义 + legacy 门槛） | 壳 run 前重读（装配链 / 门 / subagent）+ 宿主编辑面词汇共用 + boot 惰性迁移 |
-| ac-rowset-core | 行集推导器：AgentConfig（tools 点名 + 行引用——tag 展开退役，行集谓词：点名工具 ∨ 引用行名；fs / infra 类捆绑词在派生内消解）× 全局行集目录（cordis.yml 降格为全集目录）→ 壳行集派生清单；+ 行目录静态投影（per-agent 化——目录只出现该 agent 行集内的词，编辑面与壳存活期解耦；承〈tag 目录静态化〉改投影对象；configKeys 键面自述聚合透传——cr-1037 批3）；AgentConfig 入指纹输入 | 宿主 boot 现算（argv 传清单引用）+ CLI 本地派生；tags/catalog RPC 数据源；TagDeclaration 类型随迁 |
+| ac-rowset-core | 行集推导器：AgentConfig（tools 点名 + 行引用——tag 展开退役，行集谓词：点名工具 ∨ 引用行名；fs / infra 类捆绑词在派生内消解）× 全局行集目录（cordis.yml 降格为全集目录）→ 壳行集派生清单；+ 行目录静态投影（per-agent 化——目录只出现该 agent 行集内的词，编辑面与壳存活期解耦；承〈tag 目录静态化〉改投影对象；configKeys 键面自述聚合透传——cr-1037 批3；configDomains 包级声明聚合——cr-1199 config 写面注册化白名单单源）；AgentConfig 入指纹输入 | 宿主 boot 现算（argv 传清单引用）+ CLI 本地派生；tags/catalog RPC 数据源；TagDeclaration 类型随迁 |
 | ac-credentials（降格） | 行降格为注入纯库（R-11 ③ 物理单副本两侧共用） | 两侧共用（写者面 = auth-registry） |
 
 > 包名避让裁决（cr-491 / cr-504，2026-10-17）**结果**：避让名已固化——cutover 后未做回收，

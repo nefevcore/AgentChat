@@ -1,10 +1,11 @@
 // ============================================================
-// config-face.test.ts —— 全局配置写面词汇（cr-564）
+// config-face.test.ts —— 全局配置写面词汇（cr-564；cr-1199 域集合
+// 参数化：九域 fixture 与生产 row-catalog 聚合同形）
 //
-// 契约对照主线 ac-web-api config 段（web-api.integration.test 的侧信道用例
-// 平移）：掩码=不动 / ''=删（locked 守卫）/ 新值=存 / 改名迁移 / 白名单
-// fail-closed / save 的 replace 语义。落盘端口以内存替身注入（真实凭据
-// 加密落盘归 e2e-host-web 的真链路用例）。
+// 契约对照主线 ac-web-api config 段：掩码=不动 / ''=删（locked 守卫）/
+// 新值=存 / 改名迁移 / 白名单 fail-closed / save 的 replace 语义 / merge
+// 的 patch 语义（cr-1173）。落盘端口以内存替身注入（真实凭据加密落盘
+// 归 e2e-host-web 的真链路用例）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import {
@@ -18,9 +19,15 @@ import {
   saveConfigDomains,
   sanitizeConfigValue,
   writeConfigKey,
+  type ConfigDomains,
   type ConfigFace,
   type PoolCredentialFace,
 } from '../src/config-face.ts';
+
+/** 可写域集合（cr-1199：与 row-catalog.json configDomains 聚合同形） */
+const DOMAINS: ConfigDomains = new Set([
+  'llm', 'llmProviders', 'searchProviders', 'source', 'timer', 'tool', 'ui', 'session', 'settings',
+]);
 
 /** 内存配置面（ctx.config 结构子集——点路径首段即顶层键） */
 class MemoryConfig implements ConfigFace {
@@ -46,7 +53,7 @@ class MemoryCredentials implements PoolCredentialFace {
 }
 
 function write(face: MemoryConfig, creds: MemoryCredentials, key: string, value: unknown): string[] {
-  return writeConfigKey(face, creds, key, value);
+  return writeConfigKey(face, creds, DOMAINS, key, value);
 }
 
 describe('config-face：池 api_key 侧信道（config/set）', () => {
@@ -93,18 +100,26 @@ describe('config-face：池 api_key 侧信道（config/set）', () => {
     expect(face.data.searchProviders).toEqual({ tavily: {} });
   });
 
-  it('白名单外键 fail-closed（set / delete 同口径）', () => {
+  it('域集合外键 fail-closed（set / delete / merge 同口径）', () => {
     const face = new MemoryConfig();
     const creds = new MemoryCredentials();
-    expect(() => write(face, creds, 'sessions', {})).toThrow(/白名单/);
-    expect(() => removeConfigKey(face, 'sessions')).toThrow(/白名单/);
-    expect(() => assertConfigKey('llmProviders')).not.toThrow();
-    expect(() => assertConfigKey('settings.plugin')).not.toThrow();
-    // cr-1168：source 域入白名单（fs-source roots 声明——读面在 ac-source-core）
-    expect(() => assertConfigKey('source')).not.toThrow();
-    expect(() => assertConfigKey('source.fs')).not.toThrow();
+    expect(() => write(face, creds, 'sessions', {})).toThrow(/可写域集合/);
+    expect(() => removeConfigKey(face, DOMAINS, 'sessions')).toThrow(/可写域集合/);
+    expect(() => mergeConfigDomains(face, creds, DOMAINS, { sessions: {} })).toThrow(/可写域集合/);
+    expect(() => assertConfigKey(DOMAINS, 'llmProviders')).not.toThrow();
+    expect(() => assertConfigKey(DOMAINS, 'settings.plugin')).not.toThrow();
+    // cr-1168：source 域（fs-source roots——读面在 ac-source-core）
+    expect(() => assertConfigKey(DOMAINS, 'source')).not.toThrow();
+    expect(() => assertConfigKey(DOMAINS, 'source.fs')).not.toThrow();
     write(face, creds, 'source', { fs: { roots: [{ id: 'docs', root: 'D:/x' }], cadence: '60s' } });
     expect((face.data.source as { fs: { roots: unknown[] } }).fs.roots).toHaveLength(1);
+  });
+
+  it('空域集合 fail-closed（未注册即不可写——cr-1199 注册化语义）', () => {
+    const face = new MemoryConfig();
+    const creds = new MemoryCredentials();
+    expect(() => writeConfigKey(face, creds, new Set(), 'llmProviders', {})).toThrow(/可写域集合/);
+    expect(() => assertConfigKey(new Set(), 'settings')).toThrow(/可写域集合/);
   });
 
   it('value 缺失 fail（不静默删键）', () => {
@@ -118,134 +133,93 @@ describe('config-face：池 api_key 侧信道（config/set）', () => {
 describe('config-face：池条目改名迁移（cr-21 语义平移）', () => {
   it('同指纹改名：凭据随名迁移、旧名清空', () => {
     const face = new MemoryConfig();
+    face.data.llmProviders = { old: { base_url: 'https://x', model: 'm' } };
     const creds = new MemoryCredentials();
-    write(face, creds, 'llmProviders', { myds: { api_key: 'sk-x', base_url: 'https://x', models: ['m1'] } });
-    write(face, creds, 'llmProviders', { dswork: { api_key: API_KEY_MASK, base_url: 'https://x', models: ['m1'] } });
-    expect(creds.get('POOL:dswork')).toBe('sk-x');
-    expect(creds.get('POOL:myds')).toBe('');
-  });
-
-  it('指纹失配但消失旧名唯一 → 仍迁移（改名同时改字段）', () => {
-    const face = new MemoryConfig();
-    const creds = new MemoryCredentials();
-    write(face, creds, 'llmProviders', { a: { api_key: 'sk-a', base_url: 'https://x' } });
-    write(face, creds, 'llmProviders', { b: { api_key: API_KEY_MASK, base_url: 'https://y' } });
-    expect(creds.get('POOL:b')).toBe('sk-a');
-    expect(creds.get('POOL:a')).toBe('');
-  });
-
-  it('多个消失旧名且指纹失配 → 不迁移（fail-safe）', () => {
-    const face = new MemoryConfig();
-    const creds = new MemoryCredentials();
-    write(face, creds, 'llmProviders', { a: { api_key: 'sk-a', base_url: 'https://x' }, b: { api_key: 'sk-b' } });
-    write(face, creds, 'llmProviders', { c: { api_key: API_KEY_MASK, base_url: 'https://z' } });
-    expect(creds.get('POOL:c')).toBe('');
-    expect(creds.get('POOL:a')).toBe('sk-a');
+    creds.set('POOL:old', 'sk-1');
+    write(face, creds, 'llmProviders', { newname: { base_url: 'https://x', model: 'm', api_key: API_KEY_MASK } });
+    expect(creds.get('POOL:newname')).toBe('sk-1');
+    expect(creds.get('POOL:old')).toBe('');
   });
 });
 
-describe('config-face：读面掩码回填', () => {
-  it('已设置 → 掩码；未设置 → 空串（前端「已设置」指示）', () => {
-    const creds = new MemoryCredentials();
-    creds.set('POOL:deepseek', 'sk-real');
-    const config: Record<string, unknown> = {
-      llmProviders: { deepseek: { base_url: 'https://x' }, zai: { base_url: 'https://y' } },
-      searchProviders: { 'ds-search': { provider: 'deepseek' } },
-    };
-    backfillPoolMasks(creds, config);
-    expect(config.llmProviders).toEqual({
-      deepseek: { base_url: 'https://x', api_key: API_KEY_MASK },
-      zai: { base_url: 'https://y', api_key: '' },
-    });
-    expect(config.searchProviders).toEqual({ 'ds-search': { provider: 'deepseek', api_key: '' } });
-  });
-});
-
-describe('config-face：config/save 白名单域 replace 语义', () => {
-  it('payload 有的键覆盖、缺的键删除、白名单外键不动', () => {
+describe('config-face：save 的 replace 语义 / merge 的 patch 语义', () => {
+  it('save：payload 缺的注册域删除、非注册域不动', () => {
     const face = new MemoryConfig();
+    face.data.llmProviders = { a: { base_url: 'https://a' } };
+    face.data.settings = { devMode: true };
+    face.data.internalKey = { x: 1 };
     const creds = new MemoryCredentials();
-    face.set('llmProviders', { openai: { base_url: 'https://x' } });
-    face.set('timer', { tasks: [{ id: 't1' }] });
-    face.set('legacyKey', { keep: true });
-    const warnings = saveConfigDomains(face, creds, { llmProviders: { glm: { base_url: 'https://y' } } });
+    const warnings = saveConfigDomains(face, creds, DOMAINS, { llmProviders: { b: { base_url: 'https://b' } } });
     expect(warnings).toEqual([]);
-    expect(face.data.llmProviders).toEqual({ glm: { base_url: 'https://y' } });
-    expect(face.data.timer).toBeUndefined(); // 白名单内缺键 = 删除
-    expect(face.data.legacyKey).toEqual({ keep: true }); // 白名单外不动
+    expect(face.data.llmProviders).toEqual({ b: { base_url: 'https://b' } });
+    expect(face.data.settings).toBeUndefined(); // 注册域缺 = 删（replace）
+    expect(face.data.internalKey).toEqual({ x: 1 }); // 非注册域 = 不动
   });
 
-  it('掩码字段先被 sanitize 剥掉 → 该条目不表态（凭据不动）', () => {
+  it('save：非对象 payload fail', () => {
     const face = new MemoryConfig();
     const creds = new MemoryCredentials();
-    creds.set('POOL:glm', 'sk-g');
-    saveConfigDomains(face, creds, { llmProviders: { glm: { api_key: API_KEY_MASK, model: 'glm-5.3' } } });
-    expect(creds.get('POOL:glm')).toBe('sk-g');
-    expect(face.data.llmProviders).toEqual({ glm: { model: 'glm-5.3' } });
+    expect(() => saveConfigDomains(face, creds, DOMAINS, 'not-an-object')).toThrow(/config/);
+    expect(() => saveConfigDomains(face, creds, DOMAINS, [])).toThrow(/config/);
   });
 
-  it('真实 key 经 side channel 落凭据、config 剥离', () => {
+  it('merge（cr-1173）：未涉及域幸存（事故面断言）', () => {
     const face = new MemoryConfig();
+    face.data.llmProviders = { glm: { base_url: 'https://x' } };
+    face.data.searchProviders = { tav: { provider: 'tavily' } };
+    face.data.settings = { devMode: false };
     const creds = new MemoryCredentials();
-    saveConfigDomains(face, creds, {
-      llmProviders: { glm: { api_key: 'sk-g', model: 'glm-5.3' } },
-      searchProviders: { tavily: { api_key: 'sk-t' } },
-    });
-    expect(creds.get('POOL:glm')).toBe('sk-g');
-    expect(creds.get('SEARCHPOOL:tavily')).toBe('sk-t');
-    expect(face.data.llmProviders).toEqual({ glm: { model: 'glm-5.3' } });
-    expect(face.data.searchProviders).toEqual({ tavily: {} });
-  });
-
-  it('参数 config 非对象 fail', () => {
-    const face = new MemoryConfig();
-    const creds = new MemoryCredentials();
-    expect(() => saveConfigDomains(face, creds, 'not-an-object')).toThrow(/config/);
-    expect(() => saveConfigDomains(face, creds, [])).toThrow(/config/);
-  });
-});
-
-describe('config-face：config/merge patch 语义（cr-1173——replace 陷阱收口）', () => {
-  it('只动 payload 在场的域：未涉及域幸存（cr-1168 事故面断根）', () => {
-    const face = new MemoryConfig();
-    const creds = new MemoryCredentials();
-    face.set('llmProviders', { openai: { base_url: 'https://x' } });
-    face.set('settings', { devMode: true });
-    face.set('source', { fs: { roots: [{ id: 'docs', root: 'C:/x' }] } });
-    // 只送 source 域——其余域必须幸存（config/save 同 payload 会删掉它们）
-    const warnings = mergeConfigDomains(face, creds, { source: { fs: { roots: [{ id: 'news', root: 'C:/y' }] } } });
+    const warnings = mergeConfigDomains(face, creds, DOMAINS, { source: { fs: { roots: [{ id: 'news', root: 'C:/y' }] } } });
     expect(warnings).toEqual([]);
     expect(face.data.source).toEqual({ fs: { roots: [{ id: 'news', root: 'C:/y' }] } });
-    expect(face.data.llmProviders).toEqual({ openai: { base_url: 'https://x' } });
-    expect(face.data.settings).toEqual({ devMode: true });
+    expect(face.data.llmProviders).toEqual({ glm: { base_url: 'https://x' } }); // 幸存
+    expect(face.data.searchProviders).toEqual({ tav: { provider: 'tavily' } }); // 幸存
+    expect(face.data.settings).toEqual({ devMode: false }); // 幸存
   });
 
-  it('白名单外键 fail-closed；非对象 fail', () => {
+  it('merge：白名单外域拒 / 非对象拒', () => {
     const face = new MemoryConfig();
     const creds = new MemoryCredentials();
-    expect(() => mergeConfigDomains(face, creds, { appInternal: { x: 1 } })).toThrow(/白名单/);
-    expect(() => mergeConfigDomains(face, creds, 'nope')).toThrow(/config/);
+    expect(() => mergeConfigDomains(face, creds, DOMAINS, { appInternal: { x: 1 } })).toThrow(/可写域集合/);
+    expect(() => mergeConfigDomains(face, creds, DOMAINS, 'nope')).toThrow(/config/);
   });
 
-  it('池域 api_key 侧信道与 sanitize 同源（掩码 = 不动 / 新值 = 存 / config 不落 key）', () => {
+  it('merge：侧信道同源（api_key 提取 + 掩码保持）', () => {
     const face = new MemoryConfig();
     const creds = new MemoryCredentials();
-    creds.set('POOL:glm', 'sk-old');
-    mergeConfigDomains(face, creds, { llmProviders: { glm: { api_key: API_KEY_MASK, model: 'm' }, ds: { api_key: 'sk-new' } } });
-    expect(creds.get('POOL:glm')).toBe('sk-old');
-    expect(creds.get('POOL:ds')).toBe('sk-new');
-    expect(face.data.llmProviders).toEqual({ glm: { model: 'm' }, ds: {} });
+    creds.set('POOL:glm', 'sk-keep');
+    mergeConfigDomains(face, creds, DOMAINS, { llmProviders: { glm: { api_key: API_KEY_MASK, model: 'm' }, ds: { api_key: 'sk-new' } } });
+    expect(creds.get('POOL:glm')).toBe('sk-keep'); // 掩码 = 不动
+    expect(creds.get('POOL:ds')).toBe('sk-new'); // 新值 = 存
+    expect(face.data.llmProviders).toEqual({ glm: { model: 'm' }, ds: {} }); // key 剥离
   });
 });
 
-describe('config-face：sanitize 与 provider 名', () => {
-  it('sanitize 递归剥离掩码字段（值与掩码相同的字段消失；数组元素原样）', () => {
-    expect(sanitizeConfigValue({ a: API_KEY_MASK, b: { c: API_KEY_MASK, d: 1 }, e: [API_KEY_MASK, 2] }))
-      .toEqual({ b: { d: 1 }, e: [API_KEY_MASK, 2] });
+describe('config-face：读面掩码回填 / sanitize 纯函数', () => {
+  it('backfillPoolMasks：凭据在场 = 掩码、缺席 = 空串', () => {
+    const creds = new MemoryCredentials();
+    creds.set('POOL:a', 'sk-1');
+    const config = { llmProviders: { a: { base_url: 'x' }, b: { base_url: 'y' } } };
+    backfillPoolMasks(creds, config);
+    expect(config.llmProviders.a).toEqual({ base_url: 'x', api_key: API_KEY_MASK });
+    expect(config.llmProviders.b).toEqual({ base_url: 'y', api_key: '' });
   });
 
-  it('poolProviderKey：llm → POOL: / search → SEARCHPOOL:', () => {
+  it('sanitizeConfigValue：递归剥离对象字段位掩码（数组元素位保留——现状语义）', () => {
+    expect(sanitizeConfigValue({ a: { api_key: API_KEY_MASK, x: 1 }, nested: { api_key: API_KEY_MASK } })).toEqual({ a: { x: 1 }, nested: {} });
+  });
+
+  it('poolProviderKey：域 → provider 名', () => {
     expect(poolProviderKey('llm', 'deepseek')).toBe('POOL:deepseek');
     expect(poolProviderKey('search', 'tavily')).toBe('SEARCHPOOL:tavily');
+  });
+});
+
+describe('config-face：extractPoolCredentials 边界', () => {
+  it('非池域键原样透传', () => {
+    const face = new MemoryConfig();
+    const creds = new MemoryCredentials();
+    const out = extractPoolCredentials(face.all(), creds, 'settings', { devMode: true });
+    expect(out).toEqual({ devMode: true });
   });
 });

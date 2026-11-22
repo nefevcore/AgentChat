@@ -16,3 +16,4 @@ export * from './custom-layer.ts';
 export * from './plugin-rows.ts';
 export * from './menu.ts';
 export * from './package-rows.ts';
+export * from './config-domains.ts';

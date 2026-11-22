@@ -20,23 +20,31 @@ export function defaultCatalogFile(dataRoot: string): string {
  */
 export function readCatalog(catalogFile: string): RowsetCatalog {
   const base = readBaseCatalog(path.join(path.dirname(catalogFile), 'profile'));
+  const json = readJsonCatalog(catalogFile);
   if (base !== null) {
-    const json = readJsonCatalog(catalogFile);
     return {
       rows: [
         ...base.rows.filter((r) => r.tree !== 'shell' || r.zone !== 'capability'),
         ...json.rows.filter((r) => r.tree === 'shell' && r.zone === 'capability'),
       ],
+      // configDomains（cr-1199）只住 JSON 投影（gen 产物）——基座缺席回退
+      // 分支同样透传
+      ...(json.configDomains !== undefined ? { configDomains: json.configDomains } : {}),
     };
   }
-  return readJsonCatalog(catalogFile);
+  return json;
 }
 
 /** JSON 投影直读（坏/缺席 = 空目录——不阻断，双读窗口容错语义） */
 function readJsonCatalog(catalogFile: string): RowsetCatalog {
   try {
     const parsed = JSON.parse(fs.readFileSync(catalogFile, 'utf-8')) as Partial<RowsetCatalog>;
-    if (Array.isArray(parsed.rows)) return { rows: parsed.rows as RowsetCatalog['rows'] };
+    if (Array.isArray(parsed.rows)) {
+      return {
+        rows: parsed.rows as RowsetCatalog['rows'],
+        ...(parsed.configDomains !== undefined ? { configDomains: parsed.configDomains } : {}),
+      };
+    }
   } catch {
     // 缺席 = 空目录
   }

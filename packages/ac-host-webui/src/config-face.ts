@@ -26,12 +26,11 @@ import {
   type CredentialState,
 } from 'ac-credentials-core';
 
-/** 全局配置可写键白名单（主线 settings 面板词汇）：点路径首段命中即放行。
- *  其余键（app 内部键）由各域服务自行拥有，设置面板不可触。
- *  source（cr-1168）：fs-source 行的 roots 声明域——读面在 ac-source-core
- *  （config?.get('source.fs')），写面在此补齐；缺它 = 配置只能手改文件
- *  （news 实测踩坑：平台自己规定的配置键，平台自己的写接口写不进去）。 */
-export const CONFIG_KEY_PREFIXES = new Set(['llm', 'llmProviders', 'searchProviders', 'source', 'timer', 'tool', 'ui', 'session', 'settings']);
+/** 可写域集合（cr-1199 注册化）：事实源 = 各能力包 package.json
+ *  ac.configDomains（「读面在哪，写面就归谁注册」——cr-1168 裁决），
+ *  gen 聚合进 row-catalog.json 顶层 configDomains，消费面经 readCatalog
+ *  取全集。缺席回退 = 空集（fail-closed：未注册即不可写）。 */
+export type ConfigDomains = ReadonlySet<string>;
 
 /** 掩码值（与主线 API_KEY_MASK 同款：回传即「已设置」，回写则不动） */
 export const API_KEY_MASK = '••••••••';
@@ -93,11 +92,12 @@ export function createPoolCredentials(dataRoot: string): PoolCredentialFace {
   };
 }
 
-/** 白名单校验：点路径首段须在可写集合内（未知键 fail-closed） */
-export function assertConfigKey(key: string): void {
+/** 白名单校验：点路径首段须在可写域集合内（未知键 fail-closed——
+ * 域集合 = 注册聚合产物，缺席 = 空集全拒） */
+export function assertConfigKey(domains: ConfigDomains, key: string): void {
   const first = key.split('.')[0];
-  if (!first || !CONFIG_KEY_PREFIXES.has(first)) {
-    throw new Error('config 键 "' + key + '" 不在可写白名单（' + [...CONFIG_KEY_PREFIXES].join('/') + '）');
+  if (!first || !domains.has(first)) {
+    throw new Error('config 键 "' + key + '" 不在可写域集合（' + [...domains].join('/') + '）');
   }
 }
 
@@ -213,10 +213,11 @@ export function backfillPoolMasks(creds: PoolCredentialFace, config: Record<stri
 export function writeConfigKey(
   face: ConfigFace,
   creds: PoolCredentialFace,
+  domains: ConfigDomains,
   key: string,
   value: unknown,
 ): string[] {
-  assertConfigKey(key);
+  assertConfigKey(domains, key);
   if (value === undefined) throw new Error('参数 value 缺失');
   const warnings: string[] = [];
   face.set(key, sanitizeConfigValue(extractPoolCredentials(face.all(), creds, key, value, warnings)));
@@ -224,8 +225,8 @@ export function writeConfigKey(
 }
 
 /** config/delete 单键写面（白名单同源；非池域键无凭据动作） */
-export function removeConfigKey(face: ConfigFace, key: string): void {
-  assertConfigKey(key);
+export function removeConfigKey(face: ConfigFace, domains: ConfigDomains, key: string): void {
+  assertConfigKey(domains, key);
   face.delete(key);
 }
 
@@ -235,14 +236,14 @@ export function removeConfigKey(face: ConfigFace, key: string): void {
  * 池域条目 api_key 先经侧信道（掩码 = 不动 / '' = 删 / 新值 = 存），
  * config.json 永不落 key。
  */
-export function saveConfigDomains(face: ConfigFace, creds: PoolCredentialFace, next: unknown): string[] {
+export function saveConfigDomains(face: ConfigFace, creds: PoolCredentialFace, domains: ConfigDomains, next: unknown): string[] {
   if (!isEntry(next)) throw new Error('参数 config 须为对象');
   // 顺序要紧：sanitize 先剥掉掩码字段（= 保持不变），再对存留的池条目
   // 提取真实 key（''/新值）——被剥掉的掩码条目不动凭据库。
   const payload = sanitizeConfigValue(next) as Record<string, unknown>;
   const current = face.all();
   const warnings: string[] = [];
-  for (const key of CONFIG_KEY_PREFIXES) {
+  for (const key of [...domains].sort()) {
     if (key in payload) {
       face.set(key, extractPoolCredentials(current, creds, key, payload[key], warnings));
     } else if (key in current) {
@@ -259,9 +260,9 @@ export function saveConfigDomains(face: ConfigFace, creds: PoolCredentialFace, n
  * 绝无「半个 config.json 顶掉全量」的事故面。域内语义仍是整域替换
  * （浅合并顶层——深合并的语义惊讶比 replace 更隐蔽，不做）。
  */
-export function mergeConfigDomains(face: ConfigFace, creds: PoolCredentialFace, patch: unknown): string[] {
+export function mergeConfigDomains(face: ConfigFace, creds: PoolCredentialFace, domains: ConfigDomains, patch: unknown): string[] {
   if (!isEntry(patch)) throw new Error('参数 config 须为对象');
-  for (const key of Object.keys(patch)) assertConfigKey(key);
+  for (const key of Object.keys(patch)) assertConfigKey(domains, key);
   const current = face.all();
   const warnings: string[] = [];
   for (const [key, value] of Object.entries(sanitizeConfigValue(patch) as Record<string, unknown>)) {

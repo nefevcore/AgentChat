@@ -21,6 +21,9 @@
     "ac-extension-core": "workspace:*",
     "vitest": "^4.1.10"
   },
+  "ac": {
+    "configDomains": ["llmProviders"]
+  },
   "agentchat": {
     "plugin": true
   },

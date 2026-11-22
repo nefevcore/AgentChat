@@ -22,6 +22,7 @@
     }
   },
   "ac": {
+    "configDomains": ["llm", "settings", "ui", "session"],
     "faces": {
       "web": {
         "entry": "./client/dist/index.js",

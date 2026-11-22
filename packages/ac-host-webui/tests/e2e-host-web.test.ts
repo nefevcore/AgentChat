@@ -206,8 +206,8 @@ describe('8.5a 宿主 web 面接线', () => {
     expect(onDisk().searchProviders).toBeUndefined();
     expect(readCredential(ROOT, key, '__GLOBAL___POOL:GLM_API_KEY')).toBe('sk-e2e-glm');
 
-    // ⑤ config/delete：白名单外 fail-closed；白名单内删键
-    await expect(rpc(ws, 'config/delete', { key: 'sessions' })).rejects.toThrow(/白名单/);
+    // ⑤ config/delete：注册域外 fail-closed；注册域内删键
+    await expect(rpc(ws, 'config/delete', { key: 'sessions' })).rejects.toThrow(/可写域集合/);
     await rpc(ws, 'config/delete', { key: 'llmProviders' });
     expect(onDisk().llmProviders).toBeUndefined();
 
