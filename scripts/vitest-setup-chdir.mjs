@@ -47,16 +47,6 @@ if (process.env.AGENTCHAT_DATA_ROOT !== undefined) {
   );
   delete process.env.AGENTCHAT_DATA_ROOT;
 }
-// AGENTCHAT_SUPERVISED 渗漏防线（cr-322 立、cr-859 env 退役后留观）：
-// 该 env 已无生产注入点（supervisor 改心跳双证据判定 system 在场），
-// 但历史 shell 会话/第三方包装仍可能携带——摘除语义保持（恒无操作化
-// 影响，防旧形态渗入复活）。
-if (process.env.AGENTCHAT_SUPERVISED !== undefined) {
-  console.warn(
-    `[vitest-setup-chdir] 摘除渗漏的 AGENTCHAT_SUPERVISED=${process.env.AGENTCHAT_SUPERVISED}（该 env 已退役——cr-859 心跳双证据）`,
-  );
-  delete process.env.AGENTCHAT_SUPERVISED;
-}
 // AGENTCHAT_DEV_MODE 渗漏防线（cr-1174）：开发者 shell 以该 env 运行时，
 // 测试进程继承后系统域双禁默认表被解除——sandbox 断言两例假红（cr-1114/
 // 1121/1142/1149/1165/1166 六次踩坑）。测试环境不测开发者模式语义，摘除。

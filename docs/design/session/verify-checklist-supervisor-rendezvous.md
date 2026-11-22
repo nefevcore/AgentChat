@@ -1,7 +1,7 @@
 # 三份设计文档人工验证清单（发起会话视角）
 
 > 性质：验证清单——三条主线（system 层监护 / 盘面会合 / host-revive 恢复边）的人工走查步骤与观察点。
-> 状态：现行 · 2026-11-02 活体采样成文（随 cr-857~863 设计批）· cr-1008 2026-11-11 整理批归位校正（三处失效路径按现行代码修：见一之 4、C1-2/C1-3、C4）。
+> 状态：现行 · 2026-11-02 活体采样成文（随 cr-857~863 设计批）· cr-1008 2026-11-11 整理批归位校正（三处失效路径按现行代码修：见一之 4、C1-2/C1-3、C4）· cr-1212 2026-11-22 失效命令再校正（一之 4 supervisor pid 读取路径）。
 > 读者：需要人工复核 supervisor / 盘面会合 / 恢复链路行为的人（改动监护或投递面后走一遍）。
 > 用途：从「发起会话的用户」角度人工走一遍三条主线——supervisor system 层监护
 > （supervisor-service-plan.md，已落位 docs/design/assembly/）、盘面会合 subagent 通信
@@ -15,7 +15,7 @@
 1. `pnpm dev` 在跑（3830 有监听）。若没跑：`pnpm dev`（supervised 形态）。
 2. `Get-Process AgentChat` 应多个进程（supervisor + host + shells）。
 3. 记宿主 pid：`Get-NetTCPConnection -LocalPort 3830 -State Listen | % { $_.OwningProcess }`。
-4. 记 supervisor pid：`Get-Content .runtime/runtime.json`（仓库根 `.runtime/` 目录本体——supervisor 单写者锁与 pid 记录；数据根侧另有 `workspace/home/.runtime/system-heartbeat` 心跳面，两文件两个坐标，见 `apps/system/supervisor.mjs` 头注）。
+4. 记 supervisor pid：`Get-Content .runtime`（仓库根 `.runtime` 文件本体——supervisor 单写者锁，内容即 `{pid, acquiredAt}` JSON；数据根侧另有 `workspace/home/.runtime/system-heartbeat` 心跳面，两文件两个坐标，见 `apps/system/supervisor.mjs` 头注）。
 5. webui http://localhost:3830 可开。
 
 ## 二、system 层监护（supervisor-service-plan.md）
