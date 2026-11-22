@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-11-13T09:15:22.893Z",
+  "generatedAt": "2026-11-21T15:58:20.031Z",
   "source": "bootShell 真装配 dump（scripts/gen-tool-catalog.mjs）",
   "tools": [
     {
@@ -1373,7 +1373,7 @@
     },
     {
       "name": "ask_questions",
-      "description": "向用户提问并等待回答（发起后本 run 挂起，用户回答到达后自动继续）。用于需要用户决策或确认的场景。",
+      "description": "向用户提问并等待回答（发起后本 run 挂起，用户回答到达后自动继续）。用于需要用户决策或确认的场景。无人值守会话（agent~agent 对话等）慎用：用户大概率不在场——能自主决断就别问；确需决策转投用户在场的会话；实在要问，对端 Agent 会收到代答通知，10 分钟无回音自动按「未响应」收束自行决断。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -1649,7 +1649,7 @@
     },
     {
       "name": "glob",
-      "description": "按 glob 模式查找文件（如 \"**/*.ts\"；模式不含 / 时匹配任意深度的文件名）。output: { root, total, shown, paths: Array<string> }——paths 相对工作区锚点（不是搜索根），按修改时间新→旧，内联上限 100；paths 条目可直接作为 read/grep 的相对路径参数（同锚点解析）。",
+      "description": "按 glob 模式查找文件（如 \"**/*.ts\"；模式不含 / 时匹配任意深度的文件名）。output: { root, total, shown, paths: Array<string> }——paths 相对工作区锚点解析（锚点内根返回锚点相对路径、锚点外根返回相对搜索根的路径——回读时需以 path 参数拼回），按修改时间新→旧，内联上限 100。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -2074,7 +2074,7 @@
     },
     {
       "name": "restart_host",
-      "description": "改了宿主装载的代码、且需要它在运行时生效（继续开发/验证/交付）时才调本工具——宿主进程不热更新，不重启则运行的一直是旧代码（测试全绿 ≠ 运行时已生效；只改码不跑即无需重启）。触发判据（满足即调，无需用户指示）：改动了宿主侧装载的源码——宿主基座（apps/catalog/profile/host.yml）点名的包（ac-host-rows、ac-post-office、ac-web-server、ac-host-webui 等）、apps/host 源码、宿主侧基座文档/装配（apps/catalog/）；或宿主侧状态坏、宿主级行集目录/插件库变更需重载。机制：「退出即复活」的无损重载原语（退出码 42 优雅重启，非停机窗口、非崩溃）——拉起恒归活壳探测，supervisor 在场时为其快路；webui 短暂断连后恢复。保壳保 run：模型调用不经过宿主，本壳与当前 run 不受影响——调用后继续当前任务即可，run 终稿在宿主恢复后送达。回执为壳侧送达确认（宿主退出后无法自回响应——crashed/超时类结果不等于失败），复活证据以回执给出的 healthz 探测地址/事实源文件为准，勿盲猜端口。批处理/迁移等宿主静止期执行（idle 宿主只在 run 收束时写盘，「需要停机窗口」的担忧通常不存在）。改的只是壳侧装载面（shell.yml 或你的行集点名的包）→ 用 restart_shell，不用本工具。",
+      "description": "改了宿主装载的代码、且需要它在运行时生效（继续开发/验证/交付）时才调本工具——宿主进程不热更新，不重启则运行的一直是旧代码（测试全绿 ≠ 运行时已生效；只改码不跑即无需重启）。触发判据（满足即调，无需用户指示）：改动了宿主侧装载的源码——宿主基座（apps/catalog/profile/host.yml）点名的包（ac-host-rows、ac-post-office、ac-web-server、ac-host-webui 等）、apps/host 源码、宿主侧基座文档/装配（apps/catalog/）；或宿主侧状态坏、宿主级行集目录/插件库变更需重载。机制：「退出即复活」的无损重载原语（退出码 42 优雅重启，非停机窗口、非崩溃）——拉起恒归活壳探测，supervisor 在场时为其快路；webui 短暂断连后恢复。保壳保 run：模型调用不经过宿主，本壳与当前 run 不受影响——调用后继续当前任务即可，run 终稿在宿主恢复后送达。回执为壳侧送达确认（宿主退出后无法自回响应——crashed/超时类结果不等于失败）；重启完成后新宿主自动向本会话投「宿主已重启完成」机制通知——收到通知即知换代完成，无需自行探测宿主状态。批处理/迁移等宿主静止期执行（idle 宿主只在 run 收束时写盘，「需要停机窗口」的担忧通常不存在）。改的只是壳侧装载面（shell.yml 或你的行集点名的包）→ 用 restart_shell，不用本工具。",
       "parameters": {
         "type": "object",
         "properties": {},
@@ -2228,6 +2228,23 @@
       "owner": "ac-collab-tools"
     },
     {
+      "name": "session_digest",
+      "description": "仅在归档整理轮调用——收到压缩请求注入后，把整理结果作为唯一参数提交。会话内其他场景勿调用。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": {
+            "type": "string",
+            "description": "总结全文（自然语言；建议精炼覆盖关键决策、结论与待办）"
+          }
+        },
+        "required": [
+          "text"
+        ]
+      },
+      "owner": "shell-archive-row"
+    },
+    {
       "name": "str_replace_editor",
       "description": "四合一文件编辑器：view 查看文件（带行号）或目录、create 创建文件、str_replace 精确文本替换、insert 按行号插入。",
       "parameters": {
@@ -2363,7 +2380,7 @@
           },
           "all": {
             "type": "boolean",
-            "description": "[list] true = 列全部子 Agent（跨会话）；缺省只列当前会话派生的（无会话归属的历史条目也会显示，origin_session 字段标注发起会话）"
+            "description": "[list] true = 列全部子 Agent（跨会话 + 无会话归属的历史条目，origin_session 字段标注发起会话）；缺省只列当前会话派生的"
           }
         },
         "required": [
@@ -2552,6 +2569,9 @@
     "str-replace-editor": [
       "str_replace_editor"
     ],
+    "archive": [
+      "session_digest"
+    ],
     "ask-questions": [
       "ask_questions"
     ],
@@ -2632,6 +2652,16 @@
   },
   "events": [
     {
+      "name": "archive/completed",
+      "listeners": [
+        {
+          "owner": "root",
+          "prepend": false,
+          "global": false
+        }
+      ]
+    },
+    {
       "name": "config/changed",
       "listeners": [
         {
@@ -2663,18 +2693,6 @@
       ]
     },
     {
-      "name": "conversation/before-start",
-      "listeners": [
-        {
-          "owner": "MemoryService",
-          "row": "ac-memory",
-          "prepend": false,
-          "global": false,
-          "description": "记忆 checkpoint/delta 注入（锚检测 + 尾部追加 context 行）"
-        }
-      ]
-    },
-    {
       "name": "conversation/queue-changed",
       "listeners": [
         {
@@ -2697,6 +2715,11 @@
     {
       "name": "durable-interaction/opened",
       "listeners": [
+        {
+          "owner": "shell-conversation-row",
+          "prepend": false,
+          "global": false
+        },
         {
           "owner": "root",
           "prepend": false,
@@ -2788,6 +2811,13 @@
           "prepend": false,
           "global": false,
           "description": "会话亲和头注入：preset 网关按会话派生稳定 session 头（粘性路由/prompt cache）"
+        },
+        {
+          "owner": "NetMonitorService",
+          "row": "ac-net-monitor",
+          "prepend": false,
+          "global": false,
+          "description": "离线闸：无网络时禁止远程模型调用（本地/私网端点豁免）"
         }
       ]
     },
@@ -2811,6 +2841,12 @@
           "description": "会话命名兜底（after-run）"
         },
         {
+          "owner": "ac-datetime",
+          "prepend": false,
+          "global": false,
+          "description": "记录最后回复时刻（datetime 间隔注入基准）"
+        },
+        {
           "owner": "shell-ledger-row",
           "prepend": false,
           "global": false
@@ -2819,7 +2855,7 @@
           "owner": "shell-archive-row",
           "prepend": false,
           "global": false,
-          "description": "归档阈值检测（run 收束后回放估算）"
+          "description": "归档触发检测（run 收束后——机制注册式）"
         },
         {
           "owner": "SkillsService",
@@ -2860,6 +2896,24 @@
       "name": "loop/before-run",
       "listeners": [
         {
+          "owner": "ac-datetime",
+          "prepend": false,
+          "global": false,
+          "description": "日期落盘 + 间隔阈值时间信息注入（cr-1182）"
+        },
+        {
+          "owner": "ac-env-pulse",
+          "prepend": false,
+          "global": false,
+          "description": "系统事件 delta 注入（env-pulse）"
+        },
+        {
+          "owner": "ac-permission-gate",
+          "prepend": false,
+          "global": false,
+          "description": "权限门：run 边界批准缓存失效"
+        },
+        {
           "owner": "McpService",
           "row": "ac-mcp",
           "prepend": false,
@@ -2867,16 +2921,11 @@
           "description": "MCP 懒建连 + 工具发现注册 + per-Agent 暴露面收敛"
         },
         {
-          "owner": "ac-datetime",
+          "owner": "MemoryService",
+          "row": "ac-memory",
           "prepend": false,
           "global": false,
-          "description": "独立会话每日 user 快照行（singles）"
-        },
-        {
-          "owner": "ac-host-face-client",
-          "prepend": false,
-          "global": false,
-          "description": "宿主能力面懒装配（首 run / invalidate 后重建）"
+          "description": "记忆 checkpoint/delta 注入（loop/before-run：私有水位判定 + 落账/工作数组双写 + 锚推进）"
         },
         {
           "owner": "SkillsService",
@@ -2999,6 +3048,12 @@
       "name": "tool/before-execute",
       "listeners": [
         {
+          "owner": "ac-permission-gate",
+          "prepend": false,
+          "global": false,
+          "description": "权限门：needPermission/risk 决策序（ask 上抛设置链+审批卡）"
+        },
+        {
           "owner": "ac-web-tools",
           "prepend": false,
           "global": false,
@@ -3036,9 +3091,23 @@
   "eventDescs": [
     {
       "owner": "datetime",
+      "event": "loop/after-run",
+      "description": "run 收束记最后回复时刻（间隔注入基准）",
+      "role": "最后回复时刻记录",
+      "source": "builtin"
+    },
+    {
+      "owner": "datetime",
       "event": "loop/before-run",
-      "description": "singles 信封尾部插入 user 快照行（每 run 恰一行；system 不动）",
-      "role": "独立会话日快照行",
+      "description": "per-run 落日期 context 行 + 间隔超阈值注入时间信息行",
+      "role": "日期落盘与时间信息注入",
+      "source": "builtin"
+    },
+    {
+      "owner": "env-pulse",
+      "event": "loop/before-run",
+      "description": "读 meta/system-events.jsonl 增量，有变化时注入 [系统状态] 行",
+      "role": "系统事件 delta 注入",
       "source": "builtin"
     },
     {
@@ -3047,14 +3116,6 @@
       "description": "Agent 循环收束通知（持久化/审计/指标订阅）",
       "role": "goal-round 驱动",
       "source": "builtin"
-    },
-    {
-      "owner": "host-face-client",
-      "event": "loop/before-run",
-      "description": "宿主能力面懒装配（首 run / invalidate 后重建）",
-      "role": "懒装配 + 脏重建",
-      "source": "builtin",
-      "automatic": true
     },
     {
       "owner": "mcp",
@@ -3067,16 +3128,23 @@
     },
     {
       "owner": "memory",
-      "event": "conversation/before-start",
-      "description": "锚检测（H>S delta / H=S 稳态 / H<S 或无锚快照重定基线）+ 尾部追加 context 行",
-      "role": "checkpoint/delta 注入",
+      "event": "loop/before-run",
+      "description": "字节恒定的 memory-guide（内容走 context 行协议）",
+      "role": "静态指引注入（段注册制）",
       "source": "builtin"
     },
     {
       "owner": "memory",
       "event": "loop/before-run",
-      "description": "字节恒定的 memory-guide（内容走 context 行协议）",
-      "role": "静态指引注入",
+      "description": "私有水位判定（.anchors.json：H>S delta / H=S 稳态 / 无锚或 H<S 快照重定基线）+ 落账/工作数组双写 + 锚推进",
+      "role": "checkpoint/delta 注入（cr-1154）",
+      "source": "builtin"
+    },
+    {
+      "owner": "netMonitor",
+      "event": "llm/before-chat",
+      "description": "无网络时拒绝远程模型调用（本地/私网端点豁免）",
+      "role": "离线闸",
       "source": "builtin"
     },
     {
