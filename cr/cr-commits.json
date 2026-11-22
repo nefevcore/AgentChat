@@ -1,6 +1,6 @@
 {
- "scannedHead": "b04042f6dcfda31236e42a589792b023ca3524f5",
- "generatedAt": "2026-11-22T12:07:27.652Z",
+ "scannedHead": "a4bc68307a02ec60c22dbaac453a2dda7c73529c",
+ "generatedAt": "2026-11-22T14:42:22.120Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4942,6 +4942,11 @@
     "sha": "e2b50acf86ae14cb335acaa4c287be5d50d87843",
     "date": "2026-11-14",
     "subject": "docs(session): cr-1082 access 轴整体退役计划成文（access-retirement-plan）——沙箱常量化 + full 统一为门裁决（通过即 full），A/B/C 三批与 V1-V6 验收"
+   },
+   {
+    "sha": "60c696806c717b9d09c70b030cc2aef16605efa1",
+    "date": "2026-11-22",
+    "subject": "fix(permission-gate): cr-1248 预授权注入分级——设置链 allow 与 run 缓存命中改注 sandbox-access（免弹卡但恢复命令扫描），人工弹卡批准保持 full（知情通过即 full，修订 cr-1082）+ gate 分级回归锚 + access 契约 JSDoc 同步"
    }
   ],
   "1083": [
@@ -6174,6 +6179,11 @@
     "sha": "8839cddbe81257ddb675c6b1607b8fb4b741aa46",
     "date": "2026-11-22",
     "subject": "fix(run-code): cr-1216+1222 子调用参数可克隆前置校验（BigInt/Symbol/循环引用 fail-fast + 错误面带工具名字段名）+ 最近名建议距离阈值 max(2,⌊len/3⌋)（ISSUE-15：memory_write 不再误导建议 write）"
+   },
+   {
+    "sha": "e19b90704f61fd3b463795d8a4c4cd285ebde2a7",
+    "date": "2026-11-22",
+    "subject": "chore(cr): cr-commits 投影同步（本批 cr-1216~1247）"
    }
   ],
   "1217": [
@@ -6316,6 +6326,49 @@
     "sha": "7c0cf3a99a2438ac611a05d2390b3100f908fd94",
     "date": "2026-11-22",
     "subject": "fix(math): cr-1247 整数静默截断修复——toPrecision(15) 归一化仅施于非整数，整数直出 String()（2**50 等 15 位以上精确整数不再被截成 15 位有效数字）+ 测试锚"
+   }
+  ],
+  "1248": [
+   {
+    "sha": "a4bc68307a02ec60c22dbaac453a2dda7c73529c",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批提交 cr-1248~1251 索引与详情（对应功能提交见投影）"
+   },
+   {
+    "sha": "60c696806c717b9d09c70b030cc2aef16605efa1",
+    "date": "2026-11-22",
+    "subject": "fix(permission-gate): cr-1248 预授权注入分级——设置链 allow 与 run 缓存命中改注 sandbox-access（免弹卡但恢复命令扫描），人工弹卡批准保持 full（知情通过即 full，修订 cr-1082）+ gate 分级回归锚 + access 契约 JSDoc 同步"
+   }
+  ],
+  "1249": [
+   {
+    "sha": "60caffede41395b24756b5d4c13d0514ee3eed5d",
+    "date": "2026-11-22",
+    "subject": "fix(session): cr-1251 注入消费点贯通——loop 统一 inject-consumed 事件（四通道：steer splice/durable splice/before-run/run-idle）+ call.inject 注入面 + steer/injectDurable meta 扩展；ac-ledger 订阅消费点落账（文件序=模型消息序，resume 前缀不再分叉）；壳侧 pendingSteerInjects 全机制退役；生产方五方双写改单写（datetime 含间隔行落账 / skill / env-pulse / memory / ask-questions）；datetime 摘 session 寄生门控（防重归锚文件）；steer-consumed 退役；e2e 断言随新行为（mock 回显日期锚，同日幂等）。含 cr-1249 skill before-run 注入 src 基线（本 CR 在其上推进为注入面单写）"
+   },
+   {
+    "sha": "5d334a3d7bd9b1dc208f92803b90bc67f464f0be",
+    "date": "2026-11-22",
+    "subject": "feat(skill): cr-1249 技能目录注入改造——<available_skills> 移出 system prompt（SKILLS 段退役，位号不回收），before-run 指纹注入（datetime/env-pulse 同构：变化才注 + .anchors 私有判重）+ catalog 七用例（src 实现随 cr-1251 注入面单写一并提交）"
+   }
+  ],
+  "1250": [
+   {
+    "sha": "8b775ca7fe33c7d5cc0411967f2bb4e82430c050",
+    "date": "2026-11-22",
+    "subject": "fix(web-tools): cr-1250 browser 首启 EPERM（teardown 记账 doBoot await 落定断竞态 + clearProfile 重试单源化）与 steps 批量步级门禁（越权步标 __denied 续跑，整批 veto 仅限全越权——continue_on_error 语义归位）+ 三臂行为锁"
+   }
+  ],
+  "1251": [
+   {
+    "sha": "60caffede41395b24756b5d4c13d0514ee3eed5d",
+    "date": "2026-11-22",
+    "subject": "fix(session): cr-1251 注入消费点贯通——loop 统一 inject-consumed 事件（四通道：steer splice/durable splice/before-run/run-idle）+ call.inject 注入面 + steer/injectDurable meta 扩展；ac-ledger 订阅消费点落账（文件序=模型消息序，resume 前缀不再分叉）；壳侧 pendingSteerInjects 全机制退役；生产方五方双写改单写（datetime 含间隔行落账 / skill / env-pulse / memory / ask-questions）；datetime 摘 session 寄生门控（防重归锚文件）；steer-consumed 退役；e2e 断言随新行为（mock 回显日期锚，同日幂等）。含 cr-1249 skill before-run 注入 src 基线（本 CR 在其上推进为注入面单写）"
+   },
+   {
+    "sha": "5d334a3d7bd9b1dc208f92803b90bc67f464f0be",
+    "date": "2026-11-22",
+    "subject": "feat(skill): cr-1249 技能目录注入改造——<available_skills> 移出 system prompt（SKILLS 段退役，位号不回收），before-run 指纹注入（datetime/env-pulse 同构：变化才注 + .anchors 私有判重）+ catalog 七用例（src 实现随 cr-1251 注入面单写一并提交）"
    }
   ]
  }
