@@ -909,8 +909,8 @@ export class ShellSubagentService extends Service {
   }
 
   /** list 面（在场 + 物化清单——含已退出者，status 区分；归档收割者隐去〔cr-712〕）。
-   * conversationId 给定（cr-738）= 会话域过滤：只列该会话派生的子 + 无会话键
-   * 条目（宿主直调/早期存量——保守显示防孤儿管理不到）；undefined = 全量。 */
+   * conversationId 给定（cr-738 域；cr-1197 收紧）= 严格匹配：只列该会话派生的
+   * 子（无会话键条目退出缺省面——跨会话/无键经 all 管理或按 id 触达）；undefined = 全量。 */
   listOp(conversationId?: string): SubagentEntry[] {
     const ids = new Set<string>([...this.children.keys(), ...listChildIds(this.dataRoot, this.agentId)]);
     const entries: SubagentEntry[] = [...ids].sort().filter((childId) => this.children.has(childId) || !childIsArchived(this.dataRoot, this.agentId, childId)).map((childId): SubagentEntry => {
@@ -927,8 +927,9 @@ export class ShellSubagentService extends Service {
         ...(origin !== undefined ? { originConversation: origin } : {}),
       };
     });
+    // cr-1197：严格匹配——无键条目不再进缺省面（此前恒显，跨会话无键历史
+    // 污染每个会话的缺省视图；无键子仍可经 all:true 或 stop/status 触达面管理）
     return entries.filter((e) => conversationId === undefined
-      || e.originConversation === undefined
       || e.originConversation === conversationId);
   }
 
@@ -1001,7 +1002,7 @@ export class ShellSubagentService extends Service {
           answers: { type: 'array', items: { type: ['string', 'array', 'null'] }, description: '[answer] 对子 Agent pending 提问的逐题回答（与提问顺序一一对应；单选 = 选项文本或 null 跳过，多选 = 文本数组）' },
           wait_time: { type: 'number', description: '[spawn] 正值 = 阻塞等首条任务终稿（秒；超时返回已转后台，结果稍后 await 查询）', minimum: 0 },
           query: { type: 'string', description: '[list] 按 id/名称子串过滤' },
-          all: { type: 'boolean', description: '[list] true = 列全部子 Agent（跨会话）；缺省只列当前会话派生的（无会话归属的历史条目也会显示，origin_session 字段标注发起会话）' },
+          all: { type: 'boolean', description: '[list] true = 列全部子 Agent（跨会话 + 无会话归属的历史条目，origin_session 字段标注发起会话）；缺省只列当前会话派生的' },
         },
         required: ['action'],
       },
@@ -1113,7 +1114,8 @@ export class ShellSubagentService extends Service {
           }
           case 'list': {
             const query = typeof args.query === 'string' ? args.query : '';
-            // 会话域过滤（cr-738）：缺省只列当前会话派生的子（+ 无键条目）；all = 全量
+            // 会话域过滤（cr-738 域；cr-1197 收紧）：缺省只列当前会话派生的子；
+            // all = 全量（跨会话与无键历史经 all 管理——防孤儿不进缺省面）
             const scope = args.all === true || typeof call.conversationId !== 'string' || call.conversationId === ''
               ? undefined
               : call.conversationId;

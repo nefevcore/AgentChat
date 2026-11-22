@@ -902,9 +902,9 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
     }
   });
 
-  // cr-738：list 会话域过滤——spawn 经工具面记 origin；当前会话只列自己
-  // 派生的子 + 无键条目（防孤儿）；他会的子隐去；all=true 全量；触达懒回填。
-  it('list 会话域：过滤命中/隐去/无键恒显/all 全量/懒回填 config', async () => {
+  // cr-738 域过滤；cr-1197 收紧：无键条目退出缺省面（跨会话无键历史不再
+  // 污染每个会话的缺省视图）；无键子仍可经 all=true 或按 id 触达（懒回填）。
+  it('list 会话域：严格匹配——own 可见/他会与无键隐去/all 全量/触达懒回填', async () => {
     const fake = fakeShell();
     const { ctx, svc, dispose } = await makeService(fake.spawn);
     try {
@@ -921,16 +921,18 @@ describe('M8.3 subagent 服务面（替身子壳）', () => {
       const uRoot = path.join(ROOT, 'agents', 'papa', 'children', 'sub-nokey');
       fs.mkdirSync(uRoot, { recursive: true });
       writeAgentPatchV3At(uRoot, [], {});
-      // 会话 A 视角：own + 无键可见；conv-b 隐去
+      // 会话 A 视角（cr-1197 严格匹配）：own 可见；conv-b 与无键条目隐去
       const inA = await tools.execute({ name: 'subagent', args: { action: 'list' }, conversationId: 'conv-a' });
       const idsA = (inA.output?.agents ?? []).map((e) => e.childId);
       expect(idsA).toContain(ownId);
-      expect(idsA).toContain('sub-nokey');
+      expect(idsA).not.toContain('sub-nokey');
       expect(idsA).not.toContain('sub-fromb');
       expect((inA.output?.agents ?? []).find((e) => e.childId === ownId)?.origin_session).toBe('conv-a');
-      // all = 全量
+      // all = 全量（跨会话 + 无键历史）
       const all = await tools.execute({ name: 'subagent', args: { action: 'list', all: true }, conversationId: 'conv-a' });
-      expect((all.output?.agents ?? []).map((e) => e.childId)).toContain('sub-fromb');
+      const allIds = (all.output?.agents ?? []).map((e) => e.childId);
+      expect(allIds).toContain('sub-fromb');
+      expect(allIds).toContain('sub-nokey');
       // 触达无键子（await 会 fail-loud 不在管理面——用 stop 无害触达）→ 单元文件补键
       //（cr-1004 批2：会话恢复键住 origin.json；config.json 存量读窗口）
       await tools.execute({ name: 'subagent', args: { action: 'stop', subagent_id: 'sub-nokey' }, conversationId: 'conv-a' });

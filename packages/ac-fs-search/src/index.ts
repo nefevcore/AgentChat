@@ -447,7 +447,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
     name: 'glob',
     description:
       '按 glob 模式查找文件（如 "**/*.ts"；模式不含 / 时匹配任意深度的文件名）。'
-      + 'output: { root, total, shown, paths: Array<string> }——paths 相对工作区锚点（不是搜索根），按修改时间新→旧，内联上限 100；paths 条目可直接作为 read/grep 的相对路径参数（同锚点解析）。',
+      + 'output: { root, total, shown, paths: Array<string> }——paths 相对工作区锚点解析（锚点内根返回锚点相对路径、锚点外根返回相对搜索根的路径——回读时需以 path 参数拼回），按修改时间新→旧，内联上限 100。',
     parameters: {
       type: 'object',
       properties: {
@@ -508,8 +508,16 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
               return d < litDirs.length && name !== litDirs[d];
             };
 
+      // cr-1197：rel 与模式匹配恒在搜索根空间（此前恒以沙箱锚点为基准——
+      // 收窄搜索根时前缀模式（src/**）静默零命中，锚点外根的 rel 还会静默
+      // 漂移成「相对搜索根」造成 read 断链）。锚点内根保留锚点前缀（read
+      // 相对路径直连——同锚点解析）；锚点外根 rel 相对搜索根（回读需带
+      // path 前缀）。matchBase 按文件名匹配不受影响。
+      const rootRelPrefix = (() => {
+        const rel = toPosix(path.relative(sandbox.workdir, rootAbs));
+        return rel.startsWith('..') || path.isAbsolute(rel) ? '' : (rel === '' ? '' : rel + '/');
+      })();
       const { entries, capped, skippedRoots } = await walkFiles(rootAbs, {
-        base: sandbox.workdir,
         isDenied,
         ...(pruneDir !== undefined ? { pruneDir } : {}),
       });
@@ -545,7 +553,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
           root: rootInput,
           total: matched.length,
           shown: shown.length,
-          paths: shown.map((e) => e.rel),
+          paths: shown.map((e) => rootRelPrefix + e.rel),
           ...(notes.length > 0 ? { note: notes.join('；') } : {}),
         },
       };
