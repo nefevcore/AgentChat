@@ -134,9 +134,17 @@ export function parseTimeline(text: string): MemoryEntry[] {
 /**
  * 正文行首前缀 `[date] `——日期段由宿主铸造；tags 段由 Agent 直接写进正文
  * （`[date] [tag|tag] 正文`——前缀即标签通道，parse 侧提取为轴）。
+ *
+ * **日期按本地日历取**：at 是 UTC ISO 串，直接 slice(0,10) 得到的是 UTC 日——
+ * 东八区 05:00 前的条目会显示成前一天（实测本地 11-23 05:36 写成 at=…T21:36Z，
+ * slice 得 11-22，用户看到的日期比实际早一天）。改为把 at 转本地时刻后取年月日。
+ * 无法解析的 at（降级行/畸形串）回落原 slice 行为。
  */
 function entryPrefix(at: string): string {
-  return `[${at.slice(0, 10)}] `;
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return `[${at.slice(0, 10)}] `;
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `[${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}] `;
 }
 
 /** 剥离正文自带的日期前缀段（防重复；标签段是 Agent 的内容通道，保留） */

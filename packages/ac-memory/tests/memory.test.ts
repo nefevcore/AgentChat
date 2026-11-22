@@ -130,9 +130,39 @@ describe('ac-memory 服务面（write/entries/grep 三口）', () => {
     // 标签从正文前缀提取为轴
     expect(entries[0].tags).toEqual(['约定']);
     expect(entries[1].tags).toEqual(['偏好']);
-    // date 回填：at 的日期段 = 参数值（时间部分为当下）
-    expect(entries[2].at).toContain('2026-08-16');
-    expect(entries[0].at).not.toContain('2026-08-16');
+    // date 回填：**本地日历日** = 参数值（时刻取当下）。
+    // 断言不能看 at 字符串前缀——at 是 UTC 串，东八区 05:00 前的条目其 UTC 日
+    // 比本地日早一天（曾因此把本地日直接拼进 UTC 串，产出整体偏移一天的错误时刻）。
+    // 正确断言 = at 转本地后日期为参数值，且正文前缀同源。
+    const localDayOf = (iso: string): string => {
+      const d = new Date(iso);
+      const pad = (n: number): string => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+    expect(localDayOf(entries[2].at!)).toBe('2026-08-16');
+    expect(localDayOf(entries[0].at!)).not.toBe('2026-08-16');
+    // 正文前缀与 at 同源（用户可见的日期段必须等于回填日）
+    expect(entries[2].content.startsWith('[2026-08-16]')).toBe(true);
+  });
+
+  it('date 回填的时区正确性：at 必须是该本地日的真实瞬间（不整体偏移一天）', async () => {
+    // 回归：原实现 `${date}T${UTC时分}` 把本地日期与 UTC 时分混拼，
+    // 按 UTC 解析后整体前移一天（东八区本地 11-23 05:35 → 11-23T21:35Z → 本地 11-24）。
+    // 此用例在非 UTC 时区（如 Asia/Shanghai）能直接抓出该缺陷；UTC 时区下退化为一致性检查。
+    const { ctx } = await boot();
+    ctx.memory.write('a1', { content: '[档案] 回填测试', date: '2026-03-05' });
+    const e = ctx.memory.entries('a1')[0];
+    const d = new Date(e.at!);
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    const localDay = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    expect(localDay).toBe('2026-03-05');
+    // 时分秒应取「当下」（date 只替换日期）。旧缺陷会把整体时刻偏移一天，
+    // 但日/时/分都还在原值上——所以校验时分秒而非与 now 的绝对差（date 可能是历史日）。
+    const now = new Date();
+    expect(d.getHours()).toBe(now.getHours());
+    expect(d.getMinutes()).toBe(now.getMinutes());
+    // 正文前缀同样必须是回填日（不能是 UTC 日）
+    expect(e.content.startsWith('[2026-03-05]')).toBe(true);
   });
 
   it('grep 过滤轴（pattern/tag/peer）——tag 轴来自正文前缀', async () => {

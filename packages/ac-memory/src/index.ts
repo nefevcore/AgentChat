@@ -62,6 +62,21 @@ const MEMORY_GUIDE =
   '· 过时信息不必删改：写新条目自然覆盖。需要检索更早记忆用 memory_grep（支持时间/对象/标签过滤）。\n' +
   '</memory-guide>';
 
+/**
+ * 本地日期 + 当前本地时刻 → UTC ISO 串。
+ *
+ * date 参数（YYYY-MM-DD）语义是**本地日**。原实现把本地日期与 UTC 时分直接拼接
+ * （`${date}T${new Date().toISOString().slice(11)}`），按 UTC 解析后整体前移一天：
+ * 东八区实测本地 11-23 05:35 写成 `11-23T21:35Z`，解析回本地是 11-24 05:35。
+ * 本函数按本地日历构造「该日期 + 当下时刻」，再 toISOString 转 UTC——
+ * 得到的是同一瞬间的正确 UTC 表示。
+ */
+function localDateWithCurrentTime(dateStr: string): string {
+  const now = new Date();
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds()).toISOString();
+}
+
 export class MemoryService extends Service {
   private dataRoot: string;
   private persist: boolean;
@@ -238,8 +253,12 @@ export class MemoryService extends Service {
    * 执行串行；跨进程由数据根独占锁挡）。返回新条目 seq。
    */
   write(agentId: string, input: { content: string; peers?: string[]; date?: string; origin?: string }): number {
+    // date 参数语义是**本地日**（YYYY-MM-DD，回填/迁移用）；时分取当下本地时刻。
+    // 原实现 `${input.date}T${UTC时分}` 把本地日期与 UTC 时分拼在一起，生成的
+    // 串按 UTC 解析后整体前移一天（东八区实测：本地 11-23 05:35 写成 11-23T21:35Z
+    // ⇒ 解析回本地是 11-24 05:35）。修法：按本地日历构造该日当前时刻再转 UTC。
     const date = input.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(input.date)
-      ? `${input.date}T${new Date().toISOString().slice(11)}`
+      ? localDateWithCurrentTime(input.date)
       : new Date().toISOString();
     const line = mintEntry({
       at: date,
