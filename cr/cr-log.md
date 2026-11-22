@@ -1233,4 +1233,5 @@
 - 【cr-1212 2026-11-22 心跳三档残余核查与清理：system-heartbeat 证实现行（supervisor 触碰/host-revive 消费）不清理；timer 旧位读侧回落按 cr-1081 防御面保留，兼容窗过渡注释兑现收口】
 - 【cr-1213 2026-11-22 R-1 登记制根除：participants 从会话键权威反解（键形 uuid 首登即反解集，毒化免疫）——替 cr-641/1046/1177 三连点修的终极语义；sender 校验制（to 退出校验面）+ infra 豁免收窄 + 群名册 authoritative 覆盖重放（顺修 join 后新成员扇出被陈旧登记集拦截的存量隐患）#bugfix →cr-1177 →cr-1175】
 - 【cr-1214 2026-11-22 2026-11-22 news~news 上下文超限全任务失联根因三修：①run 失败也走阈值检测（原先 error 直接跳过 → 超限后归档永无入口，不可自愈）②activeTokens 版本判据改行面（v1 头行 + v2 事件行混合会话伪行整代缺席：估 12.7 万 vs 真实 105 万，阈值恒不命中）③新增 ledger-bytes 兜底触发器（估算看不见的行型也不得让归档失去入口）；顺修伪行尾部追加吃掉 keep 预算（物理回收后回放只剩旧摘要）→ 改按 run 末事实 seq 时间序插入】
+- 【cr-1215 2026-11-22 内参 coverage 自证修复：session-meta-scan sql 路径分母改磁盘枚举 + digest 覆盖不足标 degraded（ISSUE-27 根因）】
 
