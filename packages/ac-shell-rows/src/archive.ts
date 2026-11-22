@@ -296,8 +296,9 @@ export class ArchiveShellService extends Service {
   /** 触发检测 + 触发（run 收束后异步，cr-1189 机制注册式）：遍历触发器
    *  注册表（appliesTo 过滤后 OR 求值）——任一命中即进入压缩流程。
    *  ctx 数据面：activeTokens（V2 现行口径）/ runCountSinceCompaction
-   *  （fold 压缩代边界后的 run-end 计数）/ lastRunAt。token-threshold
-   *  缺省注册 = V2 阈值口径平移（行为等价回归锚）。 */
+   *  （fold 压缩代边界后的 run-end 计数）/ lastRunAt / ledgerBytes（cr-1206
+   *  估算兜底的硬事实面）。token-threshold 缺省注册 = V2 阈值口径平移
+   *  （行为等价回归锚）；ledger-bytes 缺省注册 = 估算判据失效时的兜底。 */
   async maybeArchive(uuid: string): Promise<void> {
     if (this.pending.has(uuid)) return; // 同拍去重（同一会话同拍至多一次）
     const ctx = this.triggerCtxOf(uuid);
