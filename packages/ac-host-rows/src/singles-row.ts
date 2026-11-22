@@ -29,8 +29,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { issueConversationId, validateTitleRequestPayload, type TitleRequestPayload } from 'ac-envelope-core';
-import { conversationDirs, forkConversation, isSingleSessionId, projectUserReplay, sessionDir, userMetaFile } from 'ac-ledger';
+import { conversationDirs, forkConversation, isSingleSessionId, metaSessionsDir, projectUserReplay, sessionDir, userMetaFile } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
+import { SnapshotStore } from 'ac-file-snapshots/src/store.ts';
 import { DATE_SNAPSHOT_PREFIX, TITLE_MAX_LEN, clearUnread, fallbackTitle } from 'ac-core-utils';
 import type { HostServiceDesk } from './service-desk.ts';
 
@@ -82,10 +83,6 @@ interface WebFace {
   broadcast(type: string, data?: unknown): void;
 }
 
-
-function metaSessionsDir(dataRoot: string): string {
-  return path.join(dataRoot, 'meta', 'sessions');
-}
 
 
 
@@ -406,6 +403,9 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
       const dataRoot = options.dataRoot;
       const web = ctx.webServer as unknown as WebFace;
       const conv = (): ConvSettingsFace | undefined => ctx.get('convSettings') as ConvSettingsFace | undefined;
+      // 会话快照纯库实例（cr-1208 级联：删除 RPC 同数据根直清——与
+      // ac-host-webui face-ops 读面同一 owning 实现，无服务依赖）
+      const snapshots = new SnapshotStore({ root: path.join(dataRoot, 'file-snapshots') });
       const emit = (view: SingleView, kind: 'created' | 'updated' | 'archived' | 'removed'): void => {
         web.broadcast('singles/updated', { args: [view, kind] });
       };
@@ -680,7 +680,7 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         return { single: view };
       });
 
-      // 硬删：会话账本（user 投影 + 各 agent 域）+ 元数据 + 模型覆盖，一并清
+      // 硬删：会话账本（user 投影 + 各 agent 域）+ 元数据 + 模型覆盖 + 快照，一并清
       web.registerRpc('singles/delete', (params) => {
         const id = reqStr(obj(params), 'id');
         assertSingleId(id);
@@ -693,6 +693,10 @@ export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
         conv()?.set(id, { model: null });
         // 未读计数连带清（cr-1184）：会话已不存在，滞留计数 = 永不可消的僵尸徽章
         clearUnread(dataRoot, id);
+        // 会话快照连带清（cr-1208）：级联口归位删除 RPC 本身——壳内事件
+        // 订阅跨进程不可达（宿主只 web.broadcast 不 emit 总线），cr-376
+        // 事件接线在生产从未触发过，本行与快照根同进程直清。
+        snapshots.dropConversation(id);
         emit(before ?? { id, agentId: '', status: 'archived', createdAt: '', updatedAt: '' }, 'removed');
         upsertEntry(id, null);
         return { deleted: true };

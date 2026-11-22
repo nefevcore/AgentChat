@@ -37,6 +37,7 @@ import {
   type AgentConfig,
 } from 'ac-agents-core';
 import { avatarContentType } from './agents-row.ts';
+import { cleanupAgentTraces, collectAgentTraces } from './agent-cascade.ts';
 
 /** 写侧 RPC 编排依赖的编辑面（插槽-插头：摘 agents 行 = 本行 PENDING，管理面下线） */
 export interface AgentsEditFace {
@@ -84,6 +85,11 @@ export interface AdminPreviewFace {
 export interface AgentAdminRowOptions {
   /** 跨进程预览面（缺席 = 编排面未接线：system-prompt/assembly 读面 fail-loud，其余六方法照常） */
   adminPreview?: AdminPreviewFace;
+  /**
+   * 数据根（cr-1209 会话面级联锚点：删 agent 时清树外的 meta 元数据 / 对端
+   * 副本 / 群名册与成员流 / 快照）。缺席 = 只删树（旧行为，良定义降级）。
+   */
+  dataRoot?: string;
 }
 
 /** agent-admin 行（inject ['webServer','agents']——两服务同树（宿主单树装配）才激活） */
@@ -125,9 +131,20 @@ export function makeAgentAdminRow(options: AgentAdminRowOptions = {}): Plugin {
         return { config, changed };
       });
 
-      web.registerRpc('agents/delete', (params) => ({
-        removed: agents.removeAgent(reqStr(obj(params), 'agentId')),
-      }));
+      web.registerRpc('agents/delete', (params) => {
+        const agentId = reqStr(obj(params), 'agentId');
+        // 会话面级联（cr-1209 / D1 硬删全部）：收集必须先于删树——会话键住在
+        // 将被删除的 agents/<id>/sessions/ 里，树删后无法再枚举。删树失败（无
+        // 此身份/文件占用）= 不级联（宁可留孤儿，不制造「agent 还在、数据没了」）。
+        const traces = options.dataRoot !== undefined ? collectAgentTraces(options.dataRoot, agentId) : undefined;
+        const removed = agents.removeAgent(agentId);
+        if (!removed) return { removed: false };
+        if (traces === undefined || options.dataRoot === undefined) return { removed: true };
+        const { stats, groups } = cleanupAgentTraces(options.dataRoot, agentId, traces);
+        // 群名册变更通知（前端刷新成员列表——与 group/leave 同帧形）
+        for (const group of groups) web.broadcast('group/member-removed', { args: [group.id, agentId, group] });
+        return { removed: true, cascade: stats };
+      });
 
       web.registerRpc('agents/save-doc', (params) => {
         const p = obj(params);

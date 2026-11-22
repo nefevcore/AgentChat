@@ -64,6 +64,21 @@ export function readGroupConfig(dataRoot: string, gid: string): GroupConfig | nu
   }
 }
 
+/**
+ * 群配置写口（原子写 meta/groups/<gid>/group.json——写侧恒新位置）。
+ * cr-1209 下沉：宿主 groups 行（create/join/leave/rename 等写点）与 agent 删除
+ * 级联（成员移出名册）两处共用——各写一份原子写序必走散。
+ */
+export function writeGroupConfig(dataRoot: string, group: GroupConfig): void {
+  assertGid(group.id);
+  const dir = path.join(dataRoot, 'meta', 'groups', group.id);
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, 'group.json');
+  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(group, null, 2) + '\n', 'utf-8');
+  fs.renameSync(tmp, file);
+}
+
 /** 全群配置扫描（meta/groups/ 新位置 ∪ 兼容窗旧 groups/，gid 冲突新位置胜出；
  *  坏文件跳过）——宿主 runs/snapshot 与壳侧 list_groups 共用数据源 */
 export function listGroupConfigs(dataRoot: string): GroupConfig[] {

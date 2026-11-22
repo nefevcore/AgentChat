@@ -19,7 +19,6 @@ import * as fsToolsRow from 'ac-fs-tools';
 import * as sreRow from 'ac-str-replace-editor';
 import * as snapshotsRow from 'ac-file-snapshots';
 import type { FileSnapshotsService } from 'ac-file-snapshots';
-import { memberStreamKey } from 'ac-core-utils';
 
 type ExecRes = { ok: boolean; output: any; error?: string };
 async function exec(ctx: Context, call: Record<string, unknown>): Promise<ExecRes> {
@@ -262,39 +261,7 @@ describe('方案 C 挂点 —— 工具写路径 × 快照服务', () => {
   });
 });
 
-describe('会话删除级联（cr-376 接线）', () => {
-  it('singles/updated removed → sid 快照目录清理；非 removed 不触发', async () => {
-    const root = tmpRoot();
-    const { ctx } = await boot(root, path.join(root, 'snaps'));
-    const svc = ctx.fileSnapshots as FileSnapshotsService;
-    fs.writeFileSync(path.join(root, 'f.ts'), 'v\n', 'utf-8');
-    await exec(ctx, { name: 'edit', args: { file_path: 'f.ts', old_string: 'v', new_string: 'w' }, conversationId: 'sid-1' });
-    expect(svc.list('sid-1')).toHaveLength(1);
-
-    // archived（软删）不触发——消息流保留，快照同留
-    (ctx.emit as unknown as (e: string, ...a: unknown[]) => void)('singles/updated', { id: 'sid-1' }, 'archived');
-    expect(svc.list('sid-1')).toHaveLength(1);
-
-    (ctx.emit as unknown as (e: string, ...a: unknown[]) => void)('singles/updated', { id: 'sid-1' }, 'removed');
-    expect(svc.list('sid-1')).toHaveLength(0);
-  });
-
-  it('group/deleted → 本体 + 成员流键快照全清；他群不受影响', async () => {
-    const root = tmpRoot();
-    const { ctx } = await boot(root, path.join(root, 'snaps'));
-    const svc = ctx.fileSnapshots as FileSnapshotsService;
-    const a = path.join(root, 'g.ts');
-    fs.writeFileSync(a, 'x\n', 'utf-8');
-    svc.ensure('grp-1', a);
-    svc.ensure(memberStreamKey('grp-1', 'agent-a'), a);
-    svc.ensure(memberStreamKey('grp-1', 'agent-b'), a);
-    svc.ensure('grp-2', a); // 对照组
-    expect(svc.list('grp-1')).toHaveLength(1);
-
-    (ctx.emit as unknown as (e: string, ...a: unknown[]) => void)('group/deleted', 'grp-1', { members: ['agent-a', 'agent-b'] });
-    expect(svc.list('grp-1')).toHaveLength(0);
-    expect(svc.list(memberStreamKey('grp-1', 'agent-a'))).toHaveLength(0);
-    expect(svc.list(memberStreamKey('grp-1', 'agent-b'))).toHaveLength(0);
-    expect(svc.list('grp-2')).toHaveLength(1); // 他群快照不动
-  });
-});
+// cr-1208：会话删除级联已归位宿主删除 RPC（ac-host-rows singles/delete、
+// group/delete、group/leave 同数据根直调 SnapshotStore.dropConversation）——
+// 壳内事件订阅（cr-376）是跨进程不可达的死接线，已删除。级联验收随宿主行
+// 测试（ac-host-rows/tests/singles-row.test.ts、groups-row.test.ts）。

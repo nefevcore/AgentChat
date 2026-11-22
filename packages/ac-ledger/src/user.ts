@@ -32,6 +32,12 @@ export function userSessionDir(dataRoot: string, uuid: string): string {
   return path.join(dataRoot, 'viewer', 'sessions', uuid);
 }
 
+/** 独立会话元数据目录（meta/sessions——cr-1209 单源：singles 行与 agent
+ *  删除级联共用；此前各写一份 path.join 字面量） */
+export function metaSessionsDir(dataRoot: string): string {
+  return path.join(dataRoot, 'meta', 'sessions');
+}
+
 /**
  * 独立会话元数据路径（数据分层第二层：<dataRoot>/meta/sessions/<uuid>.json
  * ——宿主 singles 行单写）。此前寄居 viewer 投影目录（第三层），「清投影」

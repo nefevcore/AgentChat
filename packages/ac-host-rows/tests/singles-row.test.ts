@@ -131,12 +131,17 @@ describe('session.json 迁居 meta/sessions/（数据分层）', () => {
     expect(list.singles.find((s) => s.id === sidOf('mv-2'))?.title).toBe('存量会话');
   });
 
-  it('delete 摘除 meta 元数据 + agent 域账本', async () => {
+  it('delete 摘除 meta 元数据 + agent 域账本 + 会话快照（cr-1208 级联）', async () => {
     seedLedger(sidOf('mv-3'), [{ agent_id: 'user', content: '待删' }]);
+    // 预置快照目录（模拟工具写路径落下的首见快照）
+    const snapDir = path.join(ROOT, 'file-snapshots', encodeURIComponent(sidOf('mv-3')));
+    fs.mkdirSync(snapDir, { recursive: true });
+    fs.writeFileSync(path.join(snapDir, 'a.ts.meta.json'), '{}', 'utf-8');
     const h = boot(false);
     await h.handlers.get('singles/delete')!({ id: sidOf('mv-3') });
     expect(fs.existsSync(metaFile(sidOf('mv-3')))).toBe(false);
     expect(fs.existsSync(sessionDir(sidOf('mv-3')))).toBe(false);
+    expect(fs.existsSync(snapDir)).toBe(false); // 快照目录级联清理
   });
 });
 

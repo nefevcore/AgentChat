@@ -212,9 +212,14 @@ export class SnapshotStore {
     return out.sort((a, b) => a.absPath.localeCompare(b.absPath));
   }
 
-  /** 删除会话全部快照（会话删除级联用；返回清理数） */
+  /**
+   * 删除会话全部快照（会话删除级联用；返回清理目录数——目录不存在 = 0，
+   * 不虚报：调用方据 >0 打日志，虚报会刷噪音）。
+   */
   dropConversation(conversationId: string): number {
+    if (!conversationId) return 0;
     const dir = path.join(this.root, encodeKey(conversationId));
+    if (!fs.existsSync(dir)) return 0;
     try {
       fs.rmSync(dir, { recursive: true, force: true });
       return 1;

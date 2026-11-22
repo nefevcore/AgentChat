@@ -23,11 +23,13 @@ import type { Plugin, Context } from '@agentchat/cordis';
 import { issueRequestId, makeEnvelope } from 'ac-envelope-core';
 import { readLedger, LedgerWriter, sessionDir, type LedgerRow } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
+import { SnapshotStore } from 'ac-file-snapshots/src/store.ts';
 import type { PostOffice } from 'ac-post-office';
 // 群配置纯读面（cr-712 下沉 ac-core-utils：壳侧 group 垫片共用读词汇——
 // 垫片 import 本包即壳→宿主反向依赖；本行改为单源消费，写面仍在下方）
 import {
-  assertGid, bumpUnread, clearUnread, listGroupConfigs, memberStreamKey, readGroupConfig, type GroupConfig,
+  assertGid, bumpUnread, clearUnread, listGroupConfigs, memberStreamKey, readGroupConfig, writeGroupConfig,
+  type GroupConfig,
 } from 'ac-core-utils';
 
 export type { GroupConfig } from 'ac-core-utils';
@@ -66,19 +68,10 @@ function optStr(v: unknown): string | undefined {
   return typeof v === 'string' && v !== '' ? v : undefined;
 }
 
-/** 群配置落点（数据分层第二层：meta/groups/<gid>/——写侧恒新位置；
- *  读面 readGroupConfig/listGroupConfigs 兼容窗回落旧位置 groups/<gid>/） */
+/** 群目录（数据分层第二层：meta/groups/<gid>/——删除面用；写口已下沉
+ *  ac-core-utils.writeGroupConfig 单源，读面兼容窗回落旧位置 groups/<gid>/） */
 function groupDir(dataRoot: string, gid: string): string {
   return path.join(dataRoot, 'meta', 'groups', gid);
-}
-
-function writeConfig(dataRoot: string, group: GroupConfig): void {
-  const dir = groupDir(dataRoot, group.id);
-  fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, 'group.json');
-  const tmp = file + '.' + process.pid + '.' + Date.now() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(group, null, 2) + '\n', 'utf-8');
-  fs.renameSync(tmp, file);
 }
 
 /**
@@ -124,6 +117,9 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
     apply(ctx: Context) {
       const dataRoot = options.dataRoot;
       const web = ctx.webServer as unknown as WebFace;
+      // 会话快照纯库实例（cr-1208 级联：群删除/退群 RPC 同数据根直清——与
+      // ac-host-webui face-ops 读面同一 owning 实现，无服务依赖）
+      const snapshots = new SnapshotStore({ root: path.join(dataRoot, 'file-snapshots') });
       const emit = (type: string, ...args: unknown[]): void => {
         web.broadcast(type, { args });
       };
@@ -173,7 +169,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
           ...(optStr(p.description) !== undefined ? { description: optStr(p.description)! } : {}),
           createdAt: Date.now(),
         };
-        writeConfig(dataRoot, group);
+        writeGroupConfig(dataRoot, group);
         syncRegistry(group);
         emit('group/created', group);
         return { group };
@@ -192,6 +188,10 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         fs.rmSync(path.join(dataRoot, 'groups', gid), { recursive: true, force: true });
         // 未读计数连带清（cr-1184）：群已解散，gid 轴滞留计数 = 僵尸徽章
         clearUnread(dataRoot, gid);
+        // 成员流快照连带清（cr-1208）：级联口归位删除 RPC——壳内事件订阅
+        // 跨进程不可达（cr-376 死接线），同进程直清本体 + 各成员流键。
+        snapshots.dropConversation(gid);
+        for (const m of group.members) snapshots.dropConversation(memberStreamKey(gid, m));
         emit('group/deleted', gid, group);
         return { deleted: true };
       });
@@ -204,7 +204,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         if (readAgentConfig(dataRoot, agentId) === null) throw new Error('成员 "' + agentId + '" 未注册为 Agent');
         if (group.members.includes(agentId)) return { joined: true };
         group.members.push(agentId);
-        writeConfig(dataRoot, group);
+        writeGroupConfig(dataRoot, group);
         syncRegistry(group);
         // 入群种子（fire-and-forget——主线同款异步面）：既有群内容投影进新成员流
         void seedMemberStream(dataRoot, group, agentId).catch((err: unknown) => {
@@ -222,10 +222,12 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         const at = group.members.indexOf(agentId);
         if (at < 0) return { left: false };
         group.members.splice(at, 1);
-        writeConfig(dataRoot, group);
+        writeGroupConfig(dataRoot, group);
         // 该成员的流内容一并清（registry 预登记为内存态超集——无注销面，
         // 子集校验天然放行残留名册内的合法来信）
         fs.rmSync(path.join(dataRoot, 'agents', agentId, 'sessions', memberStreamKey(gid, agentId)), { recursive: true, force: true });
+        // 成员流快照连带清（cr-1208——与流内容同生命周期）
+        snapshots.dropConversation(memberStreamKey(gid, agentId));
         emit('group/member-removed', gid, agentId, group);
         return { left: true };
       });
@@ -234,7 +236,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         const p = obj(params);
         const group = mustGroup(reqStr(p, 'groupId'));
         group.name = reqStr(p, 'name');
-        writeConfig(dataRoot, group);
+        writeGroupConfig(dataRoot, group);
         emit('group/renamed', group.id, group.name, group);
         return { renamed: true };
       });
@@ -246,7 +248,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         const description = optStr(p.description);
         if (description === undefined) delete group.description;
         else group.description = description;
-        writeConfig(dataRoot, group);
+        writeGroupConfig(dataRoot, group);
         emit('group/description-set', group.id, group.description, group);
         return { descriptionSet: true };
       });

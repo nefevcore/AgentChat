@@ -61,8 +61,13 @@ type RouteHandler = (call: StubRouteCall) => void;
 class StubWebServer extends Service {
   readonly handlers = new Map<string, RpcHandler>();
   readonly routes = new Map<string, RouteHandler>();
+  /** 广播帧捕获（cr-1209 级联通知断言用） */
+  readonly frames: Array<{ type: string; args?: unknown }> = [];
   constructor(ctx: Context) {
     super(ctx, 'webServer');
+  }
+  broadcast(type: string, data?: unknown) {
+    this.frames.push({ type, ...(data as { args?: unknown }) });
   }
   registerRpc(method: string, handler: RpcHandler) {
     if (this.handlers.has(method)) throw new Error('rpc 已注册: ' + method);
@@ -123,7 +128,7 @@ function stubPreview(systemPrompt = '预览结果') {
   };
 }
 
-async function boot(options?: { adminPreview?: boolean }): Promise<{ web: StubWebServer; ctx: Context }> {
+async function boot(options?: { adminPreview?: boolean; cascade?: boolean }): Promise<{ web: StubWebServer; ctx: Context }> {
   fs.rmSync(ROOT, { recursive: true, force: true });
   fs.mkdirSync(ROOT, { recursive: true });
   // 目录 fixture（cr-1022 批2：写面 v3——定义拷贝需 shell 能力目录）
@@ -142,9 +147,10 @@ async function boot(options?: { adminPreview?: boolean }): Promise<{ web: StubWe
   const agentsFiber = ctx.plugin(makeAgentsHostRow({ dataRoot: ROOT }));
   await agentsFiber;
   fibers.push(agentsFiber);
-  const adminFiber = ctx.plugin(makeAgentAdminRow(
-    options?.adminPreview === true ? { adminPreview: stubPreview() } : {},
-  ));
+  const adminFiber = ctx.plugin(makeAgentAdminRow({
+    ...(options?.adminPreview === true ? { adminPreview: stubPreview() } : {}),
+    ...(options?.cascade === true ? { dataRoot: ROOT } : {}), // cr-1209 级联用例才注入数据根
+  }));
   await adminFiber;
   fibers.push(adminFiber);
   expect(adminFiber.state).toBe(FiberStates.ACTIVE);
@@ -185,6 +191,40 @@ describe('agent-admin 行（写侧 RPC 编排）', () => {
     const removed = await web.call('agents/delete', { agentId: 'admin-row' }) as { removed: boolean };
     expect(removed.removed).toBe(true);
     expect(fs.existsSync(path.join(ROOT, 'agents', 'admin-row'))).toBe(false);
+  });
+
+  it('delete 会话面级联（cr-1209）：树外孤儿一并清，群名册移出并广播', async () => {
+    const { web } = await boot({ cascade: true });
+    await web.call('agents/create', { config: { id: 'doomed', name: '将删' } });
+    await web.call('agents/create', { config: { id: 'keeper', name: '留存' } });
+    const sid = 'aaaaaaaa-1111-2222-3333-444444444444';
+    const mk = (p: string) => { fs.mkdirSync(p, { recursive: true }); return p; };
+    // 树外孤儿：对端副本 / meta / 快照 / 群名册与成员流
+    const peer = mk(path.join(ROOT, 'agents', 'keeper', 'sessions', sid));
+    fs.writeFileSync(path.join(peer, 'messages.jsonl'), '', 'utf-8');
+    const meta = mk(path.join(ROOT, 'meta', 'sessions'));
+    fs.writeFileSync(path.join(meta, sid + '.json'), JSON.stringify({ id: sid, agentId: 'doomed' }), 'utf-8');
+    const snap = mk(path.join(ROOT, 'file-snapshots', encodeURIComponent(sid)));
+    fs.writeFileSync(path.join(snap, 'a.ts.meta.json'), '{}', 'utf-8');
+    const groupsDir = mk(path.join(ROOT, 'meta', 'groups', 'g1'));
+    fs.writeFileSync(path.join(groupsDir, 'group.json'), JSON.stringify({ id: 'g1', name: 'G1', members: ['doomed', 'keeper'], createdAt: 1 }), 'utf-8');
+    const streamSnap = mk(path.join(ROOT, 'file-snapshots', encodeURIComponent('g1~doomed')));
+    fs.writeFileSync(path.join(streamSnap, 'a.ts.meta.json'), '{}', 'utf-8');
+
+    const res = await web.call('agents/delete', { agentId: 'doomed' }) as { removed: boolean; cascade: Record<string, number> };
+    expect(res.removed).toBe(true);
+    expect(fs.existsSync(path.join(ROOT, 'agents', 'doomed'))).toBe(false);
+    expect(fs.existsSync(peer)).toBe(false);
+    expect(fs.existsSync(path.join(meta, sid + '.json'))).toBe(false);
+    expect(fs.existsSync(snap)).toBe(false);
+    expect(fs.existsSync(streamSnap)).toBe(false);
+    // 群名册移出 + 广播
+    const g = JSON.parse(fs.readFileSync(path.join(groupsDir, 'group.json'), 'utf-8')) as { members: string[] };
+    expect(g.members).toEqual(['keeper']);
+    expect(web.frames.some((f) => f.type === 'group/member-removed')).toBe(true);
+    // 他人身份与数据不动
+    expect(readAgentConfig(ROOT, 'keeper')?.id).toBe('keeper');
+    expect(res.cascade.groups).toBe(1);
   });
 
   it('零变更不落盘（文件 mtime 不动）', async () => {

@@ -11,11 +11,17 @@
 // 准入（2026-09-22 收敛——快照面只服务文本 diff 重建）：仅文本文件
 // （前 8 KiB 嗅探）且单文件 ≤ maxBytes（缺省 2 MiB）；超限/二进制
 // 只落 skipped 标记，不复制内容。
+//
+// 会话删除级联（cr-1208）：归位宿主删除 RPC（singles/delete、
+// group/delete、group/leave 在删除时直接调 SnapshotStore.
+// dropConversation——同进程同数据根）。本行装载在壳进程（fs-tools
+// 伴生），cr-376 的事件订阅是跨进程不可达的死接线（宿主删除只
+// web.broadcast 不 emit 总线），已随批删除。对桶（a~b）无删除面——
+// 快照随数据根生命周期（无界增长已由 PERSISTENCE_TREES 收录承认）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { memberStreamKey } from 'ac-core-utils'; // 群成员流键单源（cr-376 级联清理消费；原住 ac-group——GROUP_HINT_META 先例）
 import { SnapshotStore, looksLikeText, SNAPSHOT_MAX_BYTES, type FileSnapshot } from './store.ts';
 
 /** 行配置 */
@@ -42,21 +48,6 @@ export class FileSnapshotsService extends Service {
       description: '快照上限热更（settings.fileSnapshots 全局层）',
     });
     this.applySettings();
-    // 会话删除级联（cr-376 接线——dropConversation 落地）：
-    //   · singles 硬删（singles/updated action=removed）→ 清 sid 快照
-    //   · 群删除（group/deleted）→ 清 gid 本体 + <gid>~<member> 成员流键快照
-    // pair 对桶（a~b）无删除面——快照随数据根生命周期（无界增长已由
-    // PERSISTENCE_TREES 收录 file-snapshots 承认），如实不追。
-    this.ctx.on('singles/updated', (meta, action) => {
-      if (action !== 'removed') return;
-      const n = this.dropConversation(meta.id);
-      if (n > 0) this.ctx.logger.info('[file-snapshots] 会话删除级联清理 %C 条目录', meta.id);
-    }, { description: 'singles 硬删级联（会话快照目录）' });
-    this.ctx.on('group/deleted', (groupId, group) => {
-      let n = this.dropConversation(groupId);
-      for (const m of group.members) n += this.dropConversation(memberStreamKey(groupId, m));
-      if (n > 0) this.ctx.logger.info('[file-snapshots] 群删除级联清理 %C 条目录', groupId);
-    }, { description: '群删除级联（本体 + 成员流键快照）' });
   }
 
   /**
@@ -131,8 +122,8 @@ export class FileSnapshotsService extends Service {
   }
 
   /**
-   * 会话删除级联（singles 硬删 / 群删除事件驱动，构造器订阅）。返回
-   * 清理目录数（0 = 无快照——常见，不刷日志噪音）。
+   * 会话删除级联清理（cr-1208：宿主删除 RPC 同进程直调）。返回清理
+   * 目录数（0 = 无快照——常见，不刷日志噪音）。壳内无调用方。
    */
   dropConversation(conversationId: string): number {
     return this.store.dropConversation(conversationId);

@@ -451,6 +451,7 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
   if (mounted.has('agent-admin')) {
     const adminFiber = ctx.plugin(makeAgentAdminRow({
       adminPreview: supervisors !== null ? createAdminPreview({ orch: supervisors }) : undefined,
+      dataRoot, // cr-1209：会话面级联锚点（删 agent 清树外会话面）
     }));
     fibers.push(adminFiber);
     await adminFiber;

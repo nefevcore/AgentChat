@@ -99,6 +99,9 @@ export type { PresetOrigin, ReconcileResult, TemplateCorpus } from './preset-ori
 import { makeAgentAdminRow } from './agent-admin-row.ts';
 export { makeAgentAdminRow };
 export type { AgentsEditFace, AdminPreviewFace, AgentAdminRowOptions } from './agent-admin-row.ts';
+// agent 删除会话面级联纯库（cr-1209）
+export { collectAgentTraces, cleanupAgentTraces } from './agent-cascade.ts';
+export type { AgentTraces, AgentCascadeStats, AgentCascadeResult } from './agent-cascade.ts';
 
 // —— 授权注册表写者（cr-545；cr-1175 起经 grant.apply 服务帧）：auth-registry 行 ——
 import { makeAuthRegistryRow } from './auth-registry-row.ts';

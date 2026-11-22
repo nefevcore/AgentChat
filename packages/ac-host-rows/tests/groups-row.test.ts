@@ -155,12 +155,18 @@ describe('宿主群存储行（send 扇出 + history 合并）', () => {
     const page = await handlers.get('group/history')!({ groupId: gid, limit: 1, offset: 0 }) as { messages: unknown[] };
     expect(page.messages).toHaveLength(1);
     expect((page.messages[0] as { content: string }).content).toBe('-alpha 终稿');
-    // leave 清成员流；delete 清群目录 + 全成员流
+    // leave 清成员流 + 成员流快照（cr-1208 级联）；delete 清群目录 + 全成员流 + 快照
+    const snapOf = (key: string) => path.join(ROOT, 'file-snapshots', encodeURIComponent(key));
+    fs.mkdirSync(snapOf(gid + '~beta'), { recursive: true });
+    fs.writeFileSync(path.join(snapOf(gid + '~beta'), 'a.ts.meta.json'), '{}', 'utf-8');
     await handlers.get('group/leave')!({ groupId: gid, agentId: 'beta' });
     expect(fs.existsSync(path.join(ROOT, 'agents', 'beta', 'sessions', gid + '~beta'))).toBe(false);
+    expect(fs.existsSync(snapOf(gid + '~beta'))).toBe(false); // leave 级联清成员流快照
     await handlers.get('group/delete')!({ groupId: gid });
     expect(fs.existsSync(path.join(ROOT, 'groups', gid))).toBe(false);
     expect(fs.existsSync(path.join(ROOT, 'agents', 'alpha', 'sessions', gid + '~alpha'))).toBe(false);
+    expect(fs.existsSync(snapOf(gid))).toBe(false); // delete 级联清群本体快照
+    expect(fs.existsSync(snapOf(gid + '~alpha'))).toBe(false); // delete 级联清成员流快照
     expect(await handlers.get('group/delete')!({ groupId: gid })).toEqual({ deleted: false });
   });
 });
