@@ -138,6 +138,21 @@ describe('行为（before-run 注入链）', () => {
     expect(system).toBe('BASE');
   });
 
+  it('cr-1233 dryRun（previewSystemPrompt 干跑）→ 不落盘不注入不写锚', async () => {
+    captured.length = 0;
+    recorded.length = 0;
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dt-'));
+    const ctx = new Context();
+    await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], { root });
+    await ctx.agentLoop.run({
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c-dry',
+      messages: [], dryRun: true,
+    });
+    expect(recorded).toHaveLength(0);
+    // 锚状态文件不写（凭空会话 + 下次真实 run 行为不变的根因锁）
+    expect(fs.existsSync(path.join(root, 'files', '__standard__', 'datetime', '.day-anchor.json'))).toBe(false);
+  });
+
   it('session 行未装 → 跳过（防重复注入）', async () => {
     captured.length = 0;
     recorded.length = 0;

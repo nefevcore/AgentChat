@@ -85,6 +85,9 @@ export function apply(ctx: Context, options: EnvPulseRowOptions = {}) {
 
   ctx.on('loop/before-run', (call, next) => {
     const req = call.request;
+    // cr-1233 干跑（previewSystemPrompt）：只读预览不初始化水位/不注
+    // delta——预览吃掉水位 = 真实 run 丢注入
+    if (req.dryRun === true) return next();
     const convId = req.conversationId;
     const agentId = (req as { agent?: string }).agent;
     if (convId === undefined || agentId === undefined) return next();

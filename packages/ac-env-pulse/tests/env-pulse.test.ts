@@ -130,6 +130,30 @@ describe('env-pulse 注入链', () => {
     expect((JSON.parse(fs.readFileSync(anchor, 'utf-8')) as Record<string, number>).c2).toBe(2);
   });
 
+  it('cr-1233 dryRun（previewSystemPrompt 干跑）→ 不初始化水位、后续真实 run 照常收 delta', async () => {
+    captured.length = 0;
+    recorded.length = 0;
+    const root = freshRoot();
+    appendSystemEvent(root, 'host-boot', { pid: 1 });
+    const ctx = new Context();
+    await boot(ctx, [...standardRows(), sessionStubRow(), envPulseRow], { root });
+    // 干跑（预览形态：无消息 + dryRun）——不得初始化水位
+    await ctx.agentLoop.run({
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c-dry',
+      messages: [], dryRun: true,
+    });
+    expect(recorded).toHaveLength(0);
+    const anchor = path.join(root, 'files', '__standard__', 'env-pulse', '.anchors.json');
+    expect(fs.existsSync(anchor)).toBe(false);
+    // 真实 run 到来：首注语义照常（水位初始化，不注历史）——预览没吃掉水位
+    await ctx.agentLoop.run({
+      model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c-dry',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(recorded).toHaveLength(0);
+    expect(JSON.parse(fs.readFileSync(anchor, 'utf-8'))).toEqual({ 'c-dry': 1 });
+  });
+
   it('无增量 → 不注入', async () => {
     captured.length = 0;
     recorded.length = 0;

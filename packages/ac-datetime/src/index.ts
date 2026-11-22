@@ -162,6 +162,9 @@ export function apply(ctx: Context, options: DatetimeRowOptions = {}) {
   ctx.on('loop/before-run', (call, next) => {
     // 无会话键/agent（子 Agent / loop 直连）：不注入（提示词全静态）
     const req = call.request;
+    // cr-1233 干跑（previewSystemPrompt）：只读预览不落账——早退防凭空
+    // 创建会话（新会话草稿哨兵键会被直接物化成真）
+    if (req.dryRun === true) return next();
     const convId = req.conversationId;
     const agentId = (req as { agent?: string }).agent;
     if (convId === undefined || agentId === undefined) return next();
