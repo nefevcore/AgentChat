@@ -11,6 +11,7 @@
 export const name = 'ac-ledger';
 
 export * from './records.ts';
+// cr-1245 B1：纯核（文法/解释/谓词）住 ac-ledger-core——此处经壳文件统一 re-export
 export * from './writer.ts';
 export * from './reader.ts';
 export * from './events-v2.ts';

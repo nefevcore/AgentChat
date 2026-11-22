@@ -36,10 +36,10 @@ import { runNativeOpen } from 'ac-workspace/src/native-open.ts';
 import { resolveOpenTargets, refreshTarget, runOpenWith, targetIconOf } from 'ac-workspace/src/open-targets.ts';
 import { assocIconOfExt, folderIconOf } from 'ac-workspace/src/file-assoc-icons.ts';
 import { readCatalog } from 'ac-rowset-core';
-import { conversationDirs, foldDigestOf, foldSession, foldStepsOf, foldSummaryOf, projectUserReplay, readDomainFacts, readJournal, readLedger, rowShadowedBy, summaryTextOf } from 'ac-ledger';
+import { conversationDirs, foldSession, projectUserReplay, readDomainFacts, readJournal, readLedger, summaryTextOf } from 'ac-ledger';
 import { readAgentConfig, settingsOf } from 'ac-agents-core';
 import { estimateTokens } from 'ac-text-budget';
-import { estimateReplayTokens } from 'ac-archive-core';
+import { replayProjection, replaySummaryHead, replayTokensFor } from 'ac-archive-core';
 
 interface WebFace {
   registerRpc(method: string, handler: (params: unknown) => unknown): void;
@@ -813,57 +813,18 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     for (const dir of conversationDirs(deps.dataRoot, conversationId, { includeJournalOnly: true })) {
       const { rows } = readLedger(dir);
       agentRows += rows.length;
-      // cr-974：v2 会话步级事实 = 事件行（无 role——估算器只见 role 行）→
-      // 折叠出 steps 合成 v1 段行同形行，口径与物化时代恒等
       const domain = path.basename(path.dirname(path.dirname(dir)));
       const facts = readDomainFacts(dir, domain);
-      // cr-1191 压缩边界过滤（回落路径与索引 activeContextTokens 口径对齐
-      //——此前全量盘读含 shadowed 旧代，两路径读数分叉 650K↔149K 跳变）：
-      // 与 ac-shell-rows archive.estimateOf activeOnly 同型——rowShadowedBy
-      // 单源谓词，run 级按末事实 seq/ts 判。
-      const boundaries = facts.compactions;
-      const shadowed = (seq: number | undefined, ts: number | undefined): boolean =>
-        boundaries.length > 0 && boundaries.some((b) => rowShadowedBy(
-          { ...(seq !== undefined ? { seq } : {}), ...(ts !== undefined ? { ts } : {}) }, b,
-        ));
-      const rowTs = (r: { ts?: unknown; timestamp?: unknown }): number | undefined => {
-        if (typeof r.ts === 'number' && Number.isFinite(r.ts)) return r.ts;
-        if (typeof r.timestamp === 'string' && r.timestamp !== '') {
-          const parsed = Date.parse(r.timestamp);
-          if (Number.isFinite(parsed)) return parsed;
-        }
-        return undefined;
-      };
-      const rowSeq = (r: { seq?: unknown }): number | undefined =>
-        typeof r.seq === 'number' && Number.isFinite(r.seq) ? r.seq : undefined;
-      const picked = boundaries.length > 0 ? rows.filter((r) => !shadowed(rowSeq(r), rowTs(r))) : rows;
-      const pseudo: Array<Record<string, unknown>> = [];
-      if (facts.version >= 2) {
-        for (const [run, rf] of facts.runs) {
-          const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
-          if (steps.length === 0) continue;
-          if (boundaries.length > 0) {
-            let runSeq: number | undefined;
-            let runTs: number | undefined;
-            for (const ev of rf.events) {
-              if (ev.kind === 'tool-call-result') continue;
-              if (ev.seq !== undefined && (runSeq === undefined || ev.seq > runSeq)) runSeq = ev.seq;
-              if (ev.ts !== undefined && (runTs === undefined || ev.ts > runTs)) runTs = ev.ts;
-            }
-            for (const s of steps) {
-              if (typeof s.ts === 'number' && (runTs === undefined || s.ts > runTs)) runTs = s.ts;
-            }
-            if (shadowed(runSeq, runTs)) continue; // 整 run 属压缩前代——不计
-          }
-          pseudo.push({ role: 'agent', content: '', agent_id: domain, run, steps, message_id: 'v2-' + run, timestamp: '' });
-        }
-      }
-      // cr-1191 V3 摘要单源：digest 行在场时其正文已在 picked 内（行计一次），
-      // 不再加 summary 头（防双计）；v2 存量代/v1 才作头。
+      // cr-1245 B2 投影单源：shadow 过滤 + 伪行合成（版本判据 = 行面，
+      // cr-1214——此前本面只判 facts.version 漏混合会话伪行）+ 摘要头
+      // 选择全在 ac-archive-core replayProjection（activeOnly 恒 true——
+      // 回落路径与索引 activeContextTokens 口径对齐，cr-1191）。
       const fold = foldSession(deps.dataRoot, conversationId, [dir]);
-      const digest = foldDigestOf(fold);
-      const summary = digest !== null ? '' : (foldSummaryOf(fold)?.text ?? summaryTextOf(dir));
-      total += estimateReplayTokens([...picked, ...pseudo] as never, agentId, summary !== '' ? { summary } : {});
+      const proj = replayProjection(rows, facts, replaySummaryHead(fold, summaryTextOf(dir)), {
+        activeOnly: true,
+        viewer: agentId ?? domain,
+      });
+      total += replayTokensFor(proj, agentId ?? domain);
     }
     if (agentRows > 0) return total;
     // 终稿层直估（cr-973 读时投影——agent 域无行 = 空会话，0）

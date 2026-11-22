@@ -1,0 +1,22 @@
+{
+  "name": "ac-ledger-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "账本域协议纯库（cr-1245 B1，零 cordis 零 fs——文法/解释/谓词单源）：行协议类型（LedgerRow 族）+ 事件词汇 v2 归一化纯段 + SessionFold 谓词族（rowShadowedBy/foldSummaryOf/foldDigestOf/foldStepsOf）+ 回放投影（foldLlmReplay）——解释权单源，ac-ledger 保留 fs 读面与 writer 服务面并 re-export",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "dependencies": {
+    "ac-conv-keys": "workspace:*",
+    "ac-envelope-core": "workspace:*",
+    "ac-core-utils": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

@@ -21,12 +21,15 @@
 //     再入账；坏 JSON 行跳过但照常消费）。
 //
 // 枚举 = ac-ledger conversationDirs(includeJournalOnly) 同形（viewer 域
-// 在前 + agents/* readdir 序）——本包禁 import ac-ledger（索引层零依赖），
-// 本地实现；指纹公式与 view.ts historyView 逐字节同形（跨互认）。
+// 在前 + agents/* readdir 序）——本包禁 import ac-ledger 服务面（索引层
+// 与行装配零依赖；cr-1245 B1 起域协议纯库 ac-ledger-core 除外——判据
+// 词汇单源正是拆包目的）；本地实现；指纹公式与 view.ts historyView
+// 逐字节同形（跨互认）。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { compactionBoundaryOf } from 'ac-ledger-core';
 
 /** 刷新回执：本次入账行数 + 全量重建的文件路径集 */
 export interface RefreshReport {
@@ -179,13 +182,10 @@ export interface SessionMeta {
   lastType: string | null;
 }
 
-/** 压缩代边界（cr-1160）：boundarySeq ≤ 0 视为无有效边界 → 回落事件自身
- *  seq（存量老 writer 显式写 0 的现场形态；与 ac-ledger events-v2 同判）。 */
-function boundaryOf(row: Record<string, unknown>, rowType: string): number | null {
-  const declared = num(row.boundarySeq);
-  if (declared !== null && declared > 0) return declared;
-  return rowType === 'compaction/end' ? num(row.seq) : declared;
-}
+// 压缩代边界判定单源（cr-1245 B1）：compactionBoundaryOf 自 ac-ledger-core
+// import——此前本地 boundaryOf 与 ac-ledger placeEvent 两份实现靠注释同步
+// （谓词级走散活案例）。语义并轨 ac-ledger 侧：declared ≤0/缺席回落事件
+// 自身 seq（落库 0 = 无有效边界，读面同判）。
 
 /** 行内字段安全取值（撕裂/异形行容错——缺席 = NULL） */
 function str(v: unknown): string | null {
@@ -461,7 +461,7 @@ export class SessionIndex {
           this.stmt(
             'INSERT INTO compactions (conv, domain, run, generation, boundary_seq, end_ts, summary_len, summary_tokens, model, stats, seq) ' +
             'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-          ).run(conv, domain, run, gen, boundaryOf(row, rowType), num(row.ts), summaryLen, summaryTok, str(row.model), rowType === 'compaction' && row.stats !== undefined ? JSON.stringify(row.stats) : null, num(row.seq));
+          ).run(conv, domain, run, gen, compactionBoundaryOf(num(row.boundarySeq) ?? undefined, num(row.seq) ?? undefined), num(row.ts), summaryLen, summaryTok, str(row.model), rowType === 'compaction' && row.stats !== undefined ? JSON.stringify(row.stats) : null, num(row.seq));
           return false;
         }
         return false; // 未知 compaction/* 词汇安全忽略

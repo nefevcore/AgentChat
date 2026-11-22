@@ -12,7 +12,8 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
-    "ac-text-budget": "workspace:*"
+    "ac-text-budget": "workspace:*",
+    "ac-ledger-core": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.10"

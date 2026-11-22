@@ -7,7 +7,8 @@ import * as path from 'node:path';
 
 const dataRoot = path.resolve(process.argv[2] ?? './workspace/home');
 
-// 声明词表(与 ac-ledger REPLAY_BUILTIN_WORDS + 各插件 registerReplayPolicy 狗粮对齐)
+// 声明词表（cr-1245 B5：机制词段与 ac-ledger-core REPLAY_BUILTIN_WORDS 单源——
+// 此处硬编码副本是走散活案例；内容词/历史词为数据根实证集合，暂随脚本维护）
 const VOCAB = new Set([
   // 机制词(封闭)
   'event', 'error', 'inject', 'segment', 'resume',

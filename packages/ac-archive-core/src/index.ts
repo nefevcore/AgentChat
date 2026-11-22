@@ -22,6 +22,8 @@
 // 估算器复用 ac-text-budget（纯库依赖纯库，声明于 package.json）。
 // ============================================================
 import { estimateTokens } from 'ac-text-budget';
+// cr-1245 B2：回放投影单源（shadow 过滤 + 伪行合成 + 摘要头选择）
+export * from './projection.ts';
 
 /** 归档相关预算（缺省值对齐 src DEFAULT_SESSION_CFG） */
 export interface ArchiveBudgets {

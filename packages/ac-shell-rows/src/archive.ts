@@ -29,8 +29,10 @@ import {
   DEFAULT_ARCHIVE_BUDGETS,
   DEFAULT_SELF_CONTEXT_TOKENS,
   SUMMARY_TOKEN_CAP,
-  estimateReplayTokens,
   keepBudgetOf,
+  replayProjection,
+  replaySummaryHead,
+  replayTokensFor,
   replayTokensOf,
   splitForArchive,
   truncateTail,
@@ -40,7 +42,7 @@ import {
 import type { ToolCall, ToolResult } from 'ac-tools';
 import { estimateTokens } from 'ac-text-budget';
 import { parseKey, pairIncludes } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
-import { ARCHIVE_SUMMARY_SOURCE, foldDigestOf, foldSession, foldStepsOf, foldSummaryOf, readDomainFacts, readLedger, rowShadowedBy, summaryTextOf, type LedgerRow } from 'ac-ledger';
+import { ARCHIVE_SUMMARY_SOURCE, foldSession, foldStepsOf, readDomainFacts, readLedger, rowShadowedBy, summaryTextOf, type LedgerRow } from 'ac-ledger';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
 declare module '@agentchat/cordis' {
@@ -109,6 +111,8 @@ export class ArchiveShellService extends Service {
   private defaults: ArchiveBudgets;
   /** 进行中的归档（uuid → 机制信封 requestId——编排等待窗 + 幂等去重） */
   private pending = new Map<string, string>();
+  /** 最近一次压缩事件落账时刻（cr-1245 B5 触发冷却——防循环归档） */
+  private lastCompactionAt = new Map<string, number>();
   /** 触发器注册表（cr-1189 机制注册式——token 阈值缺省注册，V2 口径平移） */
   private triggers: ArchiveTrigger[] = [
     {
@@ -242,58 +246,15 @@ export class ArchiveShellService extends Service {
     const dir = this.sessionDir(uuid);
     const { rows } = readLedger(dir);
     const facts = readDomainFacts(dir, this.agentId);
-    const boundaries = opts.activeOnly === true ? facts.compactions : [];
-    const shadowed = (seq: number | undefined, ts: number | undefined): boolean =>
-      boundaries.some((b) => rowShadowedBy({ ...(seq !== undefined ? { seq } : {}), ...(ts !== undefined ? { ts } : {}) }, b));
-    const pseudo: LedgerRow[] = [];
-    // 版本判据 = 行面而非头行（archiveAndRebuild 同源，cr-1190 续修）：混合
-    // 会话头行 version=1 永不重写，而行面已是 v2 事件行——按头行守门会让
-    // 伪行（轨迹体积的全量载体）整代缺席。实测 news~news：估算 12.7 万 vs
-    // 真实回放 105 万 token，阈值（自会话 20 万）恒不命中 → 归档永不触发。
-    const hasV2Rows = (rows as unknown as Array<Record<string, unknown>>).some(
-      (r) => r.type !== undefined || r.seq !== undefined,
-    );
-    if (facts.version >= 2 || hasV2Rows) {
-      for (const [run, rf] of facts.runs) {
-        const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
-        if (steps.length === 0) continue;
-        if (boundaries.length > 0) {
-          // run 级判定（foldLlmReplay orphan slot 同源）：末事实 seq + 末 ts
-          let runSeq: number | undefined;
-          let runTs: number | undefined;
-          for (const ev of rf.events) {
-            if (ev.kind === 'tool-call-result') continue;
-            if (ev.seq !== undefined && (runSeq === undefined || ev.seq > runSeq)) runSeq = ev.seq;
-            if (ev.ts !== undefined && (runTs === undefined || ev.ts > runTs)) runTs = ev.ts;
-          }
-          for (const s of steps) {
-            if (typeof s.ts === 'number' && (runTs === undefined || s.ts > runTs)) runTs = s.ts;
-          }
-          if (shadowed(runSeq, runTs)) continue; // 整 run 属压缩前代——不计
-        }
-        pseudo.push({ role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
-      }
-    }
-    // 行时刻（v2 事件行数字 ts / v1 行 ISO timestamp——索引入账同谓词）
-    const tsOf = (r: LedgerRow): number | undefined => {
-      const raw = (r as unknown as Record<string, unknown>).ts;
-      if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
-      if (typeof r.timestamp === 'string' && r.timestamp !== '') {
-        const parsed = Date.parse(r.timestamp);
-        return Number.isFinite(parsed) ? parsed : undefined;
-      }
-      return undefined;
-    };
-    const picked = boundaries.length > 0
-      ? rows.filter((r) => !shadowed(typeof r.seq === 'number' ? r.seq : undefined, tsOf(r)))
-      : rows;
     const fold = foldSession(this.dataRoot, uuid, [dir]);
-    // cr-1191 V3 摘要单源：digest 行在场时其正文已在 picked 内（行计一次），
-    // 不再加 summary 头——防双计（digest 行 agent_id=本域 agent，viewer 口径
-    // 计入）；v2 存量代（事件摘要头单发）/v1（summary.md）才作头。
-    const digest = foldDigestOf(fold);
-    const summary = digest !== null ? '' : (foldSummaryOf(fold)?.text ?? summaryTextOf(dir));
-    return estimateReplayTokens([...picked, ...pseudo], this.agentId, summary !== '' ? { summary } : {});
+    // cr-1245 B2 投影单源：shadow 过滤 + 伪行合成（版本判据 = 行面，cr-1214）
+    // + 摘要头选择（digest 单源防双计——cr-1191）全在 ac-archive-core
+    // replayProjection；本行只保留目录编排与 v1 兼容窗兜底。
+    const proj = replayProjection(rows, facts, replaySummaryHead(fold, summaryTextOf(dir)), {
+      activeOnly: opts.activeOnly,
+      viewer: this.agentId,
+    });
+    return replayTokensFor(proj, this.agentId);
   }
 
   /** 触发检测 + 触发（run 收束后异步，cr-1189 机制注册式）：遍历触发器
@@ -304,6 +265,11 @@ export class ArchiveShellService extends Service {
    *  （行为等价回归锚）；ledger-bytes 缺省注册 = 估算判据失效时的兜底。 */
   async maybeArchive(uuid: string): Promise<void> {
     if (this.pending.has(uuid)) return; // 同拍去重（同一会话同拍至多一次）
+    // cr-1245 B5 触发冷却（防 cr-1229 循环归档）：上次压缩收束后 10 分钟内
+    // 不再重复触发整编（计量违例/估算失真的止损闸——归档后仍超阈说明口径
+    // 有病，重复归档只会越滚越大；冷却窗给诊断留时间）。
+    const lastGen = this.lastCompactionAt.get(uuid);
+    if (lastGen !== undefined && Date.now() - lastGen < 10 * 60_000) return;
     const ctx = this.triggerCtxOf(uuid);
     const hit = this.triggers.some((t) => (t.appliesTo?.(uuid) ?? true) && t.shouldTrigger(ctx));
     if (!hit) return;
@@ -360,6 +326,7 @@ export class ArchiveShellService extends Service {
 
   /** cr-1188 完成广播（前端 pending 收口 / 会话流刷新驱动源） */
   private completedOf(uuid: string, archived: number): void {
+    this.lastCompactionAt.set(uuid, Date.now()); // cr-1245 B5 冷却锚
     this.ctx.emit('archive/completed', { agentId: this.agentId, conversationId: uuid, archived });
   }
 
@@ -751,7 +718,11 @@ export class ArchiveShellService extends Service {
       // 也落事件——边界即刻生效）
       await ledger.compactionFor(uuid, requestedAt + '-compaction-' + uuid, {
         shadowedSeq: boundary,
-        stats: { shadowedRows: archivedOriginal.length, estimatedTokens: this.estimateOf(uuid) },
+        // cr-1245 B5 主张口径：estimatedTokens 落**活跃估算**（activeOnly——
+        // 与阈值/doctor 对拍同口径；本代事件即将生效，此刻 activeOnly 值 ≈
+        // 事件后活跃集。此前落全量值与 doctor 重算口径错位，cr-1229 化石对拍
+        // 即因此炸 error）。
+        stats: { shadowedRows: archivedOriginal.length, estimatedTokens: this.estimateOf(uuid, { activeOnly: true }) },
       });
       // cr-1192 调序：compaction 事件先落（分界线就位），摘要行随后落账——
       // 新代首行，seq 天然 > boundary（时刻维双保险：ts > endTs 恒 kept），

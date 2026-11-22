@@ -12,6 +12,7 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
+    "ac-ledger-core": "workspace:*",
     "ac-conv-keys": "workspace:*",
     "@agentchat/cordis": "workspace:*"
   },

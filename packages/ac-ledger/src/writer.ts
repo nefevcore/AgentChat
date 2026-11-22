@@ -410,6 +410,13 @@ export class LedgerWriter {
       for (const r of keep) lines.push(JSON.stringify(r));
       fs.writeFileSync(tmp, lines.length > 0 ? lines.join('\n') + '\n' : '', 'utf-8');
       fs.renameSync(tmp, file);
+      // cr-1245 B3 同构对拍（物理重写等价断言——fail-loud）：读回行集必须
+      // 与写入 keep 恒等（rename 原子性 + 行序列化无损）；任何缺行 = 重写
+      // 丢事实，宁可炸也不静默（cr-1156/1234 的写侧防线）。
+      const reread = readLedger(this.dir).rows;
+      if (reread.length !== keep.length) {
+        throw new Error('compact 同构对拍失败：读回 ' + reread.length + ' 行 ≠ 写入 keep ' + keep.length + ' 行（' + this.dir + '）');
+      }
       return { archived: opts.archive.length, kept: keep.length, ...(segment !== undefined ? { segment } : {}) };
     });
   }

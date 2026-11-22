@@ -1,0 +1,17 @@
+{
+  "$comment": "ledger doctor 存量违例豁免基线（cr-1245 B4 首跑 2026-11-22）——只豁免已归因存量，新违例不进表；归因修复后清零。",
+  "exemptions": [
+    {
+      "session": "writer/user~writer",
+      "invariant": "claim",
+      "count": 2,
+      "attribution": "cr-1229 修复（2026-11-21 晚）之前落账的两代 compaction：stats.estimatedTokens 是当时伪行漏计口径的低估（3.0万/3.3万 vs 修复后重算 12.4万）。存量化石不修数（doctor 只报告）；该会话后续新代按修复后口径落账。"
+    },
+    {
+      "session": "designer/admin~designer",
+      "invariant": "seq-space",
+      "pattern": "多 writer 会话 seq 每轮重置（1..4 循环）——v1 早期形态残留",
+      "attribution": "v1 时代多写者残留（journal 迁移产物）；无压缩代、不遮蔽（rowShadowedBy 按 seq 比较恒 false），无实际伤害。"
+    }
+  ]
+}

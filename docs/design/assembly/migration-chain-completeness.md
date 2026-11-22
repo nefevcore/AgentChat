@@ -2,7 +2,7 @@
 
 > 性质：域深设计——版本化持久形态的换轨器统一组织：相邻边迁移链 + 完备性校验立法。
 > 状态：现行 · cr-1036 2026-11-12 立项，同日全批落地（批 1 链纯库 `ac-migration-core` + 批 2 agent.patch 链注册与 migrate 换轨 + 批 3 boot 惰性迁移与 config.json 收编退役）；cr-1037 批 1-2 增第二消费方（行内 config 迁移链——见 [config-upgrade.md](config-upgrade.md)）。下游依赖：[config-upgrade.md](config-upgrade.md) 的迁移边复用本链立法。
-> 读者：给任何持久形态（agent.patch.yml / 基座文档 / installed / 单元 config）做版本演进、写换轨器、跑 migrate 工具的人。
+> 读者：给任何持久形态（agent.patch.yml / 基座文档 / installed / 单元 config）做版本演进、写换轨器、跑 migrate 工具的人。姊妹校验器：[ledger-invariants-plan](../session/ledger-invariants-plan.md) 的 ledger doctor（cr-1245 裁决 D5：轻共基座——severity 词汇共享〔info/warn/error〕+ 文档互引；迁移链校验静态注册结构、doctor 对拍运行时数据，验证对象不同构不深合并）。
 
 ## 一、设计目标
 

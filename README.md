@@ -183,7 +183,7 @@ WebUI（Vue 3，浏览器）── HTTP + WebSocket ── 宿主（web 面 + �
 
 ```text
 会话状态机  ac-conversation —— 串行化门 + inbox 双队列 + 防自激 + 幂等准入
-信封投递    ac-envelope-core（deliver 双层会合 + ipc 传输）/ ac-post-office / ac-ledger —— 纯转发、零会话态；Agent 是数据不是插件
+信封投递    ac-envelope-core（deliver 双层会合 + ipc 传输）/ ac-post-office / ac-ledger（+ 纯核 ac-ledger-core：行协议/事件词汇/fold 谓词/doctor——cr-1245 解释权单源）—— 纯转发、零会话态；Agent 是数据不是插件
 ReAct 编排  ac-agent-loop —— turn=run → [step → 推理/工具 → 收束]×N；steer 注入
 模型会话    ac-llm / ac-llm-pool —— 协议住纯库，连接池是唯一事实源
 ```

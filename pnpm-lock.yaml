@@ -937,6 +937,9 @@ importers:
 
   packages/ac-archive-core:
     dependencies:
+      ac-ledger-core:
+        specifier: workspace:*
+        version: link:../ac-ledger-core
       ac-text-budget:
         specifier: workspace:*
         version: link:../ac-text-budget
@@ -2928,12 +2931,31 @@ importers:
       ac-envelope-core:
         specifier: workspace:*
         version: link:../ac-envelope-core
+      ac-ledger-core:
+        specifier: workspace:*
+        version: link:../ac-ledger-core
       ac-llm:
         specifier: workspace:*
         version: link:../ac-llm
       ac-post-office:
         specifier: workspace:*
         version: link:../ac-post-office
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
+  packages/ac-ledger-core:
+    dependencies:
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
+      ac-envelope-core:
+        specifier: workspace:*
+        version: link:../ac-envelope-core
     devDependencies:
       vitest:
         specifier: ^4.1.10
@@ -3405,6 +3427,9 @@ importers:
       ac-conv-keys:
         specifier: workspace:*
         version: link:../ac-conv-keys
+      ac-ledger-core:
+        specifier: workspace:*
+        version: link:../ac-ledger-core
     devDependencies:
       ac-ledger:
         specifier: workspace:*
