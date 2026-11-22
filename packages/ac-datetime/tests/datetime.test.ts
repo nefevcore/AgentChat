@@ -156,7 +156,9 @@ describe('行为（before-run 注入链）', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-dt-'));
     const anchorFile = path.join(root, 'files', '__standard__', 'datetime', '.day-anchor.json');
     fs.mkdirSync(path.dirname(anchorFile), { recursive: true });
-    fs.writeFileSync(anchorFile, JSON.stringify({ c3: datetimeLine(new Date(), 'UTC') }), 'utf-8');
+    // cr-1198：锚须与产线同源时区（缺省 DEFAULT_TZ）——硬编码 'UTC' 在
+    // Asia/Shanghai 00:00–08:00 窗口内写成前一日，锚必不匹配、用例恒败
+    fs.writeFileSync(anchorFile, JSON.stringify({ c3: datetimeLine(new Date()) }), 'utf-8');
     const ctx = new Context();
     await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], { root });
     await ctx.agentLoop.run({
