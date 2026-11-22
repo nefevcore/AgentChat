@@ -1,6 +1,6 @@
 {
- "scannedHead": "3537246d6c830864253f17d58ea49e56b9a7e9d5",
- "generatedAt": "2026-11-22T01:43:39.062Z",
+ "scannedHead": "2c5b7e99cbcb95cfabf21da31e4454ee1faebc0c",
+ "generatedAt": "2026-11-22T02:03:37.107Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4925,6 +4925,11 @@
     "sha": "2c73dc6fee5aa6209de707a974aec67f3ff03f63",
     "date": "2026-11-14",
     "subject": "chore(data): cr-1081 数据根兼容窗收口——六项旧位置迁移后删除（用户确认），data-root-layers.md §四清单收口"
+   },
+   {
+    "sha": "bbdcd5c3361997b26f312232d9ca635d7ed2e91a",
+    "date": "2026-11-22",
+    "subject": "chore(cleanup): cr-1212 心跳三档核查与退役残余清理——system-heartbeat 证实现行（supervisor 触碰/host-revive 消费）不清理；timer 旧位读侧回落按 cr-1081 防御面保留；清 AGENTCHAT_SUPERVISED 死防线（env 退役留观期满、全仓零消费方）+ 校正验证清单失效命令（.runtime 文件本体非 runtime.json）"
    }
   ],
   "1082": [
@@ -6084,6 +6089,18 @@
     "sha": "ca94fbc40b05f32a35608a23b403a42fcf97aa6c",
     "date": "2026-11-22",
     "subject": "test(infra): cr-1211 测试根轮次隔离——每轮独立 test-run-<pid> 根（vitest.config 求值期注入 AGENTCHAT_TEST_ROOT，探针实证 test.env 只达 worker 而 config 直写对 globalSetup/worker 双端可见）+ 死轮残根开工 GC（kill(pid,0) 探活，ESRCH 判死回收，pid 复用只漏清不误删）；不做 teardown 清理——detached 壳残留句柄会让全绿轮在收尾挂掉（cr-1197/1199 形态）；护栏泛化为 workspace 下 test / test-run-<pid>；根治多会话并发测试 EPERM 互踩（cr-1181 双轮、cr-1197/1199 残留句柄），worker 分桶与 maxWorkers 8 等单轮缓解不动"
+   }
+  ],
+  "1212": [
+   {
+    "sha": "2c5b7e99cbcb95cfabf21da31e4454ee1faebc0c",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账登记 cr-1212"
+   },
+   {
+    "sha": "bbdcd5c3361997b26f312232d9ca635d7ed2e91a",
+    "date": "2026-11-22",
+    "subject": "chore(cleanup): cr-1212 心跳三档核查与退役残余清理——system-heartbeat 证实现行（supervisor 触碰/host-revive 消费）不清理；timer 旧位读侧回落按 cr-1081 防御面保留；清 AGENTCHAT_SUPERVISED 死防线（env 退役留观期满、全仓零消费方）+ 校正验证清单失效命令（.runtime 文件本体非 runtime.json）"
    }
   ]
  }
