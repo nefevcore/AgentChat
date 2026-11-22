@@ -15,7 +15,7 @@
 //     （.anchors.json，cr-1154）——账本注入行是纯回放材料，不承载水位。
 // ============================================================
 import * as fs from 'node:fs';
-import { wrapSystemReminder } from 'ac-core-utils';
+//（cr-1251：wrapSystemReminder import 随双写退役——包裹归 loop 消费点）
 import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
@@ -116,24 +116,19 @@ export class MemoryService extends Service {
     this.ctx.on('loop/before-run', async (call, next) => {
       const req = call.request;
       // cr-1233 干跑（previewSystemPrompt）：只读预览不落账不推水位
-      if (req.dryRun === true) return next();
+      if (req.dryRun === true || call.inject === undefined) return next();
       if (req.conversationId === undefined || req.agent === undefined) return next();
-      const session = this.ctx.get('session', false) as
-        | { recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string; payload?: unknown }): string }
-        | undefined;
-      if (session === undefined) return next(); // session 行未装——无落账面，不注入
       const agentId = req.agent;
       const conversationId = req.conversationId;
       const entries = this.entries(agentId);
       const H = entries.length;
       const S = this.anchorOf(agentId, conversationId);
       const maxTokens = this.maxTokensFor(agentId);
-      /** 落账（裸正文）+ 工作数组双写（包裹后 = 回放投影同字节，cr-1101；
-       * wrapSystemReminder 与 ac-ledger 回放同源）+ 锚推进（S 单调不降——
-       * cr-1154：水位归本服务私有，账本行不再承载） */
+      /** cr-1251 注入面单写：消息进数组 + 消费点落账（包裹同源）由 loop
+       * 统一承担 + 锚推进（S 单调不降——cr-1154：水位归本服务私有，
+       * 账本行不再承载）。 */
       const inject = (text: string, source: string, label: string): void => {
-        session.recordContext(conversationId, agentId, text, { source, label });
-        req.messages = [...req.messages, { role: 'user', content: wrapSystemReminder(text) }];
+        call.inject!({ role: 'user', content: text }, { injectSource: source, label });
         this.setAnchor(agentId, conversationId, H);
       };
       if (S > H) {

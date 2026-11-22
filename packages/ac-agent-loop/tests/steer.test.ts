@@ -128,16 +128,16 @@ describe('steer 注入（Service 方法，ADR-1）', () => {
     expect(s2.calls[0].messages.map((m) => m.content)).toContain(wrapSystemReminder('等等，还有一件事'));
   });
 
-  it('cr-971 消费点事件：steer-consumed 在注入并入下一步请求的边界发出（不在受理时）', async () => {
+  it('cr-971/cr-1251 消费点事件：inject-consumed 在注入并入下一步请求的边界发出（不在受理时）', async () => {
     const s1: Script = { calls: [], chunks: () => toolCallChunks('c1', 'probe_tool', '{}') };
     const s2: Script = { calls: [], chunks: () => textChunks('完成') };
     const { ctx } = await boot([s1, s2]);
     const events: Array<{ at: string; requestId?: string }> = [];
-    ctx.on('loop/steer-consumed', (agent, conversationId, handle, consumed) => {
+    ctx.on('loop/inject-consumed', (agent, conversationId, runId, consumed) => {
       expect(agent).toBe('a1');
-      expect(handle).toBe('a1');
+      expect(runId).toBeTruthy();
       void conversationId;
-      for (const c of consumed) events.push({ at: 'consumed', requestId: c.requestId });
+      for (const c of consumed) events.push({ at: 'consumed', requestId: c.meta.requestId });
     });
     ctx.tools.register({
       name: 'probe_tool',

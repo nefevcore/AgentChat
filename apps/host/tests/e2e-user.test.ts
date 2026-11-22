@@ -75,10 +75,11 @@ describe('M8.4 user 壳半边端到端', () => {
         if (Date.now() > deadline) throw new Error('终稿未回链：' + JSON.stringify(arows));
         await new Promise((r) => setTimeout(r, 100));
       }
-      expect(arows.map((r) => r.content)).toEqual(['第一问', '[mock 回复 第一问]']);
+      // cr-1251：datetime 精简树注入照常——首轮 mock 回显日期锚
+      expect(arows.map((r) => r.content)).toEqual(['第一问', expect.stringMatching(/^\[mock 回复 <system-reminder>\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]<\/system-reminder>\]$/)]);
       // 读时投影（cr-973）：user 视角终稿层 = agent 域账本纯函数
       const replay = user.replay(uuid);
-      expect(replay.map((r) => r.content)).toEqual(['第一问', '[mock 回复 第一问]']);
+      expect(replay.map((r) => r.content)).toEqual(['第一问', expect.stringMatching(/^\[mock 回复 <system-reminder>\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]<\/system-reminder>\]$/)]);
       // run 键盖戳（cr-595）：投影行 run 与 agent 终稿行 run 一致——webui
       // history 按此联查 agent journal 带出思考/工具卡（D4.2）。
       expect(replay[1].run).toBe(arows[1].run);
@@ -118,7 +119,8 @@ describe('M8.4 user 壳半边端到端', () => {
       await waitRows(4);
       const replay = user.replay(first.uuid);
       expect(replay.map((r) => r.content)).toEqual([
-        '第一问', '[mock 回复 第一问]', '第二问', '[mock 回复 第二问]',
+        // cr-1251：首轮回显日期锚（datetime 精简树注入）；同日第二轮锚已定不重注——回显用户消息
+        '第一问', expect.stringMatching(/^\[mock 回复 <system-reminder>\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]<\/system-reminder>\]$/), '第二问', '[mock 回复 第二问]',
       ]);
       // 幂等（R-3）：同 requestId 重投 → 接收方去重不重复入账（壳收信面
       // AdmissionGate + ledger writer 双层承载——cr-973 起 user 桩无本地

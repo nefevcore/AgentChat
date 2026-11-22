@@ -81,7 +81,8 @@ describe('M8.3 e2e：真子壳 spawn + bench 门', () => {
       expect(spawnOut.ok, spawnOut.error).toBe(true);
       const childId = spawnOut.output!.subagent_id!;
       // 子壳 mock 终稿 = 入站回声
-      expect(spawnOut.output!.result?.text).toContain('[mock 回复 探查 preview 轨状态]');
+      // cr-1251：子壳 datetime 注入（有会话键即注入，防重归锚文件）——mock 回显日期锚
+      expect(spawnOut.output!.result?.text).toMatch(/\[mock 回复 <system-reminder>\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]<\/system-reminder>\]/);
       // 嵌套域账本（D4）：agents/mama/children/<id>/sessions/mama~<id>/messages.jsonl
       const dir = path.join(ROOT, 'agents', 'mama', 'children', childId, 'sessions', 'mama~' + childId);
       const rows = readLedger(dir).rows;

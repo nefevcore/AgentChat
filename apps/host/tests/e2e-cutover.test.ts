@@ -229,7 +229,8 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
         const rows = projectUserReplay(targetRoot, outcome.uuid);
         if (rows.length >= 2) {
           // 双账本对拍（D4 视角主义）：终稿层读时投影 == agent 侧账本
-          expect(rows.map((r) => r.content)).toEqual(['壳半边全链问', '[mock 回复 壳半边全链问]']);
+          // cr-1251：datetime 精简树注入照常（防重归锚文件）——mock 回显日期锚
+          expect(rows.map((r) => r.content)).toEqual(['壳半边全链问', expect.stringMatching(/^\[mock 回复 <system-reminder>\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]<\/system-reminder>\]$/)]);
           // agent 侧账本 = 终稿层投影 + cr-697 物化段行（steps 载体）——对拍过滤
           const arows = readLedger(path.join(targetRoot, 'agents', 'alpha', 'sessions', outcome.uuid)).rows
             // cr-974 v2：相位/run-end 行无 role——终稿层只看发言行
@@ -246,7 +247,7 @@ describe('8.8 级联验收：恒等门 + 宿主 boot 回放对齐', () => {
       // cr-1182 批2：datetime 日期锚 context 行入账（时序与用户消息入账竞态——不锁位，锁存在性）
       const contents = history.records.map((r) => r.content);
       expect(contents).toContain('壳半边全链问');
-      expect(contents).toContain('[mock 回复 壳半边全链问]');
+      expect(contents.some((c: string) => /\[mock 回复 <system-reminder>\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]<\/system-reminder>\]/.test(c))).toBe(true); // cr-1251：回显日期锚
       expect(contents.filter((c) => c.startsWith('[当前时间] '))).toHaveLength(1);
       expect(history.total).toBe(3);
     } finally {

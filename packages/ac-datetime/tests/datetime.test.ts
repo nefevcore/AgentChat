@@ -109,22 +109,31 @@ describe('纯函数', () => {
   });
 });
 
-describe('行为（before-run 注入链）', () => {
-  it('有会话键 + session 在场：日期锚落盘；system 不含日期行', async () => {
+describe('行为（before-run 注入链——cr-1251 注入面）', () => {
+  it('有会话键：日期锚经注入面进入消息数组 + 消费点事件发射；system 不含日期行', async () => {
     captured.length = 0;
     recorded.length = 0;
     const ctx = new Context();
     await boot(ctx, [...standardRows(), sessionStubRow(), datetimeRow], undefined);
+    const consumed: Array<{ injectSource: string; label?: string; content: string }> = [];
+    ctx.on('loop/inject-consumed', (agent, conversationId, _runId, items) => {
+      expect(agent).toBe('__standard__');
+      expect(conversationId).toBe('c1');
+      for (const c of items) consumed.push({ injectSource: c.meta.injectSource, ...(c.meta.label !== undefined ? { label: c.meta.label } : {}), content: String(c.message.content) });
+    });
     await ctx.agentLoop.run({
       model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c1',
       messages: [{ role: 'user', content: 'hi' }],
     });
     const system = String(captured[0].messages[0].content);
     expect(system).toBe('BASE'); // DATETIME 段已移除——system 全静态
-    expect(recorded).toHaveLength(1);
-    expect(recorded[0].source).toBe('datetime');
-    expect(recorded[0].content).toMatch(/^\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]$/);
-    expect(recorded[0].id).toBe('c1');
+    // 注入体进入模型消息数组（尾部，包裹形态）
+    const injected = captured[0].messages.filter((m) => String(m.content).includes('[当前时间]'));
+    expect(injected).toHaveLength(1);
+    // 消费点事件随行（元数据 = 落账面输入）
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0]).toMatchObject({ injectSource: 'datetime', label: '日期锚' });
+    expect(consumed[0].content).toMatch(/^\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]$/);
   });
 
   it('conversationId 缺省（子 Agent / loop 直连）→ 不落盘不注入', async () => {
@@ -214,8 +223,10 @@ describe('间隔注入（状态文件基准）', () => {
       model: 'mock-1', system: 'BASE', agent: '__standard__', conversationId: 'c5',
       messages: [{ role: 'user', content: 'hi' }],
     });
-    const last = captured[0].messages.at(-1);
-    expect(String(last?.content)).toBe('hi'); // 尾部仍是用户消息——未注入
+    // 间隔判定：无「距上次回复」行注入（cr-1251 后日期锚作为独立注入体在场——
+    // 尾部不再是裸 'hi'，但不得出现间隔行）
+    const contents = captured[0].messages.map((m) => String(m.content));
+    expect(contents.some((c) => c.includes('距上次回复'))).toBe(false);
   });
 
   it('after-run 记录最后回复时刻（状态文件）', async () => {

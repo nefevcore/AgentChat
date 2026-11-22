@@ -15,10 +15,10 @@
 //     本行在 loop/after-run 时点记入私有状态文件
 //     files/<agentId>/datetime/.last-reply.json。
 //
-// 门控：无 conversationId / agent（子 Agent / loop 直连）不注入。
+// 门控：无 conversationId / agent（子 Agent / loop 直连）不注入；注入面缺席
+//（宿主直调 run 无 steerQueue——call.inject 不装配）同样跳过。
 // 时区按 owner 生效时区（settings〔timers〕.timezone——cr-1053 与定时触发同词汇）。
-// 降级：session 行未装（无 recordContext 面）→ 落盘与注入都跳过（注入无
-// 回放源 = 下轮重复注入——宁可零注入不重复）。
+// cr-1251：落账归 loop 消费点统一发射（ac-ledger 订阅落账）——本行只声明注入。
 // ============================================================
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -71,10 +71,7 @@ function zonedParts(date: Date, tz: string): { y: number; m: number; d: number }
   return { y: Number(get('year')), m: Number(get('month')), d: Number(get('day')) };
 }
 
-/** session 服务的 recordContext 面（结构化最小面——非运行时依赖） */
-interface SessionLike {
-  recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string }): string;
-}
+//（cr-1251：SessionLike 接口随 recordContext 双写退役删除）
 
 /** 行配置（boot 装配参数——rowOptionsFor 注入 dataRoot） */
 export interface DatetimeRowOptions {
@@ -158,18 +155,16 @@ export function apply(ctx: Context, options: DatetimeRowOptions = {}) {
     if (cur === undefined || now > cur) writeLastReply(agentId, now);
   }, { description: '记录最后回复时刻（datetime 间隔注入基准）' });
 
-  // ---- before-run：日期落盘 + 间隔注入 ----
+  // ---- before-run：日期锚 + 间隔注入（cr-1251 统一注入面——单写） ----
   ctx.on('loop/before-run', (call, next) => {
     // 无会话键/agent（子 Agent / loop 直连）：不注入（提示词全静态）
     const req = call.request;
     // cr-1233 干跑（previewSystemPrompt）：只读预览不落账——早退防凭空
     // 创建会话（新会话草稿哨兵键会被直接物化成真）
-    if (req.dryRun === true) return next();
+    if (req.dryRun === true || call.inject === undefined) return next();
     const convId = req.conversationId;
     const agentId = (req as { agent?: string }).agent;
     if (convId === undefined || agentId === undefined) return next();
-    const session = ctx.get('session', false) as SessionLike | undefined;
-    if (session === undefined) return next(); // session 行未装——无落账面，不注入
 
     const tz = resolveTimezone(
       (ctx.agents.settingsOf(agentId, 'timers') as { timezone?: string } | undefined)?.timezone,
@@ -177,21 +172,23 @@ export function apply(ctx: Context, options: DatetimeRowOptions = {}) {
     const now = new Date();
     const line = datetimeLine(now, tz);
 
-    // ① 日期锚落盘（同会话同日已落则跳过——私有状态单源判重；context 行
-    //    回放是 wrapper 包裹形态且可能被压缩截断，信封扫描不可靠）
+    // ① 日期锚（同会话同日已注则跳过——私有状态单源判重）：注入面单写——
+    //    消息进数组 + 消费点落账（loop/inject-consumed → journalInject）由
+    //    loop 统一承担，落位 = 首步相位行之前（模型消息序）。
     if (readAnchoredDay(agentId, convId) !== line) {
-      session.recordContext(convId, agentId, line, { source: 'datetime', label: '日期锚' });
+      call.inject({ role: 'user', content: line }, { injectSource: 'datetime', label: '日期锚' });
       writeAnchoredDay(agentId, convId, line);
     }
 
-    // ② 间隔注入：基准 = 私有状态文件的最后回复时刻
+    // ② 间隔注入（裁决：进入 LLM 消息的注入体一律落账——live 与回放恒等）：
+    //    基准 = 私有状态文件的最后回复时刻
     const lastReplyAt = readLastReply(agentId);
     if (lastReplyAt !== undefined) {
       const elapsed = now.getTime() - lastReplyAt;
       if (elapsed >= RESYNC_INTERVAL_MS) {
-        req.messages = [...req.messages, { role: 'user', content: timeInfoLine(now, tz, elapsed) }];
+        call.inject({ role: 'user', content: timeInfoLine(now, tz, elapsed) }, { injectSource: 'datetime', label: '时间信息' });
       }
     }
     return next();
-  }, { description: '日期落盘 + 间隔阈值时间信息注入（cr-1182）' });
+  }, { description: '日期锚 + 间隔时间信息注入（cr-1182 → cr-1251 注入面单写）' });
 }

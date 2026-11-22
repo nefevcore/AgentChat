@@ -87,7 +87,7 @@ interface SessionLike {
  * 回落 late-reply deliver。
  */
 interface AgentLoopLike {
-  steer(handle: string, message: { role: 'user'; content: string }, meta?: { sender?: string; source?: string }): boolean;
+  steer(handle: string, message: { role: 'user'; content: string }, meta?: { sender?: string; source?: string }, injectMeta?: { injectSource: string; label?: string; payload?: unknown }): boolean;
 }
 
 /** 单项答案格式化：多选数组 → 「A、B」；null → (跳过) */
@@ -210,7 +210,13 @@ export function apply(ctx: Context) {
     const steered =
       handle !== undefined &&
       agentLoop !== undefined &&
-      agentLoop.steer(handle, { role: 'user', content: answerNotice(record) }, { sender: owner, source: 'event' });
+      agentLoop.steer(
+        handle,
+        { role: 'user', content: answerNotice(record) },
+        { sender: owner, source: 'event' },
+        // cr-1251：meta 随队列 item 走——步边界消费点统一落账（同 idle 注入形状）
+        { injectSource: 'durable-interaction', label: '已收到用户回答', payload: askPayload(record, 'answered') },
+      );
     if (!steered) {
       // 收束竞态（steer 封口后作答）：登记已清 → late-reply deliver 回落。
       // D3 语义：消息入账一次不丢不重——deliver 的 next-run 等待与入账由
@@ -230,23 +236,11 @@ export function apply(ctx: Context) {
       }
       return;
     }
-    // steer 注入成功：context 行落账（与 idle 注入同形状——刷新/回放时答案
-    // 在转录在场，跨 run 语义不丢）
+    // steer 注入成功（cr-1251）：落账归消费点——steer 调用带 injectMeta（label/payload
+    // 随队列 item 走，步边界消费时统一发射 loop/inject-consumed → ac-ledger 落账，
+    // 与 idle 注入同形状）
     consume(record.id);
-    const session = ctx.get('session', false) as SessionLike | undefined;
-    if (session) {
-      try {
-        session.recordContext(entry.conversationId, entry.agent, answerNotice(record), {
-          source: 'durable-interaction',
-          label: '已收到用户回答',
-          // 问答卡数据面（cr-765 #4）：Q/A 结构化——UI 分 Q/A 段渲染
-          payload: askPayload(record, 'answered'),
-        });
-      } catch (err) {
-        ctx.logger.warn(`[ask-questions] 答案 context 行落账失败（${record.id}）: ${String(err)}`);
-      }
-    }
-  }, { description: '作答注入：忙步 steer 即时注入 / 挂起留给 idle 半边 / run 已死 late-reply 回投' });
+  }, { description: '作答注入：忙步 steer 即时注入（meta 随行消费点落账）/ 挂起留给 idle 半边 / run 已死 late-reply 回投' });
 
   // ---- loop/run-idle 监听器：自然停点挂起等待本 run 未消费的 ask 交互 ----
   // 只认本 run 打开的交互（发起体写入登记表）；等待 = replied/closed 事件 +
@@ -326,31 +320,24 @@ export function apply(ctx: Context) {
       if (want.size === 0) finish();
     });
     if (settled.length === 0) return rest; // abort / 无终态 → 空手（loop 收束路径接管）
-    // 答案/超时注入（user 语义位——projectRecord 对 context 行同款回放）。
-    // 落账先行（2026-09-21 修正，session f5adb5d9 实测暴露）：recordContext
-    // 在 run 活跃时落 journal 注入行，settlement 按消费点真序提升为 context
-    // 行（与提问行同路径）——答案跨 run/重启存活，活续走与崩溃恢复（late-
-    // reply deliver 纯 context 行）产出完全相同的转录形状（suspension plan
-    // 裁决 #4/#5 的既定形状，此前实现漏掉了落账半边）。
-    const session = ctx.get('session', false) as SessionLike | undefined;
+    // 答案/超时注入（user 语义位——projectRecord 对注入行同款回放）。
+    // cr-1251 注入面：经 call.inject 声明（元数据随行——消费点统一落账，
+    // 答案跨 run/重启存活与忙步 steer 同形状）；面缺席（宿主直调）回落
+    // 返回值通道（无元数据）。
     const injected = settled.map(({ record, outcome }) =>
       outcome === 'answered'
         ? { role: 'user' as const, content: answerNotice(record) }
         : { role: 'user' as const, content: `[系统通知] 你此前发起的提问（interaction ${record.id}）用户未响应（${record.closedReason ?? 'closed'}）——请自行决断是否继续等待或另寻方案。` },
     );
-    for (let i = 0; i < settled.length; i++) {
-      if (!session) break; // 会话行未装——答案仍注入 run 内（组合可选，降级不阻断）
-      try {
-        session.recordContext(conversationId, agent, injected[i].content, {
-          source: 'durable-interaction',
-          // label = UI 文案（流式 session/context-injected 事件与刷新历史
-          // 两路径同源直出——正文整段对事件分隔行过长）
+    if (call.inject !== undefined) {
+      for (let i = 0; i < settled.length; i++) {
+        call.inject(injected[i], {
+          injectSource: 'durable-interaction',
           label: settled[i].outcome === 'answered' ? '已收到用户回答' : '提问未获响应',
           payload: settled[i].outcome === 'answered' ? askPayload(settled[i].record, 'answered') : { questions: askQuestionsOf(settled[i].record), outcome: 'timeout' },
         });
-      } catch (err) {
-        ctx.logger.warn(`[ask-questions] 答案 context 行落账失败（${settled[i].record.id}）: ${String(err)}`);
       }
+      return rest.length > 0 ? [...rest] : [];
     }
     return [...injected, ...rest];
   }, { description: 'ask_questions 挂起等待：run 自然停点等用户回答，注入续走同 run' });

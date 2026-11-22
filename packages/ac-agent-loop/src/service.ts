@@ -141,6 +141,7 @@ function mergeUsage(
 // normalizeToolSpecs 已下沉 ac-core-utils（cr-318：跨行协议词汇单源，
 // 8+ 包值导入免拉插件行）——本包 import 自用，protocol 注释见彼处。
 import { wrapSystemReminder } from 'ac-core-utils';
+import type { InjectMeta } from './contract.ts';
 
 /**
  * steer 队列（run 生灭）：
@@ -156,9 +157,12 @@ import { wrapSystemReminder } from 'ac-core-utils';
  */
 interface SteerQueue {
 
-  items: Array<{ message: LlmMessage; sender?: string; source?: string; requestId?: string; replay?: 'original' | 'wrapper' | 'none' }>;
+  items: Array<{ message: LlmMessage; sender?: string; source?: string; requestId?: string; replay?: 'original' | 'wrapper' | 'none'; injectMeta?: Omit<InjectMeta, 'replay' | 'requestId'> }>
 
-  durable: LlmMessage[];
+  durable: Array<{ message: LlmMessage; meta?: InjectMeta }>;
+
+  /** before-run / run-idle 注入面登记（cr-1251——waterfall 期间经 call.inject 受理） */
+  face: Array<{ message: LlmMessage; meta: InjectMeta }>;
 
   sealed: boolean;
 
@@ -322,12 +326,38 @@ export class AgentLoopService extends Service {
    * ——通用 run 边界 seam（veto/预算/messages 改写/懒准备），不再承载
    * 系统提示词装配语义（提示词组装走 PromptSection 注册制，run() 入口
    * 组装先于本链）。任一 veto 即否决下游全部（含 execute 与 run-started）。
+   *
+   * cr-1251 注入面收口：waterfall 通过后，经 call.inject 受理的注入统一
+   * 并入 request.messages 尾部（= 历史消费方的模型首见位置——run 起始
+   * 材料 append 在触发消息之后，位置语义与既有双写形态一致）并发射
+   * inject-consumed（落账在消费点——首步相位行之前）。veto 路径不消费
+   * （face 注入随 run 否决废弃，与 steer-dropped 同语义——无消费 = 无落账）。
    */
   private beforeRunChain(
     call: LoopRunCall,
     start: () => Promise<LoopRunResult>,
   ): Promise<LoopRunResult> {
-    return this.ctx.waterfall('loop/before-run', call, start);
+    // wrap start：waterfall 尾端（全体 next() 走完）执行前消费 face 注入——
+    // 注入并入后的 messages 才是 execute 的起点（首步模型首见）。
+    const startWithInjects = async (): Promise<LoopRunResult> => {
+      await this.consumeFaceInjects(call);
+      return start();
+    };
+    return this.ctx.waterfall('loop/before-run', call, startWithInjects);
+  }
+
+  /** face 注入统一消费（cr-1251）：并入消息数组 + 消费点发射。dryRun /
+   *  address 缺席场景 call.inject 未装配（face 恒空——零行为）。 */
+  private async consumeFaceInjects(call: LoopRunCall): Promise<void> {
+    const queue = this.steerQueues.get(runAddress(call.request.agent, call.request.conversationId) ?? '');
+    if (queue === undefined || queue.face.length === 0) return;
+    const consumed = queue.face.splice(0);
+    // 注入消息进触发消息之后（append 尾部——KV 前缀稳定，cr-1182/cr-1249 语义）
+    call.request.messages = [...call.request.messages, ...consumed.map((c) => ({
+      ...c.message,
+      content: c.meta.replay === 'wrapper' ? wrapSystemReminder(c.message.content) : c.message.content,
+    }))];
+    this.ctx.emit('loop/inject-consumed', call.request.agent, call.request.conversationId, call.request.runId, consumed.map((c) => ({ message: c.message, meta: c.meta })));
   }
 
   /**
@@ -370,7 +400,14 @@ export class AgentLoopService extends Service {
     if (address === undefined) {
       return this.beforeRunChain(call, () => this.execute(call.request, undefined));
     }
-    const queue: SteerQueue = { items: [], durable: [], sealed: false };
+    const queue: SteerQueue = { items: [], durable: [], face: [], sealed: false };
+    // 注入面（cr-1251）：before-run 住户经 call.inject 声明注入——消息由 loop
+    //    在 waterfall 通过后统一并入数组（首步之前 = 模型首见位置），消费点
+    //    统一发射。dryRun 拒收（预览不落账不注水，与各住户自带 dryRun 早退同语义）。
+    call.inject = request.dryRun === true ? () => false : (message, meta) => {
+      queue.face.push({ message, meta: { replay: 'wrapper', ...meta, injectionId: meta.injectionId ?? 'inj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8) } });
+      return true;
+    };
     this.steerQueues.set(address, queue);
     const promise = this.beforeRunChain(call, () => this.execute(call.request, queue));
     return promise.finally(() => {
@@ -390,11 +427,14 @@ export class AgentLoopService extends Service {
   /**
    * 向活跃 run 注入一条消息（ADR-1：steer 走 Service 方法，非事件）。
    * @param handle run 地址（= runAddress(agent, conversationId)）
-   * @param meta 投递元数据（sender/source；steer-dropped 观测载荷用）
+   * @param meta 投递元数据（sender/source/requestId/replay 沿队列 item 走——
+   *        消费点发射时映射进 InjectMeta；inject 面词汇〔label/injectSource 等〕
+   *        经 injectMeta 携带，cr-1251）
+   * @param injectMeta 注入元数据（label/injectSource/payload——落账行与直播卡）
    * @returns false = 该地址无活跃 run 或已收束（sealed——D3：收束判定后
    *          的注入不再受理，调用方回落 next-run）
    */
-  steer(handle: string, message: LlmMessage, meta?: { sender?: string; source?: string; requestId?: string; replay?: 'original' | 'wrapper' | 'none' }): boolean {
+  steer(handle: string, message: LlmMessage, meta?: { sender?: string; source?: string; requestId?: string; replay?: 'original' | 'wrapper' | 'none' }, injectMeta?: Omit<InjectMeta, 'replay' | 'requestId'>): boolean {
     const queue = this.steerQueues.get(handle);
     if (!queue || queue.sealed) return false;
     queue.items.push({
@@ -404,6 +444,7 @@ export class AgentLoopService extends Service {
       ...(meta?.requestId !== undefined ? { requestId: meta.requestId } : {}),
       // cr-1104 注册制：生产方按其声明档传词（缺省 wrapper——与回放分档同源）
       ...(meta?.replay !== undefined ? { replay: meta.replay } : {}),
+      ...(injectMeta !== undefined ? { injectMeta } : {}),
     });
     return true;
   }
@@ -416,10 +457,10 @@ export class AgentLoopService extends Service {
    * @param handle run 地址（= runAddress(agent, conversationId)）
    * @returns false = 该地址无活跃 run（正文持久性由调用方自己的落账承担）
    */
-  injectDurable(handle: string, message: LlmMessage): boolean {
+  injectDurable(handle: string, message: LlmMessage, meta?: InjectMeta): boolean {
     const queue = this.steerQueues.get(handle);
     if (!queue) return false;
-    queue.durable.push(message);
+    queue.durable.push({ message, ...(meta !== undefined ? { meta } : {}) });
     return true;
   }
 
@@ -476,14 +517,24 @@ export class AgentLoopService extends Service {
           // cr-1101 live 注入对齐：steer 消息统一包裹（与回放投影同字节源
           // wrapSystemReminder）——在途所见 = 事后回放所见，轮边界跨 run
           // 前缀字节一致；存量烘焙（ac-skill injectDurable 等）原样放行。
-          messages.push(...steering.map((s) => ({ ...s.message, content: (s.replay ?? 'wrapper') === 'wrapper' ? wrapSystemReminder(String(s.message.content ?? '')) : String(s.message.content ?? '') })));
-          // 消费点通知（cr-971）：注入行落账面订阅本事件——账本文件序 =
-          // 模型消息序（受理时刻落账比消费点早一步）。agent/conversationId
-          // 缺席（宿主直调）无壳落账面，跳过通知。
-          const address = runAddress(request.agent, request.conversationId);
-          if (address !== undefined) {
-            this.ctx.emit('loop/steer-consumed', request.agent, request.conversationId, address, steering);
-          }
+          messages.push(...steering.map((s) => ({ ...s.message, content: (s.replay ?? 'wrapper') === 'wrapper' ? wrapSystemReminder(s.message.content) : s.message.content })));
+          // 消费点通知（cr-971 → cr-1251 统一事件）：注入行落账面订阅——
+          // 账本文件序 = 模型消息序。meta 由 InjectMeta 统一形状随行（steer
+          // 受理时的 sender/source/requestId/replay 映射进 injectSource 等
+          // 字段——见 steer() 注）。
+          this.ctx.emit('loop/inject-consumed', request.agent, request.conversationId, request.runId,
+            steering.map((s) => ({
+              message: s.message,
+              meta: {
+                injectSource: s.injectMeta?.injectSource ?? s.source ?? 'steer',
+                ...(s.injectMeta?.injectionId !== undefined ? { injectionId: s.injectMeta.injectionId } : {}),
+                ...(s.injectMeta?.label !== undefined ? { label: s.injectMeta.label } : {}),
+                ...(s.injectMeta?.payload !== undefined ? { payload: s.injectMeta.payload } : {}),
+                ...(s.requestId !== undefined ? { requestId: s.requestId } : {}),
+                replay: s.replay ?? 'wrapper',
+              },
+              ...(s.sender !== undefined ? { sender: s.sender } : {}),
+            })));
         }
         const step = await this.step(request, index, messages, specs, steerQueue);
         steps.push(step);
@@ -515,6 +566,13 @@ export class AgentLoopService extends Service {
         const pendingSteer = steerQueue !== undefined && steerQueue.items.length > 0;
         if (step.toolCalls.length === 0 && !pendingSteer) {
           const idleCall: LoopRunCall = { request };
+          // cr-1251 注入面：idle 住户经 call.inject 声明注入（元数据随行）；
+          //    兼容窗——返回 LlmMessage[] 的旧姿势照常并入（无元数据，缺省档）。
+          const faceBase = steerQueue?.face.length ?? 0;
+          idleCall.inject = steerQueue !== undefined && request.dryRun !== true ? (message, meta) => {
+            steerQueue.face.push({ message, meta: { replay: 'wrapper', ...meta, injectionId: meta.injectionId ?? 'inj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8) } });
+            return true;
+          } : undefined;
           const injected = await this.ctx.waterfall('loop/run-idle', idleCall, async () => [] as LlmMessage[]);
           // 挂起中被中止（监听器自查 signal 空手返回）→ interrupted 收束，
           // 不把中止后的注入材料交给模型
@@ -524,7 +582,8 @@ export class AgentLoopService extends Service {
             interruptReason = { type: 'user-abort', ...(text ? { reason: text } : {}) };
             break;
           }
-          if (injected.length === 0) break;
+          const faceInjected = steerQueue !== undefined && steerQueue.face.length > faceBase;
+          if (!faceInjected && injected.length === 0) break;
           // 尾部注入（2026-09-21 修正，session f5adb5d9 实测暴露：头部 splice
           // 使三次 LLM 调用 cacheHit 恒 5888、miss 30→425——system 后已缓存
           // 前缀整体后移；且答案在位置上先于用户原始消息，模型时序感知被
@@ -533,8 +592,17 @@ export class AgentLoopService extends Service {
           // 分叉），注入材料尾部追加其后：run 内消息序与 settlement 回放
           // 序一致，跨 run 前缀可继承。契约注释见 events.ts
           messages.push(this.assistantOf(step));
-          // cr-1101 live 对齐续记:idle 注入与 steer 消费同口径统一包裹(烘焙 passthrough)
-          messages.push(...injected.map((m) => ({ ...m, content: m.role === 'user' ? wrapSystemReminder(String(m.content ?? '')) : String(m.content ?? '') })));
+          if (faceInjected) {
+            // 注入面材料统一消费（cr-1251）：并入 + 消费点发射（只取 idle 新增段——
+            // before-run 已消费段不在此列）。
+            const consumed = steerQueue!.face.splice(faceBase);
+            messages.push(...consumed.map((c) => ({ ...c.message, content: c.meta.replay === 'wrapper' ? wrapSystemReminder(c.message.content) : c.message.content })));
+            this.ctx.emit('loop/inject-consumed', request.agent, request.conversationId, request.runId, consumed.map((c) => ({ message: c.message, meta: c.meta })));
+          }
+          if (injected.length > 0) {
+            // cr-1101 live 对齐续记:idle 注入与 steer 消费同口径统一包裹(烘焙 passthrough)
+            messages.push(...injected.map((m) => ({ ...m, content: m.role === 'user' ? wrapSystemReminder(m.content) : m.content })));
+          }
           continue; // 续走步不占预算（budget 不加；index 自然递增保步序唯一）
         }
         budget++;
@@ -751,11 +819,17 @@ export class AgentLoopService extends Service {
       if (pendingDurable !== undefined && pendingDurable.length > 0) {
 
         // cr-1101 live 对齐续记:durable 注入同口径(烘焙 passthrough——裸文也包)
-        const wrappedDurable = pendingDurable.map((m) => ({ ...m, content: m.role === 'user' ? wrapSystemReminder(String(m.content ?? '')) : String(m.content ?? '') }));
+        const wrappedDurable = pendingDurable.map((m) => ({ ...m.message, content: m.message.role === 'user' ? wrapSystemReminder(m.message.content) : m.message.content }));
 
         stepCall.messages = [...stepCall.messages, ...wrappedDurable];
 
         messages.push(...wrappedDurable);
+
+        // cr-1251 消费点发射：durable 注入实际进本步请求的瞬间（此前无通知
+
+        // ——落账靠收束兜底倒挂到 run 尾）。
+
+        this.ctx.emit('loop/inject-consumed', request.agent, request.conversationId, request.runId, pendingDurable.map((m) => ({ message: m.message, meta: { injectSource: 'durable', ...(m.meta ?? {}), replay: m.meta?.replay ?? 'wrapper' as const } })));
 
       }
 

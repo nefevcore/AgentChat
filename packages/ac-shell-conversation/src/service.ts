@@ -152,12 +152,10 @@ export class ConversationService extends Service {
   /** 在途 run 表（键 = 门键 runAddress(agent, conversationId)——值含中止信号
    * 与会话面；interrupt 按 run 中止、runState 多 run 投影） */
   private readonly activeRuns = new Map<string, { conversationId: string; startedAt: number; abort: AbortController }>();
-  /** steer 注入待落账登记（cr-971：受理时登记、消费点落账）。键 = runId，
-   * 值 = 待落账注入（落账参数 + 到达 ts）。落账时机移到消费点的根因：
-   * steer 受理时在飞步的请求已发出，注入实际进的是下一步请求——受理
-   * 时刻落账会让注入行比模型真实消费点早一步（文件序 ≠ 消息序）。
-   * 崩溃安全：inbox durable（deliver 面登记）+ 收束残留兜底落账。 */
-  private readonly pendingSteerInjects = new Map<string, Array<{ content: string; requestId?: string; ts: number; injectExtra?: { injectionId?: string; injectSource?: string; label?: string; payload?: import('ac-ledger').JournalInject['payload'] } }>>;
+  // （订阅 loop/inject-consumed 消费点统一落账，文件序 = 消型消息序；壳侧
+  //  仅剩 inbox 对账〔注入消费即清 durable，防下代重投〕。崩溃安全 =
+  //  inbox durable 不变——壳死于受理未消费窗口，下代 boot 重投独立 run。）
+  // cr-1251：pendingSteerInjects 退役——落账归 ac-ledger（loop/inject-consumed 订阅）
   /** per-conversation 串行化门（cr-746：门键 = runAddress(agent, conversationId)，
    * 惰性建——同 Agent 多会话并行 run，同会话仍至多一个 run） */
   private readonly machines = new Map<string, ConversationMachine>();
@@ -228,39 +226,22 @@ export class ConversationService extends Service {
         });
       });
     }
-    // steer 消费点落账（cr-971）：loop 步边界 splice 时把 pending 登记的注入
-    // 行落 journal——文件序 = 模型消息序。ts 用消费时刻（真实生效点）。
-    this.ctx.on('loop/steer-consumed', (agent: string | undefined, conversationId: string | undefined, handle: string, consumed: Array<{ message: { content?: unknown }; sender?: string; source?: string; requestId?: string }>) => {
-      if (agent !== this.agentId) return; // 同壳多订阅面只认自己 run（子域壳同进程各自 Service 实例）
-      const machine = this.machines.get(handle);
-      const runId = machine?.state().currentRun ?? '';
-      if (runId === '') return;
-      const pending = this.pendingSteerInjects.get(runId);
-      if (pending === undefined || pending.length === 0) return;
-      // 按消费批全量落账（多注入同批消费时按登记序），落完清册
-      void this.flushPendingInjects(runId, conversationId ?? this.agentId);
+    // steer 注入消费对账（cr-971 → cr-1251）：落账归 ac-ledger（订阅
+    // loop/inject-consumed 统一消费点落账——文件序 = 模型消息序）；壳侧只清
+    // inbox durable（落账 durable 即消费完成，防下代重投双份）。
+    this.ctx.on('loop/inject-consumed', (
+      agent: string | undefined,
+      conversationId: string | undefined,
+      _runId: string | undefined,
+      consumed: Array<{ meta: { requestId?: string } }>,
+    ) => {
+      if (agent !== this.agentId || conversationId === undefined) return; // 同壳多订阅面只认自己 run
+      for (const c of consumed) {
+        if (c.meta.requestId !== undefined) this.ctx.ledger.inboxClear(conversationId, c.meta.requestId);
+      }
     });
   }
 
-  /** pending steer 注入统一落账（cr-971 消费点/收束兜底共用单源）：
-   *  injectExtra 在场时随行（injectionId/injectSource/label/payload），
-   *  落账成功即清对应 inbox durable（防下代重投双份）。 */
-  private async flushPendingInjects(runId: string, conversationId: string): Promise<void> {
-    const pending = this.pendingSteerInjects.get(runId);
-    if (pending === undefined) return;
-    for (const p of pending.splice(0)) {
-      try {
-        await this.ctx.ledger.journalInject(conversationId, runId, p.content, p.requestId, {
-          ...(p.injectExtra ?? {}),
-          ts: p.ts,
-        });
-      } catch (err: unknown) {
-        process.stderr.write('[shell] steer 注入落账失败（' + runId + '）：' + String(err) + '\n');
-        continue; // 落账失败不阻断同批其余注入
-      }
-      if (p.requestId !== undefined) this.ctx.ledger.inboxClear(conversationId, p.requestId);
-    }
-  }
 
   /** 信封入站（boot 收信面唯一入口）：幂等 → 落账 → 决策 → 驱动。
    * 返回驱动概要（deduped / ledger-only / steered / settled）——deliver
@@ -641,14 +622,9 @@ export class ConversationService extends Service {
       const handle = this.steerHandle(uuid);
       const injected = this.ctx.agentLoop.steer(handle, { role: 'user', content: this.textOf(env) }, { sender: env.sender, requestId: env.requestId });
       if (injected) {
-        // cr-971：受理只登记，落账等消费点（loop/steer-consumed 订阅）——
-        // 账本文件序与模型消息序对齐。直播帧/队列面语义不变。
-        // 崩溃安全：inbox durable 存信（不进机器队列——收束链跑不消费；
-        // 活壳消费点落账即清；壳死于窗口内 → 下代 boot 重投为独立 run）。
-        this.pendingSteerInjects.set(plan.runId, [
-          ...(this.pendingSteerInjects.get(plan.runId) ?? []),
-          { content: this.textOf(env), requestId: env.requestId, ts: Date.now() },
-        ]);
+        // cr-1251：落账归 ac-ledger（消费点统一落账——loop/inject-consumed）；
+        // 壳侧只登记 inbox durable。崩溃安全：不进机器队列（收束链跑不消费）；
+        // 消费点落账后壳侧对账即清；壳死于窗口内 → 下代 boot 重投为独立 run。
         if (entersInbox(env.kind, budgetAfterReceive(env.budget, env.sender))) {
           this.ctx.ledger.inboxStore(uuid, env);
         }
@@ -768,9 +744,9 @@ export class ConversationService extends Service {
         // settle（终稿 + journal-settled；error 文本如实入账）
         const finish = result.finish === 'error' ? 'error' : result.finish === 'interrupted' ? 'interrupted' : 'ok';
         if (finish === 'error') process.stderr.write('[conversation] run 以 error 收束（' + runId + '）：' + (result.error ?? '无错误文本') + '\n');
-        // cr-971 收束兜底：sealed 后到达的 steer（受理但永不被消费——收束
-        // 判定已过）在 settle 前落账——宁早勿丢（正常路径消费点已清册）。
-        await this.flushPendingInjects(runId, uuid);
+        // cr-1251：收束兜底落账退役——sealed 后到达的 steer 永不被消费
+        //（消息没进模型数组 = 不落账，无消费点语义如实）；inbox durable
+        // 仍在，下代 boot 重投为独立 run，消息不丢。
         await this.ctx.ledger.settleRun(uuid, [this.agentId, env.sender], 'user', {
           role: 'agent',
           content: result.text,
@@ -1180,17 +1156,13 @@ export class ConversationService extends Service {
       return 'requeued';
     }
     const handle = this.steerHandle(uuid);
-    const injected = this.ctx.agentLoop.steer(handle, { role: 'user', content: item.preview });
+    const injected = this.ctx.agentLoop.steer(handle, { role: 'user', content: item.preview }, { requestId: item.requestId });
     if (!injected) {
       machine.steerRestore(item, index);
       return 'requeued';
     }
-    // cr-971：受理只登记，消费点落账（同 driveRun steer 分支）
-    const steerRun = machine.state().currentRun ?? '';
-    this.pendingSteerInjects.set(steerRun, [
-      ...(this.pendingSteerInjects.get(steerRun) ?? []),
-      { content: item.preview, requestId: item.requestId, ts: Date.now() },
-    ]);
+    // cr-1251：落账归 ac-ledger（消费点）——此处只清 inbox（steer 出队即消费受理，
+    // 消费点对账按 requestId 再清一次幂等）
     this.ctx.ledger.inboxClear(uuid, item.requestId);
     this.emitQueueChanged(uuid); // 队列缩减点（steer 出队）
     return 'steered';
@@ -1243,18 +1215,17 @@ export class ConversationService extends Service {
       });
       return;
     }
-    // cr-971：落账挂 pending——消费点（loop/steer-consumed / steer 受理同批）落，
-    // 文件序 = 模型消息序。直播帧已发（上），injectionId 已铸——前端锚点不变。
-    this.pendingSteerInjects.set(run, [
-      ...(this.pendingSteerInjects.get(run) ?? []),
-      { content, ts,
-        injectExtra: {
-          injectionId,
-          injectSource: extra.source,
-          ...(extra.label !== undefined ? { label: extra.label } : {}),
-          ...(extra.payload !== undefined ? { payload: extra.payload } : {}),
-        } },
-    ]);
+    // cr-1251 过渡形态（生产方迁移 call.inject 前的兼容窗）：直落
+    // journalInject——before-run 阶段受理时 step 尚未开始，受理位 = 模型
+    // 首见位（首步相位行之前），不再挂 pending 等不存在的消费点（倒挂根因）。
+    // 生产方全量迁移后本口整体退役。
+    await this.ctx.ledger.journalInject(conversationId, run, content, undefined, {
+      injectionId,
+      injectSource: extra.source,
+      ...(extra.label !== undefined ? { label: extra.label } : {}),
+      ...(extra.payload !== undefined ? { payload: extra.payload } : {}),
+      ts,
+    });
   }
 
   /** 落账 kind（sender 归域：群地址 group / user 直发 user / 跨壳 agent——

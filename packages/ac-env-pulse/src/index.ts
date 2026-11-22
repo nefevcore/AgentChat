@@ -17,7 +17,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Context } from '@agentchat/cordis';
 import type {} from 'ac-agent-loop'; // loop/* 事件类型增强（type-only）
-import { wrapSystemReminder } from 'ac-core-utils'; // 注入体包裹（与账本回放同字节）
+//（cr-1251：wrapSystemReminder import 随双写退役——包裹归 loop 消费点统一处理）
 import {
   readSystemEventsSince, renderSystemEvents, maxSeqOfEvents,
 } from 'ac-system-events';
@@ -25,11 +25,7 @@ import {
 /** 注入行 source 词汇（context 行 source；回放档 wrapper——默认即可） */
 export const ENV_PULSE_SOURCE = 'system-event';
 
-/** session 服务的 recordContext 面（结构化最小面——非运行时依赖） */
-interface SessionLike {
-  recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string }): string;
-}
-
+//（cr-1251：SessionLike 随 recordContext 双写退役删除）
 /** 行配置（boot 装配参数——rowOptionsFor 注入 dataRoot） */
 export interface EnvPulseRowOptions {
   /** 数据根（缺省 AGENTCHAT_DATA_ROOT 或 './data'） */
@@ -91,8 +87,7 @@ export function apply(ctx: Context, options: EnvPulseRowOptions = {}) {
     const convId = req.conversationId;
     const agentId = (req as { agent?: string }).agent;
     if (convId === undefined || agentId === undefined) return next();
-    const session = ctx.get('session', false) as SessionLike | undefined;
-    if (session === undefined) return next(); // 无落账面——不注入（防重复）
+    if (call.inject === undefined) return next(); // 注入面缺席（宿主直调）——不注入（防重复）
 
     const since = anchorOf(agentId, convId);
     if (since === undefined) {
@@ -109,10 +104,9 @@ export function apply(ctx: Context, options: EnvPulseRowOptions = {}) {
       setAnchor(agentId, convId, maxSeqOfEvents(delta));
       return next();
     }
-    // 双写（cr-1102 模式）：落账 + 同字节 user 行（wrapSystemReminder 包裹
-    // 与账本 wrapper 回放同字节——无双计）
-    session.recordContext(convId, agentId, text, { source: ENV_PULSE_SOURCE, label: '系统状态变化' });
-    req.messages = [...req.messages, { role: 'user', content: wrapSystemReminder(text) }];
+    // cr-1251 注入面单写：消息进数组 + 消费点落账由 loop 统一承担（包裹
+    // 同源 wrapSystemReminder——字节与回放恒等）
+    call.inject({ role: 'user', content: text }, { injectSource: ENV_PULSE_SOURCE, label: '系统状态变化' });
     // 水位推进到 delta 尾（含被过滤掉的他人事件——否则每次 run 重新扫同一批）
     setAnchor(agentId, convId, maxSeqOfEvents(delta));
     return next();

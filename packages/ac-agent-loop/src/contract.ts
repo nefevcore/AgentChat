@@ -156,9 +156,46 @@ export interface LoopInterruptReason {
   reason?: string;
 }
 
+/**
+ * 注入体元数据（cr-1251 注入词汇收口）：生产方随注入体声明「注什么」——
+ * label/injectSource 供落账行与直播卡渲染，payload 供问答卡等结构化面，
+ * requestId 供信封关联（busy-steer 观测/去重），replay 为回放档词
+ * （cr-1104 注册制——缺省 wrapper）。统一走 loop 消费点发射，落账方
+ * （ac-ledger 订阅 inject-consumed）随行落盘。
+ */
+export interface InjectMeta {
+  /** 注入来源词（落账行 injectSource / UI 卡片 kind——开放词汇） */
+  injectSource: string;
+  /** 人读文案（直播卡与刷新历史同源） */
+  label?: string;
+  /** 注入身份键（缺席由 loop 铸造——直播帧与落盘行同锚） */
+  injectionId?: string;
+  /** 结构化数据面（如问答卡 Q/A） */
+  payload?: unknown;
+  /** 信封关联键（busy-steer 注入行与 viewer 域同键 user 行关连） */
+  requestId?: string;
+  /** 回放档词（cr-1104——缺省 wrapper） */
+  replay?: 'original' | 'wrapper' | 'none';
+}
+
+/**
+ * 注入面（cr-1251）：before-run / run-idle waterfall 上的统一注入口——
+ * 生产方只声明「注什么」，消息进数组的位置与时机由 loop 决定，
+ * 消费点统一发射 loop/inject-consumed（落账对齐模型消息序）。返真 = 注入
+ * 受理（dryRun 拒收——预览不落账不注水）。
+ */
+export interface InjectFace {
+  (message: LlmMessage, meta: InjectMeta): boolean;
+}
+
 /** run 的可变载体（loop/before-run waterfall 的事实对象） */
 export interface LoopRunCall {
   request: LoopRunRequest;
+  /**
+   * 注入面（cr-1251）：替代直接改写 request.messages 的注入通道——
+   * 在场性由 loop 装配（无 steerQueue 场景〔宿主直调〕缺席 = 只读 call）。
+   */
+  inject?: InjectFace;
 }
 
 export interface LoopStepRecord {

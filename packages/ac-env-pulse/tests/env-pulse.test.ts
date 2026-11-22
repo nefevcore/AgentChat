@@ -55,14 +55,14 @@ function standardRows() {
   ];
 }
 
+// cr-1251：recordContext 双写退役——落账面 = 订阅 inject-consumed 收集（模拟 ledger）
 function sessionStubRow() {
   return {
     name: 'session-stub',
     apply(c: Context) {
-      c.provide('session', {
-        recordContext(id: string, agent: string, content: string, extra: { source: string }) {
-          recorded.push({ id, agent, content, source: extra.source });
-        },
+      c.provide('session', {});
+      c.on('loop/inject-consumed', (agent, conversationId, _runId, consumed) => {
+        for (const it of consumed) recorded.push({ id: conversationId ?? '', agent: agent ?? '', content: String(it.message.content), source: it.meta.injectSource });
       });
     },
   };

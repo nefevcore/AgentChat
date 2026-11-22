@@ -112,7 +112,9 @@ describe('M5.4 药丸形端到端（D9 三步合一）', () => {
       await new Promise((r) => setTimeout(r, 100));
       rows = readLedgerRows('alpha', 'u-m5-full');
     }
-    expect(rows.map((r) => r.content)).toEqual(['药丸全链', '[mock 回复 药丸全链]']);
+    // cr-1251：datetime 注入不再寄生 session 门控（防重归 .day-anchor 私有状态）——
+    // 精简树（无 ledger/session）注入照常，mock 回显最后 user 行 = 日期锚（包裹形）
+    expect(rows.map((r) => r.content)).toEqual(['药丸全链', expect.stringMatching(/^\[mock 回复 <system-reminder>\[当前时间\] \d{4}-\d{2}-\d{2} 周[日一二三四五六]<\/system-reminder>\]$/)]);
     expect(rows[1]).toMatchObject({ agent_id: 'alpha', requestId: 'reply-req-full' });
     // shutdown 优雅退出 + 锁释放
     await manageRoundTrip(hint, { ctrl: 'system', op: 'shutdown' }, 5_000);

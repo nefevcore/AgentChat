@@ -132,6 +132,38 @@ export class LedgerService extends Service {
         ts: Date.now(),
       }]);
     });
+    // 注入消费点落账（cr-1251）：loop/inject-consumed（四通道统一事件——
+    // steer/durable/before-run/run-idle）→ journalInject 落账 + 直播帧事件。
+    // 落位 = 消息实际进入模型消息数组的位置（账本文件序 = 模型消息序，
+    // cr-971 原则全通道兑现）。cr-707 事件先于落盘语义在 subscribe 序内自然
+    // 成立（emit 同步扇出，落账 await 在其后）。宿主直调 run（agent 缺席）
+    // 无落账面，跳过。
+    ctx.on('loop/inject-consumed', (
+      agent: string | undefined,
+      conversationId: string | undefined,
+      runId: string | undefined,
+      consumed: Array<{ message: { content?: unknown }; meta: { injectSource: string; injectionId?: string; label?: string; payload?: unknown; requestId?: string; replay?: string } }>,
+    ) => {
+      if (agent !== this.agentId || conversationId === undefined || runId === undefined) return;
+      for (const c of consumed) {
+        const content = String(c.message.content ?? '');
+        const injectionId = c.meta.injectionId ?? 'inj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+        // 直播帧事件（cr-625 语义归位——落账方发射）：壳侧 ws 旁带转发前端注入卡。
+        this.ctx.emit('session/context-injected', conversationId, agent, {
+          source: c.meta.injectSource,
+          injectionId,
+          ...(c.meta.label !== undefined ? { label: c.meta.label } : {}),
+          bytes: content.length,
+          ...(c.meta.payload !== undefined ? { payload: c.meta.payload as { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' } } : {}),
+        });
+        void this.journalInject(conversationId, runId, content, c.meta.requestId, {
+          injectionId,
+          injectSource: c.meta.injectSource,
+          ...(c.meta.label !== undefined ? { label: c.meta.label } : {}),
+          ...(c.meta.payload !== undefined ? { payload: c.meta.payload as JournalInject['payload'] } : {}),
+        }).catch(() => { /* 落账失败不阻断（直播帧已发）——fail-soft 与既有 recordContext 口径一致 */ });
+      }
+    });
     // usage 计量（cr-538：R2「journal 计量 + 计量帧」）：after-run 缓存
     // run 级聚合（无计量步的 run 不缓存——主线同判），settleRun 消费。
     ctx.on('loop/after-run', (request: LoopRunRequestLike, result: LoopRunResult) => {

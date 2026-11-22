@@ -8,6 +8,7 @@
 import type {} from '@agentchat/cordis';
 import type { LlmMessage } from 'ac-llm';
 import type {
+  InjectMeta,
   LoopRunCall,
   LoopRunRequest,
   LoopRunResult,
@@ -74,20 +75,21 @@ declare module '@agentchat/cordis' {
     ): void;
 
     /**
-     * steer 注入消费点通知（cr-971）：步边界 splice 把注入消息并入工作数组
-     * （即将进入下一步请求）的瞬间。注入行落账（journalInject）订阅本事件
-     * 在消费点落——账本文件序 = 模型消息序（此前受理时刻落账，比真实消费
-     * 点早一步：注入到达时在飞步的请求已发出，注入实际进的是下一步请求）。
-     * 载荷 requestId = steer 受理时登记的账本关联键（壳侧 pending → 落账
-     * 身份对齐）。观察通知：订阅方不得改写消息（waterfall 才有改写权）。
+     * 注入消费点通知（cr-1251 统一事件——steer-consumed 的泛化退役）：
+     * 注入消息实际进入模型消息数组的瞬间发射，四通道全覆盖——
+     * steer 队列（步边界 splice）/ durable 队列（before-step 后本步消费）/
+     * before-run 注入面（run 起始材料）/ run-idle 注入面（自然停点续走）。
+     * 落账方（ac-ledger 订阅 → journalInject）据此在消费点落账——
+     * 账本文件序 = 模型消息序（cr-971 原则对全部通道兑现）。观察通知：
+     * 订阅方不得改写消息（waterfall 才有改写权）。
      * @mode emit
      * @scope run
      */
-    'loop/steer-consumed'(
+    'loop/inject-consumed'(
       agent: string | undefined,
       conversationId: string | undefined,
-      handle: string,
-      consumed: Array<{ message: LlmMessage; sender?: string; source?: string; requestId?: string }>,
+      runId: string | undefined,
+      consumed: Array<{ message: LlmMessage; meta: InjectMeta; sender?: string }>,
     ): void;
 
     /**
@@ -154,9 +156,10 @@ declare module '@agentchat/cordis' {
      * 即本事件的第一住户。
      * @mode waterfall
      * @scope run
-     * 监听器两种姿势：
-     *   · 持有注入：等待材料就绪后返回 LlmMessage[]（如答案 context 消息）
-     *     ——循环注入工作数组并继续步循环（同 run 续走，消息数组连续）；
+     * 监听器两种姿势（cr-1251 注入面）：
+     *   · 持有注入：等待材料就绪后经 `call.inject(msg, meta)` 注入（元数据
+     *     随行——消费点统一落账）；返回空数组即可，循环按注入面有写入续走
+     *     （同 run 续走，消息数组连续）；
      *   · 无事可做：`return next()`（透传下游）——全体空手 → 收束照旧。
      * 注意（注入位置与预算）：
      *   · 注入到 messages 尾部（2026-09-21 头部注入修正）：自然停点上

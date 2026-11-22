@@ -78,7 +78,14 @@ async function boot(scripts: Script[], extra?: {
     const contexts = extra.contexts;
     const { Service } = await import('@agentchat/cordis');
     class SessionStub extends (Service as any) {
-      constructor(c: any) { super(c, 'session'); }
+      constructor(c: any) {
+        super(c, 'session');
+        // cr-1251：消费点桥——注入行经 loop/inject-consumed 落账（模拟 ledger），
+        // 提问行仍走 recordContext（ask 发起体未动）
+        c.on('loop/inject-consumed', (agent: string, conversationId: string, _runId: string, consumed: Array<{ message: { content?: unknown }; meta: { injectSource: string } }>) => {
+          for (const it of consumed) contexts.push({ conversationId, agentId: agent ?? '', content: String(it.message.content ?? ''), source: it.meta.injectSource });
+        });
+      }
       recordContext(conversationId: string, agentId: string, content: string, extra2: { source: string }) {
         contexts.push({ conversationId, agentId, content, source: extra2.source });
         return 'msg-x';

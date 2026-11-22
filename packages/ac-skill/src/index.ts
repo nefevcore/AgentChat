@@ -1,9 +1,18 @@
 // ============================================================
-// ac-skill —— 技能行（SkillsService，M14）
+// ac-skill —— 技能行（SkillsService，M14；cr-1249 注入改造）
 //
 // src 轨道映射：agent-skill 的 discovered_skills runStart 钩子
 // → preview 的 loop/before-run waterfall。发现/解析/渲染算法住
 // 纯库 ac-skill-core（本行只做装配与 per-Agent 管控）。
+//
+// 目录注入形态（cr-1249，2026-11-22 用户裁决）：SKILLS 段退役——
+// <available_skills> 移出 system prompt，随 cr-1182 批式（datetime
+// 全形态统一 / env-pulse）改 loop/before-run 注入：目录指纹变化时
+// recordContext 落 context 行（source='skill'，跨 run 永久回放、
+// 归档压缩周期自然重注）+ 同字节 user 行追加（当前 run 即刻可见）。
+// 判重 = 目录指纹（Node crypto sha256，16 hex；含三源可见技能全名
+// 清单与 location 前缀）比对私有状态 files/<agentId>/skill/.anchors.json
+// ——回放行可能被归档压缩，扫描判重不可靠（cr-1182 同结论）。
 //
 // 形态差异（地图 §3.2）：
 //   · 全局技能目录 <root>/skills/<dirName>/SKILL.md（src 为
@@ -29,17 +38,21 @@
 //   · /name 手势去重（词汇 v2）：注入体落账 context 行持久在场——历史
 //     手势天然不重扫（判定收窄为尾部触发消息），无账本。
 //   · run_code 子调用驻留注入（2026-09-22 裁决）：详述见 before-step handler。
+//   · 目录注入（cr-1249）：before-run 指纹比对——变化才落账 + 双写（datetime
+//     /env-pulse 同构）；无 conversationId/agent、session 行未装、dryRun 均跳过。
 //
 // 懒扫描：首次消费（list/注入）才读目录并缓存；refresh() 重扫
 // （技能目录增删后调用，webui/管理面的刷新口）。本 Agent 专属技能
 // 目录随每次注入/加载现扫（目录小、且随 Agent 沙箱内容演进）。
 // ============================================================
+import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import type {} from 'ac-agents'; // ctx.agents 服务类型增强（type-only）
+import type {} from 'ac-agent-loop'; // loop/* 事件类型增强（type-only——cr-1249 后仅事件面消费）
 
-import { runAddress } from 'ac-core-utils'; // run 地址（injectDurable 驻留注入通道锚）——cr-318 下沉纯库
+import { runAddress, wrapSystemReminder } from 'ac-core-utils'; // run 地址（injectDurable 驻留注入通道锚）/ 注入体包裹（与账本回放同字节）——cr-318 下沉纯库
 
 import type { ToolResult } from 'ac-tools';
 import {
@@ -172,10 +185,9 @@ function assertInside(root: string, dirName: string): string {
 
 export class SkillsService extends Service {
   /** 事件闭包/工具执行访问 ctx.agents/settings、ctx.tools 注册——M12 铁律 1。
-   *  agentLoop 不进硬依赖：injectDurable 驻留注入按需探测（ctx.get
-   *  可选口）——loop 行缺席时技能行照常装配（目录/手势/加载面不受拖垮，
-   *  与可选能力行「摘行不拖垮 RPC 面」红线同口径）；事件回调里 loop 缺席
-   *  则无 run 可驻留，探测恒 undefined 即跳过。 */
+   *  agentLoop 不进硬依赖（cr-1249 后注册面无段贡献）：loop 事件订阅在
+   *  事件回调内，loop 行缺席时技能行照常装配（目录/手势/加载面不受拖垮，
+   *  与可选能力行「摘行不拖垮 RPC 面」红线同口径）。 */
   static inject = ['agents', 'tools'];
 
   private dataRoot: string;
@@ -202,27 +214,29 @@ export class SkillsService extends Service {
     const ledgerDecl = this.ctx.get('ledger', false) as { registerReplayPolicy?: (d: { source: string; replay: 'original' | 'wrapper' | 'none' }) => unknown } | undefined;
     ledgerDecl?.registerReplayPolicy?.({ source: 'skill', replay: 'wrapper' });
 
-    // ---- SKILLS 段（cr-881）：<available_skills> 会话工作区（约定目录） +
-    //      全局（白名单过滤）+ 本 Agent 专属 ----
-    this.ctx.agentLoop.registerPromptSection({
-      name: 'SKILLS',
-      text: (request) => {
-        const state = this.agentSkillState(request.agent, request.conversationId);
-        const groups: SkillGroup[] = [];
-        // 工作区组：随 singles 会话挂载的项目资产——不经 whitelist
-        // 门控（与附件同语义：挂了就在，__standard__ 等无记忆预设同样可见）
-        for (const g of state.workspace) {
-          groups.push({ skills: g.skills, locationPrefix: g.locationPrefix });
-        }
-        if (state.global.length > 0) {
-          groups.push({ skills: state.global, locationPrefix: this.locationPrefix });
-        }
-        if (state.own.length > 0 && state.ownPrefix) {
-          groups.push({ skills: state.own, locationPrefix: state.ownPrefix });
-        }
-        return buildSkillsBlock(groups);
-      },
-    }, 'ac-skill');
+    // ---- 目录注入（cr-1249）：before-run 指纹比对——变化才落 context 行
+    //      + 同字节 user 行双写（datetime/env-pulse 同构）。SKILLS 段退役，
+    //      system prompt 对技能行全静态。----
+    this.ctx.on('loop/before-run', (call, next) => {
+      const req = call.request;
+      // cr-1233 干跑（previewSystemPrompt）：只读预览不落账、不写锚——
+      // 预览吃掉指纹 = 真实 run 丢目录（dryRun 已无本行段贡献，纯防副作用）
+      if (req.dryRun === true || call.inject === undefined) return next();
+      const convId = req.conversationId;
+      const agentId = req.agent;
+      // 无会话键（子 Agent / loop 直连测试路径）/ 无 agent：不注入
+      if (convId === undefined || agentId === undefined) return next();
+      const state = this.agentSkillState(agentId, convId);
+      const groups = this.agentSkillViewGroups(state);
+      if (groups.length === 0) return next(); // 三源全空：不注入（load_skill 有空态线索兜底）
+      const fp = this.catalogFingerprint(groups);
+      if (this.readAnchor(agentId, convId) === fp) return next(); // 可见集未变：不重注
+      const block = buildSkillsBlock(groups);
+      // cr-1251 注入面单写：消费点统一落账（首步相位行之前），不再双写
+      call.inject({ role: 'user', content: block }, { injectSource: 'skill', label: '技能目录' });
+      this.writeAnchor(agentId, convId, fp);
+      return next();
+    }, { description: '技能目录指纹注入（cr-1249 → cr-1251 注入面单写）' });
 
     // ---- /name 用户显式调用：before-run 判定 + 持久化注入（存储词汇 v2，
     //      skill-injection-and-storage-vocab §1）——只判「当前触发消息」=
@@ -237,7 +251,7 @@ export class SkillsService extends Service {
     this.ctx.on('loop/before-run', (call, next) => {
       const req = call.request;
       // 无会话键无处落账（宿主直调 agentLoop 的测试路径）：跳过判定
-      if (req.conversationId === undefined) return next();
+      if (req.conversationId === undefined || call.inject === undefined) return next();
       const state = this.agentSkillState(req.agent, req.conversationId);
       const names = this.pendingGestureNames(req.messages);
       if (names.length === 0) return next();
@@ -246,18 +260,14 @@ export class SkillsService extends Service {
         .map((name) => this.renderSkillContent(name, state))
         .filter((body) => body !== '');
       if (bodies.length === 0) return next(); // 未命中：一次性判定，不再补偿（档案 §5-2）
-      this.injectSkillContext(req.agent, req.conversationId, bodies);
-      // 双写同源：append 进 request.messages（当前 run 首步即可见——
-      // session 落账行与工作数组注入体同字节，history() 回放亦同形）
-      req.messages = [
-        ...req.messages,
-        {
-          role: 'user',
-          content: `<system-reminder>用户以 /<name> 显式调用以下技能，按其指令执行；这些技能已内联注入，无需再经 load_skill 加载。\n${bodies.join('\n')}</system-reminder>`,
-        },
-      ];
+      // cr-1251 注入面单写：消息进数组 + 消费点落账由 loop 统一承担（replay
+      // 缺省 wrapper 档——注入体内容自带 reminder 外壳，original 放行防双层包裹）
+      call.inject(
+        { role: 'user', content: `用户以 /<name> 显式调用以下技能，按其指令执行；这些技能已内联注入，无需再经 load_skill 加载。\n${bodies.join('\n')}` },
+        { injectSource: 'skill', label: '用户调用技能 ' + this.skillNamesOf(bodies), replay: 'original' },
+      );
       return next();
-    }, { description: '/name 手势 before-run 判定 + context 行持久化注入（每消息一次）' });
+    }, { description: '/name 手势 before-run 判定 + 注入面持久化注入（每消息一次）' });
 
     // ---- load_skill：按 <name> 加载完整指令（参照 DSH skill 工具） ----
     // infra 标签（2026-09-16 全量标签化）：技能加载属会话基础设施
@@ -335,61 +345,42 @@ export class SkillsService extends Service {
       const names = [...pending.keys()].filter((n) => n !== '__recorded__').sort();
       if (names.length === 0) return next();
       const bodies = names.map((n) => pending.get(n)!.body);
-      const content = this.renderInjectedReminder(bodies);
-      // 落账（变体乙 split）：首见 pending 集即切分落 context 行（落位 =
-      // 进入消息数组的位置）；pending 变化（新技能）再落新行。per-run 首步
-      // 注入时刻 = 正文实际进入消息数组的位置。__recorded__ 只防本 run 内
-      // 指纹变化后的重复落账（数值键身份比对：过滤后重 set 不丢身份）；
-      // 跨 run 在场判定在登记时做（已落账技能不再入 pending）。
+      // 注入体 = 裸 bodies 拼接（消费点统一包裹 wrapSystemReminder——与
+      // steer/durable 同口径，防 renderInjectedReminder 外壳双层包裹）
+      const content = bodies.join('\n');
       const fingerprint = names.join('|');
       const state = pending.get('__recorded__');
       // 指纹读 body（写入字段）——原实现误读 fp 字段导致比对从未生效
       const recordedFp = state !== undefined ? (state as unknown as { body?: string }).body : undefined;
       if (recordedFp !== fingerprint) {
         pending.set('__recorded__', { name: '__recorded__', body: fingerprint } as { name: string; body: string });
-        this.recordSkillContext(call.agent, call.conversationId, [content], `已加载技能 ${names.join('、')}`);
-        // 【run 级驻留注入（2026-09-21 裁决）】指纹变化（新技能/首次）→ 注入体
-        // 经 injectDurable 进 execute 工作数组一次，后续步自然继承。旧形态
-        // 是「每步 before-step 重现注入体」——字节虽稳定但每次都在请求尾部
-        // （前缀分叉点之后），KV 严格前缀匹配下等于每步重算整块正文（实测
-        // 11KB 技能 ≈5K tokens/步 × 6 步 ≈ 3 万 tokens 浪费）。驻留后注入
-        // 点进前缀，后续步全量命中。指纹未变（后续步）→ 不再注入（数组里
-        // 已有）。持久性由上方落账的 context 行承担（跨 run 可见）。
+        // 【run 级驻留注入（2026-09-21 裁决 → cr-1251 meta 随行）】指纹变化
+        //（新技能/首次）→ 注入体经 injectDurable 进 execute 工作数组一次，
+        // 后续步自然继承（驻留点进前缀，KV 全命中）。落账归消费点（loop
+        // inject-consumed → ac-ledger）——meta 随队列 item 走，不再此处双写。
+        // 持久性（跨 run 可见）由消费点落的注入行承担。
         const handle = runAddress(call.agent, call.conversationId);
         const loop = this.ctx.get('agentLoop', false) as
-          | { injectDurable(handle: string, message: { role: 'user'; content: string }): boolean }
+          | { injectDurable(handle: string, message: { role: string; content: string }, meta?: { injectSource: string; label?: string }): boolean }
           | undefined;
         if (handle !== undefined && loop !== undefined) {
-          loop.injectDurable(handle, { role: 'user', content });
+          loop.injectDurable(
+            handle,
+            { role: 'user', content },
+            { injectSource: 'skill', label: `已加载技能 ${names.join('、')}` },
+          );
         }
       }
       return next();
-    }, { description: 'run_code 子调用技能注入（run 级驻留——进数组一次后续步继承）+ context 行落账' });
-    // 收束兜底（2026-09-20 单步 run 丢失修复）：before-step 注入时刻落账
-    // 需要「下一步」存在——load 后无下一步的形态（max-steps 耗尽/中断）
-    // pending 挂着无人消费 = context 行丢失。after-run 时指纹未落过即补落
-    // （split=true：run 已收束走直落分支，位置在收束行后——次优但正文在
-    // 场）。落过（指纹一致）→ 跳过。
+    }, { description: 'run_code 子调用技能注入（run 级驻留 + meta 随行——消费点落账）' });
+    // after-run 清账（cr-1251）：落账归消费点（loop/inject-consumed →
+    // ac-ledger 统一落账）。「load 后无下一步」形态（max-steps 耗尽/中断）
+    // durable 队列未消费 = 消息没进模型数组，如实不落账（无消费点语义）——
+    // 跨 run 持久性由下轮 load 时的 recordedSkillContexts 判重与重新注入承担。
     this.ctx.on('loop/after-run', (request) => {
       const key = subcallKey(request.agent, request.conversationId);
       if (key === undefined) return;
-      const pending = this.subcallPending.get(key);
       this.subcallPending.delete(key);
-      if (pending === undefined) return;
-      const fp = pending.get('__recorded__');
-      const recorded = fp !== undefined ? (fp as unknown as { body?: string }).body : undefined;
-      // 未曾落账（本 run 无下一步）→ 收束后直落；已落账（指纹一致）→ 跳过
-      const names = [...pending.keys()].filter((n) => n !== '__recorded__').sort();
-      if (names.length === 0) return;
-      const fingerprint = names.join('|');
-      if (recorded === fingerprint) return;
-      const bodies = names.map((n) => pending.get(n)!.body);
-      this.recordSkillContext(
-        request.agent,
-        request.conversationId,
-        [this.renderInjectedReminder(bodies)],
-        '已加载技能 ' + names.join('、'),
-      );
     });
   }
 
@@ -451,6 +442,65 @@ export class SkillsService extends Service {
       state.ownPrefix = ownRoot.replace(/\\/g, '/');
     }
     return state;
+  }
+
+  /** 可见技能分组（目录注入渲染单源——工作区 > 全局 > 专属，遮蔽序同 locateSkill 特异性口径） */
+  private agentSkillViewGroups(state: AgentSkillView): SkillGroup[] {
+    const groups: SkillGroup[] = [];
+    // 工作区组：随 singles 会话挂载的项目资产——不经 whitelist
+    // 门控（与附件同语义：挂了就在，__standard__ 等无记忆预设同样可见）
+    for (const g of state.workspace) {
+      groups.push({ skills: g.skills, locationPrefix: g.locationPrefix });
+    }
+    if (state.global.length > 0) {
+      groups.push({ skills: state.global, locationPrefix: this.locationPrefix });
+    }
+    if (state.own.length > 0 && state.ownPrefix) {
+      groups.push({ skills: state.own, locationPrefix: state.ownPrefix });
+    }
+    return groups;
+  }
+
+  /** 目录指纹（sha256 前 16 hex）：三源全名+位置序列——可见集变化即变（增删/改名/换组/白名单改） */
+  private catalogFingerprint(groups: SkillGroup[]): string {
+    const h = crypto.createHash('sha256');
+    for (const g of groups) {
+      const prefix = g.locationPrefix.replace(/\/+$/, '');
+      for (const s of g.skills) h.update(prefix + '/' + s.name + '\n');
+    }
+    return h.digest('hex').slice(0, 16);
+  }
+
+  /** 锚读（per-agent×会话；缺席/坏文件 → undefined = 视为变化） */
+  private readAnchor(agentId: string, conversationId: string): string | undefined {
+    try {
+      const raw = JSON.parse(fs.readFileSync(this.anchorFile(agentId), 'utf-8')) as Record<string, unknown>;
+      const v = raw[conversationId];
+      return typeof v === 'string' ? v : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** 锚写（tmp+rename 原子；fail-soft：写失败 → 下次重注同目录一次，幂等收敛） */
+  private writeAnchor(agentId: string, conversationId: string, fp: string): void {
+    const file = this.anchorFile(agentId);
+    let anchors: Record<string, string> = {};
+    try {
+      anchors = JSON.parse(fs.readFileSync(file, 'utf-8')) as Record<string, string>;
+    } catch { /* 缺席/坏文件 → 覆盖重建 */ }
+    anchors[conversationId] = fp;
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      const tmp = file + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(anchors), 'utf-8');
+      fs.renameSync(tmp, file);
+    } catch { /* fail-soft */ }
+  }
+
+  /** 锚文件路径（files/<agentId>/skill/.anchors.json） */
+  private anchorFile(agentId: string): string {
+    return path.join(this.dataRoot, 'files', agentId, 'skill', '.anchors.json');
   }
 
   /** 本 Agent 专属技能根：workspace.agentWorkdir 唯一事实源；未装 workspace
@@ -687,14 +737,11 @@ declare module '@agentchat/cordis' {
   }
 }
 
-// KV Cache effect（M21/D9 声明纪律）: Prefix-stable —— <available_skills>
-// 渲染确定性（目录与白名单不变则字节不变；本 Agent 专属组随 Agent 沙箱
-// skills/ 内容与请求 Agent 而定；会话工作区组随会话挂载工作区的约定
-// 目录内容而定）。插入位置同样确定性：锚定 [引用约定] 词形（三条引用
-// 约定行自身条件安装、只依赖工具集），同 Agent + 同工具集 → 位置不变。
-// 显式失效：技能增删/白名单修改/工作区技能增删 = invalidate-from-X
-// （该桶一次 system 重置）。load_skill 走工具结果（仅追加历史），不进
-// system——不参与 system 前缀。
+// KV Cache effect（M21/D9 声明纪律）: Prefix-stable —— system prompt 对
+// 本行全静态（SKILLS 段 cr-1249 退役，目录不再进 system）。目录注入走
+// before-run 落账 context 行 + user 行双写：追加语义，零 system 失效；
+// 指纹未变 → 零注入。load_skill 走工具结果（仅追加历史），不参与
+// system 前缀。
 
 export const name = 'ac-skill';
 // ── 扩展自述（A1 注册制目录）：ac-web-api 扫 cordis registry 读取本声明——
@@ -703,18 +750,18 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'skill',
   label: '技能注入',
-  description: '注入 <available_skills>（全局技能目录 + 本 Agent 专属 files/<agent>/skills + 会话工作区约定目录 .claude/.github/skills 等）+ load_skill 按名加载 + /name 用户显式调用确定性注入',
+  description: '技能目录指纹注入（cr-1249：before-run 指纹变化才落 context 行 + user 行双写——SKILLS 段退役，system 全静态）+ load_skill 按名加载 + /name 用户显式调用确定性注入',
   fields: [
     { name: 'whitelist', type: 'list', description: '全局技能白名单——留空 = 全部全局技能可见；本 Agent 专属技能不受此约束；每行一个技能名' },
   ],
   listeners: [
-    { event: 'loop/before-run', role: '注入 <available_skills> + /name 手势判定', description: 'Agent 循环启动前拦截：技能目录注入（装配链一环）+ 当前触发消息尾部 user 块的 /<name> 判定——命中落账 context 行（跨 run 永久回放）+ 工作数组双写（每消息一次）' },
+    { event: 'loop/before-run', role: '目录指纹注入 + /name 手势判定', description: 'Agent 循环启动前拦截：技能目录指纹变化时落 context 行（跨 run 永久回放）+ 同字节 user 行双写（cr-1249——SKILLS 段退役）；当前触发消息尾部 user 块的 /<name> 判定——命中落账 + 工作数组双写（每消息一次）' },
     { event: 'loop/before-step', role: 'run_code 子调用技能驻留注入', description: '本 run 内 load_skill 子调用新登记的技能，指纹首见时经 injectDurable 驻留注入 + context 行切分落账；已落账技能跨 run 不重注' },
     { event: 'loop/after-run', role: 'run_code 技能收束兜底', description: 'run 收束时 pending 仍有未落账指纹（load 后无下一步的形态）→ 收束行后直落 context 行兜底（正文在场）' },
     { event: 'tool/after-execute', role: 'run_code 子调用 load_skill 登记', description: 'load_skill 子调用成功后现读正文登记 pending（已落账在场判定——跨 run 重复 load 不再登记）' },
   ],
 };
-export const inject = ['agents', 'tools', 'agentLoop'];
+export const inject = ['agents', 'tools'];
 export function apply(ctx: Context, options: SkillRowOptions = {}) {
   ctx.plugin(SkillsService, options);
 }

@@ -42,18 +42,19 @@ function scriptedProvider() {
   });
 }
 
-/** 假 session（注入协议测试）：context 行内存列表 + 触发 seam。
- *  cr-1154 后 memory 不再消费 records 读面——本类只承载 recordContext 落账面。 */
+/** 假 session（注入协议测试）：cr-1251 后 memory 不再调 recordContext——
+ *  落账面 = 订阅 loop/inject-consumed 收集注入行（模拟 ac-ledger 落账），
+ *  测试断言面（rows 形状）不变。 */
 class FakeSession extends Service {
   rows = new Map<string, Array<{ role: string; source?: string; content: string; agent_id?: string; payload?: unknown }>>();
   constructor(ctx: Context) {
     super(ctx, 'session');
-  }
-  recordContext(id: string, agentId: string, content: string, extra: { source: string; label?: string; payload?: unknown }) {
-    const list = this.rows.get(id) ?? [];
-    list.push({ role: 'context', source: extra.source, content, agent_id: agentId, ...(extra.payload !== undefined ? { payload: extra.payload } : {}) });
-    this.rows.set(id, list);
-    return `inj-${list.length}`;
+    ctx.on('loop/inject-consumed', (agent, conversationId, _runId, consumed) => {
+      if (conversationId === undefined) return;
+      const list = this.rows.get(conversationId) ?? [];
+      for (const c of consumed) list.push({ role: 'context', source: c.meta.injectSource, content: String(c.message.content), agent_id: agent ?? '' });
+      this.rows.set(conversationId, list);
+    });
   }
 }
 
