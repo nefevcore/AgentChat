@@ -69,7 +69,7 @@ export interface ArchiveTrigger {
   /** 适用面谓词（缺省全适用）；触发器自声明——如 run-count 只 appliesTo 自会话桶 */
   appliesTo?: (uuid: string) => boolean;
   /** 触发判定（ctx 字段随注册面扩展） */
-  shouldTrigger: (ctx: { uuid: string; activeTokens: number; runCountSinceCompaction: number; lastRunAt: number }) => boolean;
+  shouldTrigger: (ctx: { uuid: string; activeTokens: number; runCountSinceCompaction: number; lastRunAt: number; ledgerBytes: number }) => boolean;
 }
 
 export interface ArchiveRowOptions {
@@ -87,6 +87,17 @@ const REVIEW_GRACE_MS = 60_000;
 /** 整理轮 runId 前缀（机制信封 requestId 'archive-run-*' → run-*）——触发检测跳过自身 */
 const REVIEW_RUN_PREFIX = 'run-archive-run-';
 
+/**
+ * 账本字节硬上限系数（cr-1206 失控防线）：token 估算是启发式，任何一行
+ * 未被估算面覆盖（未知 type 大载荷 / 未来新行型）都会让它系统性偏低。
+ * 落盘字节是硬事实——按 8 字节/token 的宽松上界折算，超 thresholds×该
+ * 系数即视为超阈，保证「估算漏计」不会让归档失去入口（news~news 现场：
+ * 估算 12.7 万 / 真实 105 万，14.2MB 账本连续 6 天不触发直至 400）。
+ * 8 的取法：回放 JSON 行实测 5~13 字节/token（CJK 3 字节/字 × 0.6 token
+ * 或 ASCII 转义膨胀），取上界更宽的 8 → 只会「更早触发」，不会误伤小额会话。
+ */
+const LEDGER_BYTES_PER_TOKEN = 8;
+
 /** 归档编排便（单会话串行——同桶并发触发幂等去重） */
 export class ArchiveShellService extends Service {
   private dataRoot: string;
@@ -101,6 +112,11 @@ export class ArchiveShellService extends Service {
       id: 'token-threshold',
       description: '活跃上下文 token 超阈值（V2 缺省口径）',
       shouldTrigger: (t) => t.activeTokens > thresholdOf(this.budgetsFor(t.uuid)),
+    },
+    {
+      id: 'ledger-bytes',
+      description: '账本落盘字节超硬上限（估算兜底——token 估算漏计不得让归档失去入口）',
+      shouldTrigger: (t) => t.ledgerBytes > thresholdOf(this.budgetsFor(t.uuid)) * LEDGER_BYTES_PER_TOKEN,
     },
   ];
   /** digest 调用登记簿（uuid → text；工具观察面填、收束捞取消费——
@@ -123,7 +139,10 @@ export class ArchiveShellService extends Service {
       const uuid = request.conversationId;
       if (uuid === undefined || !uuid.split('~').includes(this.agentId)) return;
       if (request.runId !== undefined && request.runId.startsWith(REVIEW_RUN_PREFIX)) return; // 整理轮与会话增长无关
-      if (result.finish === 'error') return; // 失败 run 不触发
+      // 失败 run 同样进入阈值检测（2026-11-22 P1）：LLM 上下文超限后每次 run
+      // 都以 400 收束——若失败 run 不触发，归档永无入口，上下文只增不减且
+      // 不可自愈。阈值是资源事实（activeTokens 估算），与 run 成败无关；
+      // 压缩轮自身失败也有「无 digest 压缩」合法路径兜底。
       void this.maybeArchive(uuid).catch((err: unknown) => {
         this.ctx.logger.warn('[archive] 触发检测失败（' + uuid + '）: ' + String(err));
       });
@@ -224,7 +243,14 @@ export class ArchiveShellService extends Service {
     const shadowed = (seq: number | undefined, ts: number | undefined): boolean =>
       boundaries.some((b) => rowShadowedBy({ ...(seq !== undefined ? { seq } : {}), ...(ts !== undefined ? { ts } : {}) }, b));
     const pseudo: LedgerRow[] = [];
-    if (facts.version >= 2) {
+    // 版本判据 = 行面而非头行（archiveAndRebuild 同源，cr-1190 续修）：混合
+    // 会话头行 version=1 永不重写，而行面已是 v2 事件行——按头行守门会让
+    // 伪行（轨迹体积的全量载体）整代缺席。实测 news~news：估算 12.7 万 vs
+    // 真实回放 105 万 token，阈值（自会话 20 万）恒不命中 → 归档永不触发。
+    const hasV2Rows = (rows as unknown as Array<Record<string, unknown>>).some(
+      (r) => r.type !== undefined || r.seq !== undefined,
+    );
+    if (facts.version >= 2 || hasV2Rows) {
       for (const [run, rf] of facts.runs) {
         const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
         if (steps.length === 0) continue;
@@ -281,7 +307,7 @@ export class ArchiveShellService extends Service {
   }
 
   /** 触发器 ctx 数据面（首版字段——新字段按需加，注册式扩展点即在此） */
-  private triggerCtxOf(uuid: string): { uuid: string; activeTokens: number; runCountSinceCompaction: number; lastRunAt: number } {
+  private triggerCtxOf(uuid: string): { uuid: string; activeTokens: number; runCountSinceCompaction: number; lastRunAt: number; ledgerBytes: number } {
     const facts = readDomainFacts(this.sessionDir(uuid), this.agentId);
     // 最新压缩代边界（多域取最大 endTs——本域单写者视角取本域代即可）
     const lastGen = facts.compactions.at(-1);
@@ -298,6 +324,7 @@ export class ArchiveShellService extends Service {
       activeTokens: this.activeTokensOf(uuid),
       runCountSinceCompaction: runCount,
       lastRunAt,
+      ledgerBytes: this.ledgerBytesOf(uuid),
     };
   }
 
@@ -316,6 +343,15 @@ export class ArchiveShellService extends Service {
    *  自算自己需要的那份，不跨进程递话（架构红线：能力间不传引用）。 */
   private activeTokensOf(uuid: string): number {
     return this.estimateOf(uuid, { activeOnly: true });
+  }
+
+  /** 账本落盘字节（ledger-bytes 触发器口径——估算兜底的硬事实面） */
+  private ledgerBytesOf(uuid: string): number {
+    try {
+      return fs.statSync(path.join(this.sessionDir(uuid), 'messages.jsonl')).size;
+    } catch {
+      return 0; // 文件缺席 = 无账本
+    }
   }
 
   /** cr-1188 完成广播（前端 pending 收口 / 会话流刷新驱动源） */
@@ -492,7 +528,7 @@ export class ArchiveShellService extends Service {
       '1. 【提交会话总结】基于当前上下文与既有总结整理（不必逐条回读），把' + subject + '，整理为一段自然语言（建议 ' + Math.min(cap, budget) + ' token 内），调用 session_digest 工具提交——text 参数即总结全文，这是唯一提交面（不写文件、不必贴在回复正文）。',
       'context 注入行（记忆快照/技能注入等）是机制材料，不属于会话事实，无需纳入总结。',
       '这是机制任务：不要发起对话、不要等待回复；提交总结后简短确认即可，系统会自动归档。',
-    ].join('\\n');
+    ].join('\n');
   }
 
   /**
@@ -526,19 +562,51 @@ export class ArchiveShellService extends Service {
     // 「按行判别」同源；纯 v1 行（无 type 无 seq）才留 v1 分支。
     const hasV2Rows = rows.some((r) => r.type !== undefined || r.seq !== undefined);
     if ((header?.version ?? 1) >= 2 || hasV2Rows) {
-      // 富化行（估算/水位计量面）——分割边界取回原 rows 的 seq 锚
+      // 富化行（估算/水位计量面）——分割边界取回原 rows 的 seq 锚。
+      // cr-1206：伪行按 run 末事实 seq 插入**时间序**（不是尾部追加）——
+      // 尾部追加会让 keep 预算被伪行整块吃尽：最近的真实会话行全部进归档段，
+      // 而伪行本身不可持久（物理回收后由 run 事实重建，事实已随段搬走）→
+      // 回放只剩旧摘要、整段历史蒸发（news~news 实测：keep 63 行全伪行，
+      // 回收后回放 1 条 1390 字旧摘要）。时间序下 keep 保留的是真实尾行，
+      // 其 run 事实随之留在主日志，伪行可在回放时自然重建。
       const facts = readDomainFacts(dir, this.agentId);
-      const pseudo: LedgerRow[] = [];
+      const pseudoByRun = new Map<string, LedgerRow>();
+      const lastSeqByRun = new Map<string, number>();
       for (const [run, rf] of facts.runs) {
         const steps = foldStepsOf(rf, facts.subcallArchive.filter((s) => s.run === run))?.steps ?? [];
-        if (steps.length > 0) pseudo.push({ role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
+        if (steps.length === 0) continue;
+        pseudoByRun.set(run, { role: 'agent', content: '', agent_id: this.agentId, run, steps, message_id: 'v2-' + run, timestamp: '' } as LedgerRow);
+        let last = 0;
+        for (const ev of rf.events) if (ev.seq !== undefined && ev.seq > last) last = ev.seq;
+        if (last > 0) lastSeqByRun.set(run, last);
       }
-      const enriched = [...rows, ...pseudo] as never[];
+      const runsEndingAt = new Map<number, string[]>();
+      for (const [run, seq] of lastSeqByRun) {
+        const bucket = runsEndingAt.get(seq);
+        if (bucket !== undefined) bucket.push(run);
+        else runsEndingAt.set(seq, [run]);
+      }
+      const enriched: LedgerRow[] = [];
+      const flushed = new Set<string>();
+      for (const r of rows) {
+        enriched.push(r);
+        if (typeof r.seq !== 'number') continue;
+        for (const run of runsEndingAt.get(r.seq) ?? []) {
+          const pseudoRow = pseudoByRun.get(run);
+          if (pseudoRow !== undefined && !flushed.has(run)) {
+            enriched.push(pseudoRow);
+            flushed.add(run);
+          }
+        }
+      }
+      for (const [run, pseudoRow] of pseudoByRun) {
+        if (!flushed.has(run)) enriched.push(pseudoRow); // 无 seq 事实的 run：尾部兜底
+      }
       // viewer 必传（cr-1190 续修 2）：缺省 content-only 会让伪行（content=''
       // 轨迹全在 steps）est=0——truncateTail 零成本吃完全表 → archive 恒空、
       // boundary=0（user~writer 实锤：伪行真实体积 32.5 万 token 全漏计）。
       // 传 viewer 后尾部预算按回放口径（轨迹展开）计量，与 estimateOf 同源。
-      const split = splitForArchive(enriched, budgets, lastArchived, { viewer: this.agentId });
+      const split = splitForArchive(enriched as never[], budgets, lastArchived, { viewer: this.agentId });
       // cr-1155 归档对齐口径修正：split 切片是 enriched 数组的引用切片——
       // 用引用集对齐（位置语义）替代 seq 集匹配，无 seq 的 v1 存量行按其
       // 文件位置自然进归档集/保留集，不再被 (seq ?? Infinity) 永久钉在主日志

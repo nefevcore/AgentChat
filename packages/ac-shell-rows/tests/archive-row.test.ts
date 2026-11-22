@@ -437,4 +437,64 @@ describe('archive 行（cr-1189 V3）', () => {
       await h.dispose();
     }
   }, 20_000);
+
+  it('cr-1206①：混合会话（v1 头行 + v2 事件行）阈值估算计入轨迹伪行 → token-threshold 命中', async () => {
+    // 头行 version 永不重写（news~news 现场）：估算若按头行守门，伪行整代缺席 →
+    // 估算只剩 content 面（实测 12.7 万 vs 真实回放 105 万），阈值恒不命中。
+    seedAgent('kappa', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('kappa', { digestText: null });
+    try {
+      const dir = path.join(ROOT, 'agents', 'kappa', 'sessions', 'user~kappa');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+        JSON.stringify({ type: 'session-header', version: 1, createdAt: new Date().toISOString(), participants: ['kappa', 'user'], kind: 'agent-pair' }),
+        // 轨迹体积全在 step 行（无 role 无 content）——content-only 估算 = 0
+        JSON.stringify({ type: 'step/content', run: 'run-big', step: 0, text: 'x'.repeat(3000), ts: 1, seq: 1 }),
+        JSON.stringify({ type: 'run-end', run: 'run-big', finish: 'completed', ts: 2, seq: 2 }),
+      ].join('\n') + '\n', 'utf-8');
+      await h.archive.maybeArchive('user~kappa');
+      const cmps = readLedger(dir).rows.filter((r) => (r as { type?: string }).type === 'compaction');
+      expect(cmps.length).toBe(1); // 阈值按回放口径（含伪行）命中
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
+  it('cr-1206②：失败 run（finish=error）同样触发阈值检测——超限上下文可自愈', async () => {
+    // 400 超限后每次 run 都以 error 收束：若失败 run 被跳过，归档永无入口。
+    seedAgent('lambda', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('lambda', { digestText: null });
+    try {
+      await seedBulkyConversation(h.ledger, 'user~lambda', 'lambda', 6);
+      const dir = path.join(ROOT, 'agents', 'lambda', 'sessions', 'user~lambda');
+      (h.ctx as unknown as { emit(name: string, ...args: unknown[]): void })
+        .emit('loop/after-run', { agent: 'lambda', conversationId: 'user~lambda', runId: 'run-t-err' }, { finish: 'error' });
+      const cmpCount = () => readLedger(dir).rows.filter((r) => (r as { type?: string }).type === 'compaction').length;
+      for (let i = 0; i < 50 && cmpCount() === 0; i++) await new Promise((r) => setTimeout(r, 100));
+      expect(cmpCount()).toBe(1);
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
+  it('cr-1206③：账本字节硬上限触发器——估算面看不到的行型（未知 type 大载荷）也能触发归档', async () => {
+    // token 估算是启发式：任何未被估算面覆盖的行型都会让它系统性偏低。
+    // 字节硬上限（thresholds × 8 字节/token）是兜底事实面。
+    seedAgent('mu', { archive: { maxContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('mu', { digestText: null });
+    try {
+      const dir = path.join(ROOT, 'agents', 'mu', 'sessions', 'user~mu');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+        JSON.stringify({ type: 'session-header', version: 2, createdAt: new Date().toISOString(), participants: ['mu', 'user'], kind: 'agent-pair' }),
+        // 未知 type 大载荷：估算面（role/content 行 + 轨迹伪行）一律看不见
+        JSON.stringify({ type: 'future-row-kind', payload: 'x'.repeat(3000), seq: 1 }),
+      ].join('\n') + '\n', 'utf-8');
+      await h.archive.maybeArchive('user~mu');
+      const cmps = readLedger(dir).rows.filter((r) => (r as { type?: string }).type === 'compaction');
+      expect(cmps.length).toBe(1);
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
 });
