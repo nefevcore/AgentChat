@@ -97,4 +97,53 @@ describe('browser 分层门禁（cr-1092 直读：max(Agent 档位, 会话覆盖
     expect(r.ok).toBe(false);
     expect(String((r as { error?: unknown }).error)).toMatch(/本会话禁用/);
   });
+
+  // cr-1250：steps 批量步级门禁——越权步就地标 denied 续跑合法步，
+  // 停批/续跑归 continue_on_error；整批全越权才整批 veto。
+  // 无 CDP 环境：合法步失败于「浏览器启动失败」（恰证门禁已过，同上风格）
+  describe('steps 批量步级门禁（cr-1250）', () => {
+    const steps = [
+      { action: 'open', url: 'https://example.com' },
+      { action: 'eval', js: '1' },
+      { action: 'read' },
+    ];
+
+    function execSteps(ctx: Context, agentId: string, payload: Record<string, unknown>) {
+      return ctx.tools.execute({
+        name: 'browser',
+        args: payload,
+        agentId,
+        conversationId: 'user~helper',
+      });
+    }
+
+    it('observe 档 + eval 越权步：合法步照跑、越权步步级 denied（continue_on_error=true）', async () => {
+      const ctx = await boot();
+      ctx.agents.register({ id: 'b1', model: 'm', levels: { browser: 'observe' } });
+      const r = await execSteps(ctx, 'b1', { steps, continue_on_error: true });
+      expect(r.ok).toBe(true);
+      const out = (r as { output?: { count?: number; results?: Array<{ action: string; status?: string; message?: string }> } }).output;
+      expect(out?.count).toBe(3); // 全部步到达执行面（越权步 = denied 失败条目，非整批拦截）
+      const denied = out?.results?.[1];
+      expect(denied?.action).toBe('eval');
+      expect(denied?.message).toMatch(/层级/);
+    });
+
+    it('continue_on_error=false：首个失败步停批（failedStep 如实报）', async () => {
+      const ctx = await boot();
+      ctx.agents.register({ id: 'b2', model: 'm', levels: { browser: 'observe' } });
+      const r = await execSteps(ctx, 'b2', { steps, continue_on_error: false });
+      expect(r.ok).toBe(false);
+      const out = (r as { output?: { failedStep?: number } }).output;
+      expect(out?.failedStep).toBe(1); // open 先失败（boot 失败先于 denied 步，语义归 continue_on_error）
+    });
+
+    it('整批全越权 → 整批 veto（门禁文案直达，工具体不执行）', async () => {
+      const ctx = await boot();
+      ctx.agents.register({ id: 'b3', model: 'm', levels: { browser: 'observe' } });
+      const r = await execSteps(ctx, 'b3', { steps: [{ action: 'click' }, { action: 'eval', js: '1' }], continue_on_error: true });
+      expect(r.ok).toBe(false);
+      expect(String((r as { error?: unknown }).error)).toMatch(/层级/);
+    });
+  });
 });

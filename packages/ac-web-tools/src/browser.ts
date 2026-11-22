@@ -17,7 +17,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import {
-  CdpClient, CdpPage, killTree, launchBrowser, removeProfile,
+  CdpClient, CdpPage, killTree, launchBrowser, clearProfile, removeProfile,
   extractElements, extractText, serializeElements,
   type LaunchedBrowser, type CdpTargetInfo,
 } from 'ac-cdp-core';
@@ -79,6 +79,8 @@ export class BrowserService extends Service {
   private client: CdpClient | null = null;
   private page: CdpPage | null = null;
   private bootPromise: Promise<void> | null = null;
+  /** 最近一次 teardown（cr-1250：boot 开新代前 await 落定——句柄释放竞态） */
+  private teardownPromise: Promise<void> = Promise.resolve();
   private generation = 0;
   /** 动作级互斥锁（导航/快照原子性——多会话共享单页面） */
   private lock: Promise<unknown> = Promise.resolve();
@@ -136,7 +138,7 @@ export class BrowserService extends Service {
     const gen = ++this.generation;
     this.bootPromise = this.doBoot().then(
       () => { if (gen === this.generation) this.armIdleTimer(); },
-      (err: unknown) => { this.teardown(); throw err; },
+      (err: unknown) => { void this.teardown(); throw err; },
     ).finally(() => { this.bootPromise = null; });
     return this.bootPromise;
   }
@@ -152,8 +154,12 @@ export class BrowserService extends Service {
       this.page = await CdpPage.open(this.client, this.emuOptions());
       return;
     }
-    // ephemeral：boot 清空 profile（残留锁 = 上代僵尸，直接清）+ 截图目录确保
-    fs.rmSync(this.profileDir(), { recursive: true, force: true });
+    // 上一代清理落定后再开新代（cr-1250）：idle 回收/失败 teardown 是异步
+    // 清理，不等即「上代句柄未释放 × 本代 profile 清理」竞态（Windows EPERM）
+    await this.teardownPromise;
+    // ephemeral：boot 清空 profile（fail-loud——重试后仍锁即启动失败可读报
+    // 错）+ 截图目录确保
+    clearProfile(this.profileDir());
     fs.mkdirSync(this.screenshotDir(), { recursive: true });
     this.launched = await launchBrowser({
       userDataDir: this.profileDir(),
@@ -189,27 +195,35 @@ export class BrowserService extends Service {
       // 意外断线：世代推进 + 清状态（下次调用重新 boot——拒绝式收束）
       if (this.client?.closed && this.launched) {
         this.generation++;
-        this.teardown();
+        void this.teardown();
       }
     });
   }
 
-  private async teardown(): Promise<void> {
+  private teardown(): Promise<void> {
     this.clearIdleTimer();
     // 优雅关优先（Browser.close 让浏览器进程自退——启动器进程早已自退时
-    // killTree 的 pid 是无效的，树杀兜底也够不到真浏览器进程）
+    // killTree 的 pid 是无效的，树杀兜底也够不到真浏览器进程）。
+    // cr-1250：清理链记账（teardownPromise）——boot 开新代前 await 落定，
+    // 防「上一代句柄未释放 × 本代 profile 清理」竞态（Windows EPERM）
     const client = this.client;
     this.client = null;
     this.page = null;
+    this.lastElements = [];
     const child = this.launched?.child;
     this.launched = null;
-    if (client && !client.closed) {
-      try { await client.send('Browser.close', {}, undefined, 3_000); } catch { /* 已亡 */ }
-      client.close();
-    }
-    if (child) killTree(child);
-    removeProfile(this.profileDir(), this.ctx.logger);
-    this.lastElements = [];
+    const done = (async () => {
+      if (client && !client.closed) {
+        try { await client.send('Browser.close', {}, undefined, 3_000); } catch { /* 已亡 */ }
+        client.close();
+      }
+      if (child) killTree(child);
+      removeProfile(this.profileDir(), this.ctx.logger);
+    })();
+    // 自吞错（调用方多为 fire-and-forget，不落 unhandled）；真失败由下次
+    // boot 的 clearProfile fail-loud 兜出
+    this.teardownPromise = done.catch(() => undefined);
+    return this.teardownPromise;
   }
 
   private shutdown(): void {

@@ -7,7 +7,7 @@
 // tier 门禁），本包只提供协议原语。
 // ============================================================
 export { CdpClient } from './client.ts';
-export { launchBrowser, killTree, removeProfile, type LaunchedBrowser } from './launch.ts';
+export { launchBrowser, killTree, clearProfile, removeProfile, type LaunchedBrowser } from './launch.ts';
 export { CdpPage } from './page.ts';
 export { extractElements, serializeElements, extractText } from './perceive.ts';
 export type { CdpTargetInfo } from './protocol.ts';

@@ -181,12 +181,20 @@ export async function launchBrowser(options: LaunchOptions): Promise<LaunchedBro
   return { child, webSocketDebuggerUrl: version.webSocketDebuggerUrl };
 }
 
-/** profile 目录清理（Windows 上浏览器进程句柄延迟释放是常态——重试 + 失败容忍） */
+/** profile 目录清理（fail-loud）：重试后仍锁即抛错——boot 开路通道用。
+ * cr-1250：与 removeProfile 分立两语义——残留锁 = 上代清理竞态未落定，
+ * 静默继续会让新代浏览器与残留 profile 互踩，可读失败优于带残留开新代。 */
+export function clearProfile(dir: string): void {
+  rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+}
+
+/** profile 目录清理（容忍）：Windows 上浏览器进程句柄延迟释放是常态——
+ * 重试后仍失败仅告警不抛（dispose 收尾通道：不因清理失败砸毁收尾流）。 */
 export function removeProfile(dir: string, logger?: { warn: (msg: string) => void }): void {
   try {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  } catch {
-    logger?.warn(`[browser] profile 目录清理失败（进程句柄延迟）：${dir}`);
+    clearProfile(dir);
+  } catch (err: unknown) {
+    logger?.warn(`[browser] profile 目录清理失败（进程句柄延迟）：${dir}（${err instanceof Error ? err.message : String(err)}）`);
   }
 }
 
