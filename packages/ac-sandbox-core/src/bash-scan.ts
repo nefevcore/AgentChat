@@ -162,8 +162,11 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
         }
       }
     }
-    // 4. 独立 ../ 引用（排除 git diff a..b 这类 token 内 ..；解析后判断）
-    const refs = seg.match(/(?:^|\s)(\.\.[\\/][^\s;|&"'`]*)/g);
+    // 4. 相对 ../.. 引用（解析后判断）。前邻限界用否定 lookbehind 覆盖
+    //    行首/空白/引号/=/括号——原实现要求前邻是行首或空白，引号包裹的
+    //    cat ../../x 形态整条绕过扫描（真机复现：无引号拦、单双引号均放行）。
+    //    token 内 ..（git diff a..b）第二个点后非斜杠，本正则不匹配，行为不变。
+    const refs = seg.match(/(?<![^\s"'`=(])\.\.[\\/][^\s;|&"'`]*/g);
     if (refs) {
       for (const ref of refs) {
         const p = ref.trim();
