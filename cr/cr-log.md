@@ -1266,4 +1266,8 @@
 - 【cr-1245 2026-11-22 ledger-invariants 升维重写与全量实施：五层终态（文法/fold 解释权/投影单源/写侧验证转移/主张对拍）——拆 ac-ledger-core 纯库 + doctor + 观测接线】
 - 【cr-1246 2026-11-22 ac-config 跨进程热同步：ConfigService 挂目录 fs.watch（先例 watchLedger/watchAsksOf 同款）→ 防抖后 reload()，宿主 WebUI 写盘后壳内 config/changed 实时广播，免重启壳生效；watcher 经 ctx.effect 随 fiber 回收，深等价去重天然幂等（自身写盘零自激）】
 - 【cr-1247 2026-11-22 fix(math) 整数 15 位有效数字静默截断：toPrecision(15) 归一化仅施于非整数，整数直出 String()（2**50/2**53/1234567890123456/2**70 实证）+ 测试锚】
+- 【cr-1248 2026-11-22 fix(permission-gate) 预授权 full 倒挂：设置链 allow 与 run 缓存命中降注 sandbox-access（免弹卡但恢复沙箱检查），人工弹卡批准保持 full（知情授权）——修订 cr-1082「通过即 full」为「知情通过即 full」】
+- 【cr-1249 2026-11-22 技能目录注入改造：<available_skills> 移出 system prompt（SKILLS 段退役）——before-run 指纹注入行（datetime/env-pulse 同构）】
+- 【cr-1250 2026-11-22 fix(web-tools): browser 首启 EPERM（teardown 火后即忘竞态 + 裸 rmSync 无重试）与 steps 批量越权步整批 veto（改步级 denied，续跑语义归 continue_on_error）】
+- 【cr-1251 2026-11-22 注入消费点贯通：loop 统一 inject-consumed 事件 + before-run/run-idle 注入面，落账对齐模型消息序（四通道倒挂根修 + datetime 间隔行落账）】
 
