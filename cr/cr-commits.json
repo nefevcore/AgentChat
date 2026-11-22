@@ -1,6 +1,6 @@
 {
- "scannedHead": "f8c22dd8321a133e828c4904caf4d1fc8873d87a",
- "generatedAt": "2026-11-21T15:17:16.063Z",
+ "scannedHead": "8856c81037b7071d6adc0d1093e2098ae6fd3587",
+ "generatedAt": "2026-11-22T00:20:30.791Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4705,6 +4705,13 @@
     "subject": "refactor(time): cr-1052/1053 时间出口统一收敛——日/月键派生一律 UTC 并收口纯函数"
    }
   ],
+  "1053": [
+   {
+    "sha": "9708ed7562c787cfd5da9d6f56c1339309912338",
+    "date": "2026-11-22",
+    "subject": "fix(host-rows): cr-1202 timers-row 全局设置层死键修复——agents.settings → settings（与 ac-agents settingsOf 主线同键）：时区落 config.json settings.timers.timezone 的宿主消费链补通（cr-1053 词汇 + cr-1199 写面已就绪，本 CR 修唯一断点）"
+   }
+  ],
   "1054": [
    {
     "sha": "3eb93a40a786786fd58bcb8bed8058ccedc68d6e",
@@ -5239,6 +5246,11 @@
     "sha": "e406b8c7547223c464166b54e6670fb16de9d20d",
     "date": "2026-11-16",
     "subject": "fix(cr): cr-1136 check 守门零写副作用（内存态懒校验，投影落盘走显式 sync）"
+   },
+   {
+    "sha": "d4048bceeadff3c6d0fa22a13a8a5fc59c05c135",
+    "date": "2026-11-22",
+    "subject": "chore(cr): cr-1196 check 路径劝告降噪——正则收紧（段限 [\\\\w.@-]，排除中文/箭头粘连误报）+ 豁免链（worktree→git 历史→gitignore→path-allowlist 白名单，git 失败 fail-open）+ 白名单双反报（可删除/过时）+ check 零写副作用（懒 sync 内存态）+ cr-git selftest 六组断言；随批 cr/ 部署副本与包源码对账归源（cr-1136 未回流部分）"
    }
   ],
   "1137": [
@@ -5839,6 +5851,11 @@
     "sha": "a07a9db0ee3ee252da8680c6ab726bcc2a94c59c",
     "date": "2026-11-21",
     "subject": "chore(cr): cr-commits 投影同步（cr-1191 闭环实证）"
+   },
+   {
+    "sha": "f2c125beb36b74cfa896b0df54ef40a7c834d7a8",
+    "date": "2026-11-21",
+    "subject": "feat(session): cr-1194 TokenGauge 显示算法 P+delta 实施两态化——displayTotal 三态（实时/锚点校准/净估算）收敛两态（实时/P+delta 外推）：ac-session-index 增 pdeltaAnchorOf 锚面（锚=末次 run 在 records 的末行时刻，纯 records 自足——journal-settled 无 ts 字段且 journal_lines 大面积不入账，两轮活体修正终版；跨代守卫内建：锚早于末代 compaction end_ts 即 null，取代 cr-1191 P/E 病理界）；face-ops session/tokens 载 pdelta{prompt,estSince}（P=usage 覆盖轨末步 prompt，delta=锚后活跃代 est 合计）；TokenGauge 删 anchorRatio/采样/钳制/守卫整层，净估算保留为降级态。pdelta-anchor 4 用例 + face-runs 三态；21 文件 137 测试 + typecheck/deps/webui:typecheck/build:channel 全绿；真机验证 13%/133K（旧降级口径 18%/~182K）+ 收束自动重锚实证（P 133K→205K）"
    }
   ],
   "1192": [
@@ -5876,6 +5893,11 @@
     "sha": "f8c22dd8321a133e828c4904caf4d1fc8873d87a",
     "date": "2026-11-21",
     "subject": "fix(archive): cr-1192 续修 reviewPrompt 对话方称呼——single 会话键（uuid 形，无 ~ 不含 agentId）split('~') 单元素命中自身，整段 uuid 被当「对方」嵌进文案（现场：你与「01a1fe79-…」的会话（会话键 01a1fe79-…）同串出现两次）；修：无 ~ 键对话方恒为用户直称「用户」。测试从归档段 gzip 验文案（请求行随压缩边界出清物理入段）。archive-row 11/11 + affected 3440/3440 + typecheck 绿"
+   },
+   {
+    "sha": "60b9859a1be7cc085c86d89ad3ce8679d960d87c",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1192 续修）"
    }
   ],
   "1193": [
@@ -5888,6 +5910,122 @@
     "sha": "4ae32a8423319e8df5d3e759da917c57340c7ee2",
     "date": "2026-11-21",
     "subject": "chore(cr): cr-commits 投影同步（cr-1193）"
+   }
+  ],
+  "1194": [
+   {
+    "sha": "ff9485824e6f281fe01ac33bf03b096ea8931b69",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-1194 台账——P+delta 实施登记/详情/裁决记录（含 cr-1195 重复登记 drop）"
+   },
+   {
+    "sha": "f2c125beb36b74cfa896b0df54ef40a7c834d7a8",
+    "date": "2026-11-21",
+    "subject": "feat(session): cr-1194 TokenGauge 显示算法 P+delta 实施两态化——displayTotal 三态（实时/锚点校准/净估算）收敛两态（实时/P+delta 外推）：ac-session-index 增 pdeltaAnchorOf 锚面（锚=末次 run 在 records 的末行时刻，纯 records 自足——journal-settled 无 ts 字段且 journal_lines 大面积不入账，两轮活体修正终版；跨代守卫内建：锚早于末代 compaction end_ts 即 null，取代 cr-1191 P/E 病理界）；face-ops session/tokens 载 pdelta{prompt,estSince}（P=usage 覆盖轨末步 prompt，delta=锚后活跃代 est 合计）；TokenGauge 删 anchorRatio/采样/钳制/守卫整层，净估算保留为降级态。pdelta-anchor 4 用例 + face-runs 三态；21 文件 137 测试 + typecheck/deps/webui:typecheck/build:channel 全绿；真机验证 13%/133K（旧降级口径 18%/~182K）+ 收束自动重锚实证（P 133K→205K）"
+   }
+  ],
+  "1195": [
+   {
+    "sha": "ff9485824e6f281fe01ac33bf03b096ea8931b69",
+    "date": "2026-11-21",
+    "subject": "chore(cr): cr-1194 台账——P+delta 实施登记/详情/裁决记录（含 cr-1195 重复登记 drop）"
+   },
+   {
+    "sha": "8856c81037b7071d6adc0d1093e2098ae6fd3587",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批次 cr-1196~1206 登记（含 cr-1195 重复登记 drop、cr-1201→cr-1204 测试时区钉死回退对、其余九项功能/文档）"
+   }
+  ],
+  "1196": [
+   {
+    "sha": "d4048bceeadff3c6d0fa22a13a8a5fc59c05c135",
+    "date": "2026-11-22",
+    "subject": "chore(cr): cr-1196 check 路径劝告降噪——正则收紧（段限 [\\\\w.@-]，排除中文/箭头粘连误报）+ 豁免链（worktree→git 历史→gitignore→path-allowlist 白名单，git 失败 fail-open）+ 白名单双反报（可删除/过时）+ check 零写副作用（懒 sync 内存态）+ cr-git selftest 六组断言；随批 cr/ 部署副本与包源码对账归源（cr-1136 未回流部分）"
+   },
+   {
+    "sha": "8856c81037b7071d6adc0d1093e2098ae6fd3587",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批次 cr-1196~1206 登记（含 cr-1195 重复登记 drop、cr-1201→cr-1204 测试时区钉死回退对、其余九项功能/文档）"
+   }
+  ],
+  "1197": [
+   {
+    "sha": "3f5c4634657932b4f01eab95f4fd011ff4b1aa75",
+    "date": "2026-11-22",
+    "subject": "fix(fs-search): cr-1197 glob 跨锚点 path 基准修正 + subagent list 缺省视图净化——glob 的 rel 空间与模式匹配归位搜索根（收窄根的前缀模式静默零命中 + 锚点外根 rel 漂移 read 断链；锚点内根保留锚点前缀）；subagent list 无键条目退出缺省面（只报归属会话的条目）"
+   }
+  ],
+  "1198": [
+   {
+    "sha": "90838455d98adbce8f6b0f0869565fb2afa68f24",
+    "date": "2026-11-22",
+    "subject": "test(datetime): cr-1198 用例日期锚时区口径对齐产线——锚文件硬编码 UTC 改缺省 DEFAULT_TZ（Asia/Shanghai 00:00-08:00 窗口内 UTC 锚写成前一日致恒败）"
+   }
+  ],
+  "1199": [
+   {
+    "sha": "9708ed7562c787cfd5da9d6f56c1339309912338",
+    "date": "2026-11-22",
+    "subject": "fix(host-rows): cr-1202 timers-row 全局设置层死键修复——agents.settings → settings（与 ac-agents settingsOf 主线同键）：时区落 config.json settings.timers.timezone 的宿主消费链补通（cr-1053 词汇 + cr-1199 写面已就绪，本 CR 修唯一断点）"
+   },
+   {
+    "sha": "17a2d37222922b1216fa5b1a0b6fd1d586196981",
+    "date": "2026-11-22",
+    "subject": "feat(config): cr-1199 config 写面注册化——白名单 CONFIG_KEY_PREFIXES 硬编码退役，事实源 = 各能力包 package.json ac.configDomains（读面在哪写面就归谁注册）；gen 聚合进 row-catalog 顶层 configDomains，readCatalog 透传，web-api 四写口注入域集合，缺席回退 = 空集 fail-closed；新增 config/merge（patch 语义）"
+   }
+  ],
+  "1200": [
+   {
+    "sha": "123becff49ad1bd2895aec5d842f1a6767330961",
+    "date": "2026-11-22",
+    "subject": "fix(webui): cr-1200 live 会话步边界乱序丢段根修——流式载体跨步冒领防护三处（carrierOf 拒绝跨步冒领 / delta 前沿残留他步载体定格收口+建新卡 / journaled 兜底同款）：step/journaled 迟到丢失时 delta 冒领他步载体 + 终值全量替换抹空——思考正文消失只剩工具卡"
+   }
+  ],
+  "1201": [
+   {
+    "sha": "8856c81037b7071d6adc0d1093e2098ae6fd3587",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批次 cr-1196~1206 登记（含 cr-1195 重复登记 drop、cr-1201→cr-1204 测试时区钉死回退对、其余九项功能/文档）"
+   }
+  ],
+  "1202": [
+   {
+    "sha": "2a60431b3dfe621ea0e81892b0389a11477b4b32",
+    "date": "2026-11-22",
+    "subject": "fix(host-rows): cr-1203 workspace-files 全局设置层死键清理——agents.settings → settings（与 cr-1202 同款漂移，security.workdir 全局层语义补通）"
+   },
+   {
+    "sha": "9708ed7562c787cfd5da9d6f56c1339309912338",
+    "date": "2026-11-22",
+    "subject": "fix(host-rows): cr-1202 timers-row 全局设置层死键修复——agents.settings → settings（与 ac-agents settingsOf 主线同键）：时区落 config.json settings.timers.timezone 的宿主消费链补通（cr-1053 词汇 + cr-1199 写面已就绪，本 CR 修唯一断点）"
+   }
+  ],
+  "1203": [
+   {
+    "sha": "2a60431b3dfe621ea0e81892b0389a11477b4b32",
+    "date": "2026-11-22",
+    "subject": "fix(host-rows): cr-1203 workspace-files 全局设置层死键清理——agents.settings → settings（与 cr-1202 同款漂移，security.workdir 全局层语义补通）"
+   }
+  ],
+  "1204": [
+   {
+    "sha": "8856c81037b7071d6adc0d1093e2098ae6fd3587",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批次 cr-1196~1206 登记（含 cr-1195 重复登记 drop、cr-1201→cr-1204 测试时区钉死回退对、其余九项功能/文档）"
+   }
+  ],
+  "1205": [
+   {
+    "sha": "6020a198cf8d9d939f030133951cf0ebe83bd2bb",
+    "date": "2026-11-22",
+    "subject": "fix(fs-search): cr-1205 grep 双收口——file-snapshots 快照镜像树进 SKIP_DIRS（walk/rg 两路同收口：命中注水 75%+每查省 ~220ms）+ rg 二进制解析改主包 rgPath（平台子包解析靠主目录偶遇副本，干净机器静默降级 Node 回退；改经主包动态 import + promise 单飞）"
+   }
+  ],
+  "1206": [
+   {
+    "sha": "e5a4e8d53b46d95427c97b61c98916d8b8e7d859",
+    "date": "2026-11-22",
+    "subject": "docs(assembly): cr-1206 data-root-layers 补全必须备份清单——config.json 归第二层（provider 定义/settings/source.fs 源定义不可重建），§三规则 2 清单补行"
    }
   ]
  }
