@@ -1,6 +1,6 @@
 {
- "scannedHead": "8856c81037b7071d6adc0d1093e2098ae6fd3587",
- "generatedAt": "2026-11-22T00:20:30.791Z",
+ "scannedHead": "3537246d6c830864253f17d58ea49e56b9a7e9d5",
+ "generatedAt": "2026-11-22T01:43:39.062Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -2235,6 +2235,11 @@
     "sha": "604fafcda77809cb6b2108db777a6a885f75d538",
     "date": "2026-10-13",
     "subject": "fix: ac-file-snapshots 深审收口（cr-376）——会话删除级联接线 + memberStreamKey 下沉 ac-core-utils + 死词清理"
+   },
+   {
+    "sha": "80a06ac76be100aa61ba6f92894331fe00014f20",
+    "date": "2026-11-22",
+    "subject": "fix(host-rows): cr-1208+1209 删除级联修复——快照级联死接线根治（cr-376 壳内事件订阅跨进程不可达，级联口归位删除 RPC 同进程直清 dropConversation：singles/group 删除与退群）+ agents/delete 会话面级联（D1 硬删全部：collectAgentTraces→removeAgent→cleanupAgentTraces 清 meta/对端副本/群名册成员流/快照，agent-cascade.ts 纯库 + boot 传 dataRoot）+ 单源下沉 writeGroupConfig/metaSessionsDir + dropConversation 诚实计数"
    }
   ],
   "377": [
@@ -5706,6 +5711,11 @@
     "sha": "6b89d865e819dfe0ce600a832540ae522b31e526",
     "date": "2026-11-21",
     "subject": "fix(timer): cr-1181 timer set 漏存 label——收参/回显在场但构造条目对象未携带，返回伪成功而 timer.json 无字段；构造带 label（trim 空不落，与 update 分支同语义）+ 回显单源 entry.label（原从入参直取正是掩盖点）；回归锁直读磁盘断言字段在"
+   },
+   {
+    "sha": "ca94fbc40b05f32a35608a23b403a42fcf97aa6c",
+    "date": "2026-11-22",
+    "subject": "test(infra): cr-1211 测试根轮次隔离——每轮独立 test-run-<pid> 根（vitest.config 求值期注入 AGENTCHAT_TEST_ROOT，探针实证 test.env 只达 worker 而 config 直写对 globalSetup/worker 双端可见）+ 死轮残根开工 GC（kill(pid,0) 探活，ESRCH 判死回收，pid 复用只漏清不误删）；不做 teardown 清理——detached 壳残留句柄会让全绿轮在收尾挂掉（cr-1197/1199 形态）；护栏泛化为 workspace 下 test / test-run-<pid>；根治多会话并发测试 EPERM 互踩（cr-1181 双轮、cr-1197/1199 残留句柄），worker 分桶与 maxWorkers 8 等单轮缓解不动"
    }
   ],
   "1182": [
@@ -5725,6 +5735,11 @@
     "sha": "0855504cd0055469076087e2e306d807a8661f76",
     "date": "2026-11-21",
     "subject": "fix(webui): cr-1183 markdown 表格列宽优化——表宽 hug 收缩 + 贪婪列封顶"
+   },
+   {
+    "sha": "468951b021bdf8358d37373e43c097e83305090c",
+    "date": "2026-11-22",
+    "subject": "fix(webui): cr-1210 表格 clamp 判定修正——CJK 可断字符不入长 token 正则，列级浓度阈值 0.6 防中文散文列误封顶（→cr-1183）"
    }
   ],
   "1184": [
@@ -5946,6 +5961,11 @@
     "sha": "8856c81037b7071d6adc0d1093e2098ae6fd3587",
     "date": "2026-11-22",
     "subject": "chore(cr): 台账批次 cr-1196~1206 登记（含 cr-1195 重复登记 drop、cr-1201→cr-1204 测试时区钉死回退对、其余九项功能/文档）"
+   },
+   {
+    "sha": "007ef120a79284e1a9182d2219d5ce4d21ce8504",
+    "date": "2026-11-22",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1196~1206 批次 11 笔提交）"
    }
   ],
   "1197": [
@@ -5953,6 +5973,11 @@
     "sha": "3f5c4634657932b4f01eab95f4fd011ff4b1aa75",
     "date": "2026-11-22",
     "subject": "fix(fs-search): cr-1197 glob 跨锚点 path 基准修正 + subagent list 缺省视图净化——glob 的 rel 空间与模式匹配归位搜索根（收窄根的前缀模式静默零命中 + 锚点外根 rel 漂移 read 断链；锚点内根保留锚点前缀）；subagent list 无键条目退出缺省面（只报归属会话的条目）"
+   },
+   {
+    "sha": "ca94fbc40b05f32a35608a23b403a42fcf97aa6c",
+    "date": "2026-11-22",
+    "subject": "test(infra): cr-1211 测试根轮次隔离——每轮独立 test-run-<pid> 根（vitest.config 求值期注入 AGENTCHAT_TEST_ROOT，探针实证 test.env 只达 worker 而 config 直写对 globalSetup/worker 双端可见）+ 死轮残根开工 GC（kill(pid,0) 探活，ESRCH 判死回收，pid 复用只漏清不误删）；不做 teardown 清理——detached 壳残留句柄会让全绿轮在收尾挂掉（cr-1197/1199 形态）；护栏泛化为 workspace 下 test / test-run-<pid>；根治多会话并发测试 EPERM 互踩（cr-1181 双轮、cr-1197/1199 残留句柄），worker 分桶与 maxWorkers 8 等单轮缓解不动"
    }
   ],
   "1198": [
@@ -6026,6 +6051,39 @@
     "sha": "e5a4e8d53b46d95427c97b61c98916d8b8e7d859",
     "date": "2026-11-22",
     "subject": "docs(assembly): cr-1206 data-root-layers 补全必须备份清单——config.json 归第二层（provider 定义/settings/source.fs 源定义不可重建），§三规则 2 清单补行"
+   }
+  ],
+  "1207": [
+   {
+    "sha": "f6fd8b0902b494ece1206a192262e7fafd475d27",
+    "date": "2026-11-22",
+    "subject": "fix(plugin-core): cr-1207 安装期保留名门禁补 package 形态缺口——readPluginPackage 收口 isReservedPluginName（manifest.json 缺席的投影臂此前绕过校验，ac-evil 同名包可入库静默哑弹到装载期）；拒绝文案抽 reservedPluginNameError 单源；manifest.ts 头注释词表补 risk；官方名测试 fixture 改第三方名"
+   },
+   {
+    "sha": "3537246d6c830864253f17d58ea49e56b9a7e9d5",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批次 cr-1207~1211 登记（1207/1210/1211 既有提交补账；1208/1209 本批功能落地）"
+   }
+  ],
+  "1208": [
+   {
+    "sha": "80a06ac76be100aa61ba6f92894331fe00014f20",
+    "date": "2026-11-22",
+    "subject": "fix(host-rows): cr-1208+1209 删除级联修复——快照级联死接线根治（cr-376 壳内事件订阅跨进程不可达，级联口归位删除 RPC 同进程直清 dropConversation：singles/group 删除与退群）+ agents/delete 会话面级联（D1 硬删全部：collectAgentTraces→removeAgent→cleanupAgentTraces 清 meta/对端副本/群名册成员流/快照，agent-cascade.ts 纯库 + boot 传 dataRoot）+ 单源下沉 writeGroupConfig/metaSessionsDir + dropConversation 诚实计数"
+   }
+  ],
+  "1210": [
+   {
+    "sha": "468951b021bdf8358d37373e43c097e83305090c",
+    "date": "2026-11-22",
+    "subject": "fix(webui): cr-1210 表格 clamp 判定修正——CJK 可断字符不入长 token 正则，列级浓度阈值 0.6 防中文散文列误封顶（→cr-1183）"
+   }
+  ],
+  "1211": [
+   {
+    "sha": "ca94fbc40b05f32a35608a23b403a42fcf97aa6c",
+    "date": "2026-11-22",
+    "subject": "test(infra): cr-1211 测试根轮次隔离——每轮独立 test-run-<pid> 根（vitest.config 求值期注入 AGENTCHAT_TEST_ROOT，探针实证 test.env 只达 worker 而 config 直写对 globalSetup/worker 双端可见）+ 死轮残根开工 GC（kill(pid,0) 探活，ESRCH 判死回收，pid 复用只漏清不误删）；不做 teardown 清理——detached 壳残留句柄会让全绿轮在收尾挂掉（cr-1197/1199 形态）；护栏泛化为 workspace 下 test / test-run-<pid>；根治多会话并发测试 EPERM 互踩（cr-1181 双轮、cr-1197/1199 残留句柄），worker 分桶与 maxWorkers 8 等单轮缓解不动"
    }
   ]
  }
