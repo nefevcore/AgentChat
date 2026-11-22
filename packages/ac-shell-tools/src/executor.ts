@@ -638,7 +638,9 @@ export function executeShellCommand(
           truncated,
           total_bytes: totalBytes,
         },
-        ...(success ? {} : { error: guidance || `命令未正常启动或语法失败（invocation-error，退出码 ${exitCode}）` }),
+        // cr-1223/ISSUE-21：`||` 会在 guidance 非空时整条丢弃基线文案（退出码/
+        // invocation-error 语义），error 只剩翻译提示——改拼接保留两者。
+        ...(success ? {} : { error: [`命令未正常启动或语法失败（invocation-error，退出码 ${exitCode}）`, guidance].filter(Boolean).join(' ') }),
       });
     };
 

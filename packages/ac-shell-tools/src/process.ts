@@ -92,7 +92,16 @@ export function buildErrorMessage(command: string, output: string, exitCode: num
     if (missing.toLowerCase() === 'utf8') {
       return 'PowerShell 中请使用 [System.Text.Encoding]::UTF8（不是裸 UTF8），例如：[Console]::OutputEncoding = [System.Text.Encoding]::UTF8。';
     }
-    return `PowerShell 找不到命令“${missing || '该命令'}”。可先用 Get-Command ${missing || '<名称>'} 确认命令是否安装，或改用 read/glob/grep 等工具完成同类任务。`;
+    if (missing === '' && /[;&|]/.test(command)) {
+      return 'PowerShell 报告命令未找到，但命令是管道/组合形态——缺失的可能是其中某一段而非首个命令。建议：拆成单条命令逐段执行定位缺失段；若段内有正则或含 | 的参数（如 -Pattern），需给参数加引号（-Pattern "a|b"）。';
+    }
+    // cr-1227/ISSUE-18 建议③：点名准确之后仍缺「为什么」——命令含管道/组合符时，
+    // 缺失段通常不是笔误而是 `|` 被 shell 解析成管道（`-Pattern a|b` 一段变两条命令）。
+    // 不提这句，用户看到「找不到命令 待办」还得自己倒推病因。
+    const pipeHint = /[;&|]/.test(command)
+      ? '——该命令含 | / ; / & 组合符：缺失段很可能是被管道切断的一段（如 -Pattern a|b 未加引号）或组合命令中失败的那段；给含 | 的参数加引号，或拆成单条命令逐段执行。'
+      : '';
+    return `PowerShell 找不到命令“${missing || '该命令'}”。可先用 Get-Command ${missing || '<名称>'} 确认命令是否安装，或改用 read/glob/grep 等工具完成同类任务${pipeHint}`;
   }
 
   if (/unicodeencodeerror|'gbk' codec can't encode|gbk.*encode/.test(low)) {
@@ -129,6 +138,9 @@ export function looksLikeInvocationError(cleanOutput: string): boolean {
 function extractMissingCommand(output: string, command: string): string {
   const patterns = [
     /无法将["“']?([^"“'”]+?)["”']?项识别为/,
+    // PS 7.7 zh-CN 形态「术语 'x' 不会被识别为…」（cr-1223/ISSUE-18：缺此
+    // 模式时落回兜底取命令首词——Get-Content | 中文词 断管后错报 Get-Content）
+    /术语\s+["“']?([^"“'”\s]+?)["”']?\s*不会被识别为/,
     /'([^']+)' 不是内部或外部命令/,
     /'([^']+)' is not recognized/,
     /([a-zA-Z_][a-zA-Z0-9_-]*): command not found/,
@@ -139,6 +151,10 @@ function extractMissingCommand(output: string, command: string): string {
     const m = output.match(re);
     if (m) return m[1].trim();
   }
+  // 兜底护栏（cr-1223/ISSUE-18）：命令含管道/分号/`&` 组合时，报错缺的
+  // 可能是其中任一段——取首词归因会点名一个存在的命令（真缺的是裸 `|`
+  // 后的中文词段），不猜名，改说组合命令某段失败。
+  if (/[;&|]/.test(command)) return '';
   const first = command.match(/\b([a-z][a-z0-9_-]*)\b/i);
   return first ? first[1] : '';
 }
