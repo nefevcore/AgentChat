@@ -20,7 +20,7 @@ import { parentPort } from 'node:worker_threads';
 import * as nodeModule from 'node:module';
 import { PROTOCOL_VERSION } from './protocol.ts';
 import type { MainToWorker, WorkerInvoke, WorkerToMain, RunSummary } from './protocol.ts';
-import { normalizeSource, indexCodeHash, findBannedModuleSyntax, scanFreeVariables, snippetAt, HASH_HINT } from 'ac-run-code-core';
+import { normalizeSource, indexCodeHash, findBannedModuleSyntax, scanFreeVariables, snippetAt, HASH_HINT, precheckInvokeArgs } from 'ac-run-code-core';
 
 declare module 'node:module' {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -150,6 +150,18 @@ async function main(): Promise<void> {
   /** tools proxy 成员：发 invoke 等结果（附中止检查） */
   function invokeTool(name: string, args: Record<string, unknown>): Promise<{ ok: boolean; output?: unknown; error?: string }> {
     checkAbort();
+    // cr-1216 参数侧可克隆预检：不可序列化参数会让 postMessage 同步抛 Node
+    // 原文（无工具名/字段名）炸成程序级失败——发送前拦截，本地拒绝 + 自修
+    // 指引（与 return 面 serializeValue 降级链分工：参数是调用输入，拒绝优于降级）。
+    // 被拒调用未发生传输，不消耗桥接层计数。
+    let bad: string | undefined;
+    try {
+      bad = precheckInvokeArgs(name, args);
+    } catch {
+      // 敌意 getter 等探索即炸的面：预检放行，postMessage 兜底统一仲裁
+      // （getter 抛错时 structuredClone 同抛 → 下方 catch 按子调用失败收束）
+    }
+    if (bad !== undefined) return Promise.resolve({ ok: false, error: bad });
     const mySeq = ++seq;
     summary.calls++;
     if (summary.calls > 200) throw new Error('子调用数超限（200）——run_code 程序应编排成批操作，不是逐条循环刷调用');
@@ -157,7 +169,15 @@ async function main(): Promise<void> {
       pending.set(mySeq, { resolve });
     });
     const msg: WorkerInvoke = { type: 'invoke', seq: mySeq, name, args };
-    send(msg);
+    try {
+      send(msg);
+    } catch (err: unknown) {
+      // 预检残差兜底（getter 抛错/克隆面演进）：同步抛 = 消息从未离境——
+      // 按子调用失败收束（含工具名），不让 Node 原文炸成程序级失败
+      pending.delete(mySeq);
+      summary.calls--; // 消息未离境，计数回退
+      return Promise.resolve({ ok: false, error: `tools.${name} 参数无法传给主线程（${err instanceof Error ? err.message : String(err)}）——参数含不可序列化值：BigInt 改传 String(v)、函数改传源码串、循环引用改传子集` });
+    }
     return p;
   }
 

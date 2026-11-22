@@ -195,6 +195,95 @@ function projectTool(def: ProjectedToolDef): string {
 }
 
 /**
+ * 子调用参数可克隆预检（cr-1216）：postMessage 边界的参数侧守卫。
+ * 参数含结构化克隆不可传值（BigInt / 循环引用 / 函数 / Symbol）时，
+ * worker → 主线程 postMessage 同步抛 Node 原文（"… could not be cloned"）
+ * 且无工具名/字段名，收束为程序级失败、模型无从自修。发送前逐字段探测，
+ * 检出即以明确错误（工具名 + 字段路径 + 值类型 + 转换指引）本地拒绝。
+ * 与 return 面 serializeValue 降级链的分工：return 是只读出口，降级标注
+ * 保主体；参数是调用输入（常涉写路径），静默改写值有非预期副作用风险
+ * ——拒绝优于降级，修正权交给模型。
+ * 探测口径与 postMessage 序列化同向：JSON.stringify 不可（BigInt/循环引用）
+ * 或值为 function/Symbol → 拒；Map/Set 与对象同规则递归；循环判定用栈式
+ * seen（进出成对，菱形共享引用不误报——与 JSON.stringify 抛错口径一致）。
+ * 深度上限 10：防病态深嵌套下探索成本失控（克隆本身可传的放过）。
+ * 残差面（getter 抛错、Symbol 键被静默丢弃等）不归本函数——由 worker
+ * 侧 postMessage 兜底捕获收束（预检求常见形态全覆盖，不求全集）。
+ */
+export function precheckInvokeArgs(name: string, args: Record<string, unknown>): string | undefined {
+  for (const [key, value] of Object.entries(args)) {
+    const bad = findUnclonable(value, 0, new WeakSet<object>());
+    if (bad !== undefined) {
+      const fix = bad.kind === 'bigint'
+        ? 'BigInt 不能跨线程传，改传 String(v) 或 Number(v)'
+        : bad.kind === 'function'
+          ? '函数不能跨线程传，改传其源码串 String(v)（lib.define 正是此形态）'
+          : bad.kind === 'symbol'
+            ? 'Symbol 不能跨线程传，改传 String(v) 或 v.description'
+            : '对象含循环引用，改传可序列化子集或标识字段';
+      return `tools.${name} 参数 ${key}${bad.path} 无法传给主线程（${describeValue(bad.value)}）——${fix}`;
+    }
+  }
+  return undefined;
+}
+
+/** 值的一句话类型描述（预检错误面可读性——报类型不报内容，防误泄） */
+function describeValue(v: unknown): string {
+  if (typeof v === 'bigint') return `BigInt ${v}n`;
+  if (typeof v === 'function') return `函数 ${v.name || '(匿名)'}`;
+  if (typeof v === 'symbol') return `Symbol ${String(v)}`;
+  if (v === null || typeof v !== 'object') return `${typeof v} 类型值`;
+  return `${v instanceof Map ? 'Map' : v instanceof Set ? 'Set' : Array.isArray(v) ? 'Array' : 'object'} 内含值`;
+}
+
+/** 递归探测首个不可克隆值（值 + 相对路径尾巴）；干净返回 undefined */
+function findUnclonable(
+  value: unknown,
+  depth: number,
+  seen: WeakSet<object>,
+): { kind: 'bigint' | 'function' | 'symbol' | 'circular'; value: unknown; path: string } | undefined {
+  if (typeof value === 'bigint') return { kind: 'bigint', value, path: '' };
+  if (typeof value === 'function') return { kind: 'function', value, path: '' };
+  if (typeof value === 'symbol') return { kind: 'symbol', value, path: '' };
+  if (value === null || typeof value !== 'object') return undefined;
+  if (depth >= 10) return undefined;
+  // 循环检测先于一切容器分支（自循环 Map/Set 也是对象——否则 Map 分支
+  // 递归自身永不到达 seen 检查，靠深度上限静默放行）
+  if (seen.has(value)) return { kind: 'circular', value, path: '' };
+  seen.add(value);
+  const next = depth + 1;
+  try {
+    if (value instanceof Map) {
+      for (const [k, v] of value) {
+        const badK = findUnclonable(k, next, seen);
+        if (badK !== undefined) return { ...badK, path: `.keys[${describeValue(k)}]${badK.path}` };
+        const badV = findUnclonable(v, next, seen);
+        if (badV !== undefined) return { ...badV, path: `.get(${describeValue(k)})${badV.path}` };
+      }
+      return undefined;
+    }
+    // 数组与 Set 同构遍历（下标即序）；下标渲染 [i]（Object.entries
+    // 对数组的形态是 .0/.1——可读性差）
+    if (Array.isArray(value) || value instanceof Set) {
+      let i = 0;
+      for (const v of value) {
+        const bad = findUnclonable(v, next, seen);
+        if (bad !== undefined) return { ...bad, path: `[${i}]${bad.path}` };
+        i++;
+      }
+      return undefined;
+    }
+    for (const [k, v] of Object.entries(value)) {
+      const bad = findUnclonable(v, next, seen);
+      if (bad !== undefined) return { ...bad, path: `.${k}${bad.path}` };
+    }
+    return undefined;
+  } finally {
+    seen.delete(value); // 栈式进出成对——只标记祖先链，菱形共享不误报
+  }
+}
+
+/**
  * 子调用前置校验（cr-276）：把 SDK 投影类型签名的「软约束」补成「硬拦截」。
  * 校验面与投影面同源（同一份 defs）——投影里有的工具/参数/枚举值才是合法
  * 调用面。拒绝项（错误信息面向模型自修，含最近名建议）：
@@ -256,7 +345,13 @@ export function validateInvoke(
   return undefined;
 }
 
-/** 编辑距离最近名（typo 自纠建议；并列取字典序首个——输出确定） */
+/**
+ * 编辑距离最近名（typo 自纠建议；并列取字典序首个——输出确定）。
+ * cr-1222 阈值闸：仅当 dist ≤ max(2, ⌊len/3⌋) 才值得建议——无阈值时
+ * memory_write（与 write 距离 7）这类语义无关名也被推荐，ISSUE-15 曾把
+ * 停用期的 memory_write 引向不等价的 write。超阈返 undefined（调用方
+ * 文案回落「（无可用工具）」——不误导优于有建议）。
+ */
 function nearestName(defs: readonly ProjectedToolDef[], target: string): string | undefined {
   let best: string | undefined;
   let bestDist = Infinity;
@@ -267,7 +362,8 @@ function nearestName(defs: readonly ProjectedToolDef[], target: string): string 
       bestDist = dist;
     }
   }
-  return best;
+  if (best === undefined) return undefined;
+  return bestDist <= Math.max(2, Math.floor(target.length / 3)) ? best : undefined;
 }
 
 /** Levenshtein 编辑距离（小写归一——大小写 typo 同样命中） */

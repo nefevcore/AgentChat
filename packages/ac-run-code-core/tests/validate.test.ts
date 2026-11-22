@@ -47,6 +47,15 @@ describe('validateInvoke', () => {
     expect(err).toContain('read');
   });
 
+  it('cr-1222/ISSUE-15：最近名建议有阈值——语义无关名不误导', () => {
+    // memory_write（12 字符，阈值 max(2,4)=4）与全部工具距离 >4——
+    // 无阈值时恒返回最近者（曾把停用期调用引向不等价的 write）
+    const err = validateInvoke(DEFS, 'memory_write', { content: 'x' });
+    expect(err).toContain('未知工具 "memory_write"');
+    expect(err).toContain('（无可用工具）');
+    expect(err).not.toMatch(/最近名：(write|read|edit)/);
+  });
+
   it('缺 required 拦截', () => {
     expect(validateInvoke(DEFS, 'read', { offset: 1 })).toContain('缺必填参数 file_path');
     // undefined 值视同缺参
