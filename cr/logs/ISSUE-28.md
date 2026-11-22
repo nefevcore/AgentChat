@@ -197,3 +197,41 @@ await import('../../../../packages/ac-sandbox-core/src/index.ts')
 `it()` 个数 ≠ 断言条数。当前 `bash-scan-dotdot.test.ts`：**11 个 `it()` / 23 条 expect**。
 此前「9 用例（8 应拦 + 7 应放）」把两种口径混写了（8+7=15 与 it 数 9 不符），
 正确记法：11 个 it，内含应拦断言与防误伤断言两组。
+
+## 已知误报（缺口⑤ 的取舍，不修）
+
+缺口⑤ 用「纯 `..` 词 + isAllowed」判定，无法区分**数据语境**与**路径语境**：
+
+| 命令 | 结果 |
+|---|---|
+| `echo ..` / `echo .. done` | 拦（`..` 越界时） |
+| `Write-Output ".."` / `'..'` | 拦 |
+| `git log --format=..` | 拦 |
+| **`Select-String -Pattern ".." -Path a.txt`** | 拦 ← 正则「任意两字符」写法，非路径 |
+
+**影响面精确说明（重要，比「引入 6 条误拦」更窄）**：
+判定条件是 `bareDots && !isAllowed('..')`——**只有 `..` 解析后越界时才拦**。所以：
+
+- **权限受限 Agent**（如 tester，`security.json={}` 仅 cwd）：上跳一级即越界 ⇒ 上述 6 条**确实被误拦**
+- **整仓授权 Agent**（如 admin，授 `AgentChat` 全仓）：`..` 解析后仍在根内 ⇒ **全部放行，无误拦**
+
+实测对照：
+```
+admin 运行时（整仓授权）      tester 代码层（roots 单根）
+echo ..                  ALLOW    BLOCK
+echo .. done             ALLOW    BLOCK
+Write-Output '..'        ALLOW    BLOCK
+Select-String -Pattern .. ALLOW   BLOCK
+```
+
+两者都对——差别在权限前提，不是规则缺陷。
+
+**不修的理由**（tester 提出，采纳）：
+1. 静态扫描无法区分「位置性 `..`（路径参数）」与「数据性 `..`（字符串/正则）」，
+   要区分就得做参数语义分析
+2. 若按参数名放行（`-Pattern`/`-Value` 白名单），下一轮即可构造
+   `-Pattern .. -Path ../..` 组合绕过——**不收敛，与 ISSUE-29 同源**
+3. 同类先例：源码注释已有「引号内直接执行的代码不在剥离范围」的已知残留误报
+
+属「多拦不少拦」取舍。**受影响者请避开**：读状态用 `tools.read`/`grep`，
+匹配字面双点用 `[.][.]` 或 `\.\.` 转义，不用裸 `..` 作正则。
