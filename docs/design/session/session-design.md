@@ -691,6 +691,26 @@ news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
 | 整理 run | 归档前 Agent 亲自整理的机制 run（meta 标记三处不落盘） |
 | 匿名读者 | `history()` 未传 viewer：中性行一律 user（审计/矩阵只读视角） |
 
+## 12. 会话键词法学与 run 成因（cr-1238 2026-11-22——conv-key-lexicon-plan 词汇表移交）
+
+**三层权威**：问「这串字符长什么样」→ 键库 `ac-conv-keys` parseKey（总函数）；问「这个会话是什么」→ 登记层（cr-1213 registry）；问「这个 run 为何存在」→ origin 字段。任何用上层答案回答下层问题的代码 = 未来 cr。
+
+### 12.1 键形词汇（ac-conv-keys/src/keys.ts 单源）
+
+| shape | 词法 | 说明 |
+|---|---|---|
+| uuid | `[0-9a-f]{8}-…-{12}` v4/v7 | singles 独立会话键（签发源 envelope-core issueConversationId / 前端 issueLocalConversationId） |
+| pair | 恰两段非空 `a~b`（含 `a~a` 对角线） | **键面不可辨公理**（cr-1213）：`gid~member` 群成员流与群 runAddress `gid~aid` 同形——语义归登记层 |
+| group | 单段 `g-` 前缀 | 群会话键（g- 是否强制属群行裁决，键库只判形） |
+| sub | 单段 `sub_` 前缀 | 子 Agent 会话键（spawn 铸造） |
+| plain | 其余任何串（含段空退化串） | 总函数兜底档（cr-1192 防线——无未定义行为） |
+
+谓词族派生自 parse（isUuidKey/isPairKey/isGroupKey/isSubKey/pairIncludes）；构造词 pairKey/runAddress/participantsOfKey/memberStreamKey 与端点保留字谓词（isReservedEndpointId/isMechanismEndpointId/isAgentIdentity）同住键库。守门：`node scripts/check-conv-lexicon.mjs`（白名单 14 文件）。
+
+### 12.2 run 成因（LoopRunRequest.origin，cr-1242）
+
+`origin`（机制：viewer/timer/archive/subagent/bench/goal/job/interaction/mechanism）与 `source`（拓扑：user/agent/event）正交。loop 入口对缺席者按 source 盖缺省章（event→mechanism、其余→viewer）；触发面自带声明通道 = payload.meta.origin（timer/archive/goal 已接）；随账本 run-end 行持久化 + run-started 帧直播透传（StreamMeta.origin）；消费面（auto-title 等）origin 优先、source 反推降级（旧 run 兼容）。
+
 ## 附录 B · 相关文档
 
 | 文档 | 关系 |
@@ -704,4 +724,5 @@ news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
 | `../archive/platform/memory-timeline-plan.md` | cr-4 记忆时间线/群成员流改裁的计划与实证（§4.4/§6 依据） |
 | `../archive/platform/feed-identity-overhaul-plan.md` | 会话流身份贯通根治方案（2026-09-24，已冻结） |
 | （KV 基线查询脚本） | 旧 `src/scripts/usage-baseline.ts` 已不存在——现行无等价脚本（§9.4 口径仍在） |
+| `../archive/session/conv-key-lexicon-plan.md` | 会话键词法学单源 + run-origin 契约化（cr-1236~1242，2026-11-22 实施完毕）——词汇表见下方 §12 |
 
