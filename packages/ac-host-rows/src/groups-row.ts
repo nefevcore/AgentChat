@@ -141,9 +141,21 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         }
       };
 
-      // boot 期预登记既有群（宿主重启后 registry 内存态重建）
-      for (const group of listGroupConfigs(dataRoot)) {
+      // boot 期预登记既有群（宿主重启后 registry 内存态重建）。cr-1226/
+      // ISSUE-19：装载量显性化——静默空窗（注册表 0 条但磁盘有群）此前
+      // 只能从 Agent 侧「list_groups count=0」倒推，宿主日志无痕。空装载
+      // warn 级（磁盘目录在而配置读不出 = 迁移/损坏嫌疑），非空 info 级。
+      const bootGroups = listGroupConfigs(dataRoot);
+      for (const group of bootGroups) {
         syncRegistry(group);
+      }
+      if (bootGroups.length > 0) {
+        ctx.logger.info(`[groups] 群注册表装载 ${bootGroups.length} 条：${bootGroups.map((g) => g.id).join('、')}`);
+      } else {
+        const metaDir = path.join(dataRoot, 'meta', 'groups');
+        let dirCount = 0;
+        try { dirCount = fs.readdirSync(metaDir).length; } catch { /* 目录不存在 = 真无群 */ }
+        ctx.logger.warn(`[groups] 群注册表装载 0 条${dirCount > 0 ? `（meta/groups 下有 ${dirCount} 个目录但无有效 group.json——疑似损坏/迁移中断，请核查）` : '（无群配置——正常）'}`);
       }
 
       web.registerRpc('group/list', () => ({

@@ -148,7 +148,9 @@ async function executeTimer(
         action: { text: 'preview' },
       }])[0]!;
     } catch (e: unknown) {
-      return err('when 非法：' + (e instanceof Error ? e.message : String(e)));
+      // cr-1225/ISSUE-23④：validateTimerEntries 校验整条（gates/until/missed
+      // 同走此 catch）——前缀与字段名自相矛盾，改与 set 分支同口径。
+      return err('条目非法（未落盘）：' + (e instanceof Error ? e.message : String(e)));
     }
     const fires = previewOf(timers, owner, draft);
     const simulateRow = args.simulate_row;

@@ -35,8 +35,10 @@ function boot() {
     broadcast: (type: string, data?: unknown) => { frames.push({ type, ...(data as { args?: unknown }) }); },
   };
   const row = makeGroupsHostRow({ dataRoot: ROOT, postOffice: po as never }) as unknown as { apply(ctx: unknown): void };
-  row.apply({ webServer: web });
-  return { handlers, frames, sent, registry: po.registry };
+  // cr-1226：boot 装载量日志（info/warn）——收集以断言空装载告警
+  const logs: Array<{ level: string; msg: string }> = [];
+  row.apply({ webServer: web, logger: { info: (m: string) => logs.push({ level: 'info', msg: m }), warn: (m: string) => logs.push({ level: 'warn', msg: m }) } });
+  return { handlers, frames, sent, registry: po.registry, logs };
 }
 
 function writeStream(member: string, key: string, rows: Array<Record<string, unknown>>): void {
@@ -46,6 +48,22 @@ function writeStream(member: string, key: string, rows: Array<Record<string, unk
 }
 
 describe('宿主群存储行（成员表 CRUD）', () => {
+  it('cr-1226：boot 装载量日志——空数据根给 warn（真无群=正常），有群给 info（gid 点名）', async () => {
+    const empty = boot();
+    expect(empty.logs).toHaveLength(1);
+    expect(empty.logs[0]).toMatchObject({ level: 'warn' });
+    expect(empty.logs[0]!.msg).toContain('装载 0 条');
+    seedAgent('alpha');
+    seedAgent('beta');
+    const g = boot();
+    // 第二次 boot 前 create 尚未发生——仍空。借 handler 建群后再 boot 验证 info 行
+    await g.handlers.get('group/create')!({ name: 'x', members: ['alpha', 'beta'] });
+    const third = boot();
+    expect(third.logs).toHaveLength(1);
+    expect(third.logs[0]).toMatchObject({ level: 'info' });
+    expect(third.logs[0]!.msg).toMatch(/装载 1 条：g-/);
+  });
+
   it('create/list/join/leave/rename/set-description + 帧广播 + 校验 fail-loud', async () => {
     seedAgent('alpha');
     seedAgent('beta');
