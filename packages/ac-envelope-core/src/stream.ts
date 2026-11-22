@@ -88,6 +88,8 @@ export interface StreamMeta {
   conversationId?: string;
   sender?: string;
   source?: string;
+  /** run 成因（cr-1238 B5）：run-started 帧携带——前端直播面消费 */
+  origin?: string;
   runId?: string;
   stepId?: string;
   /** run 机制旗标透传（cr-1188）：run-started 帧携带 LoopRunRequest.meta 全程——
