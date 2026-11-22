@@ -34,7 +34,8 @@ import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { displayNameOf, formDeniedBy, resolveToolNames, widenToolsForGating } from 'ac-agents';
-import { pairKey, GROUP_CONTRACT_TEXT } from 'ac-core-utils'; // 对桶键（cr-318 下沉）+ 群聊行为契约正典（M26——cr-712 复活）
+import { GROUP_CONTRACT_TEXT } from 'ac-core-utils'; // 群聊行为契约正典（M26——cr-712 复活）
+import { pairKey, parseKey, isSubKey } from 'ac-conv-keys'; // 键词法单源（cr-1238）
 import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 
@@ -133,8 +134,9 @@ export function apply(ctx: Context) {
     text: (request) => {
       const cid = request.conversationId;
       const agent = request.agent;
-      if (cid === undefined || agent === undefined || !cid.includes('~')) return '';
-      const gid = cid.slice(0, cid.indexOf('~'));
+      const cidShape = cid !== undefined ? parseKey(cid) : undefined;
+      if (agent === undefined || cidShape === undefined || cidShape.shape !== 'pair') return '';
+      const gid = cidShape.left;
       const group = ctx.get('group', false) as
         | { get(id: string): { id: string; name: string } | undefined }
         | undefined;
@@ -225,7 +227,7 @@ export function apply(ctx: Context) {
         // 直答对桶（与用户本人的对话）。from（信封 sender）不变——事实
         // 说话人仍是 sub。
         const subagents = ctx.get('subagents');
-        const fromSub = subagents !== undefined && from.startsWith('sub_') ? subagents.get(from) : undefined;
+        const fromSub = subagents !== undefined && isSubKey(from) ? subagents.get(from) : undefined;
         const fromForPair = fromSub !== undefined ? fromSub.parentId : from;
 
         // ---- 子 Agent 直投分支（2026-09-16 news 事故复盘）----
@@ -234,7 +236,7 @@ export function apply(ctx: Context) {
         // 回到发起会话）。父自投走原路径以外的一切 Agent 照旧 deliver。
         // 发信方也是子 Agent（sub → sub）时投递权限按其父判定（归一后
         // fromForPair = 发信子的父）。
-        if (subagents !== undefined && to.startsWith('sub_')) {
+        if (subagents !== undefined && isSubKey(to)) {
           const info = subagents.get(to);
           if (info !== undefined) {
             if (info.parentId !== fromForPair) {

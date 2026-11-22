@@ -125,7 +125,10 @@ export function makeAutoTitleRow(options: AutoTitleRowOptions): Plugin {
         if (!isSingleSessionId(sid)) return; // 只命名 singles 会话（cr-1179）：注入自会话/对桶键的 user run 非此形，title.set 必被宿主词汇锁拒收
         if (settled.has(sid) || staged.has(sid)) return;
         if (isArchiveReviewRun(request.meta)) return; // 机制 run 不是用户对话
-        if (request.source !== 'user') return; // 只命名用户会话
+        // run 成因判据（cr-1238 B5）：origin 一等字段替代 source 反推——
+        // 只命名 viewer 发起的会话（mechanism/timer/goal 等机制成因静音）。
+        // 旧 run origin 缺席：source 反推降级（等价旧判定）。
+        if (request.origin !== undefined ? request.origin !== 'viewer' : request.source !== 'user') return;
         if (readSessionTitle(dataRoot, sid) !== undefined) return; // 已命名（含用户手改）
         // 首条用户消息 = 会话开场（request.messages 含全量历史）：跳过日期快照行
         const firstUser = request.messages.find((m) =>

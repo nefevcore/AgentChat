@@ -16,6 +16,7 @@
 // ============================================================
 import * as fs from 'node:fs';
 import { wrapSystemReminder } from 'ac-core-utils';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { grepEntries, mintEntry, parseTimeline, renderDelta, renderGrepResult, renderSnapshot, type MemoryEntry } from 'ac-memory-core';
@@ -114,6 +115,8 @@ export class MemoryService extends Service {
     // = 注入成功但锚未落 → 下次重注同 delta 一次（幂等收敛）。
     this.ctx.on('loop/before-run', async (call, next) => {
       const req = call.request;
+      // cr-1233 干跑（previewSystemPrompt）：只读预览不落账不推水位
+      if (req.dryRun === true) return next();
       if (req.conversationId === undefined || req.agent === undefined) return next();
       const session = this.ctx.get('session', false) as
         | { recordContext(id: string, agent: string, content: string, extra: { source: string; label?: string; payload?: unknown }): string }
@@ -197,7 +200,6 @@ export class MemoryService extends Service {
     } catch {
       // 缺席/坏文件 → 覆盖重建（本会话键起步，其余会话下次注入时快照自愈）
     }
-    if (typeof anchors !== 'object' || anchors === null) anchors = {};
     if ((anchors[conversationId] ?? 0) >= seq) return; // 单调不降
     anchors[conversationId] = seq;
     try {
@@ -337,8 +339,10 @@ export class MemoryService extends Service {
    */
   private readLegacyBuckets(agentId: string): Array<{ key: string; text: string }> {
     const dir = path.dirname(this.timelineFileOf(agentId));
-    const isBucketKey = (stem: string): boolean =>
-      stem.includes('~') || stem.startsWith('g-') || stem === agentId;
+    const isBucketKey = (stem: string): boolean => {
+      const s = parseKey(stem);
+      return s.shape === 'pair' || s.shape === 'group' || stem === agentId;
+    };
     try {
       const out: Array<{ key: string; text: string }> = [];
       for (const f of fs.readdirSync(dir)) {

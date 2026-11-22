@@ -13,6 +13,7 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
+    "ac-conv-keys": "workspace:*",
     "@agentchat/cordis": "workspace:*",
     "ac-agents": "workspace:*",
     "ac-agents-core": "workspace:*",

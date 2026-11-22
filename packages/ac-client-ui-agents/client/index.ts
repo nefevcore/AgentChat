@@ -17,6 +17,7 @@
 import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext, type RpcClientFace, loadLastContext, saveLastContext, clearLastContextIf, VIEWER_ID } from 'ac-client-runtime';
 import { computed, defineAsyncComponent, ref, type ComputedRef, type Ref } from 'vue';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B4）
 
 // ---- 域契约（契约随 UI 行走：owning = ac-client-ui-agents） ----
 
@@ -114,14 +115,12 @@ export function toAgentList(
   const viewer = VIEWER_ID.value;
   const convOf = new Map<string, PConvTail>();
   for (const c of conversations) {
-    if (c.conversationId.includes('~')) {
-      const parts = c.conversationId.split('~');
-      if (parts.length === 2 && parts.includes(viewer)) {
-        const other = parts[0] === viewer ? parts[1] : parts[0];
-        const prev = convOf.get(other);
-        if (!prev || (c.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) convOf.set(other, c);
-      }
-    } else {
+    const s = parseKey(c.conversationId);
+    if (s.shape === 'pair' && (s.left === viewer || s.right === viewer)) {
+      const other = s.left === viewer ? s.right : s.left;
+      const prev = convOf.get(other);
+      if (!prev || (c.updatedAt ?? 0) >= (prev.updatedAt ?? 0)) convOf.set(other, c);
+    } else if (s.shape !== 'pair') {
       convOf.set(c.conversationId, c);
     }
   }

@@ -29,7 +29,7 @@ import { pathToFileURL } from 'node:url';
 import { makeWebuiRowV3 } from 'ac-ui-app/v3';
 import { tapShellStream, ShellStreamBridge, type StreamTapHandle } from 'ac-post-office';
 import { bumpUnread } from 'ac-core-utils';
-import { isSingleSessionId } from 'ac-ledger';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 // 未读轴键判据单源（ac-wire-format 纯库——webui 前端同源消费）
 import { unreadAxisKeyOf, userPairAxisKey } from 'ac-wire-format';
 
@@ -141,8 +141,9 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
   // warm-up 面——高频帧不隐式建索引，cr-1142 裁决）。
   const settledConvOf = (agent: string | undefined, conversationId: string | undefined): string | undefined => {
     if (conversationId === undefined || conversationId === '') return undefined;
-    if (conversationId.includes('~')) return conversationId;
-    if (isSingleSessionId(conversationId)) return conversationId;
+    // 键形三态（cr-1238 B3——parseKey 单源；pair 含 gid~member 成员流）
+    const s = parseKey(conversationId);
+    if (s.shape === 'pair' || s.shape === 'uuid') return conversationId;
     if (agent !== undefined && agent !== '' && conversationId === agent) return userPairAxisKey(agent);
     return undefined;
   };

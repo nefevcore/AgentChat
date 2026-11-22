@@ -12,6 +12,7 @@
 // 缺省 rpc 锚并源 ac-client-ui-settings/client/rpcDefault（12 前端行同款先例；
 // cr-334 前本包私存一份功能等价副本——重复实现并源纪律）
 import { defaultRpc as wireRpc } from 'ac-client-ui-settings/client/rpcDefault.ts';
+import { isPairKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B4）
 
 // ---- preview 形状（ac-usage 五查询的 RPC 结果镜像） ----
 
@@ -143,7 +144,7 @@ export function toUsageSummary(u: PUsageResult, agentIds: Set<string> = new Set(
     byPair = [];
     for (const [conv, a] of Object.entries(u.byConversation)) {
       if ((a.total ?? a.prompt) <= 0) continue;
-      if (conv.includes('~')) continue; // 委托对键：旧后端未分类，跳过（防错挂）
+      if (isPairKey(conv)) continue; // 委托对键：旧后端未分类，跳过（防错挂）
       if (agentIds.size > 0 && !agentIds.has(conv)) continue; // 群/singles/未知名
       byPair.push({ a: 'user', b: conv, total_tokens: a.total ?? a.prompt + a.completion, record_count: a.runs ?? 0 });
     }

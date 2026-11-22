@@ -14,6 +14,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, clientRuntime, resyncRetry, type ClientContext, type RpcClientFace } from 'ac-client-runtime';
 import { defineAsyncComponent, ref, watch, type Ref } from 'vue';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B4）
 import type { MainViewDef } from 'ac-client-ui-layout/client/mainViews.ts';
 import type { AuxSidebarPanelDef } from 'ac-client-ui-layout/client/auxSidebarViews.ts';
 
@@ -137,12 +138,13 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
   const pairs = s.conversations
     .filter((c) => {
       if (groupIds.has(c.conversationId)) return false;
-      if (!c.conversationId.includes('~')) return false;
-      const parts = c.conversationId.split('~');
-      return parts.length === 2 && parts.every((p) => agentIds.has(p));
+      const sp = parseKey(c.conversationId);
+      if (sp.shape !== 'pair') return false;
+      return agentIds.has(sp.left) && agentIds.has(sp.right);
     })
     .map((c) => {
-      const [a, b] = c.conversationId.split('~') as [string, string];
+      const sp = parseKey(c.conversationId) as { shape: 'pair'; left: string; right: string };
+      const { left: a, right: b } = sp;
       return {
         // 对桶已排序（pairKey 构造时 sort）——chat~ 前缀 + 桶名即键
         key: `chat~${c.conversationId}`,
@@ -170,7 +172,9 @@ export function toRunsSnapshot(s: PRunsSnapshot, agents: RosterAgentView[]): Run
       // a~a）→ chat~<桶名>；其余（独立会话 sid）→ single~sid
       const conv = r.conversationId;
       const isGroup = groupIds.has(conv);
-      const isPair = !isGroup && conv.includes('~') && conv.split('~').length === 2;
+      // 键词法单源（cr-1238 B4）；src convKey（chat~/group~/single~）是前端
+      // 视图命名空间（表 A 注记），前缀解析局部保留 parseConvKey
+      const isPair = !isGroup && parseKey(conv).shape === 'pair';
       const kind: 'chat' | 'group' | 'single' = isGroup ? 'group' : isPair ? 'chat' : 'single';
       const convKey = isGroup
         ? `group~${conv}${r.agentId && r.agentId !== conv ? `~${r.agentId}` : ''}`
@@ -506,7 +510,9 @@ export default runviewClientPlugin;
 // ---- 运行动作面（M27.2-2 sidebar 面板壳随件迁自 webui api/runs.ts） ----
 
 /** src convKey（chat~a~b / group~g~a / single~s）→ preview conversationId（M19：
- *  chat 对键双向保留——'chat~a~b' → 'a~b'，不再剥 user 特判） */
+ *  chat 对键双向保留——'chat~a~b' → 'a~b'，不再剥 user 特判）。
+ *  注：chat~/group~/single~ 是前端视图命名空间前缀，非会话键族（B1 表 A
+ *  注记——键库不收编，本函数即其局部单源）。 */
 export function convKeyToId(convKey: string): string {
   if (convKey.startsWith('single~')) return convKey.slice('single~'.length);
   if (convKey.startsWith('group~')) return convKey.split('~')[1] ?? convKey;

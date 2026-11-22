@@ -190,6 +190,20 @@ describe('ac-memory 注入协议（loop/before-run seam + 私有水位 .anchors�
     expect(tailUser()).toBe(wrapSystemReminder(rows[0].content!)); // cr-1101：落账裸文，工作数组包裹 = 回放投影同字节
   });
 
+  it('cr-1233 dryRun（previewSystemPrompt 干跑）→ 不落账不推水位，真实 run 照常快照', async () => {
+    const ctx = await bootSession();
+    const session = ctx.get('session') as unknown as FakeSession;
+    ctx.memory.write('a1', { content: '记忆一' });
+    // 干跑（预览形态）：不得快照注入、不得推水位
+    await ctx.agentLoop.run({ agent: 'a1', model: 'mock-1', system: 'BASE', messages: [], conversationId: 'alice~a1', dryRun: true });
+    expect(session.rows.get('alice~a1')).toBeUndefined();
+    // 真实 run：无锚 → 快照照常（干跑没吃掉首注）
+    await runOnce(ctx, 'a1', 'alice~a1');
+    const rows = session.rows.get('alice~a1')!;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].source).toBe('memory-snapshot');
+  });
+
   it('H = S（稳态）→ 不注入（工作数组不加行）', async () => {
     const ctx = await bootSession();
     const session = ctx.get('session') as unknown as FakeSession;

@@ -43,6 +43,7 @@
     ]
   },
   "dependencies": {
+    "ac-conv-keys": "workspace:*",
     "@agentchat/cordis": "workspace:*",
     "@agentchat/cordis-logger": "workspace:*",
     "ac-config": "workspace:*",

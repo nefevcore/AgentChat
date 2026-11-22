@@ -10,6 +10,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readLegacySession, agentIdOfPairKey, scanLegacyRoot, type LegacyRow, type LegacyRunSettled, type LegacyJournalRow, type LegacySessionFiles } from './legacy.ts';
+import { participantsOfKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import { projectSession, projectSubcalls, type ProjectContext, type Projected } from './project.ts';
 import { verifySession } from './verify.ts';
 import { importAgentsTree, type AgentTreeResult } from './agents-tree.ts';
@@ -161,8 +162,7 @@ export async function importRoot(
   const skipped: Array<{ key: string; reason: string }> = [];
   for (const p of inv.pairs) {
     const agentId = agentIdOfPairKey(p.conversationId);
-    const parts = p.conversationId.split('~');
-    const r = importSession(p.dir, { agentId, uuid: p.conversationId, participants: parts, kind: 'agent-pair' }, targetRoot, stagingRoot);
+    const r = importSession(p.dir, { agentId, uuid: p.conversationId, participants: participantsOfKey(p.conversationId) ?? [], kind: 'agent-pair' }, targetRoot, stagingRoot);
     results.push(r); opts.onResult?.(r);
   }
   for (const g of inv.groups) {

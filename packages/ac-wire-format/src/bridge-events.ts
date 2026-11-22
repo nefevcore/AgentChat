@@ -18,6 +18,7 @@
 //     （挂上等于静默 veto 下游默认行为，2026-09-26 事故）。
 // ============================================================
 import { wireLlmInput } from './index.ts';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 
 /** 桥接目录项（wire = 单帧策略：整形或过滤） */
 export interface BridgeEvent {
@@ -43,9 +44,9 @@ export interface CatalogDeps {
 
 /** 自会话桶判定（a~a 对角线）：定时自唤醒等机制 run 的隐藏面 */
 function isSelfPairConversation(conversationId: string | undefined): boolean {
-  if (!conversationId || !conversationId.includes('~')) return false;
-  const [a, b] = conversationId.split('~');
-  return a === b;
+  if (conversationId === undefined) return false;
+  const s = parseKey(conversationId);
+  return s.shape === 'pair' && s.left === s.right;
 }
 
 /** run 寻址 key（tool 级事件的 sender 兜底查询） */

@@ -35,6 +35,7 @@
     }
   },
   "dependencies": {
+    "ac-conv-keys": "workspace:*",
     "@agentchat/cordis": "workspace:*",
     "@agentchat/webui-kit": "workspace:*",
     "ac-client-runtime": "workspace:*",

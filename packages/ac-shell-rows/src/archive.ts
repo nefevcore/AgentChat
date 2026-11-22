@@ -39,6 +39,7 @@ import {
 } from 'ac-archive-core';
 import type { ToolCall, ToolResult } from 'ac-tools';
 import { estimateTokens } from 'ac-text-budget';
+import { parseKey, pairIncludes } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import { ARCHIVE_SUMMARY_SOURCE, foldDigestOf, foldSession, foldStepsOf, foldSummaryOf, readDomainFacts, readLedger, rowShadowedBy, summaryTextOf, type LedgerRow } from 'ac-ledger';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
@@ -139,7 +140,7 @@ export class ArchiveShellService extends Service {
     ctx.on('loop/after-run', (request: LoopRunRequest, result: LoopRunResult) => {
       if (request.agent !== this.agentId) return;
       const uuid = request.conversationId;
-      if (uuid === undefined || !uuid.split('~').includes(this.agentId)) return;
+      if (uuid === undefined || !pairIncludes(uuid, this.agentId)) return;
       if (request.runId !== undefined && request.runId.startsWith(REVIEW_RUN_PREFIX)) return; // 整理轮与会话增长无关
       // 失败 run 同样进入阈值检测（2026-11-22 P1）：LLM 上下文超限后每次 run
       // 都以 400 收束——若失败 run 不触发，归档永无入口，上下文只增不减且
@@ -384,7 +385,7 @@ export class ArchiveShellService extends Service {
     try {
       const requestedAt = Date.now();
       const conv = this.ctx.get('conversation', false) as
-        | { deliver(agentId: string, inbound: string, options?: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number; notice?: boolean; mechanism?: boolean; budget?: number }): Promise<unknown> }
+        | { deliver(agentId: string, inbound: string, options?: { sender?: string; source?: string; conversationId?: string; requestId?: string; timeoutMs?: number; notice?: boolean; mechanism?: boolean; budget?: number; meta?: Record<string, unknown> }): Promise<unknown> }
         | undefined;
       // 请求注入行落账（压缩轮指令的 durable 面——run 上下文复读自带）
       await this.ctx.ledger.deliverRow(uuid, [this.agentId], 'user', {
@@ -407,6 +408,7 @@ export class ArchiveShellService extends Service {
             timeoutMs: this.timeoutMs,
             mechanism: true,
             budget: 3,
+            meta: { origin: 'archive' }, // run 成因声明（cr-1238 B5）
           });
         } catch (err: unknown) {
           this.ctx.logger.warn('[archive] 整理轮投递失败（' + uuid + '）: ' + String(err));
@@ -518,8 +520,8 @@ export class ArchiveShellService extends Service {
     // 形（无 ~、不含 agentId）——split('~') 单元素命中自身，此前把整段
     // uuid 当「对方」嵌进文案（现场：你与「01a1fe79-…」的会话）。single
     // 的对话方恒为用户，直呼「用户」。
-    const pair = uuid.split('~');
-    const other = !uuid.includes('~') ? '用户' : (pair.find((p) => p !== this.agentId) ?? '用户');
+    const s = parseKey(uuid);
+    const other = s.shape === 'pair' ? (s.left !== this.agentId ? s.left : s.right !== this.agentId ? s.right : '用户') : '用户';
     const subject = self
       ? '此前运行日志（含已有总结覆盖的更早内容）的关键事件、推送结论、失败教训与待跟进事项'
       : '这段会话（含已有总结覆盖的更早内容）的关键决策、重要结论、用户偏好和待办事项';
@@ -552,9 +554,19 @@ export class ArchiveShellService extends Service {
     const dir = this.sessionDir(uuid);
     const { header, rows } = readLedger(dir);
     if (rows.length === 0) return 0;
-    const anchor = ledger.archiveAnchorOf(uuid);
     const budgets = this.budgetsFor(uuid);
+    // cr-1234：anchor 双锚验证——锚 seq 在行面命中但 messageId 不符 = seq
+    // 空间重叠（物理重写后 writer 从三文件种子重编号，旧锚 seq 撞上无关
+    // 新行；现场 admin~user：11-17 锚 seq=1323 命中 11-22 新行，dedup 每轮
+    // 锚死 → 各代 archive 集只有增量 < 回收闸 → 物理回收永不开启，
+    // ledger-bytes 兜底每 run 重触发压缩循环）。重叠 = 视为无锚（物理搬走
+    // 的行按构造不在主日志——seq 不命中才是健康态）。
+    const anchor = ledger.archiveAnchorOf(uuid);
+    const anchorSeqHit = anchor !== null && anchor.seq !== undefined
+      ? rows.find((r) => r.seq === anchor.seq)
+      : undefined;
     const lastArchived = anchor !== null && anchor.seq !== undefined
+      && (anchorSeqHit === undefined || anchorSeqHit.message_id === anchor.messageId)
       ? { seq: anchor.seq, message_id: anchor.messageId, role: '', content: '' }
       : null;
     // 版本判据 = 行面而非头行（cr-1190 续修：v1 头行会话后续追加 v2 判别行合法
@@ -722,9 +734,14 @@ export class ArchiveShellService extends Service {
       // 旧内容（含请求行、旧代摘要行、整理轮轨迹）出清；无摘要可锚（无提交
       // 退化）保持 archivedMaxSeq 只滚事件——强行出清会丢记忆。分界线语义：
       // 锚自身位置（事件行落点前的末行），不回读事件之后的行。
-      const archivedMaxSeq = archivedOriginal.reduce((m, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
+      const archivedMaxSeq = archivedOriginal.reduce((m: number, r: LedgerRow) => Math.max(m, r.seq ?? 0), 0);
+      // cr-1234：boundary 地板 = 压缩代事件（facts.compactions 末代），不从
+      // lastArchived（anchor）。V3 下 compaction 事件本就永踞主日志（audit 面
+      // 永在），它是逻辑 shadow 的 durable 事实源；anchor 只是物理段尾的去重
+      // 锚，两口径解耦——anchor 撞 seq 重叠（视为无锚）或无雨量轮（
+      // archivedMaxSeq 塌 0）时，事件地板保证 boundary 单调不回退。
       const boundary = Math.max(
-        lastArchived?.seq ?? 0,
+        facts.compactions.at(-1)?.boundarySeq ?? 0,
         archivedMaxSeq,
         summary !== undefined && archivedOriginal.length === 0 ? baselineSeq : 0,
       );
@@ -761,15 +778,43 @@ export class ArchiveShellService extends Service {
       // ——低估 38 倍。后果不只是「不回收」：字节恒超 ledger-bytes 阈值 ⇒
       // 每 run 收束都重新触发一次完整归档编排（整理轮 LLM run + 落事件），
       // 越归档越臃肿。与 cr-1214 是同一族的第三处（估算漏轨迹）。
-      const shadowedEst = split.archive.reduce((n, r) => n + replayTokensOf(r as never, this.agentId), 0);
-      if (shadowedEst <= keepBudgetOf(budgetsNow) * 2) return archivedOriginal.length; // 未超回收阈——只落事件（行已逻辑 shadow，回放排除）
-      if (archivedOriginal.length === 0) return 0; // 零移出（尾部水位未越）——只滚摘要
-      // 尾部保留 = 引用不在归档集的行 + compaction 事件行（永留主日志——
+      // cr-1234：闸门与搬移集按**主日志存量**计量，不按本次 split.archive
+      // 雨量。按次的死锁（admin~user 现场）：anchor 撞 seq 重叠后 dedup
+      // cutoff 每轮锚死，各代 archive 集只有增量（38K token < 60K 闸），而历次
+      // shadow 的 1167 行（3.6MB/94% 字节）永踞主日志——闸门按次恒不过、滞留
+      // 按轮累积，两口径错位让物理回收在多代会话上永不发生，ledger-bytes
+      // 兜底随之每 run 重触发压缩循环。存量口径单调收敛：物理重写搬走即
+      // 归零。闸门 = 全量估算 − 活跃估算（token 存量，含伪行轨迹体积——cr-1229
+      // 口径；messages.jsonl 字节看不到 journal 载轨迹，字节口径会重蹈低估）。
+      // 重读 facts：recycle 判定需要刚落的本代事件（内存 facts 是事件前
+      // 快照——首代压缩时 compactions 为空，旧代叠加语义也被新代边界覆盖）。
+      // 位置维 beforeEvent=true：rows 本就是本代事件前的行面快照，无 seq 无
+      // 数字 ts 的 v1 行按位置属压缩前代（cr-1155 僵尸行出清口径）。
+      const factsNow = readDomainFacts(dir, this.agentId);
+      // cr-1234 完全体：回收集与保留集都从**事件后重读行面**计算——快照 rows
+      // 早于本代 compaction 事件落账，快照后新行（事件行/摘要行/并发消息）的
+      // 保留若押在 writer.compact 的 late-merge（seq > baselineSeq）上，seq
+      // 空间重叠现场（重写后 writer 从种子重编号，事件行 seq 可能 ≤ 快照 max）
+      // 事件行会被物理重写吞掉 → fold.compactions 丢代 → 下一代回放头蒸发。
+      // 重读面含事件行：ts > 本代 endTs 时刻放行天然进 keep；位置维（无 seq
+      // 无数字 ts 的 v1 行）以本代事件行位置为界。
+      const rowsNow = readLedger(dir).rows;
+      const genRun = requestedAt + '-compaction-' + uuid;
+      const eventIdx = rowsNow.findIndex((r) => (r as unknown as Record<string, unknown>).run === genRun && String((r as unknown as Record<string, unknown>).type ?? '') === 'compaction');
+      const recycleRows = rowsNow.filter((r: LedgerRow, i) => !isCompactionRow(r)
+        && rowShadowedBy(r as unknown as { seq?: number; ts?: number }, factsNow.compactions.at(-1)!, eventIdx >= 0 && i < eventIdx));
+      const shadowedStock = this.estimateOf(uuid) - this.estimateOf(uuid, { activeOnly: true });
+      if (shadowedStock <= keepBudgetOf(budgetsNow) * 2) return archivedOriginal.length; // 未超回收阈——只落事件（行已逻辑 shadow，回放排除）
+      if (recycleRows.length === 0) return 0; // 零移出（尾部水位未越）——只滚摘要
+      // 尾部保留 = 引用不在搬移集的行 + compaction 事件行（永留主日志——
       // 边界前的机制行不随 shadowed 前缀搬移，audit 面跨轮在场）。cr-1155：
       // 引用对齐统一口径——无 seq v1 行按位置进出，与归档集互补成全划分。
-      const keepRows = rows.filter((r) => !archivedSet.has(r) || isCompactionRow(r));
+      // cr-1234：搬移集 = recycleRows（boundary 前存量）而非 archivedOriginal
+      //（本次雨量）——滞留行必须随本次回收出清，否则字节闸恒超、循环不解。
+      const recycleSet = new Set<unknown>(recycleRows);
+      const keepRows = rowsNow.filter((r) => !recycleSet.has(r));
       const report = await ledger.compactFor(uuid, {
-        archive: archivedOriginal,
+        archive: recycleRows,
         keep: keepRows,
         baselineSeq: baselineSeq > 0 ? baselineSeq : undefined,
         compress: true,
@@ -814,7 +859,7 @@ export class ArchiveShellService extends Service {
       // 域目录缺席 = 无会话
     }
     for (const uuid of uuids) {
-      if (!uuid.split('~').includes(this.agentId)) continue; // 非本域端点会话不编排
+      if (!pairIncludes(uuid, this.agentId)) continue; // 非本域端点会话不编排
       if (this.pending.has(uuid)) {
         report.push({ conversationId: uuid, skipped: true, reason: 'pending' });
         continue;

@@ -14,14 +14,12 @@
 import { ref, computed, type Ref } from 'vue';
 import type { RpcClientFace } from 'ac-client-runtime';
 import { unreadAxisKeyOf, userPairAxisKey } from 'ac-wire-format';
-import { SINGLE_SESSION_ID_RE } from './dialogIdLex.ts';
+import { parseKey, isUuidKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B4）
 
 /** 徽章轴键 → Agent/群行键：对桶取对端（非 viewer 端），群/ single 直用 */
 function badgeKeyToAgentKey(axisKey: string, viewer: string): string {
-  if (axisKey.includes('~')) {
-    const [a, b] = axisKey.split('~');
-    return a === viewer ? (b as string) : a;
-  }
+  const s = parseKey(axisKey);
+  if (s.shape === 'pair') return s.left === viewer ? s.right : s.left;
   return axisKey;
 }
 
@@ -140,7 +138,7 @@ export function createUnreadStore(rpc: RpcClientFace): UnreadStore {
     let sessions = 0; // single 口径（uuid 轴——SessionList/会话列表按钮徽章）
     for (const [k, n] of Object.entries(counts.value)) {
       total += n;
-      if (SINGLE_SESSION_ID_RE.test(k)) sessions += n;
+      if (isUuidKey(k)) sessions += n;
       else agents += n;
       const ak = badgeKeyToAgentKey(k, VIEWER);
       by[ak] = (by[ak] ?? 0) + n;

@@ -36,6 +36,24 @@ export interface FrozenPromptSection {
  */
 export type LoopSource = 'user' | 'agent' | 'event';
 
+/**
+ * run 成因（cr-1238 B5——与 source 正交的机制维度）：哪台因果机器点的火。
+ * source 是拓扑（谁发的），origin 是机制（为何存在）——cr-1179 病根即
+ * 机制注入混在 source='user' 里无处分辨。触发面自带声明；loop 入口对
+ * 缺席者按 source 盖缺省章（'user'→viewer / 'agent'→viewer / 'event'→mechanism）。
+ * 旧 run 无 origin：消费面反推降级（B1 表 C）。
+ */
+export type RunOrigin =
+  | 'viewer'      // 用户直答（含委托发起）
+  | 'timer'       // 定时唤醒
+  | 'archive'     // 归档整理
+  | 'subagent'    // 子 Agent 任务
+  | 'bench'       // 评测跑批
+  | 'goal'        // goal 自动轮
+  | 'job'         // 后台任务唤醒
+  | 'interaction' // 交互回投（ask_questions 答复等）
+  | 'mechanism';  // 其余机制注入（技能加载/上下文注入/记忆等）
+
 export interface LoopRunRequest {
   /**
    * run 身份键（2026-09-24 身份贯通）：run 级事件的稳定身份——run-started/
@@ -87,6 +105,12 @@ export interface LoopRunRequest {
   sender?: string;
   /** 发送方拓扑类（缺省按 sender 推导：未知 id 视作 'user'） */
   source?: LoopSource;
+  /**
+   * run 成因（cr-1238 B5）：触发面自带声明；缺席 = loop 入口按 source 盖
+   * 缺省章（user/agent→viewer、event→mechanism）。随账本 run 行持久化
+   * （读侧消费面从行读——归档文案/计时锚/回放），不外漏进 provider。
+   */
+  origin?: RunOrigin;
   /** 会话归属键（缺省 = pairKey(sender, agent) 即直答对桶；群/独立显式传键） */
   conversationId?: string;
   /**
@@ -98,6 +122,14 @@ export interface LoopRunRequest {
    * llm.chat 的 meta 是显式字段，request.meta 不参与。
    */
   meta?: Record<string, unknown>;
+  /**
+   * 干跑标记（cr-1233）：previewSystemPrompt 等只读预览面——请求真实过
+   * loop/before-run waterfall（装配链需真实生效），但副作用型订阅者
+   * （datetime 日期锚落盘 / env-pulse 水位初始化与 delta 注入 / memory
+   * 水位推进）必须早退：干跑落账会凭空创建会话（哨兵键直接物化成真）
+   * 且吃掉水位——真实 run 将丢失本该收到的注入。
+   */
+  dryRun?: boolean;
   /**
    * run 执行档位（cr-1082 两态化）：'full-access' = 唯一授权值，合法
    * 来源 = 权限门注入（设置链 allow / 弹卡批准 / run 缓存命中——门在

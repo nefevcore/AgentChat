@@ -18,6 +18,7 @@ import { ConversationMachine, type DeliverPlan, type QueuedTurn } from './state.
 import type {} from './events.ts';
 import { readAgentConfig, readChildConfig, resolveToolNames, type AgentConfig } from 'ac-agents-core';
 import { pairKey } from 'ac-core-utils';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import type { Envelope } from 'ac-envelope-core';
 import { budgetAfterReceive, deliver, entersInbox, type RendezvousPaths } from 'ac-envelope-core';
 import { readLedger, readJournal } from 'ac-ledger';
@@ -113,12 +114,11 @@ interface OwnedChildFace {
  * 只在 owner=本壳顶层 agent 的分支被调用，子域面天然不达。 */
 function peerOfAsk(record: { key?: unknown; owner?: unknown }): string | null {
   if (typeof record.key !== 'string' || record.key === '') return null;
-  const parts = record.key.split('~');
-  if (parts.length !== 2 || parts[0] === '' || parts[1] === '' || parts[0] === 'user' || parts[1] === 'user') return null;
-  if (humanPresentOf(record.key)) return null; // 有人桶不路由（单源判定——含 user 对桶排除）
+  const s = parseKey(record.key);
+  if (s.shape !== 'pair' || humanPresentOf(record.key)) return null; // 有人桶不路由（单源判定——含 user 对桶排除）
   const owner = typeof record.owner === 'string' ? record.owner : '';
-  if (owner === '' || !parts.includes(owner)) return null;
-  return parts[0] === owner ? parts[1] : parts[0];
+  if (owner === '' || (s.left !== owner && s.right !== owner)) return null;
+  return s.left === owner ? s.right : s.left;
 }
 
 /** 完成回执的发起会话键（任务信封 payload 原样往返；缺席 = 宿主直调/旧版子壳） */
@@ -731,6 +731,13 @@ export class ConversationService extends Service {
         // router.send 半边同语义（goal-round 轮次记账消费此键）。链跑轮
         // 各取当轮信封（env 在循环中被重赋值）。
         const meta = payloadMetaOf(env);
+        // run 成因（cr-1238 B5）：payload.meta.origin 声明优先（timer/archive/
+        // goal 等触发面自带）；信封层无 source 字段——机制信判据 =
+        // payload.mechTask 在场（宿主机制任务信封），其余 = viewer 直答/
+        // 委托（source 反推降级面在 loop 入口按 source 盖章）。
+        const origin: string = typeof meta?.origin === 'string' ? meta.origin
+          : (env.payload as { mechTask?: unknown } | null)?.mechTask !== undefined ? 'mechanism'
+          : 'viewer';
         // 续跑前缀（cr-667）：中断 run 无终稿行 → history 天然不含其轨迹，
         // 拼接无双计；maxSteps 按剩余额度（已用尽 → 1 步收尾轮逼收束）。
         const result = await this.ctx.agentLoop.run({
@@ -773,7 +780,7 @@ export class ConversationService extends Service {
           run: runId,
           // run 墙钟耗时（cr-772）：终稿行持久锚——历史链栏「用时」段取源
           ...(result.wallMs !== undefined ? { runMs: result.wallMs } : {}),
-        }, runId, finish, finish === 'error' ? result.error : undefined);
+        }, runId, finish, finish === 'error' ? result.error : undefined, origin);
         // 在途标记收束即清（cr-639）：run 已 settle = 消息已消费。此后任何
         // 失败（postReply 断链等）不重跑整轮——run 锚缺口归 cr-628
         // anchorableRuns boot 补投面，不归消息重投面。
@@ -1253,7 +1260,8 @@ export class ConversationService extends Service {
   /** 落账 kind（sender 归域：群地址 group / user 直发 user / 跨壳 agent——
    * receiveEnvelope 与 steer 落空转投点共用单源） */
   private ledgerKindOf(env: Envelope): string {
-    return env.to.includes('~') ? 'group' : env.sender === 'user' ? 'user' : 'agent';
+    // 键词法单源（cr-1238 B3）：pair 形（含群成员流）落 group 桶
+    return parseKey(env.to).shape === 'pair' ? 'group' : env.sender === 'user' ? 'user' : 'agent';
   }
 
   /**
@@ -1345,6 +1353,9 @@ export class ConversationService extends Service {
       source: 'user' as const,
       conversationId: cid,
       messages: [],
+      // cr-1233 干跑标记：装配链照常生效，落账/水位类订阅者（datetime/
+      // env-pulse/memory）早退——预览不得凭空落 context 行或吃掉注入水位
+      dryRun: true,
       ...(snap !== null ? { frozenSections: snap.sections } : {}),
     };
     // 段组装（cr-881）：与 run() 入口同源（assemblePreview）——先组装后过

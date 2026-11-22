@@ -575,4 +575,54 @@ describe('archive 行（cr-1189 V3）', () => {
       await h.dispose();
     }
   }, 20_000);
+
+  it('cr-1234：anchor 撞 seq 空间重叠不得死锁物理回收——历代滞留行随回收出清', async () => {
+    // 现场（admin~user）：物理重写后 writer 从三文件种子重编号，旧 anchor
+    // seq 撞上主日志无关新行 → dedupCutoff 每轮锚死，各代 archive 集只有
+    // 增量（< 回收闸），历次 shadow 的滞留行永踞主日志——ledger-bytes 兜底
+    // 每 run 重触发压缩循环。修：① anchor 双锚验证（messageId 不符 = 无锚）；
+    // ② 回收闸与搬移集按主日志存量（全量−活跃估算），不按本次雨量。
+    seedAgent('omicron', { archive: { maxContextTokens: 40_000, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    // digest 提交路径已由 V1 用例覆盖；此处聚焦物理回收闸门，digestText: null
+    const h = await bootShellRows('omicron', { digestText: null });
+    try {
+      const dir = path.join(ROOT, 'agents', 'omicron', 'sessions', 'user~omicron');
+      fs.mkdirSync(dir, { recursive: true });
+      // 第一代：旧代正文（seq 1..30，含体积）+ 成功压缩 → 物理回收搬走前缀
+      const gen1: string[] = [
+        JSON.stringify({ type: 'session-header', version: 2, createdAt: new Date().toISOString(), participants: ['omicron', 'user'], kind: 'agent-pair' }),
+      ];
+      for (let i = 1; i <= 30; i++) {
+        gen1.push(JSON.stringify({ type: 'message', role: 'agent', content: '旧代消息 ' + i + ' ' + 'o'.repeat(500), agent_id: 'omicron', message_id: 'm1-' + i, timestamp: new Date(2026, 0, 1, 0, 0, i).toISOString(), seq: i }));
+      }
+      fs.writeFileSync(path.join(dir, 'messages.jsonl'), gen1.join('\n') + '\n', 'utf-8');
+      await h.archive.requestArchive('user~omicron');
+      // 第一代回收已发生（存量 ~15K token > 闸 2.4K）——anchor 写至末行
+      const anchorFile = path.join(dir, 'archive', '.archive-anchor.json');
+      expect(fs.existsSync(anchorFile)).toBe(true);
+      const anchor = JSON.parse(fs.readFileSync(anchorFile, 'utf-8')) as { seq?: number; messageId?: string };
+      expect(anchor.seq).toBeGreaterThan(0); // 第一代段尾锚就位（keep 截断后 < 30 是常态）
+      const collideSeq = anchor.seq!;
+      // 第二代：新代正文（seq 31..60，小体积）+ 撞锚行（seq=30 但 message_id
+      // 不同、ts 在第一代后——模拟物理重写后 writer 从种子重编号撞旧锚）。
+      const gen2: string[] = [];
+      for (let i = 31; i <= 60; i++) {
+        gen2.push(JSON.stringify({ type: 'message', role: 'agent', content: '新代消息 ' + i + ' ' + 'n'.repeat(500), agent_id: 'omicron', message_id: 'm2-' + i, timestamp: new Date(2026, 0, 2, 0, 0, i).toISOString(), seq: i }));
+      }
+      gen2.push(JSON.stringify({ type: 'message', role: 'agent', content: '撞锚行', agent_id: 'omicron', message_id: 'collide-x', timestamp: new Date(2026, 0, 3, 0, 0, 0).toISOString(), seq: collideSeq }));
+      fs.appendFileSync(path.join(dir, 'messages.jsonl'), gen2.join('\n') + '\n', 'utf-8');
+      await h.archive.requestArchive('user~omicron');
+      // 双锚验证：旧锚（seq 30 / m1-30）不再当有效锚 → 第二代雨量不被撞锚行
+      // 短路；闸门按存量 → 两代滞留行全部出清（旧实现：闸按本次雨量，撞锚后
+      // 每代只剩增量 < 闸 → 永不搬 → ledger-bytes 循环）。
+      const after = readLedger(dir);
+      expect(after.rows.filter((r) => (r as { type?: string }).type === 'compaction').length).toBe(2);
+      expect(after.rows.some((r) => r.message_id?.startsWith('m1-'))).toBe(false);
+      expect(after.rows.some((r) => r.message_id?.startsWith('m2-'))).toBe(true);
+      const segs = fs.readdirSync(path.join(dir, 'archive')).filter((n) => /^history_\d+\.jsonl(\.gz)?$/.test(n));
+      expect(segs.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await h.dispose();
+    }
+  }, 30_000);
 });

@@ -11,6 +11,7 @@
 // ============================================================
 import { ref, computed, type ComputedRef, type Ref } from 'vue';
 import { resyncRetry, type RpcClientFace } from 'ac-client-runtime';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B4）
 import type { ChatMessage, Turn } from './types.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
 import type { RosterCore } from 'ac-client-ui-agents/client';
@@ -185,9 +186,9 @@ export function createFeedCore(
 
   /** 自会话桶判定（a~a 对角线——机制 run 的隐藏面；与 ws-bridge 同口径） */
   function isSelfPairConversation(conversationId: string | undefined): boolean {
-    if (!conversationId || !conversationId.includes('~')) return false;
-    const [a, b] = conversationId.split('~');
-    return a === b;
+    if (conversationId === undefined) return false;
+    const s = parseKey(conversationId);
+    return s.shape === 'pair' && s.left === s.right;
   }
 
   /** 归档整理态登记（边界帧驱动；不可变替换保响应） */
@@ -495,10 +496,9 @@ export function createFeedCore(
     setTimeout(() => {
       const { kind, key } = parseDialogId(dialogId);
       if (kind === 'group') return;
-      if (kind === 'pair' && !pairHasViewer(key)
-        && conversationId && conversationId.includes('~') && conversationId.split('~').length === 2) {
-        const [a, b] = conversationId.split('~');
-        void loadPairHistory(dialogId, a, b, true);
+      const sp = conversationId !== undefined ? parseKey(conversationId) : undefined;
+      if (kind === 'pair' && !pairHasViewer(key) && sp?.shape === 'pair') {
+        void loadPairHistory(dialogId, sp.left, sp.right, true);
         return;
       }
       loadHistory(dialogId, VIEWER_ID.value, agentKeyOf(dialogId), kind === 'single' ? key : undefined, false, true);

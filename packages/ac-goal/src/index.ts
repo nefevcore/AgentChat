@@ -43,6 +43,7 @@
 import { Service, type Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
 import { isArchiveReviewRun } from 'ac-core-utils'; // 机制 run 标记——cr-318 下沉纯库
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import type { LoopRunResult } from 'ac-agent-loop';
 import type {} from 'ac-jobs'; // job/settled 事件类型锚定（cr-1050 等待门再评估）
 
@@ -180,10 +181,10 @@ export function goalSnapshotOf(store: unknown, conversationId: string): GoalSnap
  *   · 非对键（singles sid / 群 id）→ 'user'（与 webui 用户侧发送同源）。
  */
 export function goalRoundSender(conversationId: string, agentId: string): string {
-  const parts = conversationId.split('~');
-  if (parts.length === 2) {
-    if (parts[0] === parts[1]) return agentId;
-    return parts[0] === agentId ? parts[1]! : parts[0]!;
+  const s = parseKey(conversationId);
+  if (s.shape === 'pair') {
+    if (s.left === s.right) return agentId;
+    return s.left === agentId ? s.right : s.left;
   }
   return 'user';
 }
@@ -320,7 +321,7 @@ export class GoalsService extends Service {
         sender: goalRoundSender(conversationId, agentId), // 桶对端：与用户轮 system 一致（KV 前缀不翻转）
         source: 'event',
         conversationId,
-        meta: { [GOAL_ROUND_META]: round },
+        meta: { [GOAL_ROUND_META]: round, origin: 'goal' }, // run 成因声明（cr-1238 B5）
       });
     } catch (err: unknown) {
       this.ctx.logger.error('[goals] goal-round 投递失败: %C', String(err));

@@ -30,6 +30,7 @@ import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { listAgentIds, readAgentConfig, settingsOf, isPresetId } from 'ac-agents-core';
 import { DEFAULT_TZ } from 'ac-core-utils'; // 缺省时区基线（cr-1053 单源）
+import { parseKey, isPairKey, pairIncludes } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import { makeEnvelope, issueRequestId } from 'ac-envelope-core';
 import type { Envelope } from 'ac-envelope-core';
 import type { PostOffice } from 'ac-post-office';
@@ -800,10 +801,8 @@ export class HostTimersService extends Service {
    */
   mayAddress(owner: string, conversationId: string): boolean {
     if (owner === GLOBAL_TIMER_OWNER) return true; // 全局条目扇出面是 target 白名单
-    if (conversationId.includes('~')) {
-      const [a, b] = conversationId.split('~');
-      return a === owner || b === owner;
-    }
+    const s = parseKey(conversationId);
+    if (s.shape === 'pair') return s.left === owner || s.right === owner;
     return fs.existsSync(path.join(this.dataRoot, 'agents', owner, 'sessions', conversationId));
   }
 
@@ -1255,7 +1254,7 @@ export class HostTimersService extends Service {
 
   private conversationAlive(entry: TimerEntry): boolean {
     const cid = entry.action.conversationId;
-    if (!cid || cid.includes('~') || entry.action.task !== undefined) return true;
+    if (!cid || isPairKey(cid) || entry.action.task !== undefined) return true;
     for (const agentId of listAgentIds(this.dataRoot)) {
       if (fs.existsSync(path.join(this.dataRoot, 'agents', agentId, 'sessions', cid))) return true;
     }
@@ -1322,7 +1321,12 @@ export class HostTimersService extends Service {
       for (const target of targets) {
         if (readAgentConfig(this.dataRoot, target) === null) continue;
         const convId = action.conversationId ?? `${target}~${target}`;
-        const sender = action.conversationId ? 'user' : target;
+        // cr-1244：sender 不得伪造 'user'——cr-1213 键形权威制下 1v1 对键
+        // 名册 = 键形反演两端（news~news → ['news']），'user' 不在键内即
+        // uuid 登记冲突 → 永久退避重试。按键内成员资格分派：user 在键内
+        //（user⇄agent 唤醒）用 user，否则 target（自会话/agent 对桶——对齐
+        // archive-all 自会话姿势）。
+        const sender = pairIncludes(convId, 'user') ? 'user' : target;
         const env: Envelope = makeEnvelope({
           uuid: convId,
           requestId: 't-' + issueRequestId(),
@@ -1330,7 +1334,9 @@ export class HostTimersService extends Service {
           to: target,
           kind: 'message',
           budget: 3,
-          payload: { text },
+          // run 成因声明（cr-1238 B5）：origin 经 payload.meta → 壳侧
+          // payloadMetaOf → run 请求 meta（机制标记透明通道 cr-1050 同路）
+          payload: { text, meta: { origin: 'timer' } },
         });
         await this.po.dispatch(env);
       }

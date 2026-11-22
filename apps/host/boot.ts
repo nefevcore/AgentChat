@@ -29,6 +29,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { Context, FiberStates, type Fiber } from '@agentchat/cordis';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import { IMPORTED_ROWS, HOST_ROW_FACTORIES, rowOptionsFor, makeAgentAdminRow, makeAgentsHostRow, HostServiceDesk, type EntriesEditFace, readTemplate, materializeConfigOf, materializeTemplateSkills, readAgentSkills, templateFingerprint, originOf, readOrigin, writeOrigin, reconcilePresetOrigin, DOC_NAME } from 'ac-host-rows';
 import { isPresetId, presetTemplateKeyOf, readAgentConfig, writeAgentConfig } from 'ac-agents-core';
 import { readCatalog, deriveHostRowset, materializeBaseDocs, profileDirOf, readAssemblyPatch, type HostRowPreference, type RowsetCatalog } from 'ac-rowset-core';
@@ -500,10 +501,10 @@ export async function bootHost(options: HostBootOptions): Promise<HostBootResult
         ? raw.conversationId
         : undefined;
       const senderOf = (): string => {
-        const parts = (conv ?? '').split('~');
-        if (parts.length === 2) {
-          if (parts[0] === parts[1]) return sender;
-          return parts[0] === sender ? parts[1]! : parts[0]!;
+        const s = conv !== undefined ? parseKey(conv) : undefined;
+        if (s?.shape === 'pair') {
+          if (s.left === s.right) return sender;
+          return s.left === sender ? s.right : s.left;
         }
         return 'user';
       };

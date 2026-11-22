@@ -16,7 +16,7 @@
 
 import type { DialogId } from './feed.ts';
 import { directDialog, singleDialog, groupDialog, pairDialog } from './feed.ts';
-import { SINGLE_SESSION_ID_RE } from './dialogIdLex.ts';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B4——取代本地 uuid 正则）
 import type { ChatMessage } from './types.ts';
 
 // ---- 存在集合（原 adapterState 的收编新家） ----
@@ -75,21 +75,19 @@ export function routeDialog(agent: string | undefined, conversationId: string | 
     return { dialogId: groupDialog(conv), agentId: agent, sender: senderKey, source: sourceKey };
   }
   // 对桶（M19）：'a~b'（含 a~a 自会话与 user~agent 直答）→ pair 分区
-  if (conv.includes('~')) {
-    const parts = conv.split('~');
-    if (parts.length === 2 && parts[0] && parts[1]) {
-      return { dialogId: pairDialog(parts[0], parts[1]), ...(agent ? { agentId: agent } : {}), sender: senderKey, source: sourceKey };
-    }
-    return null;
+  // 键词法单源（cr-1238 B4）：parseKey 判形
+  const s = parseKey(conv);
+  if (s.shape === 'pair') {
+    return { dialogId: pairDialog(s.left, s.right), ...(agent ? { agentId: agent } : {}), sender: senderKey, source: sourceKey };
   }
   // 无会话键（loop 直连 run 等）：viewer 直答对桶。词法闸（cr-1137）：
   // conv 形状在此不可能合法——uuid 形 = 独立会话键（knownSingles 未就绪/
   // 拉取失败时到达的 single 帧，误落 direct 即 unread 徽章错位到别的
   // Agent——丢弃，presence 就绪后正常路由）；'g-'/'sub_' 前缀 = 群键/
   // 子 Agent 会话键（群 run 过程流本就不进 1v1；sub 会话帧同理）。
-  // 与 SINGLE_SESSION_ID_RE 服务端/前端词法即身份裁决（cr-1120）同源。
+  // 与服务端键库词法即身份裁决（cr-1120 同源——cr-1238 起单源 ac-conv-keys）。
   if (!agent) return null;
-  if (SINGLE_SESSION_ID_RE.test(conv) || conv.startsWith('g-') || conv.startsWith('sub_')) return null;
+  if (s.shape !== 'plain') return null; // uuid/g-/sub_ 形不落 direct（词法闸 cr-1137——单源判形）
   return { dialogId: directDialog(agent), agentId: agent, sender: senderKey, source: sourceKey };
 }
 

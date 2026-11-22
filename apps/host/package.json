@@ -13,6 +13,7 @@
     "./supervise": "./supervise.ts"
   },
   "dependencies": {
+    "ac-conv-keys": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-host-webui": "workspace:*",
     "ac-supervisor-core": "workspace:*",

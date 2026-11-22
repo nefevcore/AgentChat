@@ -7,6 +7,7 @@
   排队登记）在此编排——与旧内联实现同款语义。 -->
 <script setup lang="ts">
 import { computed } from 'vue';
+import { isPairKey } from 'ac-conv-keys'; // 键词法单源（cr-1238 B4）
 import { useChatStore } from './chatStore.ts';
 import { useFeedStore } from './feedStore.ts';
 import QueueDock from './QueueDock.vue';
@@ -31,7 +32,7 @@ const store = useQueueSeat(
 const dialogId = computed(() => {
   const conv = props.data.conversationId;
   if (!conv) return null;
-  return conv.includes('~') ? directDialog(props.data.agentId ?? '') : singleDialog(conv);
+  return isPairKey(conv) ? directDialog(props.data.agentId ?? '') : singleDialog(conv); // cr-1238 B4
 });
 
 /** 行级插话（⚡ 立即发送）：转移到活跃 run 下一步；'requeued' = 窗口刚关

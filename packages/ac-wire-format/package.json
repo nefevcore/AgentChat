@@ -11,6 +11,9 @@
   "scripts": {
     "test": "node ../../scripts/run-tests.mjs ."
   },
+  "dependencies": {
+    "ac-conv-keys": "workspace:*"
+  },
   "devDependencies": {
     "vitest": "^4.1.10"
   }

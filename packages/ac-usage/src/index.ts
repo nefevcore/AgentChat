@@ -22,6 +22,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
 import { isArchiveReviewRun, utcDayKey } from 'ac-core-utils'; // 机制 run 标记（cr-318）/ UTC 日键（cr-1052）——下沉纯库
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import type { LoopRunResult, LoopRunUsage } from 'ac-agent-loop';
 
 /** 行配置 */
@@ -577,10 +578,10 @@ export class UsageService extends Service {
     const group = this.ctx.get('group');
     let a: string | undefined;
     let b: string | undefined;
-    if (conversationId?.includes('~')) {
+    const s = conversationId !== undefined ? parseKey(conversationId) : undefined;
+    if (s?.shape === 'pair') {
       // 对桶统一解析（M19）：user 只是端点之一，不再排除
-      const [p, q] = conversationId.split('~');
-      if (p && q) [a, b] = [p, q];
+      [a, b] = [s.left, s.right];
     } else if (conversationId === agent) {
       // 迁移行兜底：旧 agentId 桶（user⇄agent 1v1 时代的键）
       a = 'user';
@@ -639,7 +640,7 @@ export class UsageService extends Service {
     let pairPromptTotal = 0;
     for (const { agent, conversationId, usage } of this.byAgentConvMap.values()) {
       // 群 gid / 独立会话 sid（无 '~'）不进端点对口径（byPair 同判）
-      if (!conversationId.includes('~')) continue;
+      if (parseKey(conversationId).shape !== 'pair') continue;
       pairPromptTotal += usage.prompt;
       if (conversationId === `${agent}~${agent}`) {
         byAgent[agent] = { ...usage };

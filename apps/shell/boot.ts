@@ -26,6 +26,7 @@ import {
   streamFrameFromDelta,
   type ActivationLockInfo, type Envelope, type StreamFrame, type StreamMeta,
 } from 'ac-envelope-core';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import * as net from 'node:net';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Context, FiberStates, type Fiber, type Plugin } from '@agentchat/cordis';
@@ -1110,7 +1111,7 @@ export async function bootShell(
   // 帧，D3-1 两时标承认不经落盘。step-started/after-step 旁带随 cr-976 退役
   // ——durable 步事实走 ledger-event，载体创建改前端惰性（delta 按 stepId
   // 直达）。发射失败静默（瞬态）。
-  ctx.on('loop/run-started', (request: { runId?: string; agent?: string; conversationId?: string; sender?: string; source?: string; meta?: Record<string, unknown> }) => {
+  ctx.on('loop/run-started', (request: { runId?: string; agent?: string; conversationId?: string; sender?: string; source?: string; origin?: string; meta?: Record<string, unknown> }) => {
     if (request.runId === undefined) return;
     emitStreamFrame({
       stream: request.runId,
@@ -1120,6 +1121,9 @@ export async function bootShell(
         conversationId: request.conversationId,
         sender: request.sender,
         source: request.source,
+        // run 成因直播透传（cr-1238 B5）：前端计时锚/分区判定消费——
+        // loop 入口已盖缺省章，此值恒在场
+        ...(request.origin !== undefined ? { origin: request.origin } : {}),
         runId: request.runId,
         // cr-1188 run 机制旗标透传（cr-1189 起归通用机制旗标面——通道
         // 保留，archive-review 消费方已退役）：LoopRunRequest.meta 随帧全程。
@@ -1386,10 +1390,10 @@ async function notifyHostRestartShell(args: ShellBootArgs, conversationIds: stri
  * （主线 goalRoundSender 2026-09-03 KV 前缀裁决同款——对键取 ≠agent 一侧、
  * 自会话对角线取自身、非对键取 'user'），保证 system 渲染与 KV 前缀不翻转。 */
 function restartNoteSender(conversationId: string, agentId: string): string {
-  const parts = conversationId.split('~');
-  if (parts.length === 2) {
-    if (parts[0] === parts[1]) return agentId;
-    return parts[0] === agentId ? parts[1]! : parts[0]!;
+  const s = parseKey(conversationId);
+  if (s.shape === 'pair') {
+    if (s.left === s.right) return agentId;
+    return s.left === agentId ? s.right : s.left;
   }
   return 'user';
 }

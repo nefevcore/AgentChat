@@ -8,6 +8,7 @@
     ".": "./boot.ts"
   },
   "dependencies": {
+    "ac-conv-keys": "workspace:*",
     "ac-host-face-client": "workspace:*",
     "ac-plugin-core": "workspace:*",
     "ac-envelope-core": "workspace:*",

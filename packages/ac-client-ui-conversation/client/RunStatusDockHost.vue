@@ -10,6 +10,7 @@
   → spawning。两信号缺省按无——旧后端/桩环境不细分，行为同前。 -->
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue';
+import { isPairKey } from 'ac-conv-keys'; // 键词法单源（cr-1238 B4）
 import RunStatusDock from './RunStatusDock.vue';
 import { useChatStore } from './chatStore.ts';
 import { useFeedStore } from './feedStore.ts';
@@ -27,7 +28,7 @@ const feed = useFeedStore();
 const dialogId = computed<DialogId | null>(() => {
   const conv = props.data.conversationId;
   if (!conv) return null;
-  return conv.includes('~') ? directDialog(props.data.agentId ?? '') : singleDialog(conv);
+  return isPairKey(conv) ? directDialog(props.data.agentId ?? '') : singleDialog(conv); // cr-1238 B4
 });
 
 // ── 权威对账轮询（cr-756）：活跃期 2s 拉 conversation/stats，写

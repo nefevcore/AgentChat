@@ -9,8 +9,7 @@
 // 轴键词法与前端 feed 分区键同构：对桶 `a~b` / 群 `gid` / single `uuid`。
 // ============================================================
 
-/** single 会话键词法（uuid 形——与 ac-session-index sessionKindOf 同式） */
-const SINGLE_KEY_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { parseKey, pairIncludes } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 
 /** viewer⇄agent 对桶轴键（私信/直答——两端排序后 ~ 连接，与 pairKey 同式） */
 export function userPairAxisKey(agent: string, viewer = 'user'): string {
@@ -36,12 +35,12 @@ export function unreadAxisKeyOf(
   viewer = 'user',
 ): string | undefined {
   if (agent === undefined || agent === '' || conversationId === undefined || conversationId === '') return undefined;
-  if (conversationId.includes('~')) {
-    return conversationId.split('~').includes(viewer) ? conversationId : undefined;
+  switch (parseKey(conversationId).shape) {
+    case 'pair': return pairIncludes(conversationId, viewer) ? conversationId : undefined;
+    case 'uuid': return conversationId;
+    case 'group': return undefined;
+    default: break; // plain（含旧形态直答）走下方回退
   }
-  if (SINGLE_KEY_RE.test(conversationId)) return conversationId;
-  if (conversationId.startsWith('g-')) return undefined;
-  // 旧形态直答：conversationId 就是 agent 名
   if (conversationId === agent) return userPairAxisKey(agent, viewer);
   return undefined; // 未知形态不猜（防串台）
 }

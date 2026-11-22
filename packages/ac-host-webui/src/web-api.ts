@@ -22,7 +22,8 @@ import { readFileSync, readdirSync, statSync, type Dirent } from 'node:fs';
 import type { MultipartBody, RouteCall } from 'ac-web-server';
 import * as path from 'node:path';
 import { assembleSessionView, conversationDirs, deleteConversationRow, historyView, truncateConversation, type JournalToolResult } from 'ac-ledger';
-import { listAgentIds, readAgentConfig, isAgentIdentity, isPresetId, materializedChildIds } from 'ac-agents-core';
+import { listAgentIds, readAgentConfig, isPresetId, materializedChildIds } from 'ac-agents-core';
+import { pairIncludes, isAgentIdentity } from 'ac-conv-keys'; // 端点谓词/键词法单源（cr-1238 B3——isAgentIdentity 本体迁键库）
 import { humanPresentOf } from 'ac-agents'; // conv-scope 批3：无人桶写键 fail-loud 门
 import { pairKey, takeUnread, clearUnread } from 'ac-core-utils';
 import { registerOpsFace, runningOf, DEFAULT_CATALOG_FILE, type FaceOpsDeps } from './face-ops.ts';
@@ -169,7 +170,7 @@ function countConversations(dataRoot: string): number {
       if (!a.isDirectory()) continue;
       try {
         readdirSync(path.join(dataRoot, 'agents', a.name, 'sessions'), { withFileTypes: true })
-          .filter((e) => e.isDirectory() && e.name.split('~').includes('user'))
+          .filter((e) => e.isDirectory() && pairIncludes(e.name, 'user'))
           .forEach((e) => ids.add(e.name));
       } catch { /* 该 agent 无 sessions */ }
     }

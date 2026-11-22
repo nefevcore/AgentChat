@@ -22,6 +22,7 @@ import {
   isFullAccess,
   toolModeOf,
 } from 'ac-agents-core';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 
 export type { AgentConfig, AccessLevel, ToolMode } from 'ac-agents-core';
 
@@ -126,8 +127,8 @@ export function conversationFormOf(
   conversationId: string | undefined,
 ): ConversationForm | null {
   if (!conversationId) return null;
-  const parts = conversationId.split('~');
-  return parts.length === 2 && parts[0] !== '' && parts[0] === parts[1] ? 'self' : null;
+  const s = parseKey(conversationId);
+  return s.shape === 'pair' && s.left === s.right ? 'self' : null;
 }
 
 /**
@@ -139,9 +140,10 @@ export function conversationFormOf(
  */
 export function humanPresentOf(conversationId: string | undefined): boolean {
   if (!conversationId) return false;
-  const parts = conversationId.split('~');
-  if (parts.length === 1) return true; // singles sid：用户独立会话
-  return parts.length === 2 && (parts[0] === 'user' || parts[1] === 'user');
+  const s = parseKey(conversationId);
+  // uuid/plain 单段 = singles sid 或裸桶：用户独立会话，有人
+  if (s.shape === 'pair') return s.left === 'user' || s.right === 'user';
+  return true;
 }
 
 /**

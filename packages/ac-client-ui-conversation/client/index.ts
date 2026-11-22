@@ -101,9 +101,8 @@ declare module 'ac-client-slots' {
   }
 }
 
-/** singles 会话键词汇锁：并源 dialogIdLex（cr-1137——routeDialog 词法闸
- *  同一谓词，两处走散 = 路由与登记口径漂移的苗头） */
-import { SINGLE_SESSION_ID_RE } from './dialogIdLex.ts';
+/** singles 会话键词汇锁：键库单源（cr-1238 B4——dialogIdLex 本地正则退役） */
+import { isUuidKey } from 'ac-conv-keys';
 
 interface ConversationClientOptions {
   /** 预留（对齐 cordis Service 构造签名形态） */
@@ -175,7 +174,7 @@ export class ConversationService extends Service {
    *  此处为帧面第二道闸（幂等，双保险）。 */
   trackKnownSingle(id: string, removed = false): void {
     if (removed) chatPresence.knownSingles.delete(id);
-    else if (SINGLE_SESSION_ID_RE.test(id)) chatPresence.knownSingles.add(id);
+    else if (isUuidKey(id)) chatPresence.knownSingles.add(id);
   }
 
 }

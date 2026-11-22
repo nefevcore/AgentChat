@@ -16,6 +16,7 @@
 //   <root>/agents-store/agents.json                   agent 注册表（活注册表）
 // ============================================================
 import * as fs from 'node:fs';
+import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import * as path from 'node:path';
 
 /** 旧会话行（宽容形状——未知字段原样携带，恒等门全字段校验消费） */
@@ -102,7 +103,7 @@ export function scanLegacyRoot(dataRoot: string): LegacyInventory {
         if (hasMessages && nextZone === 'root') {
           // 直下会话：含 ~ = pairKey（1v1 / 群转录流 gid~member——右起首 ~ 后段 = agent）；
           // 无 ~ + 顶层 singles/<sid>/session.json = singles 消息桶。目录名原键即新 uuid。
-          if (entry.name.includes('~')) inv.pairs.push({ conversationId: entry.name, dir: p });
+          if (parseKey(entry.name).shape === 'pair') inv.pairs.push({ conversationId: entry.name, dir: p });
           else if (fs.existsSync(path.join(singlesMeta, entry.name, 'session.json'))) {
             inv.singles.push({ sid: entry.name, dir: p, metaPath: path.join(singlesMeta, entry.name, 'session.json') });
           } else {

@@ -123,17 +123,22 @@ function domainOf(dir: string): string {
   return path.basename(path.dirname(path.dirname(dir)));
 }
 
-/** 会话键词法分类（cr-1138，与前端 routeDialog 词法闸同源口径）：
+import { parseKey } from 'ac-conv-keys';
+
+/** 会话键词法分类（cr-1138，词法单源 ac-conv-keys parseKey——cr-1238 B3）：
  *  'g-' 前缀 = 群键；含 '~' = 对桶（agent⇄agent / gid~member 成员流 /
  *  a~a 自会话）；uuid 形 = 独立会话；其余（裸 agentId 历史桶等）= other。 */
 export type SessionKind = 'pair' | 'single' | 'group' | 'other';
 export function sessionKindOf(key: string): SessionKind {
-  if (key.startsWith('g-')) return 'group';
-  if (key.includes('~')) return 'pair';
-  if (SESSION_UUID_RE.test(key)) return 'single';
-  return 'other';
+  switch (parseKey(key).shape) {
+    case 'group': return 'group';
+    // 群成员流 g-<gid>~<member> 键面是 pair，但索引域归 group（roster
+    // 折叠依据——旧判定序 g- 前缀优先于 ~，此处保持等价映射）
+    case 'pair': return key.startsWith('g-') ? 'group' : 'pair';
+    case 'uuid': return 'single'; // 索引域历史词汇：uuid 形 = singles 独立会话
+    default: return 'other'; // sub / plain（裸 agentId 历史桶）
+  }
 }
-const SESSION_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** 会话元数据聚合（cr-1138——records 表 SQL 统计，零盘读）。
  *

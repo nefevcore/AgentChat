@@ -669,6 +669,33 @@ describe('cr-1228 排程静默死亡防线（2026-11-22 现场：11:06~13:05 全
     }
   }, 20_000);
 
+  it('cr-1244：带 conversationId 的唤醒信封 sender 不伪造 user（键形权威制不撞登记冲突）', async () => {
+    // 对桶键 alpha~beta 定向唤醒：旧实现 sender 恒 'user'，registry 按
+    // participantsOfKey('alpha~beta') = ['alpha','beta'] 校验即冲突 → 永久
+    // 退避。修复后 sender = 键内成员（无 user 则 target 自会话语义）。
+    const sent: Array<{ uuid: string; sender: string; to: string }> = [];
+    seedAgent('alpha', [{ id: 'h', enabled: true, when: [{ kind: 'once', at: new Date(Date.now() + 60).toISOString() }], action: { text: 'hi', conversationId: 'alpha~beta' } }]);
+    const po = new PostOffice({ dataRoot: ROOT });
+    (po as unknown as { dispatch: (env: { uuid: string; sender: string; to: string }) => Promise<unknown> }).dispatch = (env) => { sent.push({ uuid: env.uuid, sender: env.sender, to: env.to }); return Promise.resolve([]); };
+    const ctx = new Context();
+    const f1 = ctx.plugin(TimerService);
+    const f2 = ctx.plugin(class extends ConfigService {
+      constructor(c: Context) { super(c, { root: ROOT }); }
+    });
+    const f3 = ctx.plugin(makeTimersHostRow({ dataRoot: ROOT, postOffice: po, heartbeatMs: 40 }));
+    await Promise.all([f1, f2, f3]);
+    try {
+      await wait(300);
+      expect(sent.length).toBe(1);
+      expect(sent[0]!.uuid).toBe('alpha~beta');
+      expect(sent[0]!.sender).toBe('alpha'); // 键内成员，非 'user'
+      expect(sent[0]!.to).toBe('alpha');
+    } finally {
+      for (const f of [f3, f2, f1].reverse()) await f.dispose();
+      await po.close();
+    }
+  }, 20_000);
+
   it('投递超时：dispatch 挂死不再悬停整条链，按失败走退避重试', async () => {
     seedAgent('alpha', [{ id: 'h', enabled: true, when: [{ kind: 'once', at: new Date(Date.now() + 80).toISOString() }], action: { text: 'hi' } }]);
     const po = new PostOffice({ dataRoot: ROOT });

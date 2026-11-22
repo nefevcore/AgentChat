@@ -341,6 +341,12 @@ export class AgentLoopService extends Service {
     if (request.runId === undefined) {
       request.runId = `run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     }
+    // run 成因缺省章（cr-1238 B5）：触发面未自带 origin 时按 source 盖章
+    //（user/agent→viewer：用户或委托方视角；event→mechanism）——此后账本
+    // run 行、run-started 帧、消费面读到的是恒有值
+    if (request.origin === undefined) {
+      request.origin = request.source === 'event' ? 'mechanism' : 'viewer';
+    }
     // 段装配前置缝（cr-944 P2b）：懒装配行（远程段代理等）在此完成注册——
     // 先于 singles 物化（调用方在 run() 之前的快照对账）与 system 组装，
     // 「物化 = 全段求值」不变量由此成立。单回调抛错/超时放行（warn，不得

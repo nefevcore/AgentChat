@@ -108,7 +108,7 @@ describe('ac-goal goal-round 驱动（cr-1050）', () => {
     // 续投下一轮：Round 2/20（roundsDone+1）
     expect(delivered).toHaveLength(1);
     expect(delivered[0]!.message).toContain('Round: 2/20');
-    expect(delivered[0]!.options.meta).toEqual({ 'goal-round': 2 });
+    expect(delivered[0]!.options.meta).toEqual({ 'goal-round': 2, origin: 'goal' }); // cr-1238 B5：触发面 origin 声明
   });
 
   it('非 goal-round run 收束不记账，但 active 目标照常开轮（Round 1）', async () => {

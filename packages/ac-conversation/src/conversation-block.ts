@@ -24,11 +24,13 @@ interface ConversationBlockInput {
   group?: ConversationGroupInput | null;
 }
 
+import { parseKey } from 'ac-conv-keys';
+
 /** 自会话对角线判定（conversationId = a~a）：「机制触发·自会话」标注的唯一适用面 */
 function isSelfPairConversation(conversationId: string | undefined): boolean {
-  if (!conversationId || !conversationId.includes('~')) return false;
-  const [a, b] = conversationId.split('~');
-  return a === b;
+  if (conversationId === undefined) return false;
+  const s = parseKey(conversationId);
+  return s.shape === 'pair' && s.left === s.right;
 }
 
 function buildConversationBlock(input: ConversationBlockInput): string {
