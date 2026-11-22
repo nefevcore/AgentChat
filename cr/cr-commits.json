@@ -1,6 +1,6 @@
 {
- "scannedHead": "2c5b7e99cbcb95cfabf21da31e4454ee1faebc0c",
- "generatedAt": "2026-11-22T02:03:37.107Z",
+ "scannedHead": "9b602461241344af07efc0dcd1c0baf8165fc501",
+ "generatedAt": "2026-11-22T02:50:19.171Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -6101,6 +6101,40 @@
     "sha": "bbdcd5c3361997b26f312232d9ca635d7ed2e91a",
     "date": "2026-11-22",
     "subject": "chore(cleanup): cr-1212 心跳三档核查与退役残余清理——system-heartbeat 证实现行（supervisor 触碰/host-revive 消费）不清理；timer 旧位读侧回落按 cr-1081 防御面保留；清 AGENTCHAT_SUPERVISED 死防线（env 退役留观期满、全仓零消费方）+ 校正验证清单失效命令（.runtime 文件本体非 runtime.json）"
+   },
+   {
+    "sha": "65e10e834a1004dad29b53af467bae0cc54e7901",
+    "date": "2026-11-22",
+    "subject": "chore(cr): cr-commits 投影同步（cr-1212）"
+   }
+  ],
+  "1213": [
+   {
+    "sha": "9b602461241344af07efc0dcd1c0baf8165fc501",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账登记 cr-1213"
+   },
+   {
+    "sha": "82375bb84231ebfd5958e9dcba31f2133d78a62f",
+    "date": "2026-11-22",
+    "subject": "fix(post-office): registry 键形权威制——participants 不再由首封信封近似推导，根除 uuid 登记冲突永久阻断会话对（cr-1213）"
+   }
+  ],
+  "1214": [
+   {
+    "sha": "3e538736ea828c271a1a0fb76090418a9e5d78d1",
+    "date": "2026-11-22",
+    "subject": "fix(archive): anchor pseudo rows by row-face seq, ts, or head (cr-1214)"
+   },
+   {
+    "sha": "b58f89347be316f34c67135b4b10f4b74f7f5b90",
+    "date": "2026-11-22",
+    "subject": "docs(archive): note ledger-bytes trigger in maybeArchive docstring (cr-1214)"
+   },
+   {
+    "sha": "79baf4b78c681c56aa0d7df1f1582b09e7c66539",
+    "date": "2026-11-22",
+    "subject": "fix(archive): compaction recovers from over-limit sessions (cr-1214)"
    }
   ]
  }
