@@ -1125,6 +1125,16 @@ export function createFeedCore(
       if (hit) return hit;
     }
     const fallback = lastStreaming(msgs, 'agent');
+    // cr-1200 跨步冒领防护：回落命中【驻留了别步 stepId】的载体 = 步边界
+    // 乱序形态（上一步收束帧 step/journaled 丢失/迟到，下一步 delta 已另
+    // 立载体在流）——不冒领不登记：终值帧（onMessageEnd）打到他步载体上
+    // 会以全量替换把两个步的内容一并抹掉（「思考+正文消失、只剩工具卡」
+    // 根因），增量帧会把本步内容追加进上一步气泡。返回 null 让调用方按
+    // 无载体处理；残留载体的收口定格归 delta 前沿路径（惰性建卡处），
+    // 此处不动在流的载体。无驻留键的载体（旧式流）仍可认领——无身份冲突。
+    if (fallback && stepId && fallback.stepId !== undefined && fallback.stepId !== stepId) {
+      return null;
+    }
     if (fallback && stepId && st) {
       // 补登记：step-started 帧晚到/丢失时，首个 delta 把现有流式载体认作
       // 本步载体（与旧路径同判定面），后续帧走快路径
@@ -2202,10 +2212,23 @@ export function createFeedCore(
         // 的 delta 到达即建载体并登记 carrier 索引——流时序帧先行（D3-1），
         // durable 步事实（step/journaled）随后收束。缺席回落启发式路径不变
         //（carrierOf 的 lastStreaming 兜底与补登记仍在职）。
-        if (stepKeys?.stepId !== undefined
-          && !st.carrier.get(stepKeys.stepId)
-          && !lastStreaming(dialogs.value[keys.dialogId]?.rawMessages ?? [], 'agent')) {
-          onStepStart(keys.dialogId, isForActiveAgent(keys), stepKeys);
+        // cr-1200 乱序收口：lastStreaming 在场但驻留【别步 stepId】= 上一步
+        // 收束帧丢失/迟到的残留载体——先定格收口（isStreaming=false，内容
+        // 原样保留：步事实已在账本，settlement 重拉/收敛对账补权威行），再为
+        // 本步建新载体。此前条件因「有 lastStreaming」不满足而跳过建卡 →
+        // carrierOf 回落冒领 → 两步内容并轨一个气泡 + 终值全量替换抹空
+        //（「思考+正文消失只剩工具卡」根因链第二环）。
+        if (stepKeys?.stepId !== undefined && !st.carrier.get(stepKeys.stepId)) {
+          const stale = lastStreaming(dialogs.value[keys.dialogId]?.rawMessages ?? [], 'agent');
+          if (stale === null
+            || (stale.stepId !== undefined && stale.stepId !== stepKeys.stepId)) {
+            // 残留他步载体：定格收口（内容原样保留——步事实在账本，重拉对账
+            // 补权威行）后必须建本步新载体——只收不建会让本步首个 delta 被
+            // carrierOf 回落判无载体而丢弃（cr-1200）。
+            if (stale !== null) stale.isStreaming = false;
+            onStepStart(keys.dialogId, isForActiveAgent(keys), stepKeys);
+          }
+          // stale 无驻留键/同键：carrierOf 回落认领（补登记）——不建第二卡
         }
         // run 级流式态重点亮（cr-802 光环偶发消失根修）：delta 到达 = run
         // 确凿在流。断连 onOpen 清场 / 前端刷新撞边界帧丢失 / 发送看门狗
@@ -2441,10 +2464,21 @@ export function createFeedCore(
           ...(lastTs !== undefined ? { ts: lastTs } : {}),
         };
         // 载体缺席（delta 全丢/重放窗口）→ 惰性建卡后落终值（step-started
-        // 帧退役后的兜底创建面——与 delta 路径同一 onStepStart）
-        if (stepId !== undefined && !st.carrier.get(stepId)
-          && !lastStreaming(dialogs.value[keys.dialogId]?.rawMessages ?? [], 'agent')) {
-          onStepStart(keys.dialogId, isForActiveAgent(keys), { runId: p?.run, stepId });
+        // 帧退役后的兜底创建面——与 delta 路径同一 onStepStart）。
+        // cr-1200 乱序收口（与 delta 前沿同款判定）：lastStreaming 驻留别步
+        // stepId = 残留载体——同样先定格收口再建本步新卡（迟到收束帧补投
+        // 到已流一步的分区即此形态）；同步收尾依赖（后到 carrier 定位后
+        // onStepEnd 只关尾扫 isStreaming——收口在此先行无冲突）。
+        if (stepId !== undefined && !st.carrier.get(stepId)) {
+          const staleJ = lastStreaming(dialogs.value[keys.dialogId]?.rawMessages ?? [], 'agent');
+          if (staleJ === null
+            || (staleJ.stepId !== undefined && staleJ.stepId !== stepId)) {
+            // 与 delta 前沿同款收口+建卡（cr-1200）：残留他步载体定格后建本步
+            // 新卡（终值随 onMessageEnd 落进新卡）；无驻留键/同键留给下方
+            // carrier 定位（onStepStart 复用空占位逻辑也在职）。
+            if (staleJ !== null) staleJ.isStreaming = false;
+            onStepStart(keys.dialogId, isForActiveAgent(keys), { runId: p?.run, stepId });
+          }
         }
         // B2 seq 水位（只进不退）+ 载体锚（先查索引、再按 stepId 扫消息尾）。
         // 顺序在建卡之后：载体缺席窗口（delta 全丢/重放）到达的首帧，建卡
