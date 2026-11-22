@@ -115,12 +115,15 @@ export function conversationAgentId(dataRoot: string, conversationId: string | u
   return sessionMetaOf(dataRoot, conversationId).agentId;
 }
 
-/** 全局默认设置层（<dataRoot>/config.json 的 agents.settings——主线 settingsOf 第一层） */
+/** 全局默认设置层（<dataRoot>/config.json 顶层 settings——主线 settingsOf
+ * 第一层；cr-1203：修正 cr-1147 起的 'agents.settings' 死键漂移，security.workdir
+ * 全局层自此生效）。纯函数模块无 ctx——直读文件（改值经 config 行写，本读
+ * 每现查）。 */
 function globalAgentSettings(dataRoot: string): Record<string, unknown> {
   try {
     const raw: unknown = JSON.parse(fs.readFileSync(path.join(dataRoot, 'config.json'), 'utf-8'));
     const s = raw !== null && typeof raw === 'object' && !Array.isArray(raw)
-      ? (raw as { agents?: { settings?: unknown } }).agents?.settings
+      ? (raw as { settings?: unknown }).settings
       : undefined;
     return s !== null && typeof s === 'object' && !Array.isArray(s) ? s as Record<string, unknown> : {};
   } catch {

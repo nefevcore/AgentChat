@@ -60,6 +60,15 @@ describe('树基准（会话挂载工作区 > Agent 级基准 > 数据根）', (
     expect(workspaceTreeBase(ROOT)).toEqual({ dir: path.resolve(ROOT), label: '' });
   });
 
+  it('cr-1203 全局层 security.workdir（config.json 顶层 settings）生效；死键 agents.settings 不得生效', () => {
+    fs.writeFileSync(path.join(ROOT, 'config.json'), JSON.stringify({
+      settings: { security: { workdir: path.resolve(WS) } },
+      agents: { settings: { security: { workdir: 'Z:/dead-key' } } }, // 死键形态——不得生效
+    }, null, 2), 'utf-8');
+    writeAgentConfig(ROOT, { id: 'globalized' });
+    expect(workspaceTreeBase(ROOT, { agentId: 'globalized' })).toEqual({ dir: path.resolve(WS), label: 'Agent/globalized' });
+  });
+
   it('显式 settings[security].workdir 最优先；损坏/缺席登记表按未挂载降级', () => {
     writeAgentConfig(ROOT, { // cr-1036 批3：v3 写口（settings 拆 security 单元）
       id: 'tester',
