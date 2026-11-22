@@ -1,0 +1,161 @@
+{
+ "_comment": "路径劝告白名单（cr-1196）：check 路径豁免链（worktree→git历史→gitignore→本表）的末层。键=路径，值={n:登记 cr 号, reason}；条目不再触发劝告时反报提醒删除——防白名单腐化。仅收【结构性不告类】的历史欠账（旧布局/运行期数据/意图路径），新增未命中应修描述或修文件，勿顺手入表。",
+ "paths": {
+  "src/ac-agent-loop/service.ts": {
+   "n": 5,
+   "reason": "包化前旧路径（apps/ 时期），后随布局迁移"
+  },
+  "docs/harness-bridge-plan.md": {
+   "n": 25,
+   "reason": "计划文档随 cr-1008 docs 重组归档迁移"
+  },
+  "docs/llm-protocol-extensibility.md": {
+   "n": 39,
+   "reason": "同上：docs 重组迁移"
+  },
+  "archive/README.md": {
+   "n": 79,
+   "reason": "归档区说明，后被重组改名"
+  },
+  "agentchat-dev/references/webui-style.md": {
+   "n": 188,
+   "reason": "技能目录本地态（.dsh/ 不入库），路径为当时形态"
+  },
+  "harness/sessions.json": {
+   "n": 279,
+   "reason": "运行期数据（会话账本），非仓库文件"
+  },
+  "ac-harness-tools/src/preset.ts": {
+   "n": 288,
+   "reason": "包化前旧路径"
+  },
+  "yml/TREE/preset.ts": {
+   "n": 305,
+   "reason": "描述里「yml/TREE」是分层图示用词，非真实路径"
+  },
+  "ac-llm/src/pool.ts": {
+   "n": 319,
+   "reason": "单轨布局 cr-703 前旧路径，连pool后改 ac-llm-pool"
+  },
+  "tests/plugin-registry-data.test.ts": {
+   "n": 328,
+   "reason": "测试随包迁移改名"
+  },
+  "ac-webui-extensions/src/slotCatalog.ts": {
+   "n": 328,
+   "reason": "包化前旧路径"
+  },
+  "webui/tests/slot-catalog.test.ts": {
+   "n": 337,
+   "reason": "包化前旧路径"
+  },
+  "README/cordis.yml": {
+   "n": 344,
+   "reason": "「README/cordis.yml」并列用词被旧正则吞成假路径"
+  },
+  "tests/readers.test.ts": {
+   "n": 348,
+   "reason": "测试随包迁移改名"
+  },
+  "aggregate.ts/index.ts": {
+   "n": 392,
+   "reason": "并列用词粘连假路径"
+  },
+  "stores/theme.ts": {
+   "n": 447,
+   "reason": "前端结构改造前旧路径"
+  },
+  "client/themeStore.ts": {
+   "n": 447,
+   "reason": "同上"
+  },
+  "api/jobs.ts": {
+   "n": 457,
+   "reason": "结构改造前旧路径"
+  },
+  "explore/ui-tree.md": {
+   "n": 478,
+   "reason": "探索性产物（sandbox 面），未入库"
+  },
+  "ac-shell-rows/session-query.ts": {
+   "n": 544,
+   "reason": "文件名/布局演化前旧路径"
+  },
+  "preview/docs/handoff-2026-10-22.md": {
+   "n": 563,
+   "reason": "接力文档为一次性产物"
+  },
+  "ac-host-rows/workspace-files.ts": {
+   "n": 676,
+   "reason": "单轨布局迁移后旧路径"
+  },
+  "cordis.yml/supervisor.mjs": {
+   "n": 703,
+   "reason": "并列用词粘连假路径"
+  },
+  "docs/design/collab-delivery-gaps.md": {
+   "n": 711,
+   "reason": "docs 重组（cr-1008 域化）迁移"
+  },
+  "journal/partials.json": {
+   "n": 725,
+   "reason": "运行期数据（journal 面），非仓库文件"
+  },
+  "client/boot.ts": {
+   "n": 750,
+   "reason": "结构改造前旧路径"
+  },
+  "src/isolated.ts": {
+   "n": 750,
+   "reason": "同上"
+  },
+  "ac-app/src/orphans.ts": {
+   "n": 800,
+   "reason": "包化前旧路径"
+  },
+  "host/shell-custom.patch.yml": {
+   "n": 909,
+   "reason": "意图路径（设计稿命名），实际落 apps/catalog/profile/"
+  },
+  "profile/processes.json": {
+   "n": 910,
+   "reason": "描述指数据根运行时物化路径，非仓库路径"
+  },
+  "docs/design/bootchain-structural-review.md": {
+   "n": 964,
+   "reason": "docs 重组迁移/归档"
+  },
+  "docs/design/plugin-architecture.md": {
+   "n": 1006,
+   "reason": "历史位置，cr-1008 重组后住 plugin/ 子域"
+  },
+  "logs/cr-N.md": {
+   "n": 1043,
+   "reason": "示例占位路径（cr-N 为通配形态）"
+  },
+  "2/workspaces.json": {
+   "n": 1081,
+   "reason": "描述「…2/workspaces.json」编号粘连片段"
+  },
+  "references/plugin.md": {
+   "n": 1095,
+   "reason": "意图路径，实际随技能目录形态"
+  },
+  "meta/unread.json": {
+   "n": 1146,
+   "reason": "运行期数据（未读游标），非仓库文件"
+  },
+  "profile/shell.patch.yml": {
+   "n": 1153,
+   "reason": "数据根运行时路径（cr-1004 改名后实际形态不同）"
+  },
+  "ac-ledger/user.ts": {
+   "n": 1179,
+   "reason": "文件名演化前旧路径"
+  },
+  "meta/system-events.json": {
+   "n": 1182,
+   "reason": "运行期数据，非仓库文件"
+  }
+ }
+}

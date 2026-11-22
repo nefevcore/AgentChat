@@ -13,6 +13,11 @@
 //           语法合法且引用存在 ④行内残留块检测（应 migrate）⑤
 //           描述中相对路径存在（劝告）⑥logs/ 悬挂详情 ⑦commit
 //           引用面无悬空（经 sync；无 git 仓库时跳过并提示）。
+//           ⑤豁免链（cr-1196）：worktree 存在 → git 历史（移动/删除
+//           过的真实路径不告）→ gitignore（本地数据面）→ 白名单
+//           cr/path-allowlist.json（存量意图路径显式登记；过时条目
+//           反向告警防腐化）。
+//   selftest sandbox 临时 git 仓自测（豁免链各层 + 劝告不阻断）。
 //
 // 项目特定守门（如 AgentChat 的 docs 回退链、cr-1037 键面红线）
 // 不进通用工具——住各项目自己的守门面。
@@ -20,7 +25,7 @@
 // 用法：node cr/cr-git.mjs migrate && node cr/cr-git.mjs sync && node cr/cr-git.mjs check
 // ============================================================
 import * as fs from 'node:fs';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -36,6 +41,10 @@ const LOCK = join(HOME, 'cr.lock');
 const STATUSES = new Set(['plan', 'doing', 'done', 'drop']);
 
 const ENTRY_RE = /^- 【cr-(\d+) (\d{4}-\d{2}-\d{2}) (.*?)】(\{[^}]*\})?$/;
+// 路径提取（cr-1196 收紧）：每段限 [\w.@-]（支持 @scope/包），排除中文/
+// 箭头/全角括号粘连进路径——旧形态 [\w./-]+ 会吞出「46/47→32（README/x」
+// 类假路径。./ 前缀由调用侧归一。
+const PATH_RE = /(?:[\w.@-]+\/)+[\w.@-]+\.(?:md|json|ya?ml|ts|mjs)/g;
 
 function die(msg) {
   console.error(msg);
@@ -86,6 +95,14 @@ function readMeta() {
   return {};
 }
 
+function readAllowlist() {
+  try {
+    const o = JSON.parse(fs.readFileSync(join(HOME, 'path-allowlist.json'), 'utf8'));
+    if (o && typeof o === 'object' && o.paths && !Array.isArray(o.paths)) return o.paths;
+  } catch { /* 缺失/损坏 = 空（fail-open，仅多报劝告） */ }
+  return {};
+}
+
 // —— migrate（v3.1 一次性，幂等）———————————————————
 function cmdMigrate() {
   let changed = 0;
@@ -133,11 +150,31 @@ function gitOk(args, root) {
   catch { return null; }
 }
 
+// stdin 喂入型 git（check-ignore --stdin）；失败返回 null（check 豁免面 fail-open）
+function gitOut(args, root, input) {
+  const r = spawnSync('git', args, { cwd: root, encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+  return r.status === 0 ? r.stdout : null;
+}
+
+// 全历史路径面（--all 全分支）——「登记时真实、后被移动/删除」的豁免依据
+function histPaths(root) {
+  const out = gitOut(['log', '--all', '--pretty=format:', '--name-only'], root);
+  return new Set((out || '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean));
+}
+
+// gitignore 覆盖面 = 本地数据面（非仓库文件）——豁免
+function ignoredSet(root, paths) {
+  if (!paths.length) return new Set();
+  const out = gitOut(['check-ignore', '--stdin'], root, paths.join('\n'));
+  return new Set((out || '').split(/\r?\n/).filter(Boolean));
+}
+
 function readProj() {
   try { return JSON.parse(fs.readFileSync(PROJ, 'utf8')); } catch { return null; }
 }
 
-function doSync(rebuild) {
+// persist=false：内存态校验（check 懒引用面用）——只算不落盘，守门命令禁写副作用。
+function doSync(rebuild, persist = true) {
   const root = gitRoot();
   if (root == null) die('sync 需要 git 仓库（cr/ 所在项目）');
   const head = (gitOk(['rev-parse', 'HEAD'], root) || '').trim();
@@ -169,8 +206,9 @@ function doSync(rebuild) {
   const dangling = Object.keys(entries).map(Number).filter((n) => !known.has(n)).sort((a, b) => a - b);
   const sorted = Object.fromEntries(Object.keys(entries).map(Number).sort((a, b) => a - b)
     .map((n) => [String(n), entries[String(n)]]));
+  const refCount = Object.values(entries).reduce((a, v) => a + v.length, 0);
   if (prev?.entries && JSON.stringify(prev.entries) === JSON.stringify(sorted)) {
-    return { proj: { ...prev, scannedHead: head }, dangling, refCount: Object.values(entries).reduce((a, v) => a + v.length, 0), unchanged: true };
+    return { proj: { ...prev, scannedHead: head }, dangling, refCount, unchanged: true };
   }
   const proj = {
     scannedHead: head,
@@ -178,8 +216,7 @@ function doSync(rebuild) {
     _comment: '生成物：node cr/cr-git.mjs sync——禁手改（cr-984）',
     entries: sorted,
   };
-  fs.writeFileSync(PROJ, JSON.stringify(proj, null, 1) + '\n');
-  const refCount = Object.values(entries).reduce((a, v) => a + v.length, 0);
+  if (persist) fs.writeFileSync(PROJ, JSON.stringify(proj, null, 1) + '\n');
   return { proj, dangling, refCount };
 }
 
@@ -221,13 +258,34 @@ function cmdCheck() {
   const residue = p.entries.filter((e) => e.tailRaw);
   if (residue.length) errs.push('锁4：' + residue.length + ' 条行内尾部块残留（v2 形态）——跑 node cr/cr-git.mjs migrate 剥离入 cr-meta.json（含 cr-' + residue[0].n + '）');
   for (const e of residue) if (e.tail?.bad !== undefined && e.tail?.bad != null) errs.push('锁4：cr-' + e.n + ' 行内块非法字段「' + e.tail.bad + '」');
-  // 描述中相对路径存在性（劝告；从 git 根解析）
+  // 描述中相对路径存在性（劝告；从 git 根解析，./ 归一后走豁免链）：
+  // worktree → git 历史（登记时真实、后被移动/删除）→ gitignore（本地
+  // 数据面）→ 白名单（存量意图路径显式登记）。索引 append-only 禁手编，
+  // 故历史欠账的消解住守门工具而非台账。
   const root = gitRoot();
   const baseDir = root || join(HOME, '..');
+  const allow = readAllowlist();
+  const miss = [];
   for (const e of p.entries) {
-    for (const path of e.desc.match(/[\w./-]+\/[^\s】]+\.(md|json|ya?ml|ts|mjs)/g) || []) {
-      if (!fs.existsSync(join(baseDir, path))) softWarns.push('cr-' + e.n + ' 路径未命中：' + path);
+    for (let path of e.desc.match(PATH_RE) || []) {
+      path = path.replace(/^\.\//, '');
+      if (!fs.existsSync(join(baseDir, path))) miss.push({ n: e.n, path });
     }
+  }
+  const histSet = root == null ? null : histPaths(root);
+  const histMiss = miss.filter((m) => !histSet?.has(m.path));
+  const igSet = root == null ? new Set() : ignoredSet(root, histMiss.map((m) => m.path));
+  const finalMiss = histMiss.filter((m) => !igSet.has(m.path));
+  const allowUsed = new Set();
+  for (const m of finalMiss) {
+    const hit = allow[m.path];
+    if (hit) {
+      if (hit.n !== m.n) softWarns.push('cr-' + m.n + ' 白名单过时：' + m.path + ' 登记的是 cr-' + hit.n + '（同路径新 CR 应重新核验）');
+      allowUsed.add(m.path);
+    } else softWarns.push('cr-' + m.n + ' 路径未命中：' + m.path);
+  }
+  for (const path of Object.keys(allow)) {
+    if (!allowUsed.has(path)) softWarns.push('白名单过时：' + path + '（cr-' + allow[path]?.n + '）已不再触发劝告，可删除');
   }
   // logs/ 悬挂详情
   if (fs.existsSync(LOGS_DIR)) {
@@ -241,7 +299,7 @@ function cmdCheck() {
     softWarns.push('非 git 仓库——commit 引用面校验跳过');
   } else {
     try {
-      const r = doSync(false);
+      const r = doSync(false, false);
       if (r.dangling.length) errs.push('锁6：悬空 commit 引用 ' + r.dangling.map((n) => 'cr-' + n).join(' '));
     } catch (e) {
       errs.push('锁6：sync 不可用（' + e.message + '）');
@@ -270,15 +328,104 @@ function withLock(fn) {
   try { return fn(); } finally { try { fs.rmSync(LOCK); } catch {} }
 }
 
+// —— selftest ————————————————————————————————————————
+// sandbox 临时 git 仓自测：豁免链各层（worktree/历史/gitignore/白名单/
+// 过时反报）+ 劝告不阻断 + check 零写副作用（cr-1196）。
+function cmdSelftest() {
+  const SELF = fileURLToPath(import.meta.url);
+  const dir = join(HOME, '..', 'sandbox', 'cr-git-selftest-' + Date.now());
+  fs.mkdirSync(dir, { recursive: true });
+  const proj = join(dir, 'proj');
+  fs.mkdirSync(proj, { recursive: true });
+  const CR_CLI = fileURLToPath(new URL('./cr.mjs', import.meta.url));
+  const run = (a) => execFileSync(process.execPath, [SELF, ...a], { encoding: 'utf8', env: { ...process.env, CR_HOME: join(proj, 'cr') } });
+  const failures = [];
+  const t = (name, fn) => {
+    try { fn(); console.log('  ✓ ' + name); } catch (e) { failures.push(name + '：' + e.message); }
+  };
+  const assert = (c, msg) => { if (!c) throw new Error(msg); };
+  try {
+    const g = (a) => execFileSync('git', a, { cwd: proj, encoding: 'utf8' });
+    // 建仓：docs/a.md 存在并提交；docs/b.md 提交后删除（历史存在）；
+    // .gitignore 排除 meta/（本地数据面）。场景路径均带目录前缀——PATH_RE
+    // 只提取含 / 的路径（裸文件名不进提取面）。
+    g(['init', '-q']);
+    g(['config', 'user.email', 'selftest@local']);
+    g(['config', 'user.name', 'selftest']);
+    fs.mkdirSync(join(proj, 'docs'));
+    fs.writeFileSync(join(proj, 'docs', 'a.md'), 'x');
+    fs.writeFileSync(join(proj, 'docs', 'b.md'), 'x');
+    fs.writeFileSync(join(proj, '.gitignore'), 'meta/\n');
+    g(['add', '.']); g(['commit', '-qm', 'init']);
+    fs.rmSync(join(proj, 'docs', 'b.md'));
+    g(['add', '-A']); g(['commit', '-qm', 'rm b']);
+    // init cr/（cr.mjs 面）+ 台账：五个场景各一条
+    execFileSync(process.execPath, [CR_CLI, 'init', proj], { encoding: 'utf8' });
+    fs.writeFileSync(join(proj, 'cr', 'cr-log.md'), [
+      '# 变更登记目录（CR log）', '',
+      '> 自测。', '',
+      '## 目录', '',
+      '- 【cr-1 2026-01-01 落在 docs/a.md 的真实改动】',
+      '- 【cr-2 2026-01-01 曾改 docs/b.md 后删除】',
+      '- 【cr-3 2026-01-01 写入 meta/sessions.json 运行期数据】',
+      '- 【cr-4 2026-01-01 引用 docs/ghost.md 意图路径】',
+      '- 【cr-5 2026-01-01 粘连——46/47→32（docs/a.md 旧正则会吞出假路径】',
+      '',
+    ].join('\n'));
+    // 场景④：白名单豁免 docs/ghost.md（cr-4 登记）
+    fs.writeFileSync(join(proj, 'cr', 'path-allowlist.json'), JSON.stringify({
+      _comment: '路径劝告白名单（cr-1196）：键=路径，值={n:登记 cr 号,reason}；过时条目反报防腐化。手编后跑 check 校验。',
+      paths: { 'docs/ghost.md': { n: 4, reason: 'selftest：意图路径，从未落盘' } },
+    }, null, 1) + '\n');
+    const out5 = run(['check']);
+    assert(!out5.includes('路径未命中'), '豁免后仍告未命中：' + out5);
+    assert(!out5.includes('白名单过时'), '白名单过时误报：' + out5);
+    assert(!out5.includes('（docs'), '粘连假路径未消除：' + out5);
+    assert(/check 通过：5 条/.test(out5), 'check 未通过：' + out5);
+    t('豁免链四层（真实/历史/gitignore/白名单）+ 正则收紧', () => {});
+    // ⑥ 无白名单时 docs/ghost.md 告但不阻断
+    fs.rmSync(join(proj, 'cr', 'path-allowlist.json'));
+    const out6 = run(['check']);
+    assert(out6.includes('cr-4 路径未命中：docs/ghost.md'), '无白名单未告：' + out6);
+    t('无白名单 = 劝告不阻断', () => {});
+    // ⑦ 白名单过时反报：路径从描述移除 → 反报可删除
+    fs.writeFileSync(join(proj, 'cr', 'path-allowlist.json'), JSON.stringify({
+      _comment: 'x', paths: { 'docs/ghost.md': { n: 4, reason: 'x' } },
+    }));
+    fs.writeFileSync(join(proj, 'cr', 'cr-log.md'), fs.readFileSync(join(proj, 'cr', 'cr-log.md'), 'utf8')
+      .replace('引用 docs/ghost.md 意图路径', '引用别的词'));
+    const out7 = run(['check']);
+    assert(out7.includes('白名单过时：docs/ghost.md'), '过时白名单未反报：' + out7);
+    t('白名单过时反报', () => {});
+    // ⑧ check 零写副作用：投影不落盘
+    fs.rmSync(join(proj, 'cr', 'path-allowlist.json'));
+    fs.rmSync(join(proj, 'cr', 'cr-commits.json'), { force: true });
+    run(['check']);
+    assert(!fs.existsSync(join(proj, 'cr', 'cr-commits.json')), 'check 落盘了投影（写副作用）');
+    t('check 零写副作用（投影不落盘）', () => {});
+    // ⑨ 显式 sync 落盘 + 无悬空
+    const out9 = run(['sync']);
+    assert(out9.includes('悬空引用：0'), 'sync 异常：' + out9);
+    assert(fs.existsSync(join(proj, 'cr', 'cr-commits.json')), 'sync 未落盘投影');
+    t('显式 sync 落盘投影', () => {});
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  if (failures.length) return die('selftest 失败：\n  ' + failures.join('\n  '));
+  console.log('selftest 全绿（豁免链四层/正则收紧/劝告不阻断/白名单过时反报/零写副作用/sync 落盘）');
+}
+
 const [cmd, ...rest] = process.argv.slice(2);
 if (cmd === 'migrate') cmdMigrate();
 else if (cmd === 'sync') cmdSync(rest);
 else if (cmd === 'check') cmdCheck();
+else if (cmd === 'selftest') cmdSelftest();
 else {
   console.log([
     '用法（CR_HOME 环境变量可覆盖 cr/ 根寻址）：',
     '  node cr/cr-git.mjs migrate              v3.1 一次性：行内尾部块剥离入 cr-meta.json（幂等）',
     '  node cr/cr-git.mjs sync [--rebuild]     生成/增更 cr-commits.json 投影 + 悬空引用校验',
     '  node cr/cr-git.mjs check                守门（无 git 仓库时 commit 面跳过）',
+    '  node cr/cr-git.mjs selftest             sandbox 临时 git 仓自测（豁免链 + 劝告语义）',
   ].join('\n'));
 }
