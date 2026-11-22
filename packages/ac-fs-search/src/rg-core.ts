@@ -3,7 +3,8 @@
 //
 // cr-678：grep 主路径改 spawn ripgrep（@vscode/ripgrep vendored 二进制，
 // 平台子包 optionalDependencies 装配——无 postinstall、无运行时网络），
-// 纯 Node 遍历降级为回退路径。口径对齐（Windows 实测定案）：
+// 纯 Node 遍历降级为回退路径；rg 路径解析 cr-1205 改经主包 rgPath。
+// 口径对齐（Windows 实测定案）：
 //   · --hidden --no-ignore——含隐藏文件、不读 .gitignore（现状 walk 口径）；
 //   · 排除 glob（!**/node_modules/** 等）以 cwd 为基准——spawn cwd 设为搜索
 //     根，path 直指跳过目录时其内部路径不含该段名，自动恢复「path 直指即
@@ -17,31 +18,30 @@
 // 中止同 kill——不留孤儿（shell-orphan 红线）。JSON 事件流逐行解析。
 // ============================================================
 import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
-// 消费证据（check-deps R4）：二进制路径经下方 require.resolve 动态解析
-//（平台子包缺席需优雅降级而非模块级抛错，故不做值导入）；此 type-only
-// import 声明依赖关系——删掉声明 pnpm 不装平台子包，rg 主路径静默退化。
-import type {} from '@vscode/ripgrep';
 
-let cachedRgPath: string | undefined;
-let rgResolved = false;
+let rgResolvePromise: Promise<string | undefined> | undefined;
 
-/** rg 可执行路径解析（懒缓存；失败返回 undefined——调用方走 Node 回退） */
-export function resolveRgPath(): string | undefined {
-  if (rgResolved) return cachedRgPath;
-  rgResolved = true;
-  try {
-    const require = createRequire(import.meta.url);
-    const binaryName = process.platform === 'win32' ? 'rg.exe' : 'rg';
-    cachedRgPath = require.resolve(
-      `@vscode/ripgrep-${process.platform}-${process.arch}/bin/${binaryName}`,
-    );
-  } catch {
-    cachedRgPath = undefined; // 平台子包缺席（安装残缺/不支持平台）——回退
-  }
-  return cachedRgPath;
+/**
+ * rg 可执行路径解析（懒缓存单飞；失败 undefined——调用方走 Node 回退）。
+ * cr-1205：经主包 rgPath 取，不再自解析平台子包——require.resolve(
+ * '@vscode/ripgrep-<plat>-<arch>/bin/rg') 在 pnpm 布局下不在常规解析链上，
+ * 曾靠用户主目录偶遇的散装副本命中（脱离 lockfile 管控），干净机器解析失败
+ * 即静默降级 Node 回退。主包是本包 dependencies 直依赖（软链恒在解析链上），
+ * 其内部在 .pnpm 邻位解析平台子包——pnpm-safe；缺平台子包时主包模块级
+ * throw，动态 import 使失败可优雅降级为回退而非抛模块错。
+ */
+export function resolveRgPath(): Promise<string | undefined> {
+  rgResolvePromise ??= (async () => {
+    try {
+      const p = (await import('@vscode/ripgrep')).rgPath;
+      return typeof p === 'string' && p ? p : undefined;
+    } catch {
+      return undefined; // 平台子包缺席（安装残缺/不支持平台）——回退
+    }
+  })();
+  return rgResolvePromise;
 }
 
 export interface RgMatch {
@@ -125,7 +125,7 @@ function parseMatchEvent(line: string): ParsedMatch | undefined {
  * stderr 原样丢弃（rg 的进度/告警不面向模型）。
  */
 export async function runRg(opts: RunRgOptions): Promise<RunRgResult> {
-  const rgPath = resolveRgPath();
+  const rgPath = await resolveRgPath();
   if (rgPath === undefined) throw new Error('rg-not-available');
   const args: string[] = ['--json', '--hidden', '--no-ignore', '-e', opts.pattern];
   if (opts.fixed) args.push('-F');

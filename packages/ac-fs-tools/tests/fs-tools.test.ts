@@ -207,6 +207,39 @@ describe('ac-fs-search', () => {
     expect(r.output.groups.map((g: { path: string }) => g.path)).toEqual(['normal.ts']);
   });
 
+  it('grep（rg 路径）：file-snapshots 快照镜像树不进结果（cr-1205）', async () => {
+    const root = tmpRoot();
+    fs.writeFileSync(path.join(root, 'normal.ts'), 'SNAPMARK\n');
+    fs.mkdirSync(path.join(root, 'file-snapshots'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'file-snapshots', 'mirror.ts'), 'SNAPMARK\n');
+    const { ctx } = await boot(root);
+    const r = await exec(ctx, { name: 'grep', args: { pattern: 'SNAPMARK', include: '*.ts' } });
+    expect(r.output.total).toBe(1);
+    expect(r.output.groups.map((g: { path: string }) => g.path)).toEqual(['normal.ts']);
+  });
+
+  it('glob path 基准（cr-1197）：模式在搜索根空间求值；锚点内输出保持锚点相对', async () => {
+    const root = tmpRoot();
+    fs.mkdirSync(path.join(root, 'sub', 'deep'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'sub', 'x.ts'), 'x');
+    fs.writeFileSync(path.join(root, 'sub', 'deep', 'd.ts'), 'x');
+    fs.writeFileSync(path.join(root, 'top.ts'), 'x');
+    const { ctx } = await boot(root);
+    // 收窄根 + 前缀模式：相对搜索根求值（此前在锚点空间匹配——收窄根后零命中）
+    const r = await exec(ctx, { name: 'glob', args: { pattern: 'deep/*.ts', path: 'sub' } });
+    expect(r.output.paths).toEqual(['sub/deep/d.ts']); // 输出锚点相对（read 直连）
+    // matchBase（无 /）按文件名匹配，不受基准影响；输出仍带锚点前缀
+    const r1 = await exec(ctx, { name: 'glob', args: { pattern: '*.ts', path: 'sub' } });
+    expect(r1.output.paths.sort()).toEqual(['sub/deep/d.ts', 'sub/x.ts']);
+    // 锚点外根：rel 相对搜索根（read 回读需以 path 拼回）
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-fs-out-'));
+    tmps.push(outside);
+    fs.writeFileSync(path.join(outside, 'y.ts'), 'y');
+    const r2 = await exec(ctx, { name: 'glob', args: { pattern: '*.ts', path: outside } });
+    expect(r2.output.paths).toEqual(['y.ts']);
+    expect(r2.output.root).toBe(outside);
+  });
+
   it('glob 多段字面前缀：剪枝按段序生效，路径序靠后的目录不丢失（cr-814）', async () => {
     const root = tmpRoot();
     // 复刻事故形态：字面前缀指向的目录前有按名序吃满预算的大目录

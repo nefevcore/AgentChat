@@ -86,6 +86,7 @@ describe('walkFiles', () => {
   it('SKIP_DIRS 含构建产物目录；SKIP_BASE 不含（分层缺省口径）', () => {
     expect(SKIP_DIRS.has('dist')).toBe(true);
     expect(SKIP_DIRS.has('release')).toBe(true);
+    expect(SKIP_DIRS.has('file-snapshots')).toBe(true); // 快照镜像树（cr-1205）
     expect(SKIP_BASE.has('dist')).toBe(false);
     expect(SKIP_BASE.has('node_modules')).toBe(true); // 基础层与用户意图无关
   });

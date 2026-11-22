@@ -643,8 +643,7 @@ export function apply(ctx: Context, options: FsSearchRowOptions = {}) {
       }
 
       // ---- rg 主路径（cr-678）：resolve 可得即 spawn ripgrep；任何失败落 Node 回退 ----
-      const rgEngine = resolveRgPath() !== undefined;
-      if (rgEngine) {
+      if ((await resolveRgPath()) !== undefined) {
         const rg = await runRgWithFallbackGuard(call, {
           pattern,
           fixed,

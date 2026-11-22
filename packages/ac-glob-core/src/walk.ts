@@ -23,13 +23,16 @@ import * as path from 'node:path';
  * 遍历时跳过的目录名（缺省口径）。分层：
  * - SKIP_BASE —— VCS 元数据 + 依赖 + Python 缓存（DSH rg --files 口径 + node_modules 实用豁免），
  *   与用户意图无关，任何工具面都不该扫；
- * - SKIP_DIRS —— 在 SKIP_BASE 之上叠加**构建产物/发布副本**目录名（dist/release/node 产物：
- *   09-20 grep 画像 §③——无 path 概念搜索的 60+ 文件命中里近半落在 dist/desktop/release
- *   等生成物，真实源码另在 src/ 下，产物命中是纯噪声且吃掉结果预算）。缺省跳过；
- *   调用方可用 walkOptions.skipDirs 整表覆盖（如明确要搜产物时传 SKIP_BASE 的稳定引用）。
+ * - SKIP_DIRS —— 在 SKIP_BASE 之上叠加**构建产物/发布副本/工具自产镜像**目录名
+ *   （dist/release 等：09-20 grep 画像 §③——无 path 概念搜索的命中近半落在生成物，
+ *   真实源码另在 src/ 下，产物命中是纯噪声且吃掉结果预算；file-snapshots：
+ *   ac-file-snapshots 按会话镜像的用户文件树——URL 编码路径全量副本，对检索纯噪声
+ *   且体量与被镜像树同级（本仓 3985 .ts/83MB、命中注水 75%），cr-1205 入列）。
+ *   缺省跳过；调用方可用 walkOptions.skipDirs 整表覆盖（如明确要搜产物时传
+ *   SKIP_BASE 的稳定引用；path 直指该目录时其内容照常全搜——排除按段名匹配）。
  */
 export const SKIP_BASE = new Set(['.git', '.svn', '.hg', '.bzr', '.jj', '.sl', 'node_modules', '__pycache__']);
-export const SKIP_DIRS = new Set([...SKIP_BASE, 'dist', 'release', 'out', 'build', 'coverage', '.nyc_output', '.vite', '.cache']);
+export const SKIP_DIRS = new Set([...SKIP_BASE, 'dist', 'release', 'out', 'build', 'coverage', '.nyc_output', '.vite', '.cache', 'file-snapshots']);
 
 /** 单次扫描的文件数硬顶（防病态工作区；超出置 capped） */
 export const MAX_SCAN_FILES = 20000;
