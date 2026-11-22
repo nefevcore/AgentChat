@@ -35,7 +35,7 @@ import { createRootsContainment } from './paths.ts';
  */
 export function stripHeredocPayloads(command: string): string {
   return (
-    command
+    stripInlineCodePayloads(command)
       // PowerShell here-string（单引号原文 / 双引号可展开）
       .replace(/@'\r?\n[\s\S]*?\r?\n'@/g, ' <heredoc-payload> ')
       .replace(/@"\r?\n[\s\S]*?\r?\n"@/g, ' <heredoc-payload> ')
@@ -44,6 +44,26 @@ export function stripHeredocPayloads(command: string): string {
         /<<-?(['"]?)([A-Za-z_]\w*)\1(?=[\s>|\n]|$)[^\n]*\n[\s\S]*?\n\2[ \t]*(?=\r?\n|$)/g,
         ' <heredoc-payload> ',
       )
+  );
+}
+
+/**
+ * 剥离引号包裹的内联代码载荷（cr-1224/ISSUE-17，src 已知残留的根除）：
+ * `node -e "…"` / `python -c '…'` / `pwsh -Command "…"` 的引号内是代码
+ * 不是 shell 路径语法——其中的 JS 正则字面量（/^>/.test(s)）与除号会被
+ * Unix 路径启发式误判。与 heredoc 同理（数据非命令），剥离后载荷外的
+ * 命令段照常受检；匹配失败保留原文 → 只可能多拦不可能漏拦。
+ */
+function stripInlineCodePayloads(command: string): string {
+  return command.replace(
+    /(?:\bnode|\bdeno|\bbun)\s+(?:-[A-Za-z]+\s+)*-e\s+("[^"]*"|'[^']*')/gi,
+    ' <code-payload> ',
+  ).replace(
+    /(?:\bpython\d?|\bperl|\bruby)\s+(?:-[A-Za-z]+\s+)*-[cm]\s+("[^"]*"|'[^']*')/gi,
+    ' <code-payload> ',
+  ).replace(
+    /(?:\bpwsh|\bpowershell)\s+(?:-[A-Za-z]+\s+)*-(?:Command|EncodedCommand)\s+("[^"]*"|'[^']*')/gi,
+    ' <code-payload> ',
   );
 }
 
@@ -115,7 +135,9 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
     //    Windows 开关参数豁免（isWindowsSwitch）：`dir /b` / `date /t` 等
     //    不是路径——跳过路径判定，cd/.. 规则照跑。
     const absTokens = seg.match(/(?:^|\s)\/[^\s;|&"'`]*/g) ?? [];
-    const pathLike = absTokens.map((m) => m.trim()).filter((p) => !isWindowsSwitch(p));
+    // 裸 /（cr-1224/ISSUE-17）：除号或撕裂的正则片段，非路径形态——
+    // 路径至少含一个非斜杠字符。
+    const pathLike = absTokens.map((m) => m.trim()).filter((p) => p !== '/' && !isWindowsSwitch(p));
     if (pathLike.length > 0) {
       for (const p of pathLike) {
         if (!isAllowed(p)) {

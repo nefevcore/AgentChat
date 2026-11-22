@@ -431,6 +431,17 @@ describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
     expect(bashCommandViolation('curl https://example.com/api | head -5', opts)).toBeNull();
   });
 
+  it('cr-1224/ISSUE-17：引号内 -e/-c 代码载荷剥离——JS 正则字面量/除号不判路径', () => {
+    expect(bashCommandViolation('node -e "const s=process.stdin; if (/^>/.test(s) || /^-{3,}/.test(s)) return"', opts)).toBeNull();
+    expect(bashCommandViolation("python -c 'import sys; x = len(sys.argv) / 2 if True else 0'", opts)).toBeNull();
+    // 裸除号（空格分隔）不是路径形态
+    expect(bashCommandViolation('node script.js / tmp-out 2>&1', opts)).toBeNull();
+    // 载荷外的越界路径照拦（剥离不豁免命令段）
+    expect(bashCommandViolation('node -e "1/2" && cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
+    // 引号外的 -e（PS 调用形态不匹配 → 原文受检，只可能多拦）
+    expect(bashCommandViolation('cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
+  });
+
   it('Unix 绝对路径拦截；白名单内放行', () => {
     expect(bashCommandViolation('cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
   });
