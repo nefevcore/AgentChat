@@ -1225,4 +1225,9 @@
 - 【cr-1204 2026-11-22 回退 cr-1201：vitest.config.ts 撤 TZ 显式钉死（产品侧时区已有 config.json 显式配置项 cr-1202，测试基建的时区钉死会掩盖跨时区 bug——恢复继承宿主 env）】
 - 【cr-1205 2026-11-22 fs-search grep 双收口：file-snapshots 快照镜像树排除出搜索面（命中注水 75%+扫描浪费）+ rg 二进制解析改主包 rgPath（平台子包解析靠主目录偶遇副本，干净机器静默降级 Node 回退）】
 - 【cr-1206 2026-11-22 data-root-layers 补全必须备份清单：config.json 归第二层（provider 定义/settings/source.fs 源定义不可重建），§三规则2清单补行】
+- 【cr-1207 2026-11-22 fix(plugin-core): readPluginPackage 补安装期保留名门禁——package 形态（manifest.json 缺席的投影臂）此前绕过 isReservedPluginName，ac-evil 同名包可入库、静默哑弹到装载期才被 plugin-guard 拒；谓词/文案单源 manifest.ts（reservedPluginNameError 抽出，validate/package 两臂共用），顺修 manifest.ts 头注释 permissions 词表漏 risk #fix →cr-1075】
+- 【cr-1208 2026-11-22 删除级联失效：快照级联死接线（壳内订阅跨进程不可达——宿主删除 RPC 只 web.broadcast 不回流事件总线）+ agents/delete 无会话面级联（meta 孤儿/对端对桶残留/群幽灵成员/快照孤儿/ac-agents 运行态注册不撤）+ 存量孤儿对账清理】
+- 【cr-1209 2026-11-22 agents/delete 会话面级联（D1：硬删全部——meta/sessions 元数据 + 对端 agent 副本 + 群名册移除与成员流清理 + 会话快照）】
+- 【cr-1210 2026-11-22 markdown 表格 clamp 判定修正——CJK 可断字符不计长 token，列级浓度阈值防散文列误封顶】
+- 【cr-1211 2026-11-22 测试根轮次隔离：vitest 每轮独立 test-run-<pid> 根 + 死轮残根 GC（根治多会话并发测试 EPERM 互踩）】
 
