@@ -12,6 +12,7 @@
     "test": "node ../../scripts/run-tests.mjs ."
   },
   "dependencies": {
+    "ac-conv-keys": "workspace:*",
     "ac-plugin-core": "workspace:*",
     "ac-text-budget": "workspace:*"
   },

@@ -15,6 +15,9 @@ import * as path from 'node:path';
 import type { AgentConfig } from './config.ts';
 import { normalizeLegacyTags, toolModeOf } from './config.ts';
 import { readCatalog, defaultCatalogFile, type AssemblyEntry } from 'ac-rowset-core';
+export {
+  RESERVED_ENDPOINT_IDS, isReservedEndpointId, isMechanismEndpointId, isAgentIdentity,
+} from 'ac-conv-keys'; // 端点保留字谓词本体已迁 ac-conv-keys（cr-1238 D3）——兼容 re-export，收官清零
 import { readAgentPatch, patchToConfig, readPluginConfigs, readPluginConfigsAt, writePluginConfig, readAgentPatchV3At, readAgentProfileAt, writeAgentProfileAt, writeAgentPatchV3At, rowsToMenuDefs, levelsOfEntries, mergeLevelsIntoEntries, writePluginConfigAt as writePluginConfigAt2, PATCH_FILE, type AgentProfile } from './patch-doc.ts';
 
 /** 树内文件名常量（读写双面共用单源） */
@@ -42,44 +45,8 @@ export function assertAgentId(id: string): void {
   }
 }
 
-/**
- * 端点保留字（cr-1175 D6）：host = 宿主服务帧域（虚构端点事故根因——
- * 同名 agent 可达表覆写劫持 to:'host' 信封）；user = 虚拟端点但真会话
- * 参与者（终稿回信会话语义）。`@` 前缀 = 群地址词形。创建面与拉壳面
- * 双闸拒斥。
- */
-export const RESERVED_ENDPOINT_IDS: ReadonlySet<string> = new Set(['host', 'user']);
-
-export function isReservedEndpointId(id: string): boolean {
-  return RESERVED_ENDPOINT_IDS.has(id) || id.startsWith('@');
-}
-
-/**
- * 机制域端点（cr-1213 R-1 豁免面——比保留字窄）：host 服务帧域 + @ 群
- * 地址。user **不**豁免——它是真会话参与者（终稿回投目标/群名册成员），
- * uuid 登记校验按名册成员正常裁决。豁免语义 = 该 sender 的信是机制信
- * 投递（uuid = 目标会话键），非会话发言，不参与名册校验。
- */
-export function isMechanismEndpointId(id: string): boolean {
-  return id === 'host' || id.startsWith('@');
-}
-
-/**
- * Agent 身份词形（主线 M19 承重墙同款）：id 禁 `~`——对键桶 conversationId
- * = pairKey(a,b) 排序 `~` 连接，身份若也含 `~` 会与对键撞键、破坏
- * runAddress 从右解析的歧义性。agents/ 树内含 `~` 的目录 = 会话流域
- * （pair 对桶/自会话对角线/群成员流——兜底 config 在场也不是名册身份）。
- * 纯词形单义：**不**拒端点保留字——user 是合法虚拟身份（viewer 实体，
- * 名册/头像/消息发送者面的投影源，档案与头像 = 数据根真实实体）；
- * 保留字拒斥归三处显式闸（sanitize/ensureAgent/createFromTemplate 直调
- * isReservedEndpointId，cr-1175 D6——防的是「虚构端点劫持可达表」的
- * 创建面，不是名册投影面。此处曾内嵌拒斥致 user 被名册除名、用户头像
- * 全域消失——cr-1186）。
- * 本函数只判身份词形；agentDir 寻址（会话域路径）仍走 assertAgentId。
- */
-export function isAgentIdentity(id: string): boolean {
-  return id !== '' && !id.includes('~');
-}
+// 端点保留字/身份谓词本体已迁 ac-conv-keys（cr-1238 D3）；语义注释见键库
+// keys.ts（保留字拒斥归创建闸三处、isAgentIdentity 词形单义不拒 user）。
 
 /** v3 菜单组合（cr-1022 批2/批3——唯一组合读面）：agent.json 档案 + 菜单
  * 片段定义 → AgentConfig 投影（rows = 骨架 ∪ 定义清单——正清单直读） */

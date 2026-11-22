@@ -555,6 +555,9 @@ importers:
       ac-bench:
         specifier: workspace:*
         version: link:../../packages/ac-bench
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../../packages/ac-conv-keys
       ac-credentials-core:
         specifier: workspace:*
         version: link:../../packages/ac-credentials-core
@@ -616,6 +619,9 @@ importers:
       ac-bench:
         specifier: workspace:*
         version: link:../../packages/ac-bench
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../../packages/ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../../packages/ac-core-utils
@@ -871,6 +877,9 @@ importers:
       ac-config-merge:
         specifier: workspace:*
         version: link:../ac-config-merge
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-tools:
         specifier: workspace:*
         version: link:../ac-tools
@@ -887,6 +896,9 @@ importers:
 
   packages/ac-agents-core:
     dependencies:
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-migration-core:
         specifier: workspace:*
         version: link:../ac-migration-core
@@ -1127,6 +1139,9 @@ importers:
       ac-client-ui-timer:
         specifier: workspace:*
         version: link:../ac-client-ui-timer
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-timer-core:
         specifier: workspace:*
         version: link:../ac-timer-core
@@ -1250,6 +1265,9 @@ importers:
       ac-client-ui-workspace:
         specifier: workspace:*
         version: link:../ac-client-ui-workspace
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-edit-core:
         specifier: workspace:*
         version: link:../ac-edit-core
@@ -1681,6 +1699,9 @@ importers:
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       vue:
         specifier: ^3.4.0
         version: 3.5.41(typescript@5.9.3)
@@ -2026,6 +2047,9 @@ importers:
       ac-client-ui-theme:
         specifier: workspace:*
         version: link:../ac-client-ui-theme
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       d3-chord:
         specifier: ^3.0.1
         version: 3.0.1
@@ -2134,6 +2158,9 @@ importers:
       ac-agents-core:
         specifier: workspace:*
         version: link:../ac-agents-core
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -2183,6 +2210,12 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  packages/ac-conv-keys:
+    devDependencies:
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/ac-conv-settings:
     dependencies:
       '@agentchat/cordis':
@@ -2210,6 +2243,9 @@ importers:
       ac-agents:
         specifier: workspace:*
         version: link:../ac-agents
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -2229,6 +2265,9 @@ importers:
 
   packages/ac-core-utils:
     dependencies:
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-plugin-core:
         specifier: workspace:*
         version: link:../ac-plugin-core
@@ -2365,9 +2404,6 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
-      ac-core-utils:
-        specifier: workspace:*
-        version: link:../ac-core-utils
     devDependencies:
       ac-agent-loop:
         specifier: workspace:*
@@ -2498,6 +2534,9 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -2656,6 +2695,9 @@ importers:
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -2668,6 +2710,9 @@ importers:
       ac-event-policy:
         specifier: workspace:*
         version: link:../ac-event-policy
+      ac-file-snapshots:
+        specifier: workspace:*
+        version: link:../ac-file-snapshots
       ac-host-face:
         specifier: workspace:*
         version: link:../ac-host-face
@@ -2738,6 +2783,9 @@ importers:
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-conv-settings:
         specifier: workspace:*
         version: link:../ac-conv-settings
@@ -2817,6 +2865,9 @@ importers:
       ac-agents-core:
         specifier: workspace:*
         version: link:../ac-agents-core
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-ledger:
         specifier: workspace:*
         version: link:../ac-ledger
@@ -2868,6 +2919,9 @@ importers:
       ac-agent-loop:
         specifier: workspace:*
         version: link:../ac-agent-loop
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -3009,6 +3063,9 @@ importers:
       ac-agents-core:
         specifier: workspace:*
         version: link:../ac-agents-core
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -3195,6 +3252,9 @@ importers:
       ac-agents-core:
         specifier: workspace:*
         version: link:../ac-agents-core
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
       ac-envelope-core:
         specifier: workspace:*
         version: link:../ac-envelope-core
@@ -3342,6 +3402,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
     devDependencies:
       ac-ledger:
         specifier: workspace:*
@@ -3367,6 +3430,9 @@ importers:
       ac-ask-questions:
         specifier: workspace:*
         version: link:../ac-ask-questions
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -3431,6 +3497,9 @@ importers:
       ac-config:
         specifier: workspace:*
         version: link:../ac-config
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-conv-settings:
         specifier: workspace:*
         version: link:../ac-conv-settings
@@ -3773,6 +3842,9 @@ importers:
       '@agentchat/cordis':
         specifier: workspace:*
         version: link:../vendor/cordis
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
       ac-core-utils:
         specifier: workspace:*
         version: link:../ac-core-utils
@@ -3890,6 +3962,10 @@ importers:
         version: 1.2.98
 
   packages/ac-wire-format:
+    dependencies:
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
     devDependencies:
       vitest:
         specifier: ^4.1.10

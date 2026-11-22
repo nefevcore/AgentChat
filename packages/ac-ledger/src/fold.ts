@@ -14,6 +14,7 @@
 import type { LlmMessage } from 'ac-llm';
 import { injectSubcallCards, readSubcalls } from './reader.ts';
 import { sessionDir } from './writer.ts';
+import { pairIncludes } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import { readDomainFacts, type DomainFacts, type RunFactsV2, type SpeechEvent, type ContextEvent, type StepMeter } from './events-v2.ts';
 import { conversationDirs } from './manage.ts';
 import type { JournalToolResult, ProjectedStep } from './records.ts';
@@ -337,7 +338,7 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
   // cr-1133:viewer 端点域判定——对桶键 <agent>~<viewer> 中 'user' 端点的域目录
   //（agents/user）是存量镜像域：speech 镜像行进终稿层（正文事实），但 run 事实
   //（journal）是镜像/迁移产物，webui 视图不重投（正主在 agent 域或已过时）。
-  const viewerEndpoint = conversationId.includes('~') && conversationId.split('~').includes('user') ? 'user' : null;
+  const viewerEndpoint = pairIncludes(conversationId, 'user') ? 'user' : null;
   // subcall 档案取值：索引钩子优先（D-1——按 run 定位 seek）；回落惰性全读
   const subcallCache = new Map<string, JournalToolResult[]>();
   const subcallsFor = (domain: string, run: string): JournalToolResult[] => {

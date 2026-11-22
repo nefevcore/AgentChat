@@ -16,6 +16,8 @@ export interface LoopStepEnvelope {
   conversationId?: string;
   sender?: string;
   source?: string;
+  /** run 成因（cr-1238 B5——loop 入口盖章后全程携带，落账本步级行） */
+  origin?: string;
 }
 
 /** loop/after-run 首参（LoopRunRequest 计量相关最小面） */
@@ -24,6 +26,8 @@ export interface LoopRunRequestLike {
   agent?: string;
   model: string;
   conversationId?: string;
+  /** run 成因（cr-1238 B5——run-end 行持久化锚） */
+  origin?: string;
 }
 
 export type { LoopStepRecord, LoopRunResult };

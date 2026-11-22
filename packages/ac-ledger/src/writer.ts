@@ -238,11 +238,11 @@ export class LedgerWriter {
    *  单队列切片原子追加（append+fsync 行级原子——取代旧三连两阶段。
    *  旧三连读侧归并兼容，存量零迁移）。物理回收是另一时机的 compact。
    */
-  async compaction(runId: string, opts: { summary?: string; shadowedSeq?: number; stats?: { shadowedRows?: number; estimatedTokens?: number }; model?: string } = {}): Promise<number> {
+  async compaction(runId: string, opts: { summary?: string; shadowedSeq?: number; stats?: { shadowedRows?: number; estimatedTokens?: number }; model?: string; origin?: string } = {}): Promise<number> {
     const boundary = opts.shadowedSeq ?? Math.max(tailMaxSeq(path.join(this.dir, MESSAGES)), 0);
     const ts = Date.now();
     return this.appendEvents([
-      { type: 'compaction', run: runId, boundarySeq: boundary, ts, ...(opts.summary !== undefined ? { summary: opts.summary } : {}), ...(opts.stats !== undefined ? { stats: opts.stats } : {}), ...(opts.model !== undefined ? { model: opts.model } : {}) },
+      { type: 'compaction', run: runId, boundarySeq: boundary, ts, ...(opts.summary !== undefined ? { summary: opts.summary } : {}), ...(opts.stats !== undefined ? { stats: opts.stats } : {}), ...(opts.model !== undefined ? { model: opts.model } : {}), ...(opts.origin !== undefined ? { origin: opts.origin } : {}) },
       { type: 'run-end', run: runId, finish: 'completed', ts },
     ]);
   }
@@ -258,6 +258,7 @@ export class LedgerWriter {
     meter?: { usage: RunUsage; model: string },
     errorMessage?: string,
     runMs?: number,
+    origin?: string,
   ): Promise<void> {
     await this.appendEvents([{
       type: 'run-end',
@@ -266,6 +267,7 @@ export class LedgerWriter {
       ...(meter !== undefined ? { usage: meter.usage, model: meter.model } : {}),
       ...(errorMessage !== undefined ? { errorMessage } : {}),
       ...(runMs !== undefined ? { runMs } : {}),
+      ...(origin !== undefined ? { origin } : {}),
       ts: Date.now(),
     }]);
   }
@@ -286,6 +288,7 @@ export class LedgerWriter {
     finish: 'ok' | 'interrupted' | 'error',
     meter?: { usage: RunUsage; model: string },
     errorMessage?: string,
+    origin?: string,
   ): Promise<void> {
     // v2 收束（cr-974）：终稿 message 行 +（error 时 context/error 行）+
     // run-end 标记行——单队列切片内原子追加；无物化、无 journal 写、无
@@ -326,6 +329,9 @@ export class LedgerWriter {
         ...(meter !== undefined ? { usage: meter.usage, model: meter.model } : {}),
         ...(errorMessage !== undefined ? { errorMessage } : {}),
         ...(finalRow.runMs !== undefined ? { runMs: finalRow.runMs } : {}),
+        // run 成因持久锚（cr-1238 B5）：读侧消费面（计时锚/归档文案/回放）
+        // 从行读 origin，不从直播管道反推
+        ...(origin !== undefined ? { origin } : {}),
         ts: Date.now(),
         seq: this.allocSeq(),
       };
@@ -363,7 +369,20 @@ export class LedgerWriter {
     return this.enqueue(() => {
       let keep = opts.keep as Array<{ seq?: number } | unknown>;
       if (opts.baselineSeq !== undefined) {
-        const late = readLedger(this.dir).rows.filter((r) => (r.seq ?? 0) > opts.baselineSeq!);
+        // cr-1234：late-merge 去重——keep 基准从快照 rows 换成事件后重读行面后，
+        // 事件行/新行已含在 keep 内；seq 单调假设在物理重写后失效（writer 从三
+        // 文件种子重编号，事件行 seq 可能 ≤ baselineSeq 又已在 keep），再并入即
+        // 同行双写（现场：compaction#10 出现两遍）。以 seq+type+run 复合指纹去重。
+        const seen = new Set(keep.map((r) => {
+          const ro = r as { seq?: number; type?: unknown; run?: unknown };
+          return ro.seq !== undefined ? ro.seq + '|' + String(ro.type) + '|' + String(ro.run) : JSON.stringify(ro);
+        }));
+        const late = readLedger(this.dir).rows.filter((r) => {
+          if ((r.seq ?? 0) <= opts.baselineSeq!) return false;
+          const ro = r as { seq?: number; type?: unknown; run?: unknown };
+          const key = ro.seq !== undefined ? ro.seq + '|' + String(ro.type) + '|' + String(ro.run) : JSON.stringify(ro);
+          return !seen.has(key);
+        });
         if (late.length > 0) keep = [...keep, ...late];
       }
       let segment: string | undefined;

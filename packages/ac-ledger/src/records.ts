@@ -27,6 +27,12 @@ export interface LedgerRow {
   /** 行来源词（开放：event/error/skill… 终稿行 = 'run:<id>' 联查键；
    *  段行 = 'segment' / 注入行 = 'inject'——cr-697 settlement 段行物化产物） */
   source?: string;
+  /**
+   * run 成因（cr-1238 B5）：run 行（run-end/步级）携带的机制维度——
+   * viewer/timer/archive/subagent/bench/goal/job/interaction/mechanism。
+   * 与 source 正交（拓扑 × 机制）；旧 run 行缺席——消费面反推降级。
+   */
+  origin?: string;
   /** 段行 run 关联（导入迁移：settlement 切段物化产物——旧侧 run 键随终稿行保留，供 webui run 键带出） */
   run?: string;
   /**

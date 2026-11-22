@@ -1,0 +1,17 @@
+{
+  "name": "ac-conv-keys",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "会话键词法学纯库（cr-1238 B2，零 cordis 零 node 依赖——前后端同源）：parseKey 总函数判别联合（uuid/pair/group/sub/plain）+ 谓词族 + 构造词（pairKey/runAddress/participantsOfKey/memberStreamKey 自 core-utils 迁入）+ 端点保留字谓词（自 agents-core 迁入）——词法只答形状，语义归登记层（cr-1213），run 成因归 origin（B5）",
+  "exports": {
+    ".": "./src/index.ts",
+    "./src/*": "./src/*"
+  },
+  "scripts": {
+    "test": "node ../../scripts/run-tests.mjs ."
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
+  }
+}

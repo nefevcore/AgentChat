@@ -18,9 +18,7 @@ import * as path from 'node:path';
  * auto-title 行同源——壳行据此只命名 singles 会话（非此形键 title.set 必被
  * 宿主词汇锁拒收）。
  */
-export function isSingleSessionId(id: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-}
+export { isUuidKey as isSingleSessionId } from 'ac-conv-keys'; // 判词本体已迁 ac-conv-keys（cr-1238 D1）——兼容 re-export，收官清零
 
 /** user 会话目录（viewer 投影轴——cr-973 起仅存量兼容读与 singles
  *  身份目录词汇；与 agents/ 身份树平级且刻意异名：cr-609 前名

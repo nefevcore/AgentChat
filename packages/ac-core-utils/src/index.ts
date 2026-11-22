@@ -94,14 +94,7 @@ export function maxSeqOf(records: Array<{ seq?: number }>): number | undefined {
  * 无歧义前提：Agent id 禁 `~`（agents.register 校验），对键从右起最后
  * 一段即 agent——M19 承重墙。
  */
-export function runAddress(
-  agent: string | undefined,
-  conversationId: string | undefined,
-): string | undefined {
-  if (agent === undefined) return undefined;
-  if (!conversationId || conversationId === agent) return agent;
-  return `${conversationId}~${agent}`;
-}
+// runAddress 本体已迁 ac-conv-keys（cr-1238 D1）——上方 re-export 兼容
 
 /**
  * 对键构造（M19 全对键桶模型的会话归属键；原住 ac-agent-loop，cr-318
@@ -109,9 +102,7 @@ export function runAddress(
  * a===b 即自会话对角线 a~a。一切双端会话（user⇄agent 直答 /
  * agent⇄agent 委托 / 机制自会话）共用。
  */
-export function pairKey(a: string, b: string): string {
-  return [a, b].sort().join('~');
-}
+// pairKey 本体已迁 ac-conv-keys（cr-1238 D1）——上方 re-export 兼容
 
 /**
  * 会话键键形反演（cr-1213 根除 R-1 首见近似登记制）：participants 权威
@@ -123,12 +114,7 @@ export function pairKey(a: string, b: string): string {
  * 同形但名册 = 群全名册**——键面不可分辨，权威归群行 authoritative 注入面
  * （registry lookup-first：登记集优先于键形反演）。
  */
-export function participantsOfKey(key: string): string[] | undefined {
-  if (key === '') return undefined;
-  const parts = key.split('~');
-  if (parts.length === 2 && parts[0] !== '' && parts[1] !== '') return parts; // 1v1 对键 → 两端点（与 pairKey 产物对称；两端可重合 = 自会话对角线）
-  return undefined; // 其余（单段含 UUIDv7/裸身份、三段+）键面无权威名册——归 registry 首见 [sender, to]
-}
+// participantsOfKey 本体已迁 ac-conv-keys（cr-1238 D1）——上方 re-export 兼容
 
 /**
  * 群成员私有转录流键（cr-4，原住 ac-group）：sessions/<gid>~<member>/——
@@ -136,9 +122,7 @@ export function participantsOfKey(key: string): string[] | undefined {
  * 撞形防线：群 id 禁 ~（规约）+ 双向名册校验（create/register 双卡）+
  * 一致性测试。跨行消费（ac-file-snapshots 级联清理）走本单源。
  */
-export function memberStreamKey(groupId: string, member: string): string {
-  return `${groupId}~${member}`;
-}
+// memberStreamKey 本体已迁 ac-conv-keys（cr-1238 D1）——上方 re-export 兼容
 
 /**
  * 归档整理 run 的信封标记键（M20，对齐 src META_ARCHIVE_REVIEW）：值恒为
@@ -181,6 +165,10 @@ export function normalizeToolSpecs(
     },
   }));
 }
+
+export {
+  pairKey, runAddress, participantsOfKey, memberStreamKey,
+} from 'ac-conv-keys'; // 键词法已迁 ac-conv-keys（cr-1238 D1）——兼容 re-export，收官清零
 
 export * from './persona.ts';
 export * from './session-title.ts';

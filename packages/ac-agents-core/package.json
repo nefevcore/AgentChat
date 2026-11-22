@@ -18,6 +18,7 @@
     "@types/js-yaml": "^4.0.9"
   },
   "dependencies": {
+    "ac-conv-keys": "workspace:*",
     "ac-migration-core": "workspace:*",
     "ac-rowset-core": "workspace:*",
     "js-yaml": "^4.1.0"

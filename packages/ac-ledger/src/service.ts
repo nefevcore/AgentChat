@@ -286,10 +286,10 @@ export class LedgerService extends Service {
    *（cr-538——meter 取 after-run 缓存，消费即清）。cr-807：error 收束补落
    * 错误行——错误文案只在瞬态帧（run-settled.message → 前端红条），刷新/
    * 错过帧即蒸发，落盘行补齐两路径。 */
-  async settleRun(uuid: string, participants: string[], kind: string, row: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'>, runId: string, finish: 'ok' | 'interrupted' | 'error', errorMessage?: string): Promise<void> {
+  async settleRun(uuid: string, participants: string[], kind: string, row: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'>, runId: string, finish: 'ok' | 'interrupted' | 'error', errorMessage?: string, origin?: string): Promise<void> {
     const meter = this.runMeters.get(runId);
     this.runMeters.delete(runId);
-    await this.writerFor(uuid, participants, kind).settle(row, runId, finish, meter, errorMessage);
+    await this.writerFor(uuid, participants, kind).settle(row, runId, finish, meter, errorMessage, origin);
     if (meter !== undefined && this.postOfficeAddress !== undefined) {
       void this.reportUsage(runId, meter, finish);
     }
