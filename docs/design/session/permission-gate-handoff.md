@@ -6,7 +6,7 @@
 
 ## 一、落成面全景（全部已落地、已部署、已提交）
 
-决策链：cr-1061 设计 → 1062 D10-D13 → 1063/1065 计划 → **1066 批 1 实施** → 1068 交接 → 1069 档位环（错）→ **1070 回滚裁决** → **1071 run 缓存补丁** → 1072 批 2 裁撤 → 1073 伪造向量定级 → **1074 批 3 实施** → **1075 补丁（环 + manifest 冒充洞）** → 1076 技能同步 → 1077 本档重写。
+决策链：cr-1061 设计 → 1062 D10-D13 → 1063/1065 计划 → **1066 批 1 实施** → 1068 交接 → 1069 档位环（错）→ **1070 回滚裁决** → **1071 run 缓存补丁** → 1072 批 2 裁撤 → 1073 伪造向量定级 → **1074 批 3 实施** → **1075 补丁（环 + manifest 冒充洞）** → 1076 技能同步 → 1077 本档重写 → **1217 ISSUE-20 三面加固**（veto 归因裁决层；授权工件 `AUTHZ_FILE_PATTERNS` fs 恒禁〔dev 不解〕+ shell 名字级拦截；`settings['shell-tools'].extraLowRisk` 设置化白名单，risk 契约加第二参执行身份）。
 
 | 面 | 内容 | 落点 | CR
 |---|---|---|---|
@@ -43,6 +43,9 @@
 | ① | **官方工具行声明 risk（价值兑现位）** | 已落地（cr-1078，用户裁决 A 全套 + 测试构建纳入）。write/edit/str_replace_editor：朴素相对路径（`isPlainRelativePath`——无盘符/无 .. 段）→ allow，其余 ask；pwsh/bash：只读白名单 `isLowRiskCommand`（纯查看 + 只读 git + pnpm/npm test·typecheck·lint·build·check + npx eslint/tsc/vitest run——重定向/脚本块/$/反引号/heredoc 全禁 fail-closed）→ allow，其余 ask；web_search/browser 恒 allow（读类面）。判定纯函数住 ac-sandbox-core（机制归位），工具行只挂引用。submit_issue/run_harness 裁决不动，恒 ask。**安全依据：allow ≠ full-access——直通后沙箱轴照拦（D9），实权限比「批准→full-access」更窄**。行为变更感受者 = `__creator__`（base 档缺省 ask）——pwsh 跑 git status/测试、write 写沙箱内文件不再弹卡 | 每工具几行 + 测试锚 | ✅ cr-1078 已落地
 | ② | **人审 UI 认识 risk 词** | `StagingReviewModal.vue:157-162` 勾选警示只覆盖 ui/process/shell——risk 出现时用户只见裸词复选框，不知授予的是什么（「此插件 risk 自评将被采信，allow 直通」）。`ExtToolsPane.vue:105` 徽章兜底词表也是旧三词。是 ① 的用户面配套 | 两文件加 risk 分支 | ☐ 未立项
 | ③ | **装载守卫 e2e 锚** | 「安装成功 + boot 装载被守卫拦下」全链无集成测试（单测已覆盖判定函数，风险低）；补一条经 `assemblePluginRow` 的用例 | 1 用例 | ☐ 未立项
+| ③b | **shell 面授权工件可绕**（cr-1218，记录在案·暂不立项） | fs 面恒禁可靠（覆盖 ISSUE-20 原事故路径：write/edit 自签）；shell 面为文本级 best-effort——通配/变量拼接实测可绕（`Get-ChildItem … \| Where-Object { $_.Name -like '*-gate*' } \| %{ Get-Content $_.FullName }` 不含字面量即通过）。生产态 full 档 Agent 可改写他人授权工件。候选方向：shell 命令路径审计 / 授权工件写侧来源校验 | 独立立项 | ☐ 用户裁决暂不立项
+| ③c | **缺省 deny 使 ask 级操作无审批机会** | 设置链第四层是 `deny`（非 `ask`，cr-1079）——risk=ask 调用在四层全空时**直接拒**，有人桶也不弹卡。**cr-1218 用户裁决（2026-11-22）：不改成 ask**——实际部署走会话键 `approval=allow`（`__creator__` 主会话 `meta/conv-settings/<sid>.json`），用户自行设置、优先于缺省 deny。故该格在实际使用中不被触发；缺省 deny 仍是未配置会话的归宿（这正是拦截语义，符合 fail-closed） | 已裁决 | ☑ cr-1218 裁决维持现状，未改 |
+| ③d | **授权工件文件名触发 shell 闸误拦** | cr-1217 的 `authzWriteViolation` 是全文子串匹配——正常登记 CR / 写文档时提到 `permission-gate.json` 会被拦（本轮实测：登记 CR 时被拦两次，需换写法绕过）。候选：限定为「写动词 + 工件名」组合判定，或仅拦重定向/写命令形态 | 判定收紧 | ☐ 待评估
 | ④ | harnessTier 键宿主设不进 | 老 bug（同批 1 偏差 2 的病根）：垫片注册键宿主 set 面不认，approval 已用 BUILTIN_KEYS 先例绕开——harnessTier 是否照修待裁决 → cr-1094 用户裁决整键退役 | 键迁移 | ✅ cr-1094：键注册与 disabled 拦截臂已删、行不再 inject conv-settings；双树裂痕当前无活案例
 | ⑤ | 小额清洁 | 主档 L5/L6 读者行重复；本档 §三引导语残留；插件技能 §2 仍教已退役的 requiredTags 写法（cr-953 后运行时零消费——照写的插件工具并非私有，是行集可见性）| 文案 | ☐ 顺手
 
@@ -55,4 +58,4 @@
 3. **红线流程**：动手前 `node cr/cr.mjs append` 登记；设计争议回溯 `cr/logs/cr-1061/1062/1065/1066/1070/1073/1074/1075.md`；提交按批（功能/装配/文档/chore 分开），双归属文件用 hunk 分离（先例：shell/boot.ts 在 cr-1067 与 cr-1074 间的 `git apply --cached` 拆分）。
 4. **验证阶梯**：动 packages/apps → typecheck + test:unit + check:deps + 定向 eslint；动契约/词表/行集 → + `pnpm test` 全量 + webui:typecheck；动 UI → + build:channel。
 5. **生效环**：壳侧行（shell.yml 点名包）→ `restart_shell`；宿主侧（ac-plugin-core 等）→ `restart_host`；只改码不跑无需重启。测试全绿 ≠ 运行时已生效。
-6. **验证工具**：活体验证用 `__creator__`（缺省 ask——pwsh 一调即弹卡）；审批事实在 `workspace/home/agents/__creator__/interactions.jsonl`（kind=approval 条目）。
+6. **验证工具**：活体验证用 `__creator__`——**cr-1079 后缺省是 deny**（非 ask）：risk=ask 的调用在四层全空时直接拒、不弹卡（详见遗留项 ③c）；审批事实在 `workspace/home/agents/__creator__/interactions.jsonl`（kind=approval 条目）。cr-1218 起其只读命令白名单住 `agents/__creator__/shell-tools.json`。
