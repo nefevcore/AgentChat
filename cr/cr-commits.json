@@ -1,6 +1,6 @@
 {
- "scannedHead": "e66cfa18372031a6dfca1269f3458d120d98b846",
- "generatedAt": "2026-11-22T11:16:40.534Z",
+ "scannedHead": "b04042f6dcfda31236e42a589792b023ca3524f5",
+ "generatedAt": "2026-11-22T12:07:27.652Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -6164,6 +6164,18 @@
     "subject": "chore(cr): ledger registration cr-1215"
    }
   ],
+  "1216": [
+   {
+    "sha": "b04042f6dcfda31236e42a589792b023ca3524f5",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批提交 cr-1216/1222~1227/1230/1231/1233/1234/1246 索引与详情（对应功能提交见投影）"
+   },
+   {
+    "sha": "8839cddbe81257ddb675c6b1607b8fb4b741aa46",
+    "date": "2026-11-22",
+    "subject": "fix(run-code): cr-1216+1222 子调用参数可克隆前置校验（BigInt/Symbol/循环引用 fail-fast + 错误面带工具名字段名）+ 最近名建议距离阈值 max(2,⌊len/3⌋)（ISSUE-15：memory_write 不再误导建议 write）"
+   }
+  ],
   "1217": [
    {
     "sha": "425bda1593086f4e8eb3bd7a98882d87ae178f48",
@@ -6186,6 +6198,34 @@
     "sha": "3fe822f7558e6ae8315cef8862b6ca94a57d3ef1",
     "date": "2026-11-22",
     "subject": "fix(permission-gate): cr-1217+1218 ISSUE-20 审批策略三面加固"
+   }
+  ],
+  "1223": [
+   {
+    "sha": "c86b20584e43a7516ce0978e5a372b487e34a8a2",
+    "date": "2026-11-22",
+    "subject": "fix(shell-tools): cr-1223+1227 报错归因两修——ISSUE-18 PS7 zh-CN「术语不会被识别为」形态提取 + 组合符不猜名兜底；ISSUE-21 error 基线不再被翻译提示顶掉；组合符命令点名后补管道切断病因提示"
+   }
+  ],
+  "1224": [
+   {
+    "sha": "3a8dfc357192ad44f6d26500bbfba06a3b12c536",
+    "date": "2026-11-22",
+    "subject": "fix(sandbox): cr-1224 bash-scan 引号内代码载荷剥离（node -e/python -c/pwsh -Command → <code-payload> 占位）——正则字面量/除号不再被路径启发式误拦，载荷外越界路径照拦（ISSUE-17，fail-closed 保持）"
+   }
+  ],
+  "1225": [
+   {
+    "sha": "7e322df82ad75cd2386dad391656668231f34b62",
+    "date": "2026-11-22",
+    "subject": "fix(host): cr-1225 timer 校验错误前缀改「条目非法」（gates/until 同走 catch 不再误标 when）+ cr-1226 groups boot 装载量显性化（空装载 warn 点名疑似损坏、非空 info）——ISSUE-19 可观测性"
+   }
+  ],
+  "1226": [
+   {
+    "sha": "7e322df82ad75cd2386dad391656668231f34b62",
+    "date": "2026-11-22",
+    "subject": "fix(host): cr-1225 timer 校验错误前缀改「条目非法」（gates/until 同走 catch 不再误标 when）+ cr-1226 groups boot 装载量显性化（空装载 warn 点名疑似损坏、非空 info）——ISSUE-19 可观测性"
    }
   ],
   "1228": [
@@ -6214,6 +6254,13 @@
     "subject": "fix(timers): jitter must not re-deliver the same tick (cr-1231)"
    }
   ],
+  "1233": [
+   {
+    "sha": "8d528b0c88f48133a32bbbf883ea66fe5c967321",
+    "date": "2026-11-22",
+    "subject": "fix(session): cr-1233 残部——datetime/env-pulse before-run 增 dryRun 早退：预览干跑不落日期锚、不初始化水位（预览吞水位=真实 run 丢注入的根因锁）"
+   }
+  ],
   "1238": [
    {
     "sha": "941c6311a5786cafaa6c91db2b7c880722d9e92d",
@@ -6224,6 +6271,11 @@
     "sha": "6bdba6f0dccd08ef296929dd7097498d11d22751",
     "date": "2026-11-22",
     "subject": "refactor(conv-keys): 全仓判定点迁 ac-conv-keys 单源——宿主 13 包+apps 双 boot+前端 4 包（routeDialog 词法闸/archive cr-1192 收口/sessionKindOf 保 g- 优先序）；run-origin 契约化（LoopRunRequest.origin+账本 run-end 持久化+直播透传+四触发面写入+auto-title 消费切换）；fix timer text 唤醒 sender 伪造 user 撞键形登记冲突 (cr-1238~1244)"
+   },
+   {
+    "sha": "ddf9e0397507c666106a384f1a3423da4083bfef",
+    "date": "2026-11-22",
+    "subject": "chore(envelope): cr-1238 漏提交残部——StreamMeta.origin 字段（run 成因透传，前端直播面消费；类型声明补齐，实际赋值链已在前批入库）"
    }
   ],
   "1239": [
@@ -6245,6 +6297,25 @@
     "sha": "e66cfa18372031a6dfca1269f3458d120d98b846",
     "date": "2026-11-22",
     "subject": "feat(ledger): cr-1245 账本五层收口——解释权单源 ac-ledger-core + 投影单源 + doctor"
+   },
+   {
+    "sha": "972560a9af2d5bf2a6f0a30fab3bf1f81399ea83",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批——cr-1245 登记"
+   }
+  ],
+  "1246": [
+   {
+    "sha": "d4efffb69b5b0fc2f0bbca3105740cb6f5db5843",
+    "date": "2026-11-22",
+    "subject": "feat(config): cr-1246 跨进程热同步——ConfigService 挂目录 fs.watch 防抖 reload（先例 watchLedger 同款），宿主写盘后壳内 config/changed 实时广播免重启壳；watcher 经 ctx.effect 随 fiber 回收，深等价去重免自激"
+   }
+  ],
+  "1247": [
+   {
+    "sha": "7c0cf3a99a2438ac611a05d2390b3100f908fd94",
+    "date": "2026-11-22",
+    "subject": "fix(math): cr-1247 整数静默截断修复——toPrecision(15) 归一化仅施于非整数，整数直出 String()（2**50 等 15 位以上精确整数不再被截成 15 位有效数字）+ 测试锚"
    }
   ]
  }
