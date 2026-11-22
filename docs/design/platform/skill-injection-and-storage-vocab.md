@@ -8,6 +8,7 @@
 > 根 `README.md` + `packages/ac-ledger/src/records.ts`（会话行协议）。
 > 沿革：原档案起于 2026-09-18 会话裁决链（起点 = load_skill 在 run_code 程序化模式下失效），2026-10-06 文档治理重写为当前事实态（逐项源码实测）；
 > §1-§4 注入三通道与词汇 v2 经 cr-726 复核仍与现行 `ac-skill` / `ac-ledger` 同拍；§5 存储机制、§7 迁移机制、§11 定位索引随 cr-697/698/703 漂移处已就地校正（标注「cr-726」）。
+> cr-1249（2026-11-22）追加：技能目录注入第四通道（§1.5）——SKILLS 段退役，`<available_skills>` 移出 system prompt。
 > 本版**保留裁决链**：历史裁决不是待办，勿顺手恢复。
 
 ## 1. 结论速览（当前事实态，2026-10-06 实测）
@@ -17,6 +18,7 @@
   `journal/partials.jsonl` run 台账（收束即清）。`subcalls.jsonl` 子调用永久档案（cr-803
   复活——收束时补行分流至此，段行 steps 不再内联，读面 `stepsOfLedger` 联查注入）。
 - **技能注入三通道**：① 手势 `/name`（before-run 判定 + 落账 + 同字节双写）；② 直调 load_skill；③ run_code 子调用（登记 → run 级驻留注入 → 落账 → after-run 兜底）。
+- **目录注入第四通道（cr-1249）**：`<available_skills>` 目录不再以 SKILLS 段常驻 system——before-run 目录指纹（三源可见集 sha256）变化才落 context 行（source='skill'）+ 同字节 user 行双写（datetime/env-pulse 同构）；判重 = 私有状态 `files/<agentId>/skill/.anchors.json`（回放行可能被归档压缩，扫描判重不可靠）。
 - **load_skill 返回值已轻量化**：`SkillLoadOutput = { name, scope, baseDir, status: 'injected' }`——正文不随返回值走（防"返回一份 + 注入一份"双份冗余与搬运诱饵）。
 - **UI**：context 注入行渲染为注入卡（`ContextInjectCard.vue`），数据层挂轮（`Turn.injects` / `afterStep`），不走 event 分隔符通道。
 - **数据版本迁移**（cr-726 校正）：旧轨执行器 `ac-migration-core` + 迁移集 v1–v6 已随 cr-703 退役（历史见 §7）；
@@ -164,7 +166,7 @@ subcalls.jsonl = 子调用永久档案（cr-803：收束时 subcall 补行分流
 |---|---|
 | 会话存储/词汇/两文件+journal/settlement | `packages/ac-ledger/src/{records,writer,reader,service}.ts` |
 | 迁移（历史） | 旧 `ac-migration-core` / `src/ac-session/src/migrations.ts` 已随 cr-703 退役；现行 = `packages/ac-import` |
-| 技能注入三通道 / load_skill / 手势判定 / 驻留注入 | `packages/ac-skill/src/index.ts`（纯库 `ac-skill-core`；before-run / tool:after-execute / loop:before-step / loop:after-run 四段） |
+| 技能注入四通道（目录/手势/直调/子调用）/ load_skill / 手势判定 / 驻留注入 | `packages/ac-skill/src/index.ts`（纯库 `ac-skill-core`；目录与手势 = before-run，子调用 = tool:after-execute / loop:before-step / loop:after-run） |
 | 驻留注入通道（injectDurable / SteerQueue durable 槽） | `packages/ac-agent-loop/src/service.ts` |
 | run_code 子调用标记 | `packages/ac-run-code/src/tool.ts`（`runCodeSubcall: true`）；子调用档案随 `journal-tool-result`（`packages/ac-ledger`） |
 | 注入卡与挂轮 | `packages/ac-client-ui-conversation/client/Message/ContextInjectCard.vue`、`TurnDisplayItem.vue`、`feed.ts`（buildTurns/`turnContentSig`） |

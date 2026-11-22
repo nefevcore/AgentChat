@@ -16,6 +16,8 @@
 // 身份（0-99）→ 词汇（100-199 聚簇）→ 世界模型（200-299）→ 行为指令（300-499）→
 // 参考材料（450+，指令后动态前——字典式投影不吃 primacy 红利）→ 会话动态（900+）。
 // PTC_SDK 150→450：数 KB 参考块让出认知链框架位；词汇层聚簇 110/114/118/122。
+// SKILLS 30 位随 cr-1249 退役——<available_skills> 移出 system（before-run
+// 指纹注入，datetime/env-pulse 同构），位号不回收不复用。
 //
 // 不引入（cr-881 延续）：complete 排他段、变量插值、PromptContext 快照化。
 // ============================================================
@@ -28,7 +30,6 @@ export const SECTION_ORDER = {
   CALLER: 0, // request.system 初始值（调用方前缀——物化快照段名，无注册方）
   PERSONA: 10, // <persona> 人设块
   MEMORY: 20, // 记忆静态指引
-  SKILLS: 30, // <available_skills> 技能目录
   REFERENCE_FS: 110, // [引用约定] @路径（ac-fs-tools）
   REFERENCE_AGENT: 114, // @名称引用（ac-collab-tools）——组内 4 间隔留插入位
   REFERENCE_SESSION: 118, // #会话引用（位保留——read_history/grep_history 工具描述自带）

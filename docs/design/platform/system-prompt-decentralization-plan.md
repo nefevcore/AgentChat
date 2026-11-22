@@ -50,7 +50,7 @@ ac-skill [引用约定] 词形锚点插入（insertSkillsBlock）。
 | CALLER | request.system 初始值前缀 | 调用方 |
 | PERSONA | <persona> 块 | ac-persona |
 | MEMORY | 记忆静态指引 | ac-memory |
-| SKILLS | <available_skills> | ac-skill |
+| SKILLS | ~~<available_skills>~~（cr-1249 退役——before-run 指纹注入，datetime/env-pulse 同构） | ac-skill |
 | REFERENCE_FS | [引用约定] @路径 | ac-fs-tools |
 | REFERENCE_AGENT | @名称引用 | ac-collab-tools |
 | REFERENCE_SESSION | #会话引用（会话标题锚点教学） | 归 read_history/grep_history 工具描述自带——无独立注入段，位保留给未来 owner |
