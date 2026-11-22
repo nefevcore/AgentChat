@@ -47,8 +47,10 @@ export interface ToolDefinition {
    * 消费侧约定，本契约只声明语义）。无 risk 声明 + needPermission: true
    * ≡ risk: () => 'ask'（存量等价映射）；两者皆无 = 门视野外（零开销
    * 放行）。执行面 = ac-permission-gate 行（tool/before-execute 决策序）。
+   * 第二参（cr-1217 面1）：执行身份最小面（agentId）——per-Agent 设置化
+   * 白名单等自评输入；可选，存量单参声明继续有效。
    */
-  risk?: (args: Record<string, unknown>) => 'allow' | 'ask' | 'deny';
+  risk?: (args: Record<string, unknown>, call?: { agentId?: string }) => 'allow' | 'ask' | 'deny';
   /**
    * 发现谓词（cr-1049 两步投影·发现步）：本工具当前可否被发现进工具面。
    * 缺省 true。须为纯函数——入参是投影上下文纯数据（生效 toolMode 等，

@@ -71,8 +71,10 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
    * Agent settings ['permission-gate'].onAsk（settingsOf——第二层）>
    * 全局 config settings['permission-gate'].onAsk（第三层）> 缺省 'deny'
    * （第四层，fail-closed）。非法值回落下一层（回落方向——非 'allow'）。
+   * cr-1217 面3：返回裁决层标签——veto 文案归因（Agent 被 deny 时知道
+   * 是谁拒的、去哪解锁，不再盲试——ISSUE-20 实证 20+ 次盲试的根因）。
    */
-  function onAskOf(call: ToolCall): OnAsk {
+  function onAskOf(call: ToolCall): { value: OnAsk; layer: string } {
     // 第一层：会话键（壳 = ConvSettingsShim / 宿主 = 服务，读面统一
     // effective——cr-1083 conv-scope 批1：无人桶恒 {}，与 cr-1079 续记的
     // 内联门同语义，上收到读取面单源）。
@@ -81,7 +83,9 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
         | { effective(id: string): Record<string, string> }
         | undefined;
       const v = convSettings?.effective(String(call.conversationId)).approval;
-      if (v === 'allow' || v === 'ask' || v === 'deny') return v;
+      if (v === 'allow' || v === 'ask' || v === 'deny') {
+        return { value: v, layer: '会话键 approval（' + call.conversationId + '）' };
+      }
     }
     // 第二层：Agent settings（settingsOf 两层合成——同 shell-tools limitsOf 形态）
     const agents = ctx.get('agents', false) as
@@ -92,7 +96,9 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
       | undefined;
     if (s && typeof s === 'object' && !Array.isArray(s)) {
       const v = s.onAsk;
-      if (v === 'allow' || v === 'ask' || v === 'deny') return v;
+      if (v === 'allow' || v === 'ask' || v === 'deny') {
+        return { value: v, layer: 'Agent 设置（agents/' + (call.agentId ?? '?') + '/permission-gate.json）' };
+      }
     }
     // 第三层：全局层（config.json settings['permission-gate'].onAsk——与
     // Agent 侧 agents/<id>/permission-gate.json 同键命名空间）。此处直读
@@ -102,8 +108,10 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
       | { get<T>(key: string, fallback?: T): T | undefined }
       | undefined;
     const g = config?.get<unknown>('settings.permission-gate.onAsk');
-    if (g === 'allow' || g === 'ask' || g === 'deny') return g;
-    return 'deny'; // 第四层：缺省恒拒（fail-closed）
+    if (g === 'allow' || g === 'ask' || g === 'deny') {
+      return { value: g, layer: '全局 config（config.json settings.permission-gate.onAsk）' };
+    }
+    return { value: 'deny', layer: '缺省（四层均未配置）' }; // 第四层：缺省恒拒（fail-closed）
   }
 
   /**
@@ -172,7 +180,7 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
     const call = execution.call;
     // 决策序 1：信任面——不可信建议恒 'ask'（覆盖，risk 恒 allow 不直通）
     const advice: 'allow' | 'ask' | 'deny' = trusted(def.owner)
-      ? rawAdvice(def, call.args ?? {})
+      ? rawAdvice(def, call.args ?? {}, call)
       : 'ask';
     // 决策序 3/4：deny 直效（不可放宽）；allow 直通
     if (advice === 'deny') {
@@ -185,17 +193,19 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
     // 设置链 allow = 预授权通过——「通过即 full」注入（cr-1082 批A：审批轴
     // 成为 full 唯一发放者；与弹卡批准/缓存命中同款变异。原语义 allow 仅
     // 免弹卡、调用仍按沙箱执行——access 轴退役后两条路径必须同权）
-    if (s === 'allow') {
+    if (s.value === 'allow') {
       execution.call = { ...call, access: 'full-access' };
       return next();
     }
-    if (s === 'deny') {
-      return veto(execution, `工具 ${call.name} 的审批请求已被设置拒绝（approval=deny——会话键/Agent 设置/全局 config 任一层或缺省）。`);
+    if (s.value === 'deny') {
+      // cr-1217 面3：归因到裁决层 + 解锁指引——ISSUE-20 实证：不说明
+      // 判定层的 deny 诱发 20+ 次盲试与自签旁路。
+      return veto(execution, `工具 ${call.name} 的审批请求被设置拒绝——裁决层：${s.layer}。该调用被 risk 自评为 ask（不在工具的低风险自评面内），解锁需运营者把该层改为 allow/ask；Agent 不应自行改写 agents/<id>/permission-gate.json（授权工件，工具面恒禁写）。`);
     }
     // s = ask 且无人桶（humanPresentOf：self/agent~agent/g~member——问人
     // 不可达）→ fail-closed 拒（判定在设置链后——预授权层 allow 已放行）
     if (!humanPresentOf(call.conversationId)) {
-      return veto(execution, `工具 ${call.name} 需要审批，但本会话无人类参与（机制/Agent 间/群会话）——问人不可达且未预授权（会话键/Agent 设置/全局 config 任一层设 allow 可解锁），fail-closed 拒绝。`);
+      return veto(execution, `工具 ${call.name} 需要审批，但本会话无人类参与（机制/Agent 间/群会话）——问人不可达且未预授权（裁决层：${s.layer}=ask；会话键/Agent 设置/全局 config 任一层设 allow 可解锁——由运营者配置，Agent 不应自写授权文件），fail-closed 拒绝。`);
     }
     // s = ask：run 级缓存 → 审批卡
     // 缓存命中 = 本 run 已获人批准——与首批准同权注入 full-access（否则
@@ -215,11 +225,12 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
     return next();
   }, { description: '权限门：needPermission/risk 决策序（ask 上抛设置链+审批卡）' });
 
-  /** 建议求值：risk 函数 throw 按 ask（fail-closed）；缺函数按等价映射 */
-  function rawAdvice(def: { risk?: (args: Record<string, unknown>) => 'allow' | 'ask' | 'deny'; needPermission?: boolean }, args: Record<string, unknown>): 'allow' | 'ask' | 'deny' {
+  /** 建议求值：risk 函数 throw 按 ask（fail-closed）；缺函数按等价映射。
+   *  第二参透传执行身份（cr-1217 面1——per-Agent 白名单等自评输入）。 */
+  function rawAdvice(def: { risk?: (args: Record<string, unknown>, call?: { agentId?: string }) => 'allow' | 'ask' | 'deny'; needPermission?: boolean }, args: Record<string, unknown>, call?: { agentId?: string }): 'allow' | 'ask' | 'deny' {
     if (def.risk === undefined) return def.needPermission === true ? 'ask' : 'allow';
     try {
-      return def.risk(args);
+      return def.risk(args, call);
     } catch {
       return 'ask'; // risk throw → ask（fail-closed 方向）
     }

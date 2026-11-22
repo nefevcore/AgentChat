@@ -290,12 +290,22 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('四层缺省：全无设置 → deny（cr-1079 fail-closed 缺省）', async () => {
+  it('四层缺省：全无设置 → deny（cr-1079 fail-closed 缺省）；文案归因到缺省层（cr-1217 面3）', async () => {
     const { ctx } = await boot({ globalConfig: {} });
     await reg(ctx, { name: 'asker4', risk: () => 'ask' });
     const r = await ctx.tools.execute({ name: 'asker4', args: {}, conversationId: 'user~x' });
     expect(r.ok).toBe(false);
     expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0); // 缺省 deny 不弹卡
+    expect(r.error).toContain('缺省（四层均未配置）'); // 归因：是哪层拒的
+    expect(r.error).toContain('不应自行改写'); // 解锁指引：运营者配置，非 Agent 自签
+  });
+
+  it('Agent settings 层 deny → 文案点名该层与单元文件路径（cr-1217 面3）', async () => {
+    const { ctx } = await boot({ agentSettings: { 'permission-gate': { onAsk: 'deny' } } });
+    await reg(ctx, { name: 'asker-layer', risk: () => 'ask' });
+    const r = await ctx.tools.execute({ name: 'asker-layer', args: {}, conversationId: 'user~x', agentId: 'bob' });
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain('agents/bob/permission-gate.json');
   });
 
   it('拒绝 → 拒绝执行；拒绝 answer 形状 false', async () => {

@@ -22,6 +22,7 @@ import type { ToolCall, ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { widenToolsForGating } from 'ac-agents';
 import { createAgentSandboxCache, isLowRiskCommand, type SandboxResolverOptions, type SandboxWorkdirSource } from 'ac-sandbox-core';
+import { extraLowRiskListOf, hitsAllowlist } from './allowlist.ts';
 import { bashSpec, prepareBash, preparePwsh, pwshSpec, type ShellSpec } from './shells.ts';
 import { executeShellCommand, type ExecLimits } from './executor.ts';
 import * as fs from 'node:fs';
@@ -73,6 +74,7 @@ export const extension: ExtensionMeta = {
     { name: 'maxTimeout', type: 'number', min: 0, step: 1000, default: 120_000, description: '命令超时上限毫秒（timeout 参数按本 Agent 生效值 clamp；0 = 不设上限）。defaultTimeout 收敛不超过它（两者同为 0 时即全不限）' },
     { name: 'outputMaxLen', type: 'number', min: 0, step: 1000, default: 50_000, description: '单次命令输出最大保留字符数（超出中段截断并标注）' },
     { name: 'timeoutAction', type: 'string', enum: ['handoff', 'kill'], default: DEFAULT_TIMEOUT_ACTION, description: '超时处置：handoff = 超时自动转后台 job 继续执行（前台返回已收集输出 + job_id，不杀进程；推荐）；kill = 树杀 + timed_out 报告（旧行为）' },
+    { name: 'extraLowRisk', type: 'list', description: '额外低风险命令白名单（cr-1217 面1 / cr-1218 语义）：按命令首部匹配 → risk 自评 allow（不弹审批卡，沙箱轴照拦），可后随参数（grep detail X / list -n 10）。供运营者声明仓库自有只读命令（如 node cr/cr.mjs list——解释器直调静态白名单一律 ask）。含管道/重定向/变量/复合命令不收' },
   ],
 };
 
@@ -135,6 +137,18 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
   const agentsOf = (): { get(id: string): AgentConfig | undefined } | undefined =>
     ctx.get('agents', false) as { get(id: string): AgentConfig | undefined } | undefined;
 
+  // 设置化白名单（cr-1217 面1）：settings['shell-tools'].extraLowRisk ——
+  // 运营者声明仓库自有低风险命令（解释器直调静态白名单不收，如
+  // node cr/cr.mjs list）；读取形态与 limitsOf 同款（软依赖 + 非法值
+  // fail-closed 过滤，解析单源住 allowlist.ts）。
+  function extraLowRiskOf(agentId: string | undefined): string[] {
+    if (agentId === undefined) return [];
+    const agents = ctx.get('agents', false) as
+      | { settingsOf?(id: string, name?: string): unknown }
+      | undefined;
+    return extraLowRiskListOf(agents?.settingsOf?.(agentId, 'shell-tools'));
+  }
+
   // ---- 单平台命令工具注册（Windows → pwsh；Unix → bash） ----
   // A3 门禁语义原样：requiredTags ['shell'] + needPermission（无人审时
   // 档位门兜底——sandbox 软边界内自由，base 有人桶询问/无人桶拒绝）。
@@ -191,10 +205,16 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
     const def = {
       name: spec.family,
       needPermission: true,
-      // risk 自评（cr-1078 遗留项①A）：纯查看 + 测试构建白名单 → allow
-      // （不弹审批卡，沙箱轴照拦）；写动词/重定向/替换/解释器 → ask。
-      risk: (args: Record<string, unknown>) =>
-        (isLowRiskCommand(String(args.command ?? '')) ? 'allow' : 'ask'),
+      // risk 自评（cr-1078 遗留项①A + cr-1217 面1）：纯查看 + 测试构建
+      // 白名单 → allow（不弹审批卡，沙箱轴照拦）；运营者设置化白名单
+      // （settings['shell-tools'].extraLowRisk 全文匹配）→ allow；其余
+      // 写动词/重定向/替换/解释器 → ask。
+      risk: (args: Record<string, unknown>, call?: { agentId?: string }) => {
+        const command = String(args.command ?? '');
+        return isLowRiskCommand(command) || hitsAllowlist(command, extraLowRiskOf(call?.agentId))
+          ? 'allow'
+          : 'ask';
+      },
       description: isWin
         ? '在 PowerShell 中执行命令并返回输出（常见 Unix 命令自动 fail-closed 翻译；background=true 转后台任务）。需要 shell 能力标签。枚举/检索文件优先用 glob/grep 工具——shell 里 Get-ChildItem -Recurse 递归整棵目录再管道过滤在本仓库是准死循环（node_modules 照爬、CPU 满载且长时间零输出，cr-382 孤儿事故 8 例中占 6）。'
         : '在 bash 中执行命令并返回输出（background=true 转后台任务）。需要 shell 能力标签。枚举/检索文件优先用 glob/grep 工具。',

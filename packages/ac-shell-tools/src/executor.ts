@@ -13,7 +13,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import type { Context } from '@agentchat/cordis';
 import type { ToolResult } from 'ac-tools';
-import { bashCommandViolation, hostKillViolation, type SandboxResolver } from 'ac-sandbox-core';
+import { bashCommandViolation, hostKillViolation, AUTHZ_FILE_PATTERNS, type SandboxResolver } from 'ac-sandbox-core';
 import { isFullAccessCall } from 'ac-agents';
 import type { AgentConfig } from 'ac-agents';
 import { buildErrorMessage, isProcessAlive, killProcessTree, looksLikeInvocationError, stripAnsi, tailLogFile, truncateMiddle } from './process.ts';
@@ -22,6 +22,34 @@ import type { ShellSpec } from './shells.ts';
 
 /** 后台任务临时日志前缀（>1 小时清理） */
 const BASH_TEMP_PREFIX = 'ac-bash-';
+
+/**
+ * 授权工件命令通道拦截（cr-1217 面2，ISSUE-20 自签事故）：命令文本含
+ * 授权工件文件名即拒——**任何档位**（含 full-access：预授权注入的 full
+ * 恰是最需拦的档位，见调用处注释）。
+ *
+ * ⚠️ 强度诚实标注：这是**文本级 best-effort**，不是安全边界。已实测可绕
+ * （2026-11-22）——命令不写字面量即可通过，例如：
+ *   Get-ChildItem agents/__creator__ | Where-Object { $_.Name -like '*gate*' }
+ *     | ForEach-Object { Get-Content $_.FullName }        → 读到内容
+ * 以及任意变量拼接（$p = "…permission" + "-gate.json"）。静态解析
+ * PowerShell/bash 的路径构造不做——那需要完整语言解析，且与 dev 模式
+ * 「解锁系统域」的既定语义冲突。
+ *
+ * 因此本闸的价值限于：拦掉顺手/无意的触碰、给出明确错误指引；**可靠性
+ * 由 fs 工具面承担**（accessDeny 恒禁、路径解析后结构化判定、词表单源
+ * AUTHZ_FILE_PATTERNS，覆盖原事故路径：write/edit 自签）。shell 面的可靠
+ * 封堵需独立立项（命令路径审计/执行后告警），不在此声称。
+ */
+function authzWriteViolation(command: string): string | null {
+  const norm = command.replace(/\\/g, '/').toLowerCase();
+  const hit = AUTHZ_FILE_PATTERNS.find(
+    (p) => p.startsWith('**/') && norm.includes(p.slice(3).toLowerCase()),
+  );
+  return hit
+    ? '命令涉及授权工件（' + hit.slice(3) + '）——审批/授权文件不得经命令通道读写（运营者配置面专管；cr-1217 面2）。'
+    : null;
+}
 
 /** 任务日志目录（deps.logDir 缺省回落 os.tmpdir()；行 options 注入数据根
  * 路径——%TEMP% 被杀软/沙箱持续拒写的环境下后台任务仍可用，cr-718） */
@@ -196,6 +224,16 @@ export function executeShellCommand(
   const hostKill = hostKillViolation(command);
   if (hostKill) {
     return Promise.resolve({ ok: false, error: hostKill, output: { command, cwd: dir } });
+  }
+  // 授权工件通道拦截（cr-1217 面2）：**任何档位都拦**——与 hostKillViolation
+  // 同款语义：授权工件（permission-gate.json / auth.json）是审批信任根，
+  // 受管对象自写即自授（ISSUE-20），不是沙箱边界因而不得随 full 跳过。
+  // onAsk=allow 预授权注入的 full 正是最需要拦的档位（运营者预授权本意
+  // 不包含「放行改写自己的授权文件」）。运营者写口（UI/host 服务面）不经
+  // 本函数，不受影响。
+  const authz = authzWriteViolation(command);
+  if (authz) {
+    return Promise.resolve({ ok: false, error: authz, output: { command, cwd: dir } });
   }
   // 命令级沙箱：拦截允许范围外访问——full 档跳过（与 ac-security
   // 加严层同口径，防基线与复检漂移）

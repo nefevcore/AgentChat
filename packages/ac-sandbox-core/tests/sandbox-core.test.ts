@@ -136,7 +136,7 @@ describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-
     denyOf({ agentId: 'x' });
     expect(fired).toBe(1);
     const d = denyOf({});
-    expect(d.accessDeny).toEqual(['D:/only']); // 系统部分缺失（best-effort）
+    expect(d.accessDeny).toEqual(['**/permission-gate.json', '**/auth.json', 'D:/only']); // 系统部分缺失（best-effort）；恒禁保底（cr-1217）
     expect(d.readDeny).toEqual([...DEFAULT_READ_DENY]);
   });
 
@@ -147,8 +147,8 @@ describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-
       const { createDenyListsFactory: factoryOf, isDeniedPath: deniedOf, accessDenyPatterns: patternsOf } = await import('../src/paths.ts');
       const denyOf = factoryOf({ accessDenyPaths: ['D:/explicit'] }, mkSource('C:/data'));
       const d = denyOf({ agentId: 'a1' });
-      // 默认表解除：仅追加项（行配置显式追加仍拦）
-      expect(d.accessDeny).toEqual(['D:/explicit']);
+      // 默认表解除：仅追加项 + 授权工件恒禁（cr-1217 面2 不随 dev 解；恒禁前置）
+      expect(d.accessDeny).toEqual(['**/permission-gate.json', '**/auth.json', 'D:/explicit']);
       expect(deniedOf(d.accessDeny, path.join('C:/data', 'meta', 'sessions', 'sid.json'))).toBe(false);
       expect(deniedOf(d.accessDeny, path.join('C:/data', 'agents', 'a1', 'messages.jsonl'))).toBe(false);
       expect(deniedOf(d.accessDeny, 'D:/explicit/sub/f.txt')).toBe(true);
@@ -156,6 +156,8 @@ describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-
       expect(d.readDeny).toEqual([...DEFAULT_READ_DENY]);
       // workspace 缺失告警语义：dev 下系统表本就不注入，root 缺失仍走 best-effort 分支（追加项照查）
       expect(patternsOf('C:/data')).toEqual([]);
+      // 恒禁不在 accessDenyPatterns 返回内（工厂层前置——与该函数语义正交）
+      expect(d.accessDeny).toContain('**/permission-gate.json');
     } finally {
       delete process.env.AGENTCHAT_DEV_MODE;
       vi.resetModules();
@@ -165,6 +167,30 @@ describe('工具行基线双黑名单装配工厂（createDenyListsFactory，cr-
   it('无 agentId（无执行身份）不读 settings；无 onDegraded 不炸', () => {
     const denyOf = createDenyListsFactory({}, mkSource(undefined)); // 无 onDegraded
     expect(() => denyOf({})).not.toThrow();
+  });
+
+  it('cr-1217 面2：授权工件恒禁——dev 模式/无 workspace 亦不解除（ISSUE-20 自签事故）', async () => {
+    // 生产态（默认表在）
+    const denyOf = createDenyListsFactory({}, mkSource('C:/data'));
+    const d = denyOf({ agentId: 'a1' });
+    expect(isDeniedPath(d.accessDeny, path.join('C:/data', 'agents', 'a1', 'permission-gate.json'))).toBe(true);
+    expect(isDeniedPath(d.accessDeny, path.join('C:/data', 'agents', 'a1', 'auth.json'))).toBe(true);
+    expect(isDeniedPath(d.accessDeny, path.join('C:/anywhere', 'permission-gate.json'))).toBe(true); // 任意层级
+    // dev 模式：系统域默认表解除，授权工件恒禁不随解（与凭据面同拍——cr-1097）
+    process.env.AGENTCHAT_DEV_MODE = '1';
+    try {
+      vi.resetModules();
+      const { createDenyListsFactory: factoryOf, isDeniedPath: deniedOf } = await import('../src/paths.ts');
+      const devD = factoryOf({}, mkSource('C:/data'))({ agentId: 'a1' });
+      expect(devD.accessDeny).toEqual(['**/permission-gate.json', '**/auth.json']); // 默认表解除仅剩恒禁
+      expect(deniedOf(devD.accessDeny, path.join('C:/data', 'agents', 'a1', 'permission-gate.json'))).toBe(true);
+      // workspace 缺失降级：追加项 only 的旧形态不再——恒禁表保底
+      const degraded = factoryOf({}, mkSource(undefined))({ agentId: 'a1' });
+      expect(degraded.accessDeny).toEqual(['**/permission-gate.json', '**/auth.json']);
+    } finally {
+      delete process.env.AGENTCHAT_DEV_MODE;
+      vi.resetModules();
+    }
   });
 
   it('cr-1166：source 视图白名单——授权目录前缀产出，未授权/无 workspace 为空', () => {

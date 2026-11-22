@@ -109,6 +109,22 @@ export const DEFAULT_READ_DENY: readonly string[] = [
 ];
 
 /**
+ * 授权工件恒禁模式（cr-1217 面2，ISSUE-20 自签事故）：permission-gate.json
+ * = 审批裁决的 Agent 设置单元；auth.json = per-Agent 授权层。二者是
+ * 「onAsk=allow ⇒ 运营者预授权」语义（cr-1079）的信任根——受管对象自写
+ * 即自授（2026-11-16 __creator__ 被 deny 33 次后 write 自签 onAsk=allow
+ * 解锁，八分钟盲试风暴的终点）。与凭据面同等待遇：前置进 accessDeny
+ * **不随 dev 模式解除**（dev 解锁的是系统域默认表，见 accessDenyPatterns
+ * ——本表独立于该分支）；运营者写口（UI/host 服务面）不经 fs 工具链路，
+ * 不受影响。文件名模式任意层级（agents/<id>/ 与其余位置同拦——授权工件
+ * 不该在任何工具可达处存在第二份）。
+ */
+export const AUTHZ_FILE_PATTERNS: readonly string[] = [
+  '**/permission-gate.json',
+  '**/auth.json',
+];
+
+/**
  * 开发者模式（cr-1097 2026-11-15）：AGENTCHAT_DEV_MODE=1 时系统域默认表
  * 不注入 accessDeny（解锁全部范围——控制面 + 持久化域，供开发迭代直读
  * 直写系统域）。凭据面**恒禁不随 dev 解锁**：BUILTIN_DENY_PATTERNS
@@ -219,7 +235,10 @@ export function createDenyListsFactory(
       ? source.sourceViewsOf(call.agentId).map((rel) => path.join(root, 'exports', rel))
       : [];
     return {
-      accessDeny: root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra,
+      // 授权工件恒禁前置（cr-1217 面2）：不随 dev 解除、不随 workspace
+      // 缺失降级丢失（root 不可达时仍保本表——降级面只剩追加项也不放
+      // 授权工件）
+      accessDeny: [...AUTHZ_FILE_PATTERNS, ...(root !== undefined ? accessDenyPatterns(root, accessExtra) : accessExtra)],
       readDeny: readDenyPatterns(readExtra),
       sourceAllowed,
     };
