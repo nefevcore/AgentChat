@@ -180,6 +180,15 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
         }
       }
     }
+    // 5. 独立 .. 参数（无尾斜杠）：Get-ChildItem .. / -Recurse .. / dir /s ..
+    //    上一条规则要求 .. 后跟斜杠，非 cd 命令的裸 .. 参数无人接住——实测
+    //    Get-ChildItem -Recurse .. 可枚举整棵父目录树（结构泄露，虽读不到内容）。
+    //    按边界切成词取纯 .. 词；a..b（token 内双点）与 ./a.txt 不含纯 .. 词，
+    //    不受影响；echo .. 之类若解析后仍在允许根内则放行，不误拦。
+    const bareDots = seg.split(/[\s"'`=()]+/).includes("..");
+    if (bareDots && !isAllowed("..")) {
+      return `命令包含独立的 ".." 参数（解析后越出允许范围），被沙箱拦截。允许根内的 .. 不受影响——若确需访问上级目录，请用允许范围内的绝对路径。`;
+    }
   }
   return null;
 }
