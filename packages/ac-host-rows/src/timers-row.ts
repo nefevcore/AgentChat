@@ -71,6 +71,8 @@ export interface TimersHostRowOptions {
   timezone?: string;
   heartbeatMs?: number;
   agentsEdit?: EntriesEditFace;
+  /** 单次投递超时（缺省 30s；测试注小值——见 dispatchWithin） */
+  dispatchTimeoutMs?: number;
 }
 
 /** 持久化记账（meta/timer/state.json）。时刻字段一律纪元毫秒（数值）——
@@ -153,6 +155,19 @@ const DEFAULT_SOURCE_COOLDOWN = '5m';
 /** pull 兜底扫描地板（防兜底扫描风暴——§六防线表） */
 const PULL_FLOOR_MS = 10_000;
 
+/**
+ * 排程看门狗节拍（cr-1228）。任何一次「排程静默消失」都必须被一个与
+ * 排程链无关的独立节拍发现并重建——2026-11-22 现场：11:06~13:05 全量
+ * 停摆约 2 小时（audit 空白、fc 停在 49、nextAt 直接从 11:00 跳到 14:00），
+ * 而宿主进程存活、日志不断，无任何错误行。看门狗把此类静默死亡从
+ * 「直到重启」压到「至多一拍」。
+ */
+const WATCHDOG_MS = 60_000;
+/** 看门狗宽限：排程到期后这么多毫秒仍未触发才判「掉链」（覆盖正常抖动） */
+const WATCHDOG_GRACE_MS = 90_000;
+/** 单次投递超时（dispatch 内含无超时连接面——挂死会让整条链永久悬停） */
+const DISPATCH_TIMEOUT_MS = 30_000;
+
 /** 一次排程计划（source 触发不预排程——事件到达时现构） */
 interface FirePlan {
   due: number;
@@ -172,11 +187,16 @@ export class HostTimersService extends Service {
   private readonly agentsEdit: EntriesEditFace | undefined;
   private readonly baseTz: string;
   private readonly heartbeatMs: number;
+  private readonly dispatchTimeoutMs: number;
   private stateFile: string;
   private auditFile: string;
   private entriesByAgent = new Map<string, TimerEntry[]>();
   private schedules = new Map<string, () => void>();
   private scheduledDue = new Map<string, FirePlan>();
+  /** 在途投递（看门狗据此跳过——避免与正在跑的 fire 抢排程） */
+  private inFlight = new Set<string>();
+  /** 看门狗 interval dispose（自有 fiber） */
+  private watchdogDispose?: () => void;
   private heartbeatDispose?: () => void;
   private persisted = new Map<string, TimerPersistedState>();
   private nextAtMs = new Map<string, number>();
@@ -201,10 +221,14 @@ export class HostTimersService extends Service {
     this.po = options.postOffice;
     this.baseTz = options.timezone ?? DEFAULT_TZ;
     this.heartbeatMs = options.heartbeatMs ?? 30_000;
+    this.dispatchTimeoutMs = options.dispatchTimeoutMs ?? DISPATCH_TIMEOUT_MS;
     this.agentsEdit = options.agentsEdit;
     this.stateFile = path.join(this.dataRoot, 'meta', 'timer', 'state.json');
     this.auditFile = path.join(this.dataRoot, 'meta', 'timer', 'audit.jsonl');
-    ctx.fiber.effect(() => () => this.stopAll(), 'host-timers.stop');
+    ctx.fiber.effect(() => () => {
+      if (this.watchdogDispose !== undefined) { this.watchdogDispose(); this.watchdogDispose = undefined; }
+      this.stopAll();
+    }, 'host-timers.stop');
     this.ctx.on('source/updated', (p: { source: string; view: string; seq: number }) => {
       this.onSourceUpdated(p.source, p.view, p.seq);
     });
@@ -419,6 +443,7 @@ export class HostTimersService extends Service {
     }
     this.syncHeartbeat();
     this.syncPull();
+    this.startWatchdog();
   }
 
   private configEntries(): TimerEntry[] {
@@ -641,7 +666,8 @@ export class HostTimersService extends Service {
   preview(owner: string, entry: TimerEntry): { fires: Array<{ at: string; trigger: string; chained: boolean }> } {
     const now = Date.now();
     return {
-      fires: previewFires(entry, now, { tz: this.tzOf(owner), armedAt: now }).map((f) => ({
+      // cr-1225/ISSUE-23③：预览应用 gates——与运行期 fire 同一 resolver。
+      fires: previewFires(entry, now, { tz: this.tzOf(owner), armedAt: now }, 3, this.resolverOf(owner)).map((f) => ({
         at: localISO(new Date(f.at), this.tzOf(owner)),
         trigger: f.trigger.kind,
         chained: f.chained,
@@ -660,6 +686,63 @@ export class HostTimersService extends Service {
   // ============================================================
   // 哑排程引擎（arm → fire → re-arm 自续链）
   // ============================================================
+
+  /**
+   * 自有 fiber 的定时器（cr-1228）。**不再借 ctx.timeout()**：那是
+   * TimerService 的 effect，挂在 timer 行的 fiber 上（mixin 的 this.ctx
+   * 恒解析为服务自身 ctx）——timer 行一旦重载，宿主全域所有排程会被
+   * 静默清空，而本行的 schedules 表仍持有陈旧 dispose → 永不重排，
+   * 且无异常、无日志、进程存活（2026-11-22 现场形态）。挂到本行 fiber
+   * 上后，排程生命周期 = 本行生命周期，语义自洽。
+   */
+  private ownTimeout(fn: () => void, ms: number): () => void {
+    return this.ctx.effect(() => {
+      const timer = setTimeout(fn, Math.max(0, ms));
+      return () => clearTimeout(timer);
+    }, 'timers.schedule');
+  }
+
+  /** 自有 fiber 的周期节拍（心跳/源 pull/看门狗共用——同上理由） */
+  private ownInterval(fn: () => void, ms: number): () => void {
+    return this.ctx.effect(() => {
+      const timer = setInterval(fn, ms);
+      return () => clearInterval(timer);
+    }, 'timers.interval');
+  }
+
+  /**
+   * 排程看门狗（cr-1228 纵深防线）：与排程链完全独立的一拍，逐条目核对
+   * 「启用的时间触发条目必须有在途排程，且到期后宽限内必须已动手」。
+   * 不满足即重排并记 warn——静默死亡从此有界且可观测。
+   */
+  private startWatchdog(): void {
+    if (this.watchdogDispose !== undefined) return;
+    this.watchdogDispose = this.ownInterval(() => {
+      try { this.watchdogTick(); } catch (err) { this.ctx.logger.warn('[timers] 看门狗异常：' + String(err)); }
+    }, WATCHDOG_MS);
+  }
+
+  private watchdogTick(): void {
+    const now = Date.now();
+    const repaired: string[] = [];
+    for (const [owner, entries] of this.entriesByAgent) {
+      for (const entry of entries) {
+        if (entry.enabled === false) continue;
+        if (!entry.when.some((t) => isTimeTrigger(t))) continue; // 纯源条目归 pull/stale 面
+        const key = owner + '/' + entry.id;
+        if (this.inFlight.has(key)) continue;
+        const scheduled = this.scheduledDue.get(key);
+        if (scheduled !== undefined && scheduled.due > now - WATCHDOG_GRACE_MS) continue;
+        repaired.push(scheduled === undefined
+          ? key + '(缺排)'
+          : key + '(到期未动 ' + Math.round((now - scheduled.due) / 1000) + 's)');
+        this.arm(owner, entry);
+      }
+    }
+    if (repaired.length > 0) {
+      this.ctx.logger.warn('[timers] 看门狗补排 ' + repaired.length + ' 条：' + repaired.join('，'));
+    }
+  }
 
   private cancel(key: string): void {
     const dispose = this.schedules.get(key);
@@ -819,7 +902,7 @@ export class HostTimersService extends Service {
     const needPull = [...this.entriesByAgent.values()].some((entries) => entries.some((e) => e.enabled !== false && this.sourceTriggersOf(e).length > 0));
     if (needPull && this.pullDispose === undefined) {
       let lastSweep = 0;
-      this.pullDispose = this.ctx.interval(() => {
+      this.pullDispose = this.ownInterval(() => {
         const now = Date.now();
         if (now - lastSweep < PULL_FLOOR_MS) return;
         lastSweep = now;
@@ -917,7 +1000,7 @@ export class HostTimersService extends Service {
     const ctx = this.ctx;
     const need = this.schedules.size > 0;
     if (need && this.heartbeatDispose === undefined) {
-      this.heartbeatDispose = ctx.interval(() => {
+      this.heartbeatDispose = this.ownInterval(() => {
         try {
           this.persisted.set('_heartbeat', { heartbeatAt: localISO(undefined, this.baseTz) });
           this.saveState();
@@ -1021,13 +1104,27 @@ export class HostTimersService extends Service {
   private schedulePlan(key: string, owner: string, entry: TimerEntry, plan: FirePlan): void {
     const wait = Math.max(plan.due - Date.now(), 0);
     const relay = wait > MAX_TIMEOUT_MS;
-    const dispose = this.ctx.timeout(() => {
-      if (relay || Date.now() < plan.due - 1_000) {
-        // 中继刻度或时钟回拨：尚未到点——重算排程
-        this.arm(owner, entry);
-        return;
-      }
-      void this.fire(owner, entry, plan, false);
+    const dispose = this.ownTimeout(() => {
+      // 回调里任何异常都不得让链条静默断掉（cr-1228）：catch 后按退避重排，
+      // 并记 warn——「fire 抛错 → 无 re-arm → 该条目永久停摆」是本次事故
+      // 的同族风险面（fire 为 async，裸 void 调用会吞成 unhandled rejection）。
+      const guard = (): void => {
+        try {
+          if (relay || Date.now() < plan.due - 1_000) {
+            // 中继刻度或时钟回拨：尚未到点——重算排程
+            this.arm(owner, entry);
+            return;
+          }
+          void this.fire(owner, entry, plan, false).catch((err: unknown) => {
+            this.ctx.logger.warn('[timers] ' + key + ' 投递链异常，退避重排：' + String(err));
+            if (this.schedules.has(key)) return;
+            this.schedules.set(key, this.ownTimeout(() => this.arm(owner, entry), BACKOFF_STEPS_MS[0]));
+          });
+        } catch (err) {
+          this.ctx.logger.warn('[timers] ' + key + ' 排程回调异常：' + String(err));
+        }
+      };
+      guard();
     }, Math.min(wait, MAX_TIMEOUT_MS));
     this.schedules.set(key, dispose);
     this.scheduledDue.set(key, plan);
@@ -1045,6 +1142,18 @@ export class HostTimersService extends Service {
    * 投递失败走退避重试（at-least-once 由邮局 outbox 承担，此处防死循环）。
    */
   private async fire(owner: string, entry: TimerEntry, plan: FirePlan, manual: boolean): Promise<void> {
+    const key = `${owner}/${entry.id}`;
+    // 在途标记（cr-1228）：看门狗据此跳过正在跑的条目（否则会在投递窗口内
+    // 抢着补排，导致同一刻度双投）。
+    this.inFlight.add(key);
+    try {
+      await this.fireInner(owner, entry, plan, manual);
+    } finally {
+      this.inFlight.delete(key);
+    }
+  }
+
+  private async fireInner(owner: string, entry: TimerEntry, plan: FirePlan, manual: boolean): Promise<void> {
     const key = `${owner}/${entry.id}`;
     this.schedules.delete(key);
     this.scheduledDue.delete(key);
@@ -1073,8 +1182,10 @@ export class HostTimersService extends Service {
       return;
     }
 
-    // 投递（手动触发跳过会话存活门——诊断面语义）
-    const ok = await this.dispatch(owner, entry, key);
+    // 投递（手动触发跳过会话存活门——诊断面语义）。cr-1228：包一层超时——
+    // dispatch 内部含无超时的连接面（client.connect），挂死会让整条排程链
+    // 永久悬停（无 audit / 无日志 / 进程存活），与本行其余静默面同型。
+    const ok = await this.dispatchWithin(owner, entry, key);
     if (!ok) {
       this.retryDispatch(key, owner, entry, plan, manual, stillArmed);
       return;
@@ -1105,7 +1216,7 @@ export class HostTimersService extends Service {
     }
     if (!stillArmed()) return;
     const wait = BACKOFF_STEPS_MS[Math.min(streak - 1, BACKOFF_STEPS_MS.length - 1)];
-    const dispose = this.ctx.timeout(() => void this.fire(owner, entry, plan, manual), wait);
+    const dispose = this.ownTimeout(() => void this.fire(owner, entry, plan, manual), wait);
     this.schedules.set(key, dispose);
     this.syncHeartbeat();
   }
@@ -1149,6 +1260,19 @@ export class HostTimersService extends Service {
       if (fs.existsSync(path.join(this.dataRoot, 'agents', agentId, 'sessions', cid))) return true;
     }
     return false;
+  }
+
+  /** 有界投递（cr-1228）：超时按失败处置（走退避重试，不悬停） */
+  private async dispatchWithin(owner: string, entry: TimerEntry, key: string): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<boolean>((resolve) => {
+      timer = setTimeout(() => resolve(false), this.dispatchTimeoutMs);
+    });
+    try {
+      return await Promise.race([this.dispatch(owner, entry, key), timeout]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   /** 唤醒信投递（投递面 v2 原样：机制任务直调 / 邮局信封）；false = 失败 */

@@ -620,3 +620,81 @@ describe('timers 行 entries 单写者收口（cr-551）', () => {
     }
   });
 });
+
+describe('cr-1228 排程静默死亡防线（2026-11-22 现场：11:06~13:05 全量停摆 2h，宿主存活）', () => {
+  it('看门狗补排：排程凭空消失（无 dispose 调用、无日志）→ 一拍内重建并继续投递', async () => {
+    seedAgent('alpha', [{ id: 'q', enabled: true, when: [{ kind: 'every', iv: '2s' }], action: { text: 'tick' } }]);
+    const h = await boot();
+    try {
+      const key = 'alpha/q';
+      const internals = h.timers as unknown as {
+        schedules: Map<string, () => void>;
+        scheduledDue: Map<string, unknown>;
+        watchdogTick(): void;
+      };
+      expect(internals.schedules.has(key)).toBe(true);
+      // 复刻现场：排程被外部清空（timer 服务 fiber 重载即此形态），而本行
+      // 的 schedules 表未同步——旧实现在这种状态永不重排。
+      internals.schedules.delete(key);
+      internals.scheduledDue.delete(key);
+      // 不调用 cancel（那会走正常链路），直接让看门狗发现「缺排」
+      internals.watchdogTick();
+      expect(internals.schedules.has(key)).toBe(true);
+      // 补排后照常投递
+      await wait(2_600);
+      expect(h.received.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
+  it('看门狗补排：排程到期却未动手（过期超宽限）→ 判掉链并重排', async () => {
+    seedAgent('alpha', [{ id: 'q', enabled: true, when: [{ kind: 'every', iv: '30m' }], action: { text: 'tick' } }]);
+    const h = await boot();
+    try {
+      const key = 'alpha/q';
+      const internals = h.timers as unknown as {
+        schedules: Map<string, () => void>;
+        scheduledDue: Map<string, { due: number }>;
+        watchdogTick(): void;
+      };
+      // 伪造「排程在表但早已过期、且早已不可能是活的」——现场形态
+      internals.scheduledDue.set(key, { due: Date.now() - 600_000 } as never);
+      internals.watchdogTick();
+      const due = internals.scheduledDue.get(key);
+      expect(due).toBeDefined();
+      expect(due!.due).toBeGreaterThan(Date.now() - 60_000); // 已重算为未来/近期刻度
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
+  it('投递超时：dispatch 挂死不再悬停整条链，按失败走退避重试', async () => {
+    seedAgent('alpha', [{ id: 'h', enabled: true, when: [{ kind: 'once', at: new Date(Date.now() + 80).toISOString() }], action: { text: 'hi' } }]);
+    const po = new PostOffice({ dataRoot: ROOT });
+    // 挂死面：dispatch 返回永不 settle 的 Promise（对应 client.connect 无超时）
+    (po as unknown as { dispatch: () => Promise<unknown> }).dispatch = () => new Promise(() => {});
+    const ctx = new Context();
+    const f1 = ctx.plugin(TimerService);
+    const f2 = ctx.plugin(class extends ConfigService {
+      constructor(c: Context) { super(c, { root: ROOT }); }
+    });
+    const f3 = ctx.plugin(makeTimersHostRow({ dataRoot: ROOT, postOffice: po, heartbeatMs: 50, dispatchTimeoutMs: 80 }));
+    await Promise.all([f1, f2, f3]);
+    try {
+      const timers = (ctx as unknown as { timers: HostTimersService }).timers;
+      const internals = timers as unknown as {
+        lastError: Map<string, { streak: number }>;
+        schedules: Map<string, () => void>;
+      };
+      await wait(700);
+      const err = internals.lastError.get('alpha/h');
+      expect(err).toBeDefined();
+      expect(err!.streak).toBeGreaterThanOrEqual(1); // 超时按失败处置（旧实现此处永久悬停）
+      expect(internals.schedules.has('alpha/h')).toBe(true); // 退避重试已排
+    } finally {
+      for (const f of [f3, f2, f1].reverse()) await f.dispose();
+      await po.close();
+    }
+  }, 20_000);
+});
