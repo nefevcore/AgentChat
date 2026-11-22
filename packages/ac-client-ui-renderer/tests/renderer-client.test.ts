@@ -186,6 +186,31 @@ http://example.com
     expect(greedy).toContain('<th>a</th>');
   });
 
+  // ---- cr-1210：CJK 可断 + 列级浓度阈值（中文散文列不再误封顶）----
+  it('table：中文散文夹代码标识符 → 长串被 CJK 稀释，浓度 <60% 不 clamp', async () => {
+    const { useMarkdown } = await import('../client/useMarkdown.ts');
+    const { render } = useMarkdown();
+    // cr-1210 实测误判场景复刻：改动列是中文长散文，夹 reservedPluginNameError() 等
+    // 标识符——旧判定（任一长 token）整列封顶致表格 356px 缩在 547px 气泡里
+    const html = render(['| 文件 | 改动 |',
+      '| --- | --- |',
+      '| manifest.ts | 拒绝文案抽 reservedPluginNameError() 单源导出（validate 臂改调用，字面不变） |',
+      '| pkg.ts | 核心改 readPluginPackage 读臂补 isReservedPluginName 后抛出——admissionOf 门禁收口 |',
+      '| 测试 ×4 | 官方名 fixture 全数改第三方名（ac-plugin-todo→dev-plugin-todo 等） |'].join('\n'));
+    expect(html).not.toContain('md-col-clamp');
+  });
+
+  it('table：纯长 token 列浓度 ≥60% 仍 clamp（判定收紧不回归贪婪列）', async () => {
+    const { useMarkdown } = await import('../client/useMarkdown.ts');
+    const { render } = useMarkdown();
+    const html = render(['| 项 | 值 |',
+      '| --- | --- |',
+      '| 文档 | https://example.com/a/very/long/path/with/many/segments?q=1 |',
+      '| 接口 | https://api.internal.example.com/v2/endpoint?filter=created_after%3D2024-01-01 |'].join('\n'));
+    expect(html).toContain('<th class="md-col-clamp">值</th>');
+    expect(html).toContain('<th>项</th>');
+  });
+
   // ---- 本地图片 src 重写（cr-1005：多模态下行表达力）----
   it('image：workspace 本地路径 → /api/workspace/raw 直链（files/ 前缀与绝对路径）', async () => {
     const { useMarkdown } = await import('../client/useMarkdown.ts');

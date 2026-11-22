@@ -226,23 +226,34 @@ function renderFrontmatterBlock(yamlText: string): string {
     return `<table class="md-frontmatter"><tbody>${rows.join('')}</tbody></table>`;
 }
 
-/** cr-1183：超长不可断 token 判定（≥25 连续非空白——URL/哈希/长路径） */
-const TABLE_LONG_TOKEN_RE = /[^\s]{25,}/;
+/** cr-1210：超长不可断 token 判定（≥25 连续「类 ASCII 词」字符——URL/哈希/路径）。
+ *  CJK/全角不在字符类内：中文每字皆可断行，不构成不可断 token——中文夹
+ *  标识符的散文句不会整句误命中（cr-1183 的 [^\s]{25,} 对中文系统性过敏） */
+const TABLE_LONG_TOKEN_RE = /[\w$@./:#?&=%+~,-]{25,}/;
 
-/** 单元格 inline children 是否含超长 token（text/code_inline 均查；
- *  softbreak 已把跨行串切成段，天然不误判。children 可能缺席（空单元格） */
-function cellHasLongToken(children?: any[]): boolean {
+/** 单元格 inline children 的长 token 统计：返回 [长 token 字符数, 总字符数]。
+ *  text/code_inline 均查；softbreak 已把跨行串切成段，天然不误判跨行长文 */
+function cellLongTokenStats(children?: any[]): [number, number] {
+    let longChars = 0;
+    let totalChars = 0;
     for (const c of children ?? []) {
-        if ((c.type === 'text' || c.type === 'code_inline') && TABLE_LONG_TOKEN_RE.test(c.content)) return true;
+        if (c.type === 'text' || c.type === 'code_inline') {
+            totalChars += c.content.length;
+            for (const m of c.content.match(TABLE_LONG_TOKEN_RE) ?? []) longChars += m.length;
+        }
     }
-    return false;
+    return [longChars, totalChars];
 }
 
-/** cr-1183 列级分类：前瞻本表 token 树，任一单元格（含表头）含超长
- *  token 的列 → clamp（auto 布局按 max-content 比例分宽，长串列会吃光
- *  表宽饿死其他列；break-word 只影响 min-content 治不了贪婪，须封顶） */
+/** cr-1183/1210 列级分类：前瞻本表 token 树。clamp = 列内长 token 字符占
+ *  总字符 ≥60%（真贪婪列：URL/SHA 列浓度 90~100%，散文列 <45%）；任一
+ *  长 token 就整列封顶会误伤中文散文列（cr-1210 实测教训）。auto 布局按
+ *  max-content 比例分宽，真贪婪列吃光表宽饿死其他列，须封顶 */
+const TABLE_CLAMP_DENSITY = 0.6;
+
 function detectClampColumns(tokens: any[], tableOpenIdx: number): boolean[] {
-    const clamp: boolean[] = [];
+    const longOf: number[] = [];
+    const totalOf: number[] = [];
     let col = 0;
     for (let i = tableOpenIdx + 1; i < tokens.length; i++) {
         const t = tokens[i];
@@ -250,11 +261,15 @@ function detectClampColumns(tokens: any[], tableOpenIdx: number): boolean[] {
         if (t.type === 'tr_open') { col = 0; continue; }
         if (t.type === 'th_open' || t.type === 'td_open') {
             const inlineTok = tokens[i + 1];
-            if (inlineTok?.type === 'inline' && cellHasLongToken(inlineTok.children)) clamp[col] = true;
+            if (inlineTok?.type === 'inline') {
+                const [longChars, totalChars] = cellLongTokenStats(inlineTok.children);
+                longOf[col] = (longOf[col] ?? 0) + longChars;
+                totalOf[col] = (totalOf[col] ?? 0) + totalChars;
+            }
             col++;
         }
     }
-    return clamp;
+    return longOf.map((v, i) => totalOf[i] > 0 && v / totalOf[i] >= TABLE_CLAMP_DENSITY);
 }
 
 /**

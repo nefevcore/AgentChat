@@ -312,11 +312,12 @@
     border-bottom: none;
 }
 
-/* ── cr-1183 贪婪列封顶：渲染器按列内容分类（任一单元格含 ≥25 连续非
-   空白 token——URL/SHA/长路径）的列标 md-col-clamp。auto 布局按
-   max-content 比例分宽，这类列会吃光表宽饿死其他列（break-word 只影响
-   min-content，治不了贪婪）。封顶 + anywhere 允许 token 内断行，实测
-   720px 容器贪婪列 643px → 286px（20em），短列恢复可读宽。── */
+/* ── cr-1183/1210 贪婪列封顶：渲染器按列内容分类——列内「≥25 连续类
+   ASCII 词字符」的长 token 占总字符 ≥60%（URL/SHA 列 90~100%，中文
+   散文列 <45%）才标 md-col-clamp。auto 布局按 max-content 比例分宽，
+   真贪婪列会吃光表宽饿死其他列（break-word 只影响 min-content，治不了
+   贪婪）。封顶 + anywhere 允许 token 内断行，实测 720px 容器贪婪列
+   643px → 286px（20em），短列恢复可读宽。── */
 .markdown-body th.md-col-clamp {
     max-width: 20em;
 }
