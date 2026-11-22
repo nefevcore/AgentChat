@@ -1230,4 +1230,5 @@
 - 【cr-1209 2026-11-22 agents/delete 会话面级联（D1：硬删全部——meta/sessions 元数据 + 对端 agent 副本 + 群名册移除与成员流清理 + 会话快照）】
 - 【cr-1210 2026-11-22 markdown 表格 clamp 判定修正——CJK 可断字符不计长 token，列级浓度阈值防散文列误封顶】
 - 【cr-1211 2026-11-22 测试根轮次隔离：vitest 每轮独立 test-run-<pid> 根 + 死轮残根 GC（根治多会话并发测试 EPERM 互踩）】
+- 【cr-1212 2026-11-22 心跳三档残余核查与清理：system-heartbeat 证实现行（supervisor 触碰/host-revive 消费）不清理；timer 旧位读侧回落按 cr-1081 防御面保留，兼容窗过渡注释兑现收口】
 
