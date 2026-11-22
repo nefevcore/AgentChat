@@ -754,7 +754,14 @@ export class ArchiveShellService extends Service {
       // 超回收阈（shadowed tokens > keep 水位 × 2）才搬尸骸；未超 = shadowed
       // 行留主日志（回放已滤，不占上下文），下次触发再评估。
       const budgetsNow = this.budgetsFor(uuid);
-      const shadowedEst = archivedOriginal.reduce((n, r) => n + estimateReplayTokens([r as never], this.agentId), 0);
+      // cr-1229：阴影体量必须按**归档集全量**（含轨迹伪行）计量。原实现只加
+      // archivedOriginal（真行）逐行体积——v2 事件行的 content 多为空，体积
+      // 全在伪行 steps 上，于是系统性低估：admin~admin 实测真行合计 23,210
+      // vs 闸 24,000（差 790 就永远搬不动），而含伪行的真实阴影量 887,541
+      // ——低估 38 倍。后果不只是「不回收」：字节恒超 ledger-bytes 阈值 ⇒
+      // 每 run 收束都重新触发一次完整归档编排（整理轮 LLM run + 落事件），
+      // 越归档越臃肿。与 cr-1214 是同一族的第三处（估算漏轨迹）。
+      const shadowedEst = split.archive.reduce((n, r) => n + replayTokensOf(r as never, this.agentId), 0);
       if (shadowedEst <= keepBudgetOf(budgetsNow) * 2) return archivedOriginal.length; // 未超回收阈——只落事件（行已逻辑 shadow，回放排除）
       if (archivedOriginal.length === 0) return 0; // 零移出（尾部水位未越）——只滚摘要
       // 尾部保留 = 引用不在归档集的行 + compaction 事件行（永留主日志——

@@ -511,6 +511,50 @@ describe('archive 行（cr-1189 V3）', () => {
     }
   }, 20_000);
 
+  it('cr-1229：物理回收闸的阴影体量必须含轨迹伪行——否则「落边界但永不搬段」', async () => {
+    // 现场（admin~admin）：v2 事件行 content 多为空，体积全在伪行 steps 上。
+    // 原实现只加真行逐行体积：237 行合计 23,210 vs 闸 24,000（差 790 永远
+    // 搬不动），而含伪行的真实阴影量 887,541——低估 38 倍。后果不止不回收：
+    // 字节恒超 ledger-bytes 阈值 ⇒ 每次 run 收束都重新触发完整归档编排。
+    // 预算取 1M：keep 水位 30,000、回收闸 60,000——必须让「真行体积 ~0」
+    // 与「含伪行真实体积 ~9 万」跨在闸两侧，用例才具备区分力（首版用 1000
+    // 预算使闸降到 60 token，请求行本身就越线，旧实现照样回收 → 假绿）。
+    seedAgent('xi', { archive: { maxContextTokens: 1_000_000, archiveTokenRatio: 0.5, keepRecentRatio: 0.03 } });
+    const h = await bootShellRows('xi', { digestText: null });
+    try {
+      const dir = path.join(ROOT, 'agents', 'xi', 'sessions', 'user~xi');
+      fs.mkdirSync(dir, { recursive: true });
+      const lines: string[] = [
+        JSON.stringify({ type: 'session-header', version: 2, createdAt: new Date().toISOString(), participants: ['xi', 'user'], kind: 'agent-pair' }),
+      ];
+      // 真行 content 全空（体积 = 0）——只有 seq/ts 骨架
+      for (let i = 1; i <= 40; i++) {
+        lines.push(JSON.stringify({ type: 'message', role: 'agent', content: '', agent_id: 'xi', message_id: 'm-' + i, timestamp: new Date(2026, 0, 1, 0, 0, i).toISOString(), seq: i }));
+      }
+      // 轨迹伪行承载真正体积：一个 run 的 steps 里塞大文本
+      const steps: Array<Record<string, unknown>> = [];
+      for (let k = 0; k < 100; k++) steps.push({ content: 'z'.repeat(3000), toolCalls: [] });
+      lines.push(JSON.stringify({ type: 'step/content', run: 'r-big', step: 1, text: 'z'.repeat(3000), ts: new Date(2026, 0, 1, 0, 0, 20).getTime(), seq: 20 }));
+      lines.push(JSON.stringify({ type: 'run-end', run: 'r-big', finish: 'completed', ts: new Date(2026, 0, 1, 0, 0, 21).getTime(), seq: 21 }));
+      // journal 提供该 run 的完整步事实（foldStepsOf 合成带体积的伪行）
+      fs.mkdirSync(path.join(dir, 'journal'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'journal', 'partials.jsonl'), steps.map((s, i) => JSON.stringify({
+        type: 'journal-step', run: 'r-big', step: i + 2, ts: new Date(2026, 0, 1, 0, 0, 20).getTime(), ...s,
+      })).join('\n') + '\n', 'utf-8');
+      fs.writeFileSync(path.join(dir, 'messages.jsonl'), lines.join('\n') + '\n', 'utf-8');
+      await h.archive.requestArchive('user~xi');
+      // 物理回收发生（旧实现：真行体积 0 → 恒不回收，无 archive 目录）
+      const archiveDir = path.join(dir, 'archive');
+      expect(fs.existsSync(archiveDir)).toBe(true);
+      const segs = fs.readdirSync(archiveDir).filter((n) => /^history_\d+\.jsonl(\.gz)?$/.test(n));
+      expect(segs.length).toBeGreaterThanOrEqual(1);
+      // 边界照落
+      expect(readLedger(dir).rows.filter((r) => (r as { type?: string }).type === 'compaction').length).toBe(1);
+    } finally {
+      await h.dispose();
+    }
+  }, 20_000);
+
   it('cr-1206③：账本字节硬上限触发器——估算面看不到的行型（未知 type 大载荷）也能触发归档', async () => {
     // token 估算是启发式：任何未被估算面覆盖的行型都会让它系统性偏低。
     // 字节硬上限（thresholds × 8 字节/token）是兜底事实面。
