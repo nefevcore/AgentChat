@@ -281,7 +281,11 @@ export class HostTimersService extends Service {
 
   private layerOf(owner: string): TimerLayerSettings {
     const agent = owner === GLOBAL_TIMER_OWNER ? null : readAgentConfig(this.dataRoot, owner);
-    const globalSettings = this.configService()?.get<Record<string, unknown>>('agents.settings') ?? {};
+    // cr-1202：全局层键对齐主线合成口（ac-agents settingsOf 读顶层 'settings'
+    // ——config.json 全局默认层；cr-1147 起此处误读 'agents.settings' 死键，
+    // 全局层 timezone/holidays 恒不生效）。每现查不缓存——config/changed 后
+    // 新值即生效（订阅刷新模式，与 ConfigService 订阅刷新语义同源）。
+    const globalSettings = this.configService()?.get<Record<string, unknown>>('settings') ?? {};
     const s = settingsOf(globalSettings, agent?.settings, 'timers') as TimerLayerSettings | undefined;
     if (s && typeof s === 'object' && !Array.isArray(s)) return s;
     return {};

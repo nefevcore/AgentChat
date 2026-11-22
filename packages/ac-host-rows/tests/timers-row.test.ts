@@ -284,6 +284,25 @@ describe('源视图授权闸（cr-1166）', () => {
 });
 
 describe('宿主 timers 行（v3 哑触发层）', () => {
+  it('cr-1202 全局层时区：config.json settings.timers.timezone → tzOf 生效（死键 agents.settings 修复锁）', async () => {
+    // 锁定链路：config.json 顶层 settings 域（ac-agents settingsOf 同键）→
+    // timers-row 全局层 → 条目 tz。旧死键 'agents.settings' 形态写盘必须无效。
+    fs.writeFileSync(path.join(ROOT, 'config.json'), JSON.stringify({
+      settings: { timers: { timezone: 'Asia/Tokyo' } },
+      agents: { settings: { timers: { timezone: 'Mars/Olympus' } } }, // 死键形态——不得生效
+    }, null, 2), 'utf-8');
+    const h = await boot();
+    try {
+      const tz = (h.timers as unknown as { tzOf: (o: string) => string }).tzOf('alpha');
+      expect(tz).toBe('Asia/Tokyo');
+      // 现查语义：set 后新值立即可见（前端改配置即生效——无需重启）
+      h.ctx.config.set('settings.timers.timezone', 'America/New_York');
+      expect((h.timers as unknown as { tzOf: (o: string) => string }).tzOf('alpha')).toBe('America/New_York');
+    } finally {
+      await h.dispose();
+    }
+  });
+
   it('once 到点 → 唤醒信投递（对角线缺省 + 记账/审计）', async () => {
     seedAgent('alpha', [onceNear(1_500)]);
     const h = await boot();
