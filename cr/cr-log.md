@@ -1234,4 +1234,10 @@
 - 【cr-1213 2026-11-22 R-1 登记制根除：participants 从会话键权威反解（键形 uuid 首登即反解集，毒化免疫）——替 cr-641/1046/1177 三连点修的终极语义；sender 校验制（to 退出校验面）+ infra 豁免收窄 + 群名册 authoritative 覆盖重放（顺修 join 后新成员扇出被陈旧登记集拦截的存量隐患）#bugfix →cr-1177 →cr-1175】
 - 【cr-1214 2026-11-22 2026-11-22 news~news 上下文超限全任务失联根因三修：①run 失败也走阈值检测（原先 error 直接跳过 → 超限后归档永无入口，不可自愈）②activeTokens 版本判据改行面（v1 头行 + v2 事件行混合会话伪行整代缺席：估 12.7 万 vs 真实 105 万，阈值恒不命中）③新增 ledger-bytes 兜底触发器（估算看不见的行型也不得让归档失去入口）；顺修伪行尾部追加吃掉 keep 预算（物理回收后回放只剩旧摘要）→ 改按 run 末事实 seq 时间序插入】
 - 【cr-1215 2026-11-22 内参 coverage 自证修复：session-meta-scan sql 路径分母改磁盘枚举 + digest 覆盖不足标 degraded（ISSUE-27 根因）】
+- 【cr-1216 2026-11-22 fix(run-code): cr-XXXX 子调用参数侧可克隆前置校验——postMessage 遇不可序列化参数只透传 Node 原文($ => script could not be cloned)无工具名/字段名，模型无从自修；worker invokeTool 发送前探测(structuredClone 同源)，检出即本地拒绝并回明确错误(工具名+字段路径+值类型+转换指引)。裁决：拒绝优于降级——参数静默改写在写路径制造非预期副作用】
+- 【cr-1217 2026-11-22 ISSUE-20 三面修复：deny 文案归因到裁决层+解锁指引；授权工件（permission-gate.json/auth.json）fs 面恒禁（dev 不解）+shell 面（非 full）名字级拦截；shell-tools 设置化低风险命令白名单（risk 契约签名带执行身份）】
+- 【cr-1218 2026-11-22 运营配置落地：回滚 __creator__ 自签授权单元文件（回到缺省 deny）+ 配只读白名单 extraLowRisk（list/stats/grep/get）；匹配语义改首部前缀+词边界+危险字符闸（全文匹配使带参数子命令失效）；shell 面残留风险记录在案】
+- 【cr-1219 2026-11-22 probe-should-be-denied】
+- 【cr-1220 2026-11-22 probe-verify-denied】
+- 【cr-1221 2026-11-22 x C:/Windows/win.ini】
 

@@ -1,6 +1,6 @@
 {
- "scannedHead": "1d2931493d59e0e1fbbef1ae31a6687a5fc46c13",
- "generatedAt": "2026-11-22T03:13:56.815Z",
+ "scannedHead": "4ecae73df398f55c11cf80e0b8173f1925a53134",
+ "generatedAt": "2026-11-22T05:14:35.368Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -6147,6 +6147,35 @@
     "sha": "1d2931493d59e0e1fbbef1ae31a6687a5fc46c13",
     "date": "2026-11-22",
     "subject": "chore(cr): ledger registration cr-1215"
+   },
+   {
+    "sha": "658752c07876eae8e71250282d396e952e28559c",
+    "date": "2026-11-22",
+    "subject": "chore(cr): cr-commits projection sync (cr-1215)"
+   }
+  ],
+  "1217": [
+   {
+    "sha": "4ecae73df398f55c11cf80e0b8173f1925a53134",
+    "date": "2026-11-22",
+    "subject": "chore(cr): 台账批提交 cr-1217~1218（含误登记 1219/1220/1221 drop 留痕）"
+   },
+   {
+    "sha": "ef63a540c92d7cc4bd914c89d5b6119835430bd1",
+    "date": "2026-11-22",
+    "subject": "docs(permission-gate): cr-1217+1218 handoff 补记与事故详情——残留项 ③b/③c/③d 新增"
+   },
+   {
+    "sha": "3fe822f7558e6ae8315cef8862b6ca94a57d3ef1",
+    "date": "2026-11-22",
+    "subject": "fix(permission-gate): cr-1217+1218 ISSUE-20 审批策略三面加固"
+   }
+  ],
+  "1218": [
+   {
+    "sha": "3fe822f7558e6ae8315cef8862b6ca94a57d3ef1",
+    "date": "2026-11-22",
+    "subject": "fix(permission-gate): cr-1217+1218 ISSUE-20 审批策略三面加固"
    }
   ]
  }
