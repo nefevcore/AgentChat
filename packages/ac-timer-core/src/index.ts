@@ -320,10 +320,21 @@ function anchorEpoch(t: EveryTrigger, now: number, ctx: DeriveCtx): number {
  */
 export function nextGridMs(t: TimeTrigger, now: number, ctx: DeriveCtx): number {
   const jitterMs = t.kind === 'every' && t.jitter !== undefined ? parseInterval(t.jitter)! : 0;
-  const grid = nextGridStrict(t, now, ctx);
+  let grid = nextGridStrict(t, now, ctx);
   if (jitterMs === 0) return grid;
+  // cr-1231 同刻度重投：抖动负偏把投递点推到**刻度之前**，此刻 now 仍早于该
+  // 刻度——投递完重算时 nextGridStrict 又返回同一个刻度，于是同一刻被反复
+  // 投递。真机（neko t-pofx4t，every 7h30m + jitter 2h15m）一个刻度投了 5
+  // 次：06:29:34×2 + 07:00:04 + 07:01:10×2；另有 15:00 刻度在 13:13:48
+  // （−106min）与 15:48:09（+48min）各投一次。判据：lastFiredAt 落在本刻度
+  // 的抖动窗内 ⇒ 该刻度已消费，取下一格。
+  const lf = ctx.lastFiredAt;
+  if (lf !== undefined && Math.abs(lf - grid) <= jitterMs) grid = nextGridStrict(t, grid, ctx);
   const rand = ctx.rand ?? Math.random;
-  return grid + Math.floor(rand() * (2 * jitterMs)) - jitterMs;
+  const cand = grid + Math.floor(rand() * (2 * jitterMs)) - jitterMs;
+  // 绝不给过去值：schedulePlan 以 max(due−now, 0) 为等待时长，过去值 = wait 0
+  // 立即投递，与上一条叠成同秒双投。越界退化为刻度本身（仍严格在未来）。
+  return cand > now ? cand : grid;
 }
 
 function nextGridStrict(t: TimeTrigger, now: number, ctx: DeriveCtx): number {
@@ -408,18 +419,41 @@ export interface PreviewFire { at: number; trigger: TimeTrigger; chained: boolea
  * 无推进可言）、until.count 截断（只到终结前的投递点）、once/date 已过
  * 终结的条目给空列——预览不可当语义证据，但至少不说谎。
  */
-export function previewFires(entry: TimerEntry, now: number, ctx: DeriveCtx, n = 3): PreviewFire[] {
+export function previewFires(
+  entry: TimerEntry,
+  now: number,
+  ctx: DeriveCtx,
+  n = 3,
+  resolver: { isWorkday(date: Date): boolean } = alwaysWorkday,
+): PreviewFire[] {
   const cap = entry.until !== undefined && 'count' in entry.until ? Math.min(n, entry.until.count) : n;
   const out: PreviewFire[] = [];
   const virtual: DeriveCtx = { ...ctx };
+  // 每触发器已消费基点（缺省全局 now；仅胜出触发器推进——未胜出者的
+  // 下一刻在下轮重新提名，与原全局 now 推进语义等价）。cr-1225/ISSUE-23③：
+  // gates 过滤在提名内完成——被门挡的刻度就地跳过续找，预览不说谎。
+  // SKIP_LIMIT 防病态 gates（如 hours 全天无窗）无限推进。
+  const SKIP_LIMIT = 400;
+  const consumed = new Map<TimeTrigger, number>();
   for (let k = 0; k < cap; k++) {
     let best: PreviewFire | undefined;
     for (const t of entry.when) {
       if (!isTimeTrigger(t)) continue;
-      const at = nextGridStrict(t, now, virtual);
       // once 推进无意义（下一刻恒同值）——首次入列后出局，不参与后续轮
       if (t.kind === 'once' && out.some((f) => f.trigger === t)) continue;
       const chained = t.kind === 'every' && (t.base ?? 'wall') === 'after-last';
+      const base = consumed.get(t) ?? now;
+      let at = nextGridStrict(t, base, virtual);
+      // gates 不命中的刻度跳过续推（与运行期 fire 前 gatesPass 判定同语义；
+      // 推进只写局部变量——未胜出不落 consumed，下轮从 base 重新提名）。
+      // SKIP_LIMIT 耗尽仍不满足（hours 窗外恒挡的 daily 等）= 该触发器
+      // 本轮无点可提名——预览不出列，不说谎。
+      let gatesBlocked = false;
+      for (let skipped = 0; !gatesPass(entry.gates, at, ctx.tz, resolver); skipped++) {
+        if (skipped >= SKIP_LIMIT) { gatesBlocked = true; break; }
+        at = nextGridStrict(t, at, virtual);
+      }
+      if (gatesBlocked) continue;
       // 未来点才可期：过期 once（missed skip 语义）无点可给；after-last 链式
       // 例外——链到期即投（max(lastFired, armedAt)+iv 可为过去，是运行语义）
       if (!chained && at <= now) continue;
@@ -429,10 +463,13 @@ export function previewFires(entry: TimerEntry, now: number, ctx: DeriveCtx, n =
     out.push(best);
     // 虚拟推进：把命中的触发器推到下一刻（链式按 lastFired 推进）
     if (best.chained) virtual.lastFiredAt = best.at;
-    else now = best.at;
+    else consumed.set(best.trigger as TimeTrigger, best.at);
   }
   return out;
 }
+
+/** 缺省 resolver（无 gates 语义时无需节假日表——gatesPass 对 undefined/空 gates 恒 true） */
+const alwaysWorkday = { isWorkday: (): boolean => true };
 
 // ============================================================
 // match v1 算子（源触发配套；timers 行同步求值，微秒级）

@@ -77,6 +77,32 @@ describe('nextGridMs（墙钟网格推导）', () => {
     expect(nextGridMs(t, NOW, ctx({ rand: () => 1 }))).toBe(iso('2026-11-17T09:35:00+08:00'));
     expect(nextGridMs(t, NOW, ctx({ rand: () => 0.5 }))).toBe(iso('2026-11-17T09:30:00+08:00'));
   });
+  it('cr-1231①：抖动负偏不得把投递点推到过去（过去值 = wait 0 立即投递）', () => {
+    const t = { kind: 'every', iv: '30m', jitter: '5m' } as const;
+    // now 距网格（09:30）仅 1 分钟，rand=0 的候选是 09:25（过去）→ 退化为刻度本身
+    const near = iso('2026-11-17T09:29:00+08:00');
+    expect(nextGridMs(t, near, ctx({ rand: () => 0 }))).toBe(iso('2026-11-17T09:30:00+08:00'));
+    // 正常情形（候选仍在未来）不退化——语义未被压扁
+    expect(nextGridMs(t, NOW, ctx({ rand: () => 0 }))).toBe(iso('2026-11-17T09:25:00+08:00'));
+  });
+  it('cr-1231②：同一刻度不得重复投递（负偏投递后重算仍指同一刻度）', () => {
+    // 真机面复刻：neko t-pofx4t = every 7h30m + jitter 2h15m；
+    // 13:13:48 对 15:00 刻度负偏投递（−106min），重算又指回 15:00 → 15:48:09 再投一次。
+    const t = { kind: 'every', iv: '7h30m', jitter: '2h15m' } as const;
+    const fired = iso('2026-11-21T13:13:48+08:00');
+    const next = nextGridMs(t, fired, ctx({ lastFiredAt: fired, rand: () => 0.5, armedAt: iso('2026-11-20T00:00:00+08:00') }));
+    // 15:00 刻度已在 13:13:48 消费 → 下一刻度 22:30（rand 0.5 正中）
+    expect(next).toBe(iso('2026-11-21T22:30:00+08:00'));
+    // 反证：若不带 lastFiredAt（全新条目），同一 now 应仍指向 15:00 刻度
+    expect(nextGridMs(t, fired, ctx({ rand: () => 0.5, armedAt: iso('2026-11-20T00:00:00+08:00') })))
+      .toBe(iso('2026-11-21T15:00:00+08:00'));
+  });
+  it('cr-1231③：正常晚投不误跳下一格（抖动窗判别不得吞掉正常节奏）', () => {
+    const t = { kind: 'every', iv: '30m', jitter: '5m' } as const;
+    // 09:30 刻度已在 09:32 投出（+2min 晚投）→ 下一格应是 10:00，不得跳到 10:30
+    const fired = iso('2026-11-17T09:32:00+08:00');
+    expect(nextGridMs(t, fired, ctx({ lastFiredAt: fired, rand: () => 0.5 }))).toBe(iso('2026-11-17T10:00:00+08:00'));
+  });
 });
 
 describe('lastDueMs（catchup-once 判据：≤now 且 >lastFired）', () => {
@@ -144,6 +170,25 @@ describe('previewFires（静态预览）', () => {
     const fires = previewFires(entry([{ kind: 'every', iv: '7d' }]), NOW, ctx(), 2);
     expect(fires[0]!.at).toBe(iso('2026-11-24T00:00:00+08:00'));
     expect(fires[1]!.at).toBe(iso('2026-12-01T00:00:00+08:00'));
+  });
+  it('cr-1225/ISSUE-23③：预览应用 gates——被门挡的刻度跳过，给真正会投的点', () => {
+    // NOW=2026-11-17（周二）09:05；daily 09:00 当日已过 → 首刻 11-18；
+    // 周六/周日 09:00 被挡，三连刻 = 11-18/19/20（周三/四/五）
+    const fires = previewFires(
+      entry([{ kind: 'daily', at: '09:00' }], { gates: [{ kind: 'workday' }] }),
+      NOW, ctx(), 3, resolver,
+    );
+    expect(fires.map((f) => f.at)).toEqual([
+      iso('2026-11-18T09:00:00+08:00'), iso('2026-11-19T09:00:00+08:00'), iso('2026-11-20T09:00:00+08:00'),
+    ]);
+  });
+  it('cr-1225：hours 门内无刻度的触发器不出列（预览不说谎）', () => {
+    // daily 03:00 + hours 08:00-23:00 → 每日 03:00 恒被挡 → 空列
+    const fires = previewFires(
+      entry([{ kind: 'daily', at: '03:00' }], { gates: [{ kind: 'hours', from: '08:00', to: '23:00' }] }),
+      NOW, ctx(), 3, resolver,
+    );
+    expect(fires).toHaveLength(0);
   });
   it('诚实性（cr-1167）：once 单条不重复 / until.count 截断 / 过期 once 空列', () => {
     // once 只进一条（v3 换轨首版曾同刻重复 3 条——预览谎报触点数）
