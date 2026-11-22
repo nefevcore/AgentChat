@@ -1263,4 +1263,5 @@
 - 【cr-1242 2026-11-22 conv-key-lexicon B5 run-origin 契约化：origin 一等字段+账本 run-end 行持久化+直播透传+四触发面写入+auto-title 消费切换——3437 单测+99 集成全绿】
 - 【cr-1243 2026-11-22 conv-key-lexicon 收官：守门脚本 check-conv-lexicon（白名单 14）+ 守门补扫迁移（两 .vue/collab-tools/双 boot senderOf）+ 词汇表移交 session-design §12 + 计划档归档】
 - 【cr-1244 2026-11-22 fix timers-row text 唤醒 sender 伪造 'user'：带 conversationId 的 timer 信封在 cr-1213 键形权威制下 uuid 登记冲突（news~news 名册 ['news'] 不含 user）→ 永久退避重试——sender 按键形名册分派（pairIncludes(convId,'user') ? 'user' : target，对齐 archive-all 自会话姿势）】
+- 【cr-1245 2026-11-22 ledger-invariants 升维重写与全量实施：五层终态（文法/fold 解释权/投影单源/写侧验证转移/主张对拍）——拆 ac-ledger-core 纯库 + doctor + 观测接线】
 
