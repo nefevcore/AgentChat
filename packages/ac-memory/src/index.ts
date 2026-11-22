@@ -13,14 +13,20 @@
 //   · 跨会话可见是有意语义（人格连续性）：本会话写入的 delta 不重复注入
 //     （tool-call 历史已有副本），他源 delta 注入。注入水位归时间线私有
 //     （.anchors.json，cr-1154）——账本注入行是纯回放材料，不承载水位。
+// cr-1252 物化 seq + 遗忘口：头注释铸单调 seq:N（write 基数 = max(主文件,
+//   forget 归档)+1 全文件派生零计数器——防尾部遗忘后撞号）；水位 H = maxSeq
+//   （中间遗忘零重注，存量顺编后与旧 length 语义无缝）；memory_forget 把
+//   条目移入 timeline.forget.md 回收站（副本先落再删正本——崩溃窗口至多
+//   无害重复；降级行无稳定句柄拒收；forget 文件纯档案不进注入/grep）。
 // ============================================================
 import * as fs from 'node:fs';
 //（cr-1251：wrapSystemReminder import 随双写退役——包裹归 loop 消费点）
 import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import * as path from 'node:path';
 import { Service, type Context } from '@agentchat/cordis';
-import { grepEntries, mintEntry, parseTimeline, renderDelta, renderGrepResult, renderSnapshot, type MemoryEntry } from 'ac-memory-core';
+import { grepEntries, maxSeqOf, mintEntry, mintForgotten, parseTimeline, renderDelta, renderGrepResult, renderSnapshot, type MemoryEntry } from 'ac-memory-core';
 import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
+import { DreamController, type DreamSettings } from './dream.ts'; // cr-1254 记忆整理轮
 import type {} from 'ac-agents'; // ctx.agents 可选能力类型（type-only）
 
 /** 行配置（cordis.yml config / 构造直传） */
@@ -33,6 +39,8 @@ export interface MemoryRowOptions {
   persist?: boolean;
   /** 启动迁移开关（缺省 true；false = 跳过存量桶迁移投递） */
   migrate?: boolean;
+  /** 记忆整理轮（dream）配置缺省；per-Agent settings['memory'].dream 覆盖 */
+  dream?: DreamSettings;
 }
 
 export interface MemorySettings {
@@ -59,8 +67,23 @@ const MEMORY_GUIDE =
   '你拥有跨会话的长期记忆时间线（自动注入近期内容；他源新增也会注入）。\n' +
   '· memory_write：把值得长期记住的信息写成条目——正文以 [标签] 段开头（标签从小词表取：约定/偏好/事实/教训/待办/档案），可选 peers 标关联对方、date 回填事实发生日（整理旧资料时用，缺省=今天）。在当下就写，不要等会话结束。\n' +
   '· 条目约定：一条 = 一件自包含的事（未来只看这条就能想起全部来龙去脉；超长叙事拆条）；日期前缀系统自动铸造，正文不要再写日期。\n' +
-  '· 过时信息不必删改：写新条目自然覆盖。需要检索更早记忆用 memory_grep（支持时间/对象/标签过滤）。\n' +
+  '· 过时信息不必删改：写新条目自然覆盖。确有问题的条目（错误/冗余/失效）可 memory_forget 移入遗忘归档（不再注入与检索；归档文件可恢复）。需要检索更早记忆用 memory_grep（支持时间/对象/标签过滤）。\n' +
   '</memory-guide>';
+
+/**
+ * 本地日期 + 当前本地时刻 → UTC ISO 串。
+ *
+ * date 参数（YYYY-MM-DD）语义是**本地日**。原实现把本地日期与 UTC 时分直接拼接
+ * （`${date}T${new Date().toISOString().slice(11)}`），按 UTC 解析后整体前移一天：
+ * 东八区实测本地 11-23 05:35 写成 `11-23T21:35Z`，解析回本地是 11-24 05:35。
+ * 本函数按本地日历构造「该日期 + 当下时分」，再 toISOString 转 UTC——
+ * 得到的是同一瞬间的正确 UTC 表示。
+ */
+function localDateWithCurrentTime(dateStr: string): string {
+  const now = new Date();
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d, now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds()).toISOString();
+}
 
 export class MemoryService extends Service {
   private dataRoot: string;
@@ -78,11 +101,27 @@ export class MemoryService extends Service {
       // 迁移投递（boot 后 fire-and-forget，不阻塞 boot；延迟一拍让数据行
       // Agent 注册齐——预设/用户 Agent 在各自行 apply 里注册，行装载序
       // 晚于本行时不漏扫）
-      const timer = setTimeout(() => void this.migrateLegacyBuckets(), 100);
+      const timer = setTimeout(() => {
+        // cr-1252 存量顺编先行（同步轻量：每 Agent 一次读判 + 至多一次重写）——
+        // 幂等（全物化即跳过），跑在旧桶迁移前保证新写入基数就位
+        try {
+          const agents = this.ctx.get('agents', false) as
+            | { list(): Array<Record<string, unknown> & { id: string }> }
+            | undefined;
+          for (const agent of agents?.list() ?? []) this.materializeSeq(agent.id);
+        } catch {
+          // 顺编失败不阻断 boot——下次 boot 重试（幂等）
+        }
+        void this.migrateLegacyBuckets();
+      }, 100);
       this.ctx.fiber.effect(() => () => clearTimeout(timer), 'memory.migrate');
     }
 
 
+
+    // 记忆整理轮（cr-1254）：run 收束后自检触发条件 → 自会话唤醒整理 run
+    //（写口水位 .dream.json；conversation 行缺席时静默降级）
+    new DreamController(this.ctx, this, options.dream ?? {}).mount();
 
     // 回放声明（cr-1104 注册制）：memory 两词的回放档由本行 owning 声明
     //（wrapper——快照/delta 注入体）。账本行未装 = 降级缺省 wrapper。
@@ -121,7 +160,10 @@ export class MemoryService extends Service {
       const agentId = req.agent;
       const conversationId = req.conversationId;
       const entries = this.entries(agentId);
-      const H = entries.length;
+      // cr-1252 水位语义：H = maxSeq（物化空间高度，非条目数）——forget 中间
+      // 条目 maxSeq 不变 ⇒ 稳态零重注；存量顺编迁移后 maxSeq == 旧 length 值，
+      // 锚无缝。delta 过滤 seq > S 照常（不连续 seq 空间下语义不变）。
+      const H = entries.reduce((m, e) => (e.seq > m ? e.seq : m), 0);
       const S = this.anchorOf(agentId, conversationId);
       const maxTokens = this.maxTokensFor(agentId);
       /** cr-1251 注入面单写：消息进数组 + 消费点落账（包裹同源）由 loop
@@ -238,25 +280,60 @@ export class MemoryService extends Service {
    * 执行串行；跨进程由数据根独占锁挡）。返回新条目 seq。
    */
   write(agentId: string, input: { content: string; peers?: string[]; date?: string; origin?: string }): number {
+    // date 参数语义是**本地日**（YYYY-MM-DD，回填/迁移用）；时分取当下本地时刻。
+    // 原实现 `${input.date}T${UTC时分}` 把本地日期与 UTC 时分拼在一起，生成的
+    // 串按 UTC 解析后整体前移一天（东八区实测：本地 11-23 05:35 写成 11-23T21:35Z
+    // ⇒ 解析回本地是 11-24 05:35）。修法：按本地日历构造该日当前时刻再转 UTC。
     const date = input.date !== undefined && /^\d{4}-\d{2}-\d{2}$/.test(input.date)
-      ? `${input.date}T${new Date().toISOString().slice(11)}`
+      ? localDateWithCurrentTime(input.date)
       : new Date().toISOString();
+    // cr-1252 物化 seq：基数 = 三维下界（见 nextSeqOf）——seq 一旦铸造永不重用。
+    const seq = this.nextSeqOf(agentId);
     const line = mintEntry({
       at: date,
       origin: input.origin ?? agentId,
+      seq,
       ...(input.peers && input.peers.length > 0 ? { peers: input.peers } : {}),
       content: input.content,
     });
     if (!this.persist) {
       const prev = this.store.get(agentId) ?? '';
       this.store.set(agentId, prev + (prev.endsWith('\n') || prev === '' ? '' : '\n') + line);
-      return parseTimeline(this.store.get(agentId)!).length;
+      return seq;
     }
     const file = this.timelineFileOf(agentId);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.appendFileSync(file, line, 'utf-8');
-    return this.entries(agentId).length;
+    return seq;
   }
+
+  /**
+   * 下一个物化 seq（cr-1252）：三维下界取 max + 1。
+   *   ① 物化 maxSeq（主文件）；② 条目总数——无 seq 条目的位置派生 seq 恰好
+   *   落在 (物化max, 条目数] 区间，不把这个上界纳入下界就会撞号（现场：
+   *   tester 旧代码壳在换代窗口写入 3 条无 seq 条目 → 位置派生 228-230，
+   *   而物化 max 仅 227，下次铸造差一撞号）；③ forget 归档高水位（防尾部
+   *   遗忘后复用号）。全文件派生零计数器——崩溃安全 by construction。
+   */
+  private nextSeqOf(agentId: string): number {
+    const text = this.persist ? this.readOr(this.timelineFileOf(agentId)) : (this.store.get(agentId) ?? '');
+    const forgetText = this.persist ? this.readOr(this.forgetFileOf(agentId)) : '';
+    const forgetMax = this.persist ? maxSeqOf(forgetText) : (this.forgetStore.get(agentId) ?? 0);
+    return Math.max(maxSeqOf(text), parseTimeline(text).length, forgetMax) + 1;
+  }
+
+  /** 读文件文本（缺席/失败 → 空串：新 Agent 与首次 forget 的常态） */
+  private readOr(file: string): string {
+    try { return fs.readFileSync(file, 'utf-8'); } catch { return ''; }
+  }
+
+  /** forget 归档文件路径（与 timeline.md 同目录） */
+  forgetFileOf(agentId: string): string {
+    return path.join(path.dirname(this.timelineFileOf(agentId)), 'timeline.forget.md');
+  }
+
+  /** persist=false 纯内存后端的 forget 高水位（persist=true 时恒空） */
+  private forgetStore = new Map<string, number>();
 
   /** 读取条目流（解析纯库；文件不存在 = 空）。persist 模式每次直读（Agent fs 外写即时可见）。 */
   entries(agentId: string): MemoryEntry[] {
@@ -273,6 +350,79 @@ export class MemoryService extends Service {
     return text ? parseTimeline(text) : [];
   }
 
+  /**
+   * 遗忘条目（cr-1252 memory_forget 服务写口）：条目移入 forget 归档——
+   * ① 先 append 副本进 timeline.forget.md（forgotten 时间戳 + 可选 reason
+   * 头注释重铸）；② 再 tmp+rename 重写 timeline.md 删除该条。定序铁律：副本
+   * 先落——中间崩溃 = forget 里有副本但正本没删 = 无害重复（续删幂等跳过①）；
+   * 反序则崩溃窗口条目真丢（两边都没有）。只接受物化 seq 条目（降级行
+   * 无稳定句柄，须先 write 正规化再 forget）。seq 查重：已在 forget 文件
+   * 则跳过①（幂等续删/重复调用安全）。
+   */
+  forget(agentId: string, seq: number, reason?: string): { ok: boolean; error?: string } {
+    const entries = this.entries(agentId);
+    const target = entries.find((e) => e.seq === seq);
+    if (target === undefined) return { ok: false, error: `条目 #${seq} 不存在（可能已被遗忘或 seq 无效）` };
+    if (!this.isMaterialized(target)) {
+      return { ok: false, error: `条目 #${seq} 是无头降级行（位置派生 seq 不稳定）——先写新条目承接其内容，再 forget 该条目` };
+    }
+    const forgottenAt = new Date().toISOString();
+    if (!this.persist) {
+      this.forgetStore.set(agentId, Math.max(this.forgetStore.get(agentId) ?? 0, seq));
+      this.store.set(agentId, this.removeEntryText(this.store.get(agentId) ?? '', target));
+      return { ok: true };
+    }
+    const forgetFile = this.forgetFileOf(agentId);
+    // ① 幂等查重：seq 已在 forget 文件 → 跳过落副本（续删/重入）
+    let forgetText = '';
+    try { forgetText = fs.readFileSync(forgetFile, 'utf-8'); } catch { /* 首次 forget */ }
+    if (!new RegExp(`\\bseq:${seq}\\b`).test(forgetText)) {
+      fs.mkdirSync(path.dirname(forgetFile), { recursive: true });
+      fs.appendFileSync(forgetFile, mintForgotten(target, forgottenAt, reason), 'utf-8');
+    }
+    // ② 重写正本（tmp+rename 原子）：剔除目标条目块
+    const file = this.timelineFileOf(agentId);
+    let mainText = '';
+    try { mainText = fs.readFileSync(file, 'utf-8'); } catch { return { ok: false, error: 'timeline.md 读取失败' }; }
+    const rewritten = this.removeEntryText(mainText, target);
+    try {
+      const tmp = file + '.tmp';
+      fs.writeFileSync(tmp, rewritten, 'utf-8');
+      fs.renameSync(tmp, file);
+    } catch {
+      return { ok: false, error: 'timeline.md 重写失败（副本已落 forget 归档，重试安全）' };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * 从时间线全文剔除条目：按 mint 形态重建目标头注释行定位（at/seq/peers
+   * 与写入时同源），块边界 = 该头注释行至下一头注释行前。头行不匹配
+   * （被人工改写）→ 原文返回不动（幂等安全——fail-soft）。
+   */
+  private removeEntryText(text: string, target: MemoryEntry): string {
+    const lines = text.split('\n');
+    const headerIdx = lines.findIndex((l) => l.trim() === this.headerLineOf(target));
+    if (headerIdx < 0) return text;
+    let end = lines.length;
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      if (lines[i].trim().startsWith('<!--')) { end = i; break; }
+    }
+    const kept = [...lines.slice(0, headerIdx), ...lines.slice(end)];
+    // 收敛连续空行（块删除残留），末尾补换行
+    return kept.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd() + '\n';
+  }
+
+  /** 目标条目的头注释行（mint 形态重建——at/seq/origin/peers 与写入时同源） */
+  private headerLineOf(e: MemoryEntry): string {
+    return mintEntry({ at: e.at!, origin: e.origin ?? '', seq: e.seq, ...(e.peers && e.peers.length > 0 ? { peers: e.peers } : {}), content: '' }).split('\n')[0];
+  }
+
+  /** 物化判定：头注释带合法 seq:N（parse 侧 materialized 标记——位置派生兜底不算） */
+  private isMaterialized(e: MemoryEntry): boolean {
+    return e.materialized === true;
+  }
+
   /** 过滤轴查询（memory_grep / 服务面共用） */
   grep(agentId: string, q: { pattern?: string; since?: string; until?: string; peer?: string; tag?: string }): string {
     return renderGrepResult(grepEntries(this.entries(agentId), q));
@@ -281,6 +431,44 @@ export class MemoryService extends Service {
   // ============================================================
   // 存量迁移（版本切换一次性）
   // ============================================================
+
+  /**
+   * 存量 timeline.md 物化 seq 顺编（cr-1252 迁移，一次性）：boot 延迟触发，
+   * 按当前解析序给每个条目头补写 seq:1..N（已有合法 seq 的条目保持不动，
+   * 仅降级行获得位置派生 seq——迁移后 nextSeqOf 基数自然就位）。幂等：
+   * 全部条目已物化即跳过。顺编后 maxSeq = N = 旧 entries.length ⇒ 存量
+   * .anchors.json 水位零漂移（H 语义从 length 切 maxSeq 无缝）。
+   */
+  materializeSeq(agentId: string): void {
+    const file = this.timelineFileOf(agentId);
+    if (!this.persist) return; // 纯内存后端无存量
+    let text: string;
+    try { text = fs.readFileSync(file, 'utf-8'); } catch { return; }
+    const entries = parseTimeline(text);
+    if (entries.length === 0) return;
+    if (entries.every((e) => e.materialized === true)) return; // 全物化：幂等出口
+    // 整文重铸（正文原样，parse 侧已 trim 尾空白——重铸至多收敛多余空行）。
+    // seq 分配：已物化保原号（跨会话引用不失效），无 seq 条目从 max+1 起
+    // 递增并跳过已占用号（乱序输入也零撞号；forget 空号不复用）。降级行
+    // （无头/坏头）获得铸造头正规化——at 缺失用 epoch 兜底保条目序稳定。
+    const taken = new Set<number>();
+    for (const e of entries) if (e.materialized === true) taken.add(e.seq);
+    let next = taken.size > 0 ? Math.max(...taken) + 1 : 1;
+    const alloc = (): number => { while (taken.has(next)) next++; taken.add(next); return next++; };
+    let out = '';
+    for (const e of entries) {
+      const seq = e.materialized === true ? e.seq : alloc();
+      const peers = e.peers && e.peers.length > 0 ? ` | peers:${e.peers.join(',')}` : '';
+      out += `<!-- at:${e.at ?? new Date(0).toISOString()} | origin:${e.origin ?? ''} | seq:${seq}${peers} -->\n${e.content}\n`;
+    }
+    try {
+      const tmp = file + '.tmp';
+      fs.writeFileSync(tmp, out, 'utf-8');
+      fs.renameSync(tmp, file);
+    } catch {
+      // 写失败 = 下次 boot 重试（幂等），不影响注入链
+    }
+  }
 
   /**
    * 存量桶迁移（boot 延迟触发；public 供测试/手动重发）：逐 Agent 投递
@@ -389,13 +577,14 @@ import type { ExtensionMeta } from 'ac-extension-core';
 export const extension: ExtensionMeta = {
   name: 'memory',
   label: '记忆时间线',
-  description: '长期记忆时间线（ctx.memory）：Agent 人格单文件 timeline.md + checkpoint/delta 流式注入（KV 零失效）+ memory_write/memory_grep 工具（memory 标签门禁）',
+  description: '长期记忆时间线（ctx.memory）：Agent 人格单文件 timeline.md（物化单调 seq）+ checkpoint/delta 流式注入（KV 零失效）+ memory_write/memory_grep/memory_forget 工具（forget = 遗忘归档回收站语义）',
   fields: [
     { name: 'maxTokens', type: 'number', min: 0, step: 1000, default: DEFAULT_MAX_TOKENS, description: '快照注入 token 预算（整数条截断 + 溢出注记）' },
   ],
   listeners: [
     { event: 'loop/before-run', role: '静态指引注入（段注册制）', description: '字节恒定的 memory-guide（内容走 context 行协议）' },
     { event: 'loop/before-run', role: 'checkpoint/delta 注入（cr-1154）', description: '私有水位判定（.anchors.json：H>S delta / H=S 稳态 / 无锚或 H<S 快照重定基线）+ 落账/工作数组双写 + 锚推进' },
+    { event: 'loop/after-run', role: '记忆整理轮 dream（cr-1254）', description: '间隔 ∧（新增 ≥N ∨ 条目超阈）→ 自会话唤醒整理 run（memory_grep/write/forget 三件套落账）；水位 .dream.json' },
   ],
 };
 
@@ -437,6 +626,27 @@ export function apply(ctx: Context, options: MemoryRowOptions = {}) {
         ...(call.conversationId ? { origin: call.conversationId } : {}),
       });
       return { ok: true, output: `已写入记忆条目 #${seq}` };
+    },
+  });
+  ctx.tools.register({
+    name: 'memory_forget',
+    description: '遗忘一条记忆：把指定条目移入遗忘归档（timeline.forget.md），不再注入也不再检索到。适用于确有问题的条目（错误结论/已失效的旧约定/重复冗余）；常规过时信息不必遗忘——写新条目自然覆盖。误遗弃可从归档文件恢复（同目录 timeline.forget.md）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        seq: { type: 'number', description: '要遗忘的条目序号（memory_grep 输出中的 #N）' },
+        reason: { type: 'string', description: '遗忘理由（可选；记入归档头注释，供审计）' },
+      },
+      required: ['seq'],
+    },
+    execute: (args, call) => {
+      const agentId = call.agentId;
+      if (!agentId) return { ok: false, error: 'memory_forget 需要会话身份（agentId 缺失）' };
+      const memory = ctx.get('memory') as MemoryService;
+      const seq = Number(args.seq);
+      if (!Number.isInteger(seq) || seq <= 0) return { ok: false, error: 'seq 必须是正整数（memory_grep 输出中的 #N）' };
+      const r = memory.forget(agentId, seq, args.reason !== undefined ? String(args.reason) : undefined);
+      return r.ok ? { ok: true, output: `已遗忘条目 #${seq}` + (r.error !== undefined ? `（${r.error}）` : '') } : { ok: false, error: r.error };
     },
   });
   ctx.tools.register({

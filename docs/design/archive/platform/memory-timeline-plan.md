@@ -1,5 +1,27 @@
 # 记忆时间线与群聊转录流重构（memory timeline plan）
 
+> 【后续演进 2026-11-22，cr-1254】**§3.7 整理（sleep-time）已落地**——dream
+> 记忆整理轮住 ac-memory 行内（离开记忆服务无意义 = inject 判据；开关走
+> settings['memory'].dream）：run 收束后检测「间隔（含 ±15% per-Agent 抖动
+> 防惊群）∧（新增 ≥N ∨ 条目超硬阈）」→ conversation.deliver 自会话唤醒
+> 普通 run（requestId 前缀 dream-run- 使自身收束不重复触发，同时更新水位
+> .dream.json）→ 整理轮用 memory_grep/write/forget 三件套落账（不直接改写
+> 文件，append-only + 回收站语义不被绕过）→ maxSteps 限额防失控。指令按
+> Anthropic 实证「给方向不给规则」：四类动作（纠错/合并/沉降/精炼）+ 纪律，
+> 做多少由 Agent 判断。与归档整理轮的分工：归档读会话转录产摘要（token 治理），
+> dream 读记忆时间线产整理（知识治理）。
+>
+> 【后续演进 2026-11-22，cr-1252】§3.7 预留的 sleep-time 整理前置件落地：
+> ① **seq 物化**——头注释铸造单调递增 `seq:N`（write 基数 = max(主文件,
+> forget 归档)+1，全文件派生零计数器；否决 .anchors 计数器方案——RMW 竞态
+> 可静默回退致撞号，且 fs 直写行使其与文件现实永久分歧）；注入水位 H 语义
+> 从 entries.length 切 maxSeq，存量顺编迁移后无缝（maxSeq == 旧 length）。
+> ② **memory_forget 遗忘口**——条目移入 `timeline.forget.md` 回收站（可恢复/
+> 可审计），定序铁律「副本先落再删正本」（反序崩溃窗口条目真丢；正序崩溃
+> = 无害重复幂等续删）；降级行拒收（无稳定句柄）；forget 文件一期纯档案
+> 不进注入/grep。md log 形态维持（否决 jsonl——fs 直写通道是第一类公民，
+> jsonl 转义门槛破坏直写与容错降级语义，且不解决 seq 漂移）。
+>
 > 【已实施 2026-09-27，cr-4】落地形态与计划的两处偏差：
 > ① 注入 seam = `conversation/before-start`（新 emit 事件，startRun 顶部、
 > history 装配之前）——比计划 §3.3 预估的「deliver 后投递 seam」更精确的

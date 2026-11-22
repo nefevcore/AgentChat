@@ -82,8 +82,12 @@ rebase 收窄为定义面指纹校准 + config 保留，origin 策略面只余 c
 
 ### memory
 
-- `memory/` 时间线目录（结构化条目——宿主铸造头，fs 裸写不承载）；
-  工具面 memory_write / memory_grep。
+- `memory/timeline.md` 单文件时间线（结构化条目——宿主铸造头含物化单调 `seq:N`，
+  cr-1252；fs 裸写条目降级兜底）；`memory/timeline.forget.md` 遗忘归档
+  （memory_forget 移入，回收站语义：不进注入/检索，fs 可读恢复）；
+- 工具面 memory_write / memory_grep / memory_forget；注入水位 `.anchors.json`、
+  整理轮水位 `.dream.json`（均行私有）；dream 整理轮（cr-1254）经自会话唤醒，
+  不改写时间线文件。
 
 > 新插件指南：需要 per-Agent 可编辑配置 → 声明单元名，走 <unit>.json；
 > 需要积累性状态 → 自建目录（append-only 语义），勿混入配置单元。

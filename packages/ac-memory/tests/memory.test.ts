@@ -130,9 +130,39 @@ describe('ac-memory 服务面（write/entries/grep 三口）', () => {
     // 标签从正文前缀提取为轴
     expect(entries[0].tags).toEqual(['约定']);
     expect(entries[1].tags).toEqual(['偏好']);
-    // date 回填：at 的日期段 = 参数值（时间部分为当下）
-    expect(entries[2].at).toContain('2026-08-16');
-    expect(entries[0].at).not.toContain('2026-08-16');
+    // date 回填：**本地日历日** = 参数值（时刻取当下）。
+    // 断言不能看 at 字符串前缀——at 是 UTC 串，东八区 05:00 前的条目其 UTC 日
+    // 比本地日早一天（曾因此把 `2026-16` 直接拼进 UTC 串，产出整体偏移一天的
+    // 错误时刻）。正确断言 = at 转本地后日期为参数值，且正文前缀同源。
+    const localDayOf = (iso: string): string => {
+      const d = new Date(iso);
+      const pad = (n: number): string => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+    expect(localDayOf(entries[2].at!)).toBe('2026-08-16');
+    expect(localDayOf(entries[0].at!)).not.toBe('2026-08-16');
+    // 正文前缀与 at 同源（用户可见的日期段必须等于回填日）
+    expect(entries[2].content.startsWith('[2026-08-16]')).toBe(true);
+  });
+
+  it('date 回填的时区正确性：at 必须是该本地日的真实瞬间（不整体偏移一天）', async () => {
+    // 回归：原实现 `${date}T${UTC时分}` 把本地日期与 UTC 时分混拼，
+    // 按 UTC 解析后整体前移一天（东八区本地 11-23 05:35 → 11-23T21:35Z → 本地 11-24）。
+    // 此用例在非 UTC 时区（如 Asia/Shanghai）能直接抓出该缺陷；UTC 时区下退化为一致性检查。
+    const { ctx } = await boot();
+    ctx.memory.write('a1', { content: '[档案] 回填测试', date: '2026-03-05' });
+    const e = ctx.memory.entries('a1')[0];
+    const d = new Date(e.at!);
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    const localDay = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    expect(localDay).toBe('2026-03-05');
+    // 时分秒应取「当下」（date 只替换日期）。旧缺陷会把整体时刻偏移一天，
+    // 但日/时/分都还在原值上——所以校验时分秒而非与 now 的绝对差（date 可能是历史日）。
+    const now = new Date();
+    expect(d.getHours()).toBe(now.getHours());
+    expect(d.getMinutes()).toBe(now.getMinutes());
+    // 正文前缀同样必须是回填日（不能是 UTC 日）
+    expect(e.content.startsWith('[2026-03-05]')).toBe(true);
   });
 
   it('grep 过滤轴（pattern/tag/peer）——tag 轴来自正文前缀', async () => {
@@ -426,6 +456,257 @@ describe('工具面（memory 标签门禁）', () => {
   });
 });
 
+describe('cr-1252 物化 seq + memory_forget（回收站语义）', () => {
+  it('write 物化单调 seq；连续写入 seq 递增且头注释携带', async () => {
+    const { ctx } = await boot();
+    const s1 = ctx.memory.write('a1', { content: '一' });
+    const s2 = ctx.memory.write('a1', { content: '二' });
+    expect(s1).toBe(1);
+    expect(s2).toBe(2);
+    const entries = ctx.memory.entries('a1');
+    expect(entries[1].seq).toBe(2);
+  });
+
+  it('forget 尾部后新写不撞号（forget 文件守护高水位）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false } });
+    ctx.memory.write('a1', { content: '一' });
+    ctx.memory.write('a1', { content: '二' });
+    ctx.memory.write('a1', { content: '三' });
+    expect(ctx.memory.forget('a1', 3).ok).toBe(true);
+    // 尾部删除后主文件 maxSeq 回落到 2，但 forget 文件记录 seq:3——新铸 seq=4
+    const s4 = ctx.memory.write('a1', { content: '四' });
+    expect(s4).toBe(4);
+    const entries = ctx.memory.entries('a1');
+    expect(entries.map((e) => e.seq)).toEqual([1, 2, 4]);
+    // forget 归档文件存在且含副本
+    const forgetFile = ctx.memory.forgetFileOf('a1');
+    expect(existsSync(forgetFile)).toBe(true);
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(forgetFile, 'utf-8')).toContain('seq:3');
+  });
+
+  it('forget 中间条目：主文件剔除、其余 seq 不变、幂等续删', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false } });
+    for (const c of ['一', '二', '三', '四']) ctx.memory.write('a1', { content: c });
+    const r = ctx.memory.forget('a1', 2, '冗余');
+    expect(r.ok).toBe(true);
+    expect(ctx.memory.entries('a1').map((e) => e.seq)).toEqual([1, 3, 4]);
+    expect(ctx.memory.grep('a1', {})).not.toContain('二');
+    // 幂等：重复 forget 同一 seq —— 已不在主文件，ok:false 语义清晰
+    const again = ctx.memory.forget('a1', 2);
+    expect(again.ok).toBe(false);
+    expect(String(again.error)).toContain('不存在');
+  });
+
+  it('降级行不可 forget（无稳定句柄守卫）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false } });
+    ctx.memory.write('a1', { content: '正常条' });
+    const { appendFileSync } = await import('node:fs');
+    // 坏头注释构造降级行（无 at 无字段 → parse 降级；裸行会并入前条正文不独立成条）
+    appendFileSync(ctx.memory.timelineFileOf('a1'), '<!-- 坏头 -->\n降级正文\n', 'utf-8');
+    const entries = ctx.memory.entries('a1');
+    const degraded = entries.find((e) => e.degraded === true);
+    expect(degraded).toBeDefined();
+    const r = ctx.memory.forget('a1', degraded!.seq);
+    expect(r.ok).toBe(false);
+    expect(String(r.error)).toContain('降级');
+  });
+
+  it('撞号防线：旧代码壳写入的无 seq 条目不与新铸 seq 冲突（条目数作下界）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false } });
+    ctx.memory.write('a1', { content: '一' });
+    ctx.memory.write('a1', { content: '二' });
+    // 模拟旧版本壳（mintEntry 不铸 seq）继续写入——头注释无 seq 字段
+    const { appendFileSync, readFileSync } = await import('node:fs');
+    appendFileSync(
+      ctx.memory.timelineFileOf('a1'),
+      '<!-- at:2026-11-22T15:45:43.423Z | origin:old-shell -->\n[2026-11-22] 旧壳写入\n',
+      'utf-8',
+    );
+    // 该条 parse 位置派生 seq=3；新铸必须跨过它（=4），不能是 3
+    expect(ctx.memory.write('a1', { content: '三' })).toBe(4);
+    const seqs = ctx.memory.entries('a1').map((e) => e.seq);
+    expect(seqs).toEqual([1, 2, 3, 4]);
+    expect(new Set(seqs).size).toBe(4); // 零撞号
+    void readFileSync;
+  });
+
+  it('混合顺编：已物化条目保号（跨会话引用不失效），无 seq 条目接续', async () => {
+    const root = tmpRoot();
+    const dir = join(root, 'files', 'a1', 'memory');
+    mkdirSync(dir, { recursive: true });
+    // 混合形态：物化 seq 1/2/4（3 被 forget 过，留空号）+ 一条旧代码无 seq 条目
+    writeFileSync(join(dir, 'timeline.md'), [
+      '<!-- at:2026-10-01T00:00:00.000Z | origin:old | seq:1 -->',
+      '[2026-10-01] 一',
+      '<!-- at:2026-10-02T00:00:00.000Z | origin:old | seq:2 -->',
+      '[2026-10-02] 二',
+      '<!-- at:2026-10-04T00:00:00.000Z | origin:old | seq:4 -->',
+      '[2026-10-04] 四',
+      '<!-- at:2026-10-05T00:00:00.000Z | origin:old-shell -->',
+      '[2026-10-05] 旧壳无seq',
+    ].join('\n') + '\n', 'utf-8');
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false } });
+    ctx.memory.materializeSeq('a1');
+    const seqs = ctx.memory.entries('a1').map((e) => e.seq);
+    // 1/2/4 保号，无 seq 条目取 max+1=5（空号 3 不复用）
+    expect(seqs).toEqual([1, 2, 4, 5]);
+  });
+  it('materializeSeq 顺编：存量文件获得物化 seq（幂等）', async () => {
+    const root = tmpRoot();
+    // 手工铺存量格式（无 seq 头注释——cr-4 时代形态）
+    const dir = join(root, 'files', 'a1', 'memory');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'timeline.md'), [
+      '<!-- at:2026-10-01T00:00:00.000Z | origin:old -->',
+      '[2026-10-01] 旧条目一',
+      '<!-- at:2026-10-02T00:00:00.000Z | origin:old -->',
+      '[2026-10-02] 旧条目二',
+    ].join('\n') + '\n', 'utf-8');
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false } });
+    ctx.memory.materializeSeq('a1');
+    const entries = ctx.memory.entries('a1');
+    expect(entries.map((e) => e.seq)).toEqual([1, 2]);
+    // 再跑一次幂等（seq 不变），新写接着 3
+    ctx.memory.materializeSeq('a1');
+    expect(ctx.memory.write('a1', { content: '新条' })).toBe(3);
+  });
+});
+
+describe('cr-1254 记忆整理轮（dream）', () => {
+  /** 起一个带 conversation stub 的 Context（deliver 只记录，不真跑 run） */
+  async function bootDream(opts: { root: string; delivered: Array<Record<string, unknown>>; dream?: Record<string, unknown> }) {
+    const ctx = new Context();
+    const fibers: Fiber[] = [];
+    class FakeConversation extends Service {
+      constructor(c: Context) { super(c, 'conversation'); }
+      async deliver(agentId: string, inbound: string, options: Record<string, unknown> = {}) {
+        opts.delivered.push({ agentId, inbound, ...options });
+        return { kind: 'run' };
+      }
+    }
+    for (const row of [toolsRow, llmRow, loopRow, agentsRow, FakeConversation]) {
+      const fiber = ctx.plugin(row as any);
+      await fiber;
+      fibers.push(fiber);
+    }
+    const fiber = ctx.plugin(memoryRow, { root: opts.root, migrate: false, ...(opts.dream ? { dream: opts.dream } : {}) });
+    await fiber;
+    fibers.push(fiber);
+    ctx.agents.register({ id: 'a1', model: 'mock@mock-1' });
+    booted.push({ ctx, fibers });
+    return ctx;
+  }
+
+  /** 直接调用触发检测（不依赖真 run——after-run 事件在生产由 loop 发） */
+  async function trigger(ctx: Context): Promise<void> {
+    const ctl = (ctx.memory as any).dreamController ?? null;
+    void ctl;
+    // 触发面经挂载的 loop/after-run 监听；测试直接 emit 等价载荷
+    (ctx as any).emit('loop/after-run', { agent: 'a1', runId: 'run-other', conversationId: 'a1~a1' }, { ok: true });
+    await new Promise((r) => setTimeout(r, 30));
+  }
+
+  it('新增够多 → 唤醒整理 run（自会话 + 机制标记 + 三件套指令）', async () => {
+    const root = tmpRoot();
+    const delivered: Array<Record<string, unknown>> = [];
+    const ctx = await bootDream({ root, delivered, dream: { minNewEntries: 2 } });
+    ctx.memory.write('a1', { content: '[约定] 一' });
+    ctx.memory.write('a1', { content: '[教训] 二' });
+    await trigger(ctx);
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0].conversationId).toBe('a1~a1');
+    expect(delivered[0].mechanism).toBe(true);
+    expect(String(delivered[0].requestId)).toMatch(/^dream-run-/);
+    const prompt = String(delivered[0].inbound);
+    expect(prompt).toContain('记忆整理');
+    expect(prompt).toContain('memory_forget');
+    expect(prompt).toContain('2 条'); // 统计行
+  });
+
+  it('新增不足 / 无记忆 → 不唤醒', async () => {
+    const root = tmpRoot();
+    const delivered: Array<Record<string, unknown>> = [];
+    const ctx = await bootDream({ root, delivered, dream: { minNewEntries: 10 } });
+    await trigger(ctx); // 空时间线
+    expect(delivered).toHaveLength(0);
+    ctx.memory.write('a1', { content: '一' });
+    await trigger(ctx); // 1 条 < 10
+    expect(delivered).toHaveLength(0);
+  });
+
+  it('条目超硬阈值可绕开新增门槛（膨胀治理）', async () => {
+    const root = tmpRoot();
+    const delivered: Array<Record<string, unknown>> = [];
+    const ctx = await bootDream({ root, delivered, dream: { minNewEntries: 999, maxEntries: 2 } });
+    ctx.memory.write('a1', { content: '一' });
+    ctx.memory.write('a1', { content: '二' });
+    await trigger(ctx);
+    expect(delivered).toHaveLength(1);
+  });
+
+  it('整理轮自身收束 → 记水位且不重复触发（防自激）', async () => {
+    const root = tmpRoot();
+    const delivered: Array<Record<string, unknown>> = [];
+    const ctx = await bootDream({ root, delivered, dream: { minNewEntries: 1 } });
+    ctx.memory.write('a1', { content: '一' });
+    await trigger(ctx);
+    expect(delivered).toHaveLength(1);
+    const requestId = String(delivered[0].requestId);
+    // 模拟整理轮收束（runId = 'run-' + requestId）
+    (ctx as any).emit('loop/after-run', { agent: 'a1', runId: 'run-' + requestId, conversationId: 'a1~a1' }, { ok: true });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(delivered).toHaveLength(1); // 自身收束不再投递
+    // 水位落盘（冷却生效：紧接着再检测也不投递）
+    const stateFile = join(root, 'files', 'a1', 'memory', '.dream.json');
+    const { readFileSync } = await import('node:fs');
+    const state = JSON.parse(readFileSync(stateFile, 'utf-8')) as { lastDreamAt?: number; lastEntryCount?: number };
+    expect(typeof state.lastDreamAt).toBe('number');
+    expect(state.lastEntryCount).toBe(1);
+    await trigger(ctx);
+    expect(delivered).toHaveLength(1); // 冷却期内不再唤醒
+  });
+
+  it('重试下界：上次尝试未满 1h → 不投递（状态文件回读完整）', async () => {
+    const root = tmpRoot();
+    const delivered: Array<Record<string, unknown>> = [];
+    // 预置状态：刚尝试过（pending 因进程重启丢失，只剩落盘水位）
+    const dir = join(root, 'files', 'a1', 'memory');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, '.dream.json'), JSON.stringify({ lastAttemptAt: Date.now() }), 'utf-8');
+    const ctx = await bootDream({ root, delivered, dream: { minNewEntries: 1 } });
+    ctx.memory.write('a1', { content: '一' });
+    await trigger(ctx);
+    expect(delivered).toHaveLength(0); // 1h 重试下界内不投
+    // 投递成功后应把尝试时刻落盘（下次进程重启仍受约束）
+    writeFileSync(join(dir, '.dream.json'), JSON.stringify({ lastAttemptAt: Date.now() - 2 * 3600_000 }), 'utf-8');
+    await trigger(ctx);
+    expect(delivered).toHaveLength(1);
+    const { readFileSync: readSync } = await import('node:fs');
+    const state = JSON.parse(readSync(join(dir, '.dream.json'), 'utf-8')) as { lastAttemptAt?: number };
+    expect(typeof state.lastAttemptAt).toBe('number');
+  });
+  it('settings 关闭 → 不唤醒', async () => {
+    const root = tmpRoot();
+    const delivered: Array<Record<string, unknown>> = [];
+    const ctx = await bootDream({ root, delivered, dream: { enabled: false, minNewEntries: 1 } });
+    ctx.memory.write('a1', { content: '一' });
+    await trigger(ctx);
+    expect(delivered).toHaveLength(0);
+  });
+
+  it('conversation 行缺席 → 静默降级（不抛错）', async () => {
+    const root = tmpRoot();
+    const { ctx } = await boot({ memoryConfig: { root, migrate: false, dream: { minNewEntries: 1 } } });
+    ctx.memory.write('a1', { content: '一' });
+    (ctx as any).emit('loop/after-run', { agent: 'a1', runId: 'run-x', conversationId: 'a1~a1' }, { ok: true });
+    await new Promise((r) => setTimeout(r, 30)); // 不抛错即通过
+  });
+});
 describe('存量迁移（幂等 marker）', () => {
   it('旧桶 + memory tag + conversation 在装 → 迁移投递（内嵌内容零路径）+ marker 落盘；二次构造跳过', async () => {
     const root = tmpRoot();

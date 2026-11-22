@@ -1270,4 +1270,7 @@
 - 【cr-1249 2026-11-22 技能目录注入改造：<available_skills> 移出 system prompt（SKILLS 段退役）——before-run 指纹注入行（datetime/env-pulse 同构）】
 - 【cr-1250 2026-11-22 fix(web-tools): browser 首启 EPERM（teardown 火后即忘竞态 + 裸 rmSync 无重试）与 steps 批量越权步整批 veto（改步级 denied，续跑语义归 continue_on_error）】
 - 【cr-1251 2026-11-22 注入消费点贯通：loop 统一 inject-consumed 事件 + before-run/run-idle 注入面，落账对齐模型消息序（四通道倒挂根修 + datetime 间隔行落账）】
+- 【cr-1252 2026-11-22 记忆物化 seq + memory_forget 遗忘口（timeline.forget.md 回收站）】
+- 【cr-1253 2026-11-22 cr-1252 补修：seq 撞号防线（条目数下界 + materialized 标记）+ 顺编保号】
+- 【cr-1254 2026-11-22 记忆整理轮 dream 机制（ac-memory 内：run 收束后触发 → 自会话唤醒整理 run → 三件套落账）】
 

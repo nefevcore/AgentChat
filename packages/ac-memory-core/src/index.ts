@@ -18,8 +18,12 @@ import { estimateTokens } from 'ac-text-budget';
 
 /** 记忆条目（解析产物；seq 位置派生 1-based） */
 export interface MemoryEntry {
-  /** 条目序号（文件内 1-based，位置派生） */
+  /** 条目序号（头注释物化 seq 优先，缺省位置派生 1-based——cr-1252 物化单调 seq：删除零漂移、跨会话句柄稳定） */
   seq: number;
+  /** seq 是否为文件物化值（头注释带合法 seq:N 字段）——位置派生兜底时为 false。
+   * 顺编保号与 forget 句柄守卫必须依赖本标记：parse 产物的 seq 值本身
+   * 无法区分物化/派生（cr-1252 现场：无 seq 条目的派生值撞上物化 max）。 */
+  materialized?: boolean;
   /** 头注释铸造时间（ISO 串；容错降级行为 undefined） */
   at?: string;
   /** 写入时会话标识（1v1 对键 / g:群id / gid~member 等；降级缺失） */
@@ -70,7 +74,7 @@ export function parseTimeline(text: string): MemoryEntry[] {
     // 带前缀标签段则提升覆盖；无前缀段保留头注释 tags（存量形态兼容）。
     const m = entry.content.match(/^\[\d{4}-\d{2}-\d{2}\]\s+\[([^\]\n]+)\]/);
     if (m) entry.tags = m[1].split("|").map((t) => t.trim()).filter(Boolean);
-    entry.seq = entries.length + 1;
+    entry.seq = entry.seq > 0 ? entry.seq : entries.length + 1; // 物化 seq 优先（cr-1252），缺省位置派生
     entries.push(entry);
   };
   for (const rawLine of text.split("\n")) {
@@ -85,8 +89,11 @@ export function parseTimeline(text: string): MemoryEntry[] {
         // 空/坏头：降级条目（正文照常累积）
         current = { seq: 0, content: "", degraded: true };
       } else {
+        const seqRaw = fields.get("seq");
+        const materialized = seqRaw !== undefined && /^\d+$/.test(seqRaw) && Number(seqRaw) > 0;
         current = {
-          seq: 0,
+          seq: materialized ? Number(seqRaw) : 0,
+          ...(materialized ? { materialized: true } : {}),
           at: at !== undefined && !Number.isNaN(Date.parse(at)) ? at : undefined,
           origin,
           peers: csv(fields.get("peers")),
@@ -134,9 +141,17 @@ export function parseTimeline(text: string): MemoryEntry[] {
 /**
  * 正文行首前缀 `[date] `——日期段由宿主铸造；tags 段由 Agent 直接写进正文
  * （`[date] [tag|tag] 正文`——前缀即标签通道，parse 侧提取为轴）。
+ *
+ * **日期按本地日历取**：at 是 UTC ISO 串，直接 slice(0,10) 得到的是 UTC 日——
+ * 东八区 05:00 前的条目会显示成前一天（实测本地 11-23 05:36 写成 at=…T21:36Z，
+ * slice 得 11-22，用户看到的日期比实际早一天）。改为把 at 转本地时刻后取年月日。
+ * 无法解析的 at（降级行/畸形串）回落原 slice 行为。
  */
 function entryPrefix(at: string): string {
-  return `[${at.slice(0, 10)}] `;
+  const d = new Date(at);
+  if (Number.isNaN(d.getTime())) return `[${at.slice(0, 10)}] `;
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `[${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}] `;
 }
 
 /** 剥离正文自带的日期前缀段（防重复；标签段是 Agent 的内容通道，保留） */
@@ -158,9 +173,12 @@ export function mintEntry(input: {
   at: string;
   origin: string;
   peers?: string[];
+  /** 物化序号（cr-1252：宿主铸单调节点；缺省不写——历史无 seq 形态兼容） */
+  seq?: number;
   content: string;
 }): string {
   const fields = [`at:${input.at}`, `origin:${input.origin}`];
+  if (input.seq !== undefined) fields.push(`seq:${input.seq}`);
   if (input.peers && input.peers.length > 0) fields.push(`peers:${input.peers.join(",")}`);
   const body = stripEntryPrefix(input.content.trim());
   return `<!-- ${fields.join(" | ")} -->\n${entryPrefix(input.at)}${body}\n`;
@@ -293,6 +311,37 @@ export function renderGrepResult(entries: MemoryEntry[], limit = 50): string {
   return overflow > 0
     ? [`（更早 ${overflow} 条匹配未展示）`, ...lines].join("\n")
     : lines.join("\n");
+}
+
+/**
+ * 文本内最大物化 seq（cr-1252：新条目 seq 铸造基数——无物化 seq 时归 0）。
+ * 行级正则扫描，不整文件 parseTimeline——forget.md 只承担 seq 高水位
+ * 守护（不进注入/渲染），按行扫足够且 O(行) 快于 O(parse)。
+ */
+export function maxSeqOf(text: string): number {
+  let max = 0;
+  for (const m of text.matchAll(/\bseq:(\d+)/g)) {
+    const n = Number(m[1]);
+    if (n > max) max = n;
+  }
+  return max;
+}
+
+/**
+ * 铸造遗忘归档行（cr-1252：memory_forget 写口——条目移入 forget 文件时
+ * 宿主重铸单头，原 at/origin/peers/seq 保留 + forgotten 时间戳 + 可选
+ * reason。forget 文件不进注入/grep，复用 parseTimeline 仅为恢复/审计面）。
+ */
+export function mintForgotten(e: MemoryEntry, forgottenAt: string, reason?: string): string {
+  const fields = [
+    `at:${e.at ?? ""}`,
+    `origin:${e.origin ?? ""}`,
+    `seq:${e.seq}`,
+    `forgotten:${forgottenAt}`,
+    ...(reason && reason.trim() !== "" ? [`reason:${reason.trim().replace(/\|/g, "/")}`] : []),
+    ...(e.peers && e.peers.length > 0 ? [`peers:${e.peers.join(",")}`] : []),
+  ];
+  return `<!-- ${fields.join(" | ")} -->\n${e.content}\n`;
 }
 
 /**
