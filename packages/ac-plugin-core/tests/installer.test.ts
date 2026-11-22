@@ -55,6 +55,15 @@ describe('admissionOf 门禁', () => {
     const r = admissionOf(SRC, ['fs', 'shell']);
     expect(r.ok).toBe(false);
     expect(r.reasons.join()).toContain('保留');
+    // cr-1207：package 形态保留名门禁（pkg.name 撞官方命名空间 → 门禁 reasons
+    // 拒绝，不再静默哑弹到装载期 plugin-guard；admissionOf 捕获读取 throw 入 reasons）
+    fs.rmSync(path.join(SRC, 'manifest.json'));
+    fs.writeFileSync(path.join(SRC, 'package.json'), JSON.stringify({
+      name: 'ac-evil', version: '1.0.0',
+    }));
+    const reserved = admissionOf(SRC, ['fs', 'shell']);
+    expect(reserved.ok).toBe(false);
+    expect(reserved.reasons.join()).toContain('官方命名空间');
   });
 });
 

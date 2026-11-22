@@ -16,7 +16,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { isContractsCompatible, HOST_CONTRACTS_VERSION } from './contracts.ts';
-import { validatePluginManifest, KNOWN_PERMISSIONS, type PluginManifest, type PluginPermission } from './manifest.ts';
+import { validatePluginManifest, KNOWN_PERMISSIONS, isReservedPluginName, reservedPluginNameError, type PluginManifest, type PluginPermission } from './manifest.ts';
 
 /**
  * 当前平台 ABI 版本（engines.agentchat 求值轴）。major 位 = 插件兼容面
@@ -153,6 +153,13 @@ export function readPluginPackage(dir: string): PluginPackage {
     if (name === '' || version === '') {
       throw new Error('插件包 package.json 缺 name/version：' + dir);
     }
+    // cr-1207：保留名门禁下沉到包描述符读取——package 形态
+    //（manifest.json 缺席）此前绕过 validatePluginManifest，ac-evil
+    // 同名包能入库、静默哑弹到装载期才被 plugin-guard 拒；谓词与
+    // 文案单源 manifest.ts（validatePluginManifest 同款）。
+    if (isReservedPluginName(name)) {
+      throw new Error(reservedPluginNameError(name) + '：' + dir);
+    }
     const enginesRaw = pkgJson.engines !== null && typeof pkgJson.engines === 'object' && !Array.isArray(pkgJson.engines)
       ? pkgJson.engines as Record<string, unknown>
       : undefined;
@@ -186,7 +193,8 @@ export function readPluginPackage(dir: string): PluginPackage {
   return projectLegacyManifest(manifest, dir);
 }
 
-/** 旧 manifest.json 读取（损坏/非法 → throw，与 v1 loadManifestFromDir 同语义） */
+/** 旧 manifest.json 读取（损坏/非法 → throw，与 v1 loadManifestFromDir 同语义；
+ * 保留名由 validatePluginManifest 内联门禁覆盖） */
 function readLegacyManifest(dir: string): PluginManifest {
   const manifestPath = path.join(dir, 'manifest.json');
   let raw: unknown;

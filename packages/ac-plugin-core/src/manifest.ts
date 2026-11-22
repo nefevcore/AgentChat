@@ -6,7 +6,8 @@
 //     events 为 Array<string | {name, description}>）
 //   · ui.slots 词汇 = 旧 8 UISlotId 永久集（M27 D13/S3——安装期
 //     fail-closed；席位级 public 子集裁可在前端 bridge slotCatalog）
-//   · permissions 词汇原样（fs/network/process/shell/ui）
+//   · permissions 词汇 = fs/network/process/shell/ui + risk（cr-1074 批3
+//     D11 信任位——词表见 KNOWN_PERMISSIONS）
 // ============================================================
 import { isValidContractsRange } from './contracts.ts';
 
@@ -157,6 +158,16 @@ export function isReservedPluginName(name: string): boolean {
   if (RESERVED_PLUGIN_NAMES.includes(name)) return true;
   return RESERVED_PLUGIN_NAME_PREFIXES.some((p) => name.startsWith(p));
 }
+
+/** 占用官方命名空间的拒绝文案（安装期两臂共用单源——manifest 校验
+ * errors 与 package 形态门禁 throw 同字面，见 pkg.ts readPluginPackage）
+ * cr-1207 */
+export function reservedPluginNameError(name: string): string {
+  return (
+    `name "${name}" 占用官方命名空间（保留前缀：${RESERVED_PLUGIN_NAME_PREFIXES.join(' / ')}；保留名：${RESERVED_PLUGIN_NAMES.join(' / ')}）`
+    + '——请改用 <你的id>-<名> 形式'
+  );
+}
 const VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 // param-case + 可选单冒号段（'settings-tab:global' 旧 8 id 词汇含两枚
 // 冒号形——M27 D13 前格式校验实际拒收，属历史漏洞）
@@ -178,10 +189,7 @@ export function validatePluginManifest(raw: unknown): ManifestValidation {
   if (!name) errors.push('name 必填');
   else if (!NAME_RE.test(name)) errors.push(`name "${name}" 非法（仅小写字母/数字/连字符，字母数字开头）`);
   else if (isReservedPluginName(name)) {
-    errors.push(
-      `name "${name}" 占用官方命名空间（保留前缀：${RESERVED_PLUGIN_NAME_PREFIXES.join(' / ')}；保留名：${RESERVED_PLUGIN_NAMES.join(' / ')}）`
-      + '——请改用 <你的id>-<名> 形式',
-    );
+    errors.push(reservedPluginNameError(name));
   }
 
   const version = typeof obj.version === 'string' ? obj.version.trim() : '';

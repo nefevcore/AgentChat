@@ -24,7 +24,7 @@ afterEach(() => {
 
 function writePlugin(version = '1.0.0', acExtra: Record<string, unknown> = {}): void {
   fs.writeFileSync(path.join(SRC, 'package.json'), JSON.stringify({
-    name: 'ac-plugin-demo',
+    name: 'dev-plugin-demo',
     version,
     engines: { node: '>=20', agentchat: '^2' },
     ac: { permissions: ['fs', 'shell'], provides: { tools: ['demo-tool'] }, ...acExtra },
@@ -36,7 +36,7 @@ describe('审批卡', () => {
   it('载荷完整：engines/权限面/provides/内容指纹/门禁明细', () => {
     writePlugin();
     const card = buildApprovalCard(SRC, { grants: ['fs', 'shell'] });
-    expect(card.name).toBe('ac-plugin-demo');
+    expect(card.name).toBe('dev-plugin-demo');
     expect(card.engines.ok).toBe(true);
     expect(card.permissions.declared).toEqual(['fs', 'shell']);
     expect(card.permissions.explicitRequired).toEqual(['shell']);
@@ -67,11 +67,11 @@ describe('审批卡', () => {
   it('豁免规则命中放行 + 留痕（engines 面例外）', () => {
     writePlugin();
     fs.writeFileSync(path.join(SRC, 'package.json'), JSON.stringify({
-      name: 'ac-plugin-old', version: '0.1.0', engines: { agentchat: '^1' },
+      name: 'dev-plugin-old', version: '0.1.0', engines: { agentchat: '^1' },
       ac: { permissions: ['fs'] },
     }));
     const rules: ExemptionRule[] = [
-      { id: 'legacy-abi', plugin: 'ac-plugin-old', gate: 'engines', note: '迁移期例外（cr-903）' },
+      { id: 'legacy-abi', plugin: 'dev-plugin-old', gate: 'engines', note: '迁移期例外（cr-903）' },
     ];
     const v = admissionOf(SRC, undefined, rules);
     expect(v.ok).toBe(true);
@@ -108,7 +108,7 @@ describe('pluginHealthz', () => {
     expect(h.entries).toHaveLength(1);
     expect(h.entries[0].issues).toEqual([]);
     // 物化缺席
-    fs.rmSync(path.join(ROOT, 'plugins', 'ac-plugin-demo'), { recursive: true, force: true });
+    fs.rmSync(path.join(ROOT, 'plugins', 'dev-plugin-demo'), { recursive: true, force: true });
     h = pluginHealthz(ROOT);
     expect(h.entries[0].needsReinstall).toBe(true);
     expect(h.entries[0].issues.join()).toContain('物化目录缺席');

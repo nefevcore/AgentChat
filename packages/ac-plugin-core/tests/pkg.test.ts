@@ -22,7 +22,7 @@ function writePkg(dir: string, pkg: Record<string, unknown>): string {
 describe('readPluginPackage（ac 字段）', () => {
   it('三面 + 权限 + provides 原样入档', () => {
     const dir = writePkg(path.join(ROOT, 'full'), {
-      name: 'ac-plugin-todo',
+      name: 'dev-plugin-todo',
       version: '1.0.0',
       engines: { node: '>=23', agentchat: '^2' },
       ac: {
@@ -37,7 +37,7 @@ describe('readPluginPackage（ac 字段）', () => {
     });
     const p = readPluginPackage(dir);
     expect(p.form).toBe('package');
-    expect(p.name).toBe('ac-plugin-todo');
+    expect(p.name).toBe('dev-plugin-todo');
     expect(p.engines).toEqual({ node: '>=23', agentchat: '^2' });
     expect(p.ac?.faces?.node).toEqual({ entry: './src/index.ts' });
     expect(p.ac?.faces?.web).toEqual({ entry: './client/index.js', seats: ['tool-card'] });
@@ -73,6 +73,13 @@ describe('readPluginPackage（ac 字段）', () => {
     expect(p.ac?.faces?.web).toEqual({ entry: 'client.js', seats: ['perspective'] });
     expect(p.legacyContracts).toBe('^1');
     expect(p.ac?.permissions).toEqual(['network', 'ui']); // ui 在场时投影自动补 'ui' 权限
+  });
+
+  it('cr-1207：保留名门禁——package 形态官方名即拒（安装期早失败，不待装载期 plugin-guard）', () => {
+    for (const name of ['ac-evil', 'shell-fake', 'root']) {
+      const dir = writePkg(path.join(ROOT, 'evil-' + name), { name, version: '0.0.1' });
+      expect(() => readPluginPackage(dir)).toThrow(/官方命名空间/);
+    }
   });
 
   it('目录内旧 manifest 无 package.json → 投影读取', () => {
@@ -115,11 +122,11 @@ describe('installed.yml 读写（cr-1004：scope 退役）', () => {
   it('缺席 = 空集；写读往返保形；损坏 → throw；旧文件名兼容读 + 写后清除', () => {
     expect(readInstalledDoc(ROOT)).toEqual([]);
     writeInstalledDoc(ROOT, [
-      { id: 'my-todo', name: 'ac-plugin-todo', owner: 'agent-1' },
+      { id: 'my-todo', name: 'dev-plugin-todo', owner: 'agent-1' },
       { id: 'my-local', name: 'link:C:/dev/my-plugin', disabled: true },
     ]);
     expect(readInstalledDoc(ROOT)).toEqual([
-      { id: 'my-todo', name: 'ac-plugin-todo', owner: 'agent-1' },
+      { id: 'my-todo', name: 'dev-plugin-todo', owner: 'agent-1' },
       { id: 'my-local', name: 'link:C:/dev/my-plugin', disabled: true },
     ]);
     // 旧名 installed.patch.yml 读侧兼容；存量 scope 字段容忍读取、不再投影

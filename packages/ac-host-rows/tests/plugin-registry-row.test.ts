@@ -265,7 +265,7 @@ describe('v2 统一安装器换轨（cr-903 批2 切片四）', () => {
       const src = path.join(ROOT, 'src-v2-pkg');
       fs.mkdirSync(src, { recursive: true });
       fs.writeFileSync(path.join(src, 'package.json'), JSON.stringify({
-        name: 'ac-plugin-v2', version: '1.0.0',
+        name: 'dev-plugin-v2', version: '1.0.0',
         engines: { node: '>=20', agentchat: '^2' },
         ac: { permissions: ['fs'], provides: { tools: ['v2-tool'] } },
       }, null, 2));
@@ -275,12 +275,12 @@ describe('v2 统一安装器换轨（cr-903 批2 切片四）', () => {
       if (result.status === 'installed') {
         expect(result.effective).toBe('live'); // 测试数据根无活壳
       }
-      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.yml'), 'utf-8')).toContain('ac-plugin-v2');
+      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.yml'), 'utf-8')).toContain('dev-plugin-v2');
       const hz = (await h.web.call('plugin/healthz') as ReturnType<typeof svc.healthz>);
-      const entry = hz.entries.find((e) => e.name === 'ac-plugin-v2');
+      const entry = hz.entries.find((e) => e.name === 'dev-plugin-v2');
       expect(entry?.issues).toEqual([]);
-      await svc.uninstall('ac-plugin-v2');
-      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.yml'), 'utf-8')).not.toContain('ac-plugin-v2');
+      await svc.uninstall('dev-plugin-v2');
+      expect(fs.readFileSync(path.join(ROOT, 'profile', 'installed.yml'), 'utf-8')).not.toContain('dev-plugin-v2');
     } finally {
       await h.dispose();
     }
