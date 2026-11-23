@@ -51,6 +51,13 @@ describe('cr-1093 发送时写（ChatInput 写时机接线）', () => {
     expect(guards.length).toBeGreaterThanOrEqual(2); // toolMode watch + browserTier watch
   });
 
+  it('草稿位 immediate 键暂存接线（cr-1263）：暂存在场 + flush 合入 + 成功清位', () => {
+    expect(src).toContain('const pendingImmediate = reactive<Record<string, string>>({});');
+    expect(src).toContain('if (onDraft.value) pendingImmediate[key] = value;');
+    expect(src).toContain("(patch ??= {})[key] = value === '' ? null : value;");
+    expect(src).toContain('delete pendingImmediate[key]; // 已落盘，暂存清位（失败保留重试）');
+  });
+
   it('控件函数写时机：toolMode/browserTier 只改表单；extKey 按 def.immediate 分流（cr-1259）', () => {
     const bodyOf = (name: string): string => {
       const start = src.indexOf(`function ${name}(`);

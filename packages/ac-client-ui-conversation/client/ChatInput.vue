@@ -473,7 +473,13 @@ function dirtyConvPatch(): Record<string, string | null> | null {
  */
 async function flushConvSettings(conversationId: string | null): Promise<void> {
   if (!conversationId || !rpc) return;
-  const patch = dirtyConvPatch();
+  let patch = dirtyConvPatch();
+  // 草稿位暂存的 immediate 键合入（cr-1263）：dirtyConvPatch 排除了 immediate
+  // 键，草稿期选择的值只活在暂存里——此处是其唯一落盘出口（覆盖合入：
+  // 暂存是用户最新选择，优先于任何迟到重置）。
+  for (const [key, value] of Object.entries(pendingImmediate)) {
+    (patch ??= {})[key] = value === '' ? null : value;
+  }
   if (patch === null) return;
   try {
     await rpc.call('conv-settings/set', { conversationId, patch });
@@ -481,7 +487,10 @@ async function flushConvSettings(conversationId: string | null): Promise<void> {
     console.warn('[ChatInput] 会话设置写入失败（下次发送重试）:', (err as { message?: string }).message ?? String(err));
     return;
   }
-  for (const [key, value] of Object.entries(patch)) convBaseline[key] = value ?? '';
+  for (const [key, value] of Object.entries(patch)) {
+    convBaseline[key] = value ?? '';
+    delete pendingImmediate[key]; // 已落盘，暂存清位（失败保留重试）
+  }
   store.setConvToolMode(toolMode.value);
   store.setConvBrowserTier(browserTier.value);
 }
@@ -626,6 +635,12 @@ async function loadExperimentalKeys(): Promise<void> {
 
 /** 扩展实验键当前值（browserTier 之外的注册键——泛读泛写） */
 const extKeyValues = reactive<Record<string, string>>({});
+/** 草稿位 immediate 键暂存（cr-1263）：选择时无真实会话键写不了，且
+ *  dirtyConvPatch 排除 immediate 键（防脏值重写）——两头都不写则值悬空，
+ *  物化后 watch 回读会把它重置回默认。暂存独立于表单/基线（不受会话
+ *  切换 watch 重置影响——物化瞬间 toolModeConvKey 变化可能先于 flush
+ *  清空表单，竞态免疫），flush 成功后清位。 */
+const pendingImmediate = reactive<Record<string, string>>({});
 function extKeyOf(key: string): ExpKeyDef | undefined {
   return experimentalKeys.value.find(k => k.key === key);
 }
@@ -643,7 +658,12 @@ async function selectExtKey(key: string, value: string) {
   const def = extKeyOf(key);
   if (!def?.immediate) return;
   const conversationId = toolModeConvKey.value;
-  if (!conversationId || onDraft.value || !rpc) return; // 草稿位/无键：发送边界兜底
+  // 草稿位/无键：写不了 → 暂存随发送边界落盘（cr-1263——immediate 键被
+  // dirtyConvPatch 排除，不暂存则值悬空、物化回读后回落默认）
+  if (!conversationId || onDraft.value || !rpc) {
+    if (onDraft.value) pendingImmediate[key] = value;
+    return;
+  }
   const patch: Record<string, string | null> = { [key]: value === '' ? null : value };
   try {
     await rpc.call('conv-settings/set', { conversationId, patch });
@@ -668,10 +688,16 @@ watch(toolModeConvKey, async (conversationId) => {
     browserTier.value = pref;
     store.setConvBrowserTier(pref);
   };
-  // 草稿位（cr-1084）：无服务端读面（哨兵键存量脏值不回显）
+  // 草稿位（cr-1084）：无服务端读面（哨兵键存量脏值不回显）。cr-1263：
+  // immediate 键回填暂存——草稿期选的档位没有服务端可读面，清空表单会让
+  // 菜单「回落未选」（切走再切回尤甚），而发送时仍按暂存落盘；回填使显示
+  // 与将落盘的值一致。
   if (onDraft.value) {
     applyPrefs();
-    for (const k of experimentalKeys.value) if (k.key !== 'browserTier') extKeyValues[k.key] = '';
+    for (const k of experimentalKeys.value) {
+      if (k.key === 'browserTier') continue;
+      extKeyValues[k.key] = k.immediate ? (pendingImmediate[k.key] ?? '') : '';
+    }
     return;
   }
   try {
