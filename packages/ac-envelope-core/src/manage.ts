@@ -9,6 +9,8 @@
 // 的 transportHint socket 上（帧层与信封/旁带同一条 ipc 连接，载荷语义
 // 在此收口），因此控制点不依赖 spawn 所有权：
 //
+//   probe 帧（cr-1255）：{ ctrl: 'probe' } —— activation 持有者探针（无副作
+//   用只读，任何帧处理体不得上锁/长阻塞；探针语义归 lock.ts 裁决面）。
 //   request  { manage: { id, frame } }
 //   reply    { manage: { id, ok: true, value } }
 //          | { manage: { id, ok: false, error } }
@@ -79,3 +81,34 @@ export async function manageRoundTrip(address: string, frame: Record<string, unk
     client.close();
   }
 }
+/**
+ * activation 持有者能力探针（cr-1255——refused 的诊断定谳面）：connect transportHint
+ * 发 probe 帧核对 bootId——应答 bootId 匹配 = 持有者真活（证真）；
+ * connect 失败 / 超时 / 应答不匹配 = 内核裁决旧壳已亡（证死——pid 复用
+ * 现场无关进程占 pid，socket 却无人应答）。返回判死凭据（证真返回 null）。
+ */
+export async function probeActivationHolder(holder: { transportHint: string; bootId: string; pid: number }, timeoutMs = 2_000): Promise<string | null> {
+  const client = new IpcClient();
+  try {
+    await client.connect(holder.transportHint);
+  } catch {
+    return '探针无法连接 ' + holder.transportHint + '（pid ' + holder.pid + '）——旧壳 ipc 已亡';
+  }
+  try {
+    const reply = await Promise.race([
+      client.request(makeManageRequest('probe-activation', { ctrl: 'probe' }), (f) => isManageReply(f, 'probe-activation')),
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('probe 超时（' + timeoutMs + 'ms）')), timeoutMs).unref();
+      }),
+    ]) as ManageReply;
+    if (reply.manage.ok !== true) return '探针帧执行失败：' + reply.manage.error;
+    const bootId = (reply.manage.value as { bootId?: unknown } | null)?.bootId;
+    if (bootId !== holder.bootId) return '探针应答 bootId 不匹配（应答 ' + String(bootId) + ' ≠ 锁 ' + holder.bootId + '）';
+    return null; // 证真——pid 与 socket 同属一代，持有者活
+  } catch (err: unknown) {
+    return '探针无应答：' + (err instanceof Error ? err.message : String(err));
+  } finally {
+    client.close();
+  }
+}
+

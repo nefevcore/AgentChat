@@ -10,6 +10,7 @@ import * as os from 'node:os';
 import { spawn } from 'node:child_process';
 import {
   acquireActivationLock, releaseActivationLock, readActivationLock,
+  LOCK_DEADLINE_MS,
   type ActivationLockInfo,
 } from '../src/lock.ts';
 
@@ -81,6 +82,44 @@ describe('activation.lock：单进程语义', () => {
   });
 });
 
+
+// cr-1255 持有者裁决：pid 存活不再单证（Windows pid 复用后 isAlive 恒真，
+// Agent 永久锁死——writer 实测 12h）。接管权威 = pid 死 ∨ 心跳租约超限。
+describe('activation.lock：持有者裁决（cr-1255）', () => {
+  it('pid 复用现场：pid 活（复用假象）但租约超限 → 接管（根因回归）', () => {
+    const dir = nextDir();
+    acquireActivationLock(dir, info(process.pid, 'dead-gen')); // pid = 本测试进程 = 活（模拟复用给无关进程）
+    const file = path.join(dir, 'activation.lock');
+    const old = new Date(Date.now() - (LOCK_DEADLINE_MS + 60_000));
+    fs.utimesSync(file, old, old); // 回拨 mtime 模拟前代心跳已停
+    const r = acquireActivationLock(dir, info(123, 'new-gen'));
+    expect(r.kind).toBe('acquired');
+    if (r.kind !== 'acquired') return;
+    expect(r.staleEvidence).toContain('租约超限');
+    expect(readActivationLock(dir)?.bootId).toBe('new-gen');
+    expect(fs.existsSync(path.join(dir, 'activation.lock.stale-dead-gen'))).toBe(true);
+  });
+
+  it('deadline:0 关闭租约判据——pid 活即 refused（测试/兼容开关）', () => {
+    const dir = nextDir();
+    acquireActivationLock(dir, info(process.pid, 'b1'));
+    const file = path.join(dir, 'activation.lock');
+    const old = new Date(Date.now() - (LOCK_DEADLINE_MS + 60_000));
+    fs.utimesSync(file, old, old);
+    const r = acquireActivationLock(dir, info(789, 'b2'), { deadline: 0 });
+    expect(r.kind).toBe('refused');
+  });
+
+  it('同 pid 重入：前代死后 pid 复用给本进程 → 接管不误拒', () => {
+    const dir = nextDir();
+    acquireActivationLock(dir, info(process.pid, 'old-gen'));
+    const r = acquireActivationLock(dir, info(process.pid, 'new-gen'));
+    expect(r.kind).toBe('acquired');
+    if (r.kind !== 'acquired') return;
+    expect(r.staleEvidence).toContain('同 pid 重入');
+    expect(fs.existsSync(path.join(dir, 'activation.lock.stale-old-gen'))).toBe(true);
+  });
+});
 // 真子进程验收（plan 验收：双进程互斥 / 死进程放锁）
 describe('activation.lock：跨进程验收', () => {
   it('活子进程持锁 → 主进程 refused；子进程死后 → 接管成功', async () => {

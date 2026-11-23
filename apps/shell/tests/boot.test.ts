@@ -8,7 +8,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
-import { waitForShellReady, socketPathFor, manageRoundTrip } from 'ac-envelope-core';
+import { waitForShellReady, socketPathFor, manageRoundTrip, readActivationLock, readBootProgress } from 'ac-envelope-core';
 import {
   parseShellArgs, deriveAndAssertRowset, bootShell, assembleRows, seedPlaceholderAssemblers, workspaceClosureRoots,
   replayAnsweredAfterInbox, restartedNoteDelivery,
@@ -325,6 +325,25 @@ describe('进程级冒烟（真起 boot.ts）', () => {
     expect(code).toBe(1);
     expect(stderr).toContain('单例语义拒绝');
   }, 30_000);
+
+  it('pid 复用现场（cr-1255）：前代锁 pid 活 + 租约超限 → 接管启动 + 凭据落盘', async () => {
+    seedAgent('c3');
+    const dir = path.join(ROOT, 'agents', 'c3');
+    fs.writeFileSync(path.join(dir, 'activation.lock'), JSON.stringify({
+      pid: process.pid, bootId: 'reused-gen', acquiredAt: 'T', transportHint: '',
+    }), 'utf-8');
+    const old = new Date(Date.now() - (4 * 30_000 + 60_000));
+    fs.utimesSync(path.join(dir, 'activation.lock'), old, old); // 前代心跳已停
+    const boot = await bootShell({ dataRoot: ROOT, agentId: 'c3', catalogFile: CATALOG });
+    try {
+      expect(readActivationLock(dir)?.bootId).toBe(boot.lockInfo.bootId); // 新代持锁
+      const progress = readBootProgress(dir);
+      expect(progress?.bootId).toBe(boot.lockInfo.bootId);
+      expect(progress?.lockTakeover).toContain('租约超限');
+    } finally {
+      await boot.close();
+    }
+  }, 35_000);
 });
 
 describe('编译产物快照（cr-910 批6 切片四：审计视图）', () => {

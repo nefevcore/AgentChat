@@ -30,6 +30,8 @@ export interface BootProgress {
   fingerprintRoot?: string;
   /** 装载失败清单（plugin.load-failed 承接） */
   pluginLoadFailures?: PluginLoadFailure[];
+  /** activation 锁接管凭据（cr-1255：判死因子快照——pid 死/租约超限等） */
+  lockTakeover?: string;
 }
 
 /** 读进度（缺席/损坏 = null——半写窗口被原子写消灭，损坏只剩磁盘故障面） */

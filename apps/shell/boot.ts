@@ -20,11 +20,11 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import {
-  acquireActivationLock, releaseActivationLock, socketPathFor, writeBootProgress, appendRollingLine,
+  acquireActivationLock, releaseActivationLock, socketPathFor, writeBootProgress, readBootProgress, appendRollingLine,
   makeEnvelope, issueRequestId,
   AdmissionGate, FrameDecoder, encodeFrame, isStreamFrame, makeManageReply, isManageRequest,
-  streamFrameFromDelta,
-  type ActivationLockInfo, type Envelope, type StreamFrame, type StreamMeta,
+  streamFrameFromDelta, probeActivationHolder, LOCK_HEARTBEAT_MS,
+  type ActivationLockInfo, type AcquireResult, type Envelope, type StreamFrame, type StreamMeta,
 } from 'ac-envelope-core';
 import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import * as net from 'node:net';
@@ -572,6 +572,22 @@ export interface ShellBootResult {
   close(): Promise<void>;
 }
 
+/**
+ * 探针获取 helper（cr-1255 接线）：refused = 证死因子（pid / 心跳租约）未
+ * 心跳租约）不能定谳——能力探针（manage.ts probeActivationHolder）二次
+ * 确认：应答 bootId 匹配 = 真活壳（拒绝，附凭据）；无应答 = 近期崩溃的
+ * 租约残温（重试即接管，不阻塞启动者决策——接管权威归 lock.ts 证死因子）。
+ */
+async function acquireWithProbe(agentDir: string, lockInfo: ActivationLockInfo): Promise<{ lock: AcquireResult; probeEvidence: string | null }> {
+  const lock = acquireActivationLock(agentDir, lockInfo);
+  if (lock.kind !== 'refused') return { lock, probeEvidence: null };
+  // 诊断定谳（cr-1255）：refused ≠ 真活——探针无应答 = 近期崩溃的租约残温
+  // （重试即接管）；应答匹配 = 真活壳在跑。探针不授权接管（装配窗口的真壳
+  // 尚无 socket，无应答 ≠ 死——授权即双壳 split-brain）。
+  const probeEvidence = await probeActivationHolder(lock.holder);
+  return { lock, probeEvidence };
+}
+
 /** 控制帧（拉起方控制通道——非信封数据面：动作即刻执行，无 uuid/budget 语义） */
 export type ControlFrame =
   | { ctrl: 'interrupt'; conversationId?: string }
@@ -583,7 +599,9 @@ export type ControlFrame =
   /** 壳内管理面（cr-569）：goal / todo 等会话桶状态——宿主 RPC 面的壳内半边 */
   | AdminFrame
   /** 系统面（换代接管 §4.1）：shutdown = 优雅退出请求（接管宿主经 socket 下发——与 stdin 'shutdown' 行同语义） */
-  | { ctrl: 'system'; op: 'shutdown' };
+  | { ctrl: 'system'; op: 'shutdown' }
+  /** 持有者探针（cr-1255）：无副作用只读——bootId/pid 身份回显，锁接管裁决用 */
+  | { ctrl: 'probe' };
 
 /**
  * 壳 boot 编排（可测半边——emit/onExit 注入）。锁拒绝/断言失败 = 抛错
@@ -676,11 +694,22 @@ export async function bootShell(
     acquiredAt: new Date().toISOString(),
     transportHint,
   };
-  const lock = acquireActivationLock(agentDir, lockInfo);
+  // cr-1255 三因子接线：probe 态走能力探针二次确认（async——bootShell 本就是
+  // async，取锁移出 try 块防 onExit 未注册即抛）。接管凭据随 boot 进度落盘。
+  const { lock, probeEvidence } = await acquireWithProbe(agentDir, lockInfo);
   if (lock.kind === 'refused') {
-    throw new Error('activation 锁被进程 ' + lock.holder.pid + ' 持有（bootId=' + lock.holder.bootId + '）——单例语义拒绝');
+    const via = probeEvidence === null ? '' : '（探针证真：' + probeEvidence + '）';
+    throw new Error('activation 锁被进程 ' + lock.holder.pid + ' 持有（bootId=' + lock.holder.bootId + '）' + via + '——单例语义拒绝');
   }
   opts.onExit?.(() => releaseActivationLock(agentDir, process.pid));
+  // cr-1255：接管凭据随 boot 进度落盘（宿主 readBootProgress 既有读面）
+  if (lock.staleEvidence !== undefined) writeBootProgress(agentDir, { bootId, writtenAt: new Date().toISOString(), lockTakeover: lock.staleEvidence });
+  // cr-1255：心跳自锁起即 touch（租约覆盖装配窗——此处起心跳间隔同值单源）。
+  // cr-1126 文件心跳（§2.4）：零协议喂活源 ①；touch 失败静默（锁已换代/缺席）。
+  const heartbeat = setInterval(() => {
+    try { fs.utimesSync(path.join(agentDir, 'activation.lock'), new Date(), new Date()); } catch { /* 同上 */ }
+  }, LOCK_HEARTBEAT_MS);
+  heartbeat.unref();
   // cr-651：本壳即 restart_shell 的换代结果——复活标记已兑现，自清（宿主
   // boot 扫标记兜底重拉时，标记在我们 boot 完成后不再需要）。自清前读出
   // 会话键（cr-658）——恢复面据此注入「已重启」续跑通知。
@@ -911,8 +940,10 @@ export async function bootShell(
       fibers.push(benchFiber);
     }
   }
-  // cr-1126 节拍 2 落 boot-progress（原子覆写；批 1 宿主探测面已消费）
-  writeBootProgress(agentDir, { bootId, writtenAt: new Date().toISOString(), rows: rowsReady, pluginLoadFailures });
+  // cr-1126 节拍 2 落 boot-progress（原子覆写；批 1 宿主探测面已消费）。
+  // cr-1255：锁接管凭据（若本代经接管获锁）跨节拍保留——读现文件合入。
+  const prevProgress = readBootProgress(agentDir);
+  writeBootProgress(agentDir, { bootId, writtenAt: new Date().toISOString(), rows: rowsReady, pluginLoadFailures, ...(prevProgress?.bootId === bootId && prevProgress.lockTakeover !== undefined ? { lockTakeover: prevProgress.lockTakeover } : {}) });
 
   // 主体指纹自报（R-7：入指纹 = 行集推导一切——config + catalog + 行包内容；
   // 无 path 的占位行不入行集指纹面〔未实现 = 未生效〕）。boot.ready 第四域。
@@ -963,6 +994,8 @@ export async function bootShell(
   // 控制面（cr-675）：同一个 control() 既服务 stdin 控制帧（拉起方管道），
   // 也服务 transportHint socket 上的 manage 帧——外壳换代后活壳仍可受控。
   const control = async (frame: ControlFrame): Promise<unknown> => {
+    // cr-1255：持有者探针面（无副作用只读——判活用，不触任何服务/锁）
+    if (frame.ctrl === 'probe') return { bootId: lockInfo.bootId, pid: process.pid };
     if (frame.ctrl === 'system') {
       if (opts.onShutdown === undefined) throw new Error('system 帧无面（进程入口未接优雅退出）');
       opts.onShutdown();
@@ -1247,8 +1280,9 @@ export async function bootShell(
       resolve();
     });
   });
-  // cr-1126 终拍进度（rows + fingerprint + 装载失败清单全量）落盘
-  writeBootProgress(agentDir, { bootId, writtenAt: new Date().toISOString(), rows: rowsReady, fingerprintRoot: fingerprint.root, pluginLoadFailures });
+  // cr-1126 终拍进度（rows + fingerprint + 装载失败清单全量）落盘（lockTakeover 合入同上）
+  const prev = readBootProgress(agentDir);
+  writeBootProgress(agentDir, { bootId, writtenAt: new Date().toISOString(), rows: rowsReady, fingerprintRoot: fingerprint.root, pluginLoadFailures, ...(prev?.bootId === bootId && prev.lockTakeover !== undefined ? { lockTakeover: prev.lockTakeover } : {}) });
   // boot 恢复面（cr-629；cr-974 起孤儿收口退役——D-3 读方配平：上代壳
   // 死于 mid-run 的未闭合 run 不回写，读侧（fold）合成 run-end(interrupted)
   // 投影）。pending inbox 重投——已落账未消费的信（排队/steer 落空/安全
@@ -1439,7 +1473,7 @@ export async function main(argv: string[]): Promise<number> {
     // 监护物理面（协议 D1/D2 钉值 cr-528）：guardian.ping 心跳 30s（stdout
     // TSV）+ idle-exit 四条件探针（15min 无 run / 无 inbox 待消费 / 无在途
     // 交互 / 无活跃 job → resolve 收割，退码 0——来件由宿主按需重拉）。
-    const HEARTBEAT_MS = 30_000;
+    
     const IDLE_EXIT_MS = 15 * 60_000;
     const IDLE_PROBE_MS = 30_000;
     let lastActiveAt = Date.now();
@@ -1496,19 +1530,6 @@ export async function main(argv: string[]): Promise<number> {
         const merge = [...new Set([...(p.conversationIds ?? []), ...result.restartedNoteTake()])];
         void notifyHostRestartShell(args, merge).finally(() => decideExit(42));
       });
-      // 锁路径同源 bootShell（影子形态 = children 域；main 作用域无 agentDir）
-      const lockFile = path.join(
-        args.parentId !== undefined
-          ? path.join(path.resolve(args.dataRoot), 'agents', args.parentId, 'children', args.agentId)
-          : path.join(path.resolve(args.dataRoot), 'agents', args.agentId),
-        'activation.lock',
-      );
-      const heartbeat = setInterval(() => {
-        // cr-1126 文件心跳（§2.4）：30s touch 锁 mtime——零协议喂活源 ①
-        //（宿主读锁 stat 即得；touch 失败静默——判活另有 peek 双源兜底）。
-        try { fs.utimesSync(lockFile, new Date(), new Date()); } catch { /* 锁已换代/缺席 */ }
-      }, HEARTBEAT_MS);
-      heartbeat.unref();
       const idleProbe = setInterval(() => {
         if (Date.now() - lastActiveAt < IDLE_EXIT_MS) return;
         if (shellIsIdle(result.ctx)) decideExit(0);
