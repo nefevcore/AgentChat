@@ -88,18 +88,13 @@
    ],
    "refs": []
   },
-  "1036": {
-   "status": "doing",
-   "scopes": [],
-   "refs": []
-  },
   "1038": {
    "status": "plan",
    "scopes": [],
    "refs": []
   },
   "1040": {
-   "status": "doing",
+   "status": "drop",
    "scopes": [],
    "refs": []
   },
@@ -156,11 +151,6 @@
     1096
    ]
   },
-  "1098": {
-   "status": "doing",
-   "scopes": [],
-   "refs": []
-  },
   "1114": {
    "status": "done",
    "scopes": [
@@ -172,11 +162,6 @@
     1007,
     1028
    ]
-  },
-  "1124": {
-   "status": "doing",
-   "scopes": [],
-   "refs": []
   },
   "1135": {
    "status": "done",
@@ -354,6 +339,11 @@
     1213,
     1238
    ]
+  },
+  "1255": {
+   "status": "plan",
+   "scopes": [],
+   "refs": []
   }
  }
 }

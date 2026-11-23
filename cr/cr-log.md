@@ -1273,4 +1273,6 @@
 - 【cr-1252 2026-11-22 记忆物化 seq + memory_forget 遗忘口（timeline.forget.md 回收站）】
 - 【cr-1253 2026-11-22 cr-1252 补修：seq 撞号防线（条目数下界 + materialized 标记）+ 顺编保号】
 - 【cr-1254 2026-11-22 记忆整理轮 dream 机制（ac-memory 内：run 收束后触发 → 自会话唤醒整理 run → 三件套落账）】
+- 【cr-1255 2026-11-23 activation 锁 pid 复用致永久锁死：仅凭 pid 存活判持有者，Windows 复用 pid 给无关进程后 isAlive 恒真，Agent 永久无法启动（writer 实测 12h）】
+- 【cr-1256 2026-11-23 权限门四层缺省 deny→ask：有人会话四层全空也弹审批卡（用户 2026-11-23 澄清，翻转 cr-1218 维持 deny 的裁决）；无人桶 fail-closed 语义不变（D7 压弹卡格） →cr-1079 →cr-1218 #security #permission-gate --status doing】
 
