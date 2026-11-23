@@ -9,6 +9,12 @@
 // DNS 快不快与本闸门无关；断网时用它区分「真断网」与「网卡正在
 // 漫游/重配的瞬时无 IP」。
 //
+// 虚拟宿主网卡排除（用户裁决 2026-11-23，cr-1264）：VMware/Hyper-V/
+// TAP 等宿主虚拟网卡持有与上行无关的常驻 IP，物理断网时把信号
+// 判据永久饱和（2026-11-23 午间断网五档速递全失败的事故根因）——
+// 改为不计入在线信号；误判真实网卡的安全网 = DNS 漫游窗口（疑似
+// 期探测成功维持在线）+ 闸门端点预检 fail-open（只拒确定解析失败）。
+//
 // 自适应降级（用户裁决：探测慢就别探了）：离线/疑似期 DNS 探测
 // 延迟 EWMA > 1000ms 即 dnsDisabled——判定退回网卡单源，不再探测。
 // 恢复 online 翻转时重置（换网环境常见，给新 DNS 一次机会）。
@@ -16,23 +22,51 @@
 
 /** 网卡分析结果（os.networkInterfaces() 的纯函数投影） */
 export interface InterfaceSignal {
-  /** 有有效地址（非内部、非链路本地）的接口名清单 */
+  /** 有有效地址（非内部、非链路本地、非虚拟宿主）的接口名清单 */
   names: string[];
   /** 是否存在任一有效地址——online 的充分条件 */
   hasAddress: boolean;
+  /** 因虚拟宿主网卡被排除的接口名清单（诊断面——翻转日志透出） */
+  virtualNames: string[];
 }
 
 const LINK_LOCAL_V4 = /^169\.254\./;
 
+/** 宿主虚拟网卡名称模式（接口名不可靠处由 MAC OUI 兜底，见下） */
+const VIRTUAL_IFACE_PATTERNS: RegExp[] = [
+  /^vEthernet\b/i, // Hyper-V/WSL/DockerNAT 宿主虚拟交换机（Windows）
+  /vmware|vmnet/i, // VMware 宿主适配器（VMnet1 host-only / VMnet8 NAT）
+  /tap-windows|tap-win32/i, // OpenVPN/加速器 TAP 虚拟适配器
+];
+
+/** 虚拟化厂商 MAC OUI 前缀（小写）：接口名识别不了时的辅判据 */
+const VIRTUAL_MAC_PREFIXES = [
+  '00:50:56', // VMware
+  '00:15:5d', // Microsoft（Hyper-V vNIC / WSL）
+  '0a:00:27', // VirtualBox host-only
+  '00:1c:42', // Parallels
+  '00:ff', // TAP-Windows 本地管理段（00:FF:xx…）
+];
+
+/** 接口是否宿主虚拟网卡（名称模式 ∪ 任一地址 MAC 命中 OUI） */
+function isVirtualIface(name: string, macs: string[]): boolean {
+  if (VIRTUAL_IFACE_PATTERNS.some((re) => re.test(name))) return true;
+  return macs.some((mac) => {
+    const m = mac.toLowerCase();
+    return VIRTUAL_MAC_PREFIXES.some((p) => m.startsWith(p));
+  });
+}
+
 /**
  * 网卡信号分析：滤除 loopback（internal）、链路本地（169.254/fe80）、
- * 无地址接口。虚拟网卡（vEthernet/VMware 等）有地址时如实计入——
- * 它们确实承载可路由流量；宁可放行后失败重试，不可误杀在线调用。
+ * 无地址接口、宿主虚拟网卡（cr-1264——虚拟网卡持常驻 IP，物理断网
+ * 时造成在线假象）。被排除的虚拟接口名进 virtualNames 供诊断。
  */
 export function analyzeInterfaces(
   ifaces: Record<string, import('node:os').NetworkInterfaceInfo[] | undefined>,
 ): InterfaceSignal {
   const names: string[] = [];
+  const virtualNames: string[] = [];
   for (const [name, addrs] of Object.entries(ifaces)) {
     if (!addrs) continue;
     const valid = addrs.some((a) => {
@@ -44,9 +78,11 @@ export function analyzeInterfaces(
       if (v6) return !a.address.toLowerCase().startsWith('fe80');
       return false;
     });
-    if (valid) names.push(name);
+    if (!valid) continue;
+    if (isVirtualIface(name, addrs.map((a) => a.mac))) virtualNames.push(name);
+    else names.push(name);
   }
-  return { names, hasAddress: names.length > 0 };
+  return { names, hasAddress: names.length > 0, virtualNames };
 }
 
 /**
@@ -66,6 +102,50 @@ export async function probeDns(
   } catch {
     return undefined;
   }
+}
+
+/** 端点预检结论：pass 放行 / fail 拒绝 / timeout 放行（fail-open） */
+export type PreflightVerdict = 'pass' | 'fail' | 'timeout';
+
+/**
+ * 端点 DNS 预检（cr-1264 加固）：race 超时三态判定，供闸门在 online
+ * 状态下拒绝「连接在、DNS 坏」的调用（该形态 ENOTFOUND 必败，拒绝
+ * 不损失任何本会成功的调用）。timeout 放行——慢 DNS 不拖累调用
+ * （fetch 自会解析，预检代价与它同源）；失败与超时的区分由此保证
+ * 「只拒确定解析失败」。悬挂的 lookup 由 race 自然回收（probe 链已
+ * 兜住 rejection，无 unhandled）。
+ */
+export async function preflightDns(
+  host: string,
+  lookup: (h: string) => Promise<unknown>,
+  timeoutMs: number,
+): Promise<PreflightVerdict> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<PreflightVerdict>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+    (timer as unknown as { unref?: () => void }).unref?.();
+  });
+  const probe = probeDns(host, lookup).then((ms): PreflightVerdict => (ms === undefined ? 'fail' : 'pass'));
+  try {
+    return await Promise.race([probe, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** 提取 baseUrl 的主机名（bare 形态，IPv6 去方括号）；解析失败 undefined */
+export function hostOfBaseUrl(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) return undefined;
+  try {
+    return new URL(baseUrl).hostname.replace(/\[|\]/g, '').toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
+/** 主机名是否 IP 字面量（无需 DNS 解析——预检跳过） */
+export function isIpLiteralHost(host: string): boolean {
+  return /^\d+\.\d+\.\d+\.\d+$/.test(host) || host.includes(':');
 }
 
 /** 网络状态机的跨轮记忆（在线/离线两态 + DNS 健康记账） */

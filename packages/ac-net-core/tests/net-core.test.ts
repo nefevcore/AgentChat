@@ -5,20 +5,23 @@
 import { describe, it, expect } from 'vitest';
 import {
   analyzeInterfaces,
+  hostOfBaseUrl,
   initialNetState,
+  isIpLiteralHost,
   isLocalBaseUrl,
   nextNetState,
   OFFLINE_CONFIRM,
+  preflightDns,
   probeDns,
   type InterfaceSignal,
   type NetState,
 } from '../src/index.ts';
 
-const WITH = { names: ['以太网'], hasAddress: true } satisfies InterfaceSignal;
-const WITHOUT = { names: [], hasAddress: false } satisfies InterfaceSignal;
+const WITH = { names: ['以太网'], hasAddress: true, virtualNames: [] } satisfies InterfaceSignal;
+const WITHOUT = { names: [], hasAddress: false, virtualNames: [] } satisfies InterfaceSignal;
 
 describe('analyzeInterfaces', () => {
-  it('滤 loopback/链路本地/无地址；虚拟网卡有地址如实计入', () => {
+  it('滤 loopback/链路本地/无地址；虚拟网卡计入 virtualNames 不计在线信号（cr-1264）', () => {
     const r = analyzeInterfaces({
       'Loopback Pseudo-Interface 1': [{ address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '', internal: true, cidr: null, scopeid: undefined }],
       '以太网': [
@@ -33,8 +36,30 @@ describe('analyzeInterfaces', () => {
       ],
       '空接口': [],
     });
-    expect(r.names).toEqual(['以太网', 'vEthernet (WSL)']);
+    expect(r.names).toEqual(['以太网']);
+    expect(r.virtualNames).toEqual(['vEthernet (WSL)']);
     expect(r.hasAddress).toBe(true);
+  });
+  it('VMware 常驻 IP 网卡被排除——物理断网不再在线假象（cr-1264 事故根因）', () => {
+    const r = analyzeInterfaces({
+      'VMware Network Adapter VMnet1': [
+        { address: '192.168.228.1', netmask: '255.255.255.0', family: 'IPv4', mac: '00:50:56:C0:00:08', internal: false, cidr: null, scopeid: undefined },
+      ],
+      'VMware Network Adapter VMnet8': [
+        { address: '192.168.111.1', netmask: '255.255.255.0', family: 'IPv4', mac: '00:50:56:C0:00:18', internal: false, cidr: null, scopeid: undefined },
+      ],
+    });
+    expect(r.hasAddress).toBe(false);
+    expect(r.virtualNames).toEqual(['VMware Network Adapter VMnet1', 'VMware Network Adapter VMnet8']);
+  });
+  it('名称模式识别不了的虚拟网卡由 MAC OUI 兜底（Hyper-V 00:15:5d）', () => {
+    const r = analyzeInterfaces({
+      '本地链路 12': [
+        { address: '172.30.5.9', netmask: '255.255.255.0', family: 'IPv4', mac: '00:15:5D:AA:BB:CC', internal: false, cidr: null, scopeid: undefined },
+      ],
+    });
+    expect(r.hasAddress).toBe(false);
+    expect(r.virtualNames).toEqual(['本地链路 12']);
   });
   it('全断 → 无信号', () => {
     expect(analyzeInterfaces({}).hasAddress).toBe(false);
@@ -126,5 +151,24 @@ describe('isLocalBaseUrl', () => {
     expect(isLocalBaseUrl('https://api.deepseek.com/v1')).toBe(false);
     expect(isLocalBaseUrl(undefined)).toBe(false);
     expect(isLocalBaseUrl('not a url')).toBe(false);
+  });
+});
+
+describe('preflightDns / hostOfBaseUrl / isIpLiteralHost（cr-1264）', () => {
+  it('预检三态：成功 pass / 失败 fail / 超时 timeout（放行语义由调用方）', async () => {
+    expect(await preflightDns('api.deepseek.com', async () => '1.2.3.4', 500)).toBe('pass');
+    expect(await preflightDns('nope.invalid', async () => { throw new Error('ENOTFOUND'); }, 500)).toBe('fail');
+    expect(await preflightDns('slow.example', () => new Promise(() => { /* 永不 resolve */ }), 20)).toBe('timeout');
+  });
+  it('hostOfBaseUrl：域名小写、IPv6 去方括号、解析失败 undefined', () => {
+    expect(hostOfBaseUrl('https://API.DeepSeek.com/v1')).toBe('api.deepseek.com');
+    expect(hostOfBaseUrl('http://[2606:4700::1]:9000')).toBe('2606:4700::1');
+    expect(hostOfBaseUrl(undefined)).toBeUndefined();
+    expect(hostOfBaseUrl('not a url')).toBeUndefined();
+  });
+  it('isIpLiteralHost：v4 字面量与含冒号（v6）不需 DNS', () => {
+    expect(isIpLiteralHost('1.2.3.4')).toBe(true);
+    expect(isIpLiteralHost('2606:4700::1')).toBe(true);
+    expect(isIpLiteralHost('api.deepseek.com')).toBe(false);
   });
 });

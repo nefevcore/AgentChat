@@ -35,9 +35,10 @@ function netSim(svc: NetMonitorService, init: { hasAddress: boolean; dnsOk: bool
   const env = { ...init };
   let t = 1_000_000;
   svc.testProbe = {
-    interfaces: () => (env.hasAddress ? { names: ['以太网'], hasAddress: true } : { names: [], hasAddress: false }),
+    interfaces: () => (env.hasAddress ? { names: ['以太网'], hasAddress: true, virtualNames: [] } : { names: [], hasAddress: false, virtualNames: [] }),
     dns: async () => (env.dnsOk ? 40 : undefined),
     now: () => (t += 3000),
+    preflight: () => Promise.resolve('pass' as const),
   };
   return { env };
 }
@@ -99,6 +100,25 @@ describe('ac-net-monitor 探测循环', () => {
     expect(svc.status().online).toBe(true);
     expect(svc.status().dnsDisabled).toBeUndefined();
   });
+
+  it('VMware 常驻 IP 网卡不算在线信号——物理断网正确翻 offline（cr-1264 事故根因）', async () => {
+    const events: string[] = [];
+    const { ctx } = await boot([llmRow, netRow]);
+    const svc = ctx.netMonitor as NetMonitorService;
+    // 物理断网形态：仅 VMware 宿主虚拟网卡持有常驻 IP，DNS 全断
+    let t = 1_000_000;
+    svc.testProbe = {
+      interfaces: () => ({ names: [], hasAddress: false, virtualNames: ['VMware Network Adapter VMnet1', 'VMware Network Adapter VMnet8'] }),
+      dns: async () => undefined,
+      now: () => (t += 3000),
+    };
+    ctx.on('net/offline', () => events.push('offline'));
+    await svc.tickOnce();
+    await svc.tickOnce();
+    expect(svc.status().online).toBe(false);
+    expect(events).toEqual(['offline']);
+    expect(svc.status().virtualInterfaces).toEqual(['VMware Network Adapter VMnet1', 'VMware Network Adapter VMnet8']);
+  });
 });
 
 describe('ac-net-monitor 离线闸', () => {
@@ -145,5 +165,45 @@ describe('ac-net-monitor 离线闸', () => {
     await svc.tickOnce();
     const r = await ctx.llm.chat({ provider: 'nourl', model: 'm-1', messages: USER });
     expect(r.text).toBe('ok');
+  });
+
+  it('在线期端点 DNS 坏：预检 fail → 毫秒级拒绝，provider 不被调用（cr-1264）', async () => {
+    const p = providerRow('dns-broken', 'https://api.deepseek.com/v1');
+    const { ctx } = await boot([llmRow, p.row, netRow]);
+    const svc = ctx.netMonitor as NetMonitorService;
+    netSim(svc, { hasAddress: true, dnsOk: true }); // 网卡在线（判定不翻离线）
+    svc.testProbe!.preflight = () => Promise.resolve('fail'); // 但端点解析失败
+    await svc.tickOnce();
+    expect(svc.status().online).toBe(true);
+    await expect(ctx.llm.chat({ provider: 'dns-broken', model: 'm-1', messages: USER })).rejects.toThrow('api.deepseek.com');
+    expect(p.calls.stream).toBe(0); // dispatch 未执行
+  });
+
+  it('在线期预检超时：放行（fail-open——慢 DNS 不拖累调用）', async () => {
+    const p = providerRow('dns-slow', 'https://api.deepseek.com/v1');
+    const { ctx } = await boot([llmRow, p.row, netRow]);
+    const svc = ctx.netMonitor as NetMonitorService;
+    netSim(svc, { hasAddress: true, dnsOk: true });
+    svc.testProbe!.preflight = () => Promise.resolve('timeout');
+    await svc.tickOnce();
+    const r = await ctx.llm.chat({ provider: 'dns-slow', model: 'm-1', messages: USER });
+    expect(r.text).toBe('ok');
+    expect(p.calls.stream).toBe(1);
+  });
+
+  it('在线期本地端点与 IP 字面量：不预检直接放行', async () => {
+    const local = providerRow('local2', 'http://localhost:11434/v1');
+    const ip = providerRow('ip-literal', 'https://8.8.8.8/v1');
+    const { ctx } = await boot([llmRow, local.row, ip.row, netRow]);
+    const svc = ctx.netMonitor as NetMonitorService;
+    let preflightCalls = 0;
+    netSim(svc, { hasAddress: true, dnsOk: true });
+    svc.testProbe!.preflight = () => { preflightCalls += 1; return Promise.resolve('fail'); }; // 即使 fail 也不该被调用
+    await svc.tickOnce();
+    const r1 = await ctx.llm.chat({ provider: 'local2', model: 'm-1', messages: USER });
+    expect(r1.text).toBe('ok');
+    const r2 = await ctx.llm.chat({ provider: 'ip-literal', model: 'm-1', messages: USER });
+    expect(r2.text).toBe('ok');
+    expect(preflightCalls).toBe(0);
   });
 });
