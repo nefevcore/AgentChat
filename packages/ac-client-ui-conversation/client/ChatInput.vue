@@ -454,6 +454,8 @@ function dirtyConvPatch(): Record<string, string | null> | null {
   for (const def of experimentalKeys.value) keys.add(def.key);
   // singles 的 model 归 session.json 域（防双源）——不进 conv-settings patch
   if (props.single) keys.delete('model');
+  // cr-1259 immediate 键选择即写（基线已同步）——不进发送边界 patch
+  for (const def of experimentalKeys.value) if (def.immediate) keys.delete(def.key);
   const patch: Record<string, string | null> = {};
   for (const key of keys) {
     const current = formConvValue(key);
@@ -610,7 +612,7 @@ const browserTierBtn = computed(() => {
 /** 实验性键目录（conv-settings/keys——服务面注册制目录驱动；前端不再
  * 写死选项组。browserTier 也在目录里（BUILTIN_KEYS group:'experimental'）。
  * 插件 registerKey 注册的新实验键自动出现在一级菜单。） */
-interface ExpKeyDef { key: string; enum?: string[]; description?: string; label?: string; order?: number; options?: Record<string, string> }
+interface ExpKeyDef { key: string; enum?: string[]; description?: string; label?: string; order?: number; options?: Record<string, string>; immediate?: boolean }
 const experimentalKeys = ref<ExpKeyDef[]>([]);
 const experimentalLoaded = ref(false);
 async function loadExperimentalKeys(): Promise<void> {
@@ -627,10 +629,29 @@ const extKeyValues = reactive<Record<string, string>>({});
 function extKeyOf(key: string): ExpKeyDef | undefined {
   return experimentalKeys.value.find(k => k.key === key);
 }
-/** 选择扩展键值：**只改表单**（cr-1093 消息边界生效；'' = 删键回跟随态）。
- *  registerKey 注册的新键经此泛写口自动接线，零改动。 */
-function selectExtKey(key: string, value: string) {
+/**
+ * 选择扩展键值（registerKey 注册的新键经此泛写口自动接线，零改动）：
+ * · 缺省 = **只改表单**（cr-1093 消息边界生效；'' = 删键回跟随态）；
+ * · def.immediate = **选择即写**（cr-1259 per-step 生效——消费方逐调用
+ *   读取的键落盘即被下一次消费看见；进行中 run 的下一 step 即生效）。
+ *   仅非草稿位：真实会话键在场才写（草稿位无服务端读面，仍走发送边界）。
+ *   写失败回滚表单 + toast（immediate 键的真相 = 落盘值——静默吞会留下
+ *   「显示已改、实际未改」的假象，与 cr-1093「表单即真相」不同）。
+ */
+async function selectExtKey(key: string, value: string) {
   extKeyValues[key] = value;
+  const def = extKeyOf(key);
+  if (!def?.immediate) return;
+  const conversationId = toolModeConvKey.value;
+  if (!conversationId || onDraft.value || !rpc) return; // 草稿位/无键：发送边界兜底
+  const patch: Record<string, string | null> = { [key]: value === '' ? null : value };
+  try {
+    await rpc.call('conv-settings/set', { conversationId, patch });
+    convBaseline[key] = value;
+  } catch (err: unknown) {
+    extKeyValues[key] = convBaseline[key] ?? ''; // 回滚到落盘值
+    toastError('会话设置写入失败：' + ((err as { message?: string }).message ?? String(err)));
+  }
 }
 
 /** 挂载/会话切换：回读会话实验键（browserTier 内置 + 注册扩展键）+ 拉目录填

@@ -61,7 +61,7 @@ import {
 interface ConvSettingsFace {
   get(conversationId: string): Record<string, string>;
   set(conversationId: string, patch: Record<string, string | null | undefined>): Record<string, string>;
-  listKeys(): Array<{ key: string; enum?: string[]; description?: string; group?: string }>;
+  listKeys(): Array<{ key: string; enum?: string[]; description?: string; group?: string; immediate?: boolean }>;
 }
 
 /** 索引行窄接口（ctx.sessionIndex 结构子集——ac-session-index 行提供；

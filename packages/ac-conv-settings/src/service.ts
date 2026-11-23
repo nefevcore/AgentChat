@@ -59,6 +59,14 @@ export interface ConvSettingsKeyDef {
   order?: number;
   /** 值展示词表（enum 各值的 UI 文案；缺省直显枚举值） */
   options?: Record<string, string>;
+  /**
+   * 选择即写（cr-1259）：泛写口按此分流写时机——true = 控件选择即落盘
+   * （per-step 生效），false/缺省 = 发送边界随 flush 一次 patch。**只标给
+   * 消费方逐调用读取的键**（写落盘即被下一次消费看见——「写即生效」语义
+   * 自洽）；run 装配点读的键（toolMode 收窄工具面）mid-run 写不改变进行中
+   * run 的行为，反而制造「改了没生效」的模糊态，不得标。
+   */
+  immediate?: boolean;
 }
 
 const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
@@ -93,6 +101,9 @@ const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
     label: '工具审批',
     order: 4,
     options: { allow: '本会话自动放行', ask: '每次询问（缺省）', deny: '本会话一律拒绝' },
+    // cr-1259：门 onAskOf 逐工具调用读 effective——选择即写落盘即生效
+    // （进行中 run 的下一次 tool call 即见；草稿位无会话键仍走发送边界）。
+    immediate: true,
   },
   {
     // cr-41：submit_issue 会话开关（用户 2）——输入框「实验性」目录驱动

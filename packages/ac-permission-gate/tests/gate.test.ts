@@ -513,3 +513,55 @@ describe('注入分级（cr-1248）：预授权 ≠ 解除检查——倒挂回�
     expect(seenAccess).toBe('full-access');
   });
 });
+
+describe('per-step 生效（cr-1259）：会话键 approval 选择即写 → 门下一调用即见', () => {
+  // 生产链路：门 onAskOf 逐 tool call 读 effective（无缓存）+ 服务/shim 现读
+  // 文件——选择即写落盘即生效。本组用 ConvSettingsStub 可写 Map 模拟
+  // mid-run 改值（与 ConvSettingsService 现读不缓存同构）。
+  it('mid-run 改 deny：下一个 tool call 立即被拒（不等待 run 边界）', async () => {
+    const { ctx } = await boot({ convSettings: { 'user~a': {} } });
+    await reg(ctx, { name: 'perstep', risk: () => 'ask' });
+    // 首调用：无覆盖 → 默认 ask → 弹卡批准（scope=run——本轮全免）
+    const r1 = await runWithReply(ctx, { name: 'perstep', args: {}, conversationId: 'user~a', runId: 'run-1' }, { approved: true, scope: 'run' });
+    expect(r1.ok).toBe(true);
+    // mid-run：用户改 approval=deny（选择即写落盘）
+    ((ctx as any).convSettings as ConvSettingsStub).store.set('user~a', { approval: 'deny' });
+    // 下一个 tool call（同 run——runApproved 缓存在场）：设置链在缓存检查
+    // **之前**求值 → deny 立即压过 run 缓存，工具被拒
+    const r2 = await ctx.tools.execute({ name: 'perstep', args: {}, conversationId: 'user~a', runId: 'run-1' });
+    expect(r2.ok).toBe(false);
+    expect((r2 as { error?: string }).error).toMatch(/设置拒绝/);
+  });
+
+  it('mid-run 改 allow：下一个 tool call 免弹卡直通（sandbox-access——预授权分级）', async () => {
+    const { ctx } = await boot({ convSettings: { 'user~a': {} } });
+    let seenAccess: unknown;
+    const f = ctx.plugin({ name: 'ac-test-allowprobe', inject: ['tools'], apply(c: Context) {
+      c.tools.register({ name: 'allowprobe', risk: () => 'ask', execute: (_a, call) => { seenAccess = call.access; return { ok: true }; } });
+    } });
+    await f; booted.at(-1)!.fibers.push(f);
+    const r1 = await runWithReply(ctx, { name: 'allowprobe', args: {}, conversationId: 'user~a', runId: 'run-1' }, { approved: true, scope: 'call' });
+    expect(r1.ok).toBe(true);
+    expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1);
+    // mid-run：用户改 approval=allow（选择即写落盘）
+    ((ctx as any).convSettings as ConvSettingsStub).store.set('user~a', { approval: 'allow' });
+    // 下一个 tool call：免弹卡直通 + sandbox-access（cr-1248 预授权分级）
+    const r2 = await ctx.tools.execute({ name: 'allowprobe', args: {}, conversationId: 'user~a', runId: 'run-1' });
+    expect(r2.ok).toBe(true);
+    expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1); // 无新卡
+    expect(seenAccess).toBe('sandbox-access');
+  });
+
+  it('run 缓存不读设置链——scope=run 批准后改回 ask：仍免问（正交共存）', async () => {
+    const { ctx } = await boot({ convSettings: { 'user~a': {} } });
+    await reg(ctx, { name: 'orth', risk: () => 'ask' });
+    const r1 = await runWithReply(ctx, { name: 'orth', args: {}, conversationId: 'user~a', runId: 'r1' }, { approved: true, scope: 'run' });
+    expect(r1.ok).toBe(true);
+    // mid-run：用户改 approval=ask（既非 allow 也非 deny——回默认弹卡面）
+    ((ctx as any).convSettings as ConvSettingsStub).store.set('user~a', { approval: 'ask' });
+    // 同 run 下一调用：onAskOf 返回 ask → 进入缓存检查 → 命中 → 免问直过
+    const r2 = await ctx.tools.execute({ name: 'orth', args: {}, conversationId: 'user~a', runId: 'r1' });
+    expect(r2.ok).toBe(true);
+    expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(1); // 无新卡
+  });
+});

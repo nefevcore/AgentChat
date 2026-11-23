@@ -21,9 +21,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const src = readFileSync(join(here, '..', 'client', 'ChatInput.vue'), 'utf-8');
 
 describe('cr-1093 发送时写（ChatInput 写时机接线）', () => {
-  it('conv-settings/set 直写面只剩 flushConvSettings 一处（全前端唯一写边界）', () => {
+  it('conv-settings/set 直写面：flushConvSettings 一处 + immediate 泛写口一处（cr-1259 选择即写）', () => {
     const hits = src.match(/rpc\.call\('conv-settings\/set'/g) ?? [];
-    expect(hits).toHaveLength(1);
+    expect(hits).toHaveLength(2);
   });
 
   it('发送边界机制三件在场：基线 / 脏值 patch / 一次落盘', () => {
@@ -51,7 +51,7 @@ describe('cr-1093 发送时写（ChatInput 写时机接线）', () => {
     expect(guards.length).toBeGreaterThanOrEqual(2); // toolMode watch + browserTier watch
   });
 
-  it('四个控件函数只改表单：逐个函数体内零 RPC 调用', () => {
+  it('控件函数写时机：toolMode/browserTier 只改表单；extKey 按 def.immediate 分流（cr-1259）', () => {
     const bodyOf = (name: string): string => {
       const start = src.indexOf(`function ${name}(`);
       expect(start).toBeGreaterThan(-1);
@@ -59,11 +59,16 @@ describe('cr-1093 发送时写（ChatInput 写时机接线）', () => {
       const end = src.indexOf('\n}', start);
       return src.slice(start, end);
     };
-    for (const fn of ['selectToolMode', 'selectBrowserTier', 'selectExtKey']) {
+    for (const fn of ['selectToolMode', 'selectBrowserTier']) {
       const body = bodyOf(fn);
       expect(body).not.toContain('rpc.call(');
       expect(body).not.toContain('setConvSetting(');
     }
+    // extKey：缺省仍只改表单——RPC 只在 def.immediate 分流后（选择即写键
+    // cr-1259），且有 immediate 守卫 + 草稿位跳过
+    const extBody = bodyOf('selectExtKey');
+    expect(extBody).toContain('def?.immediate');
+    expect(extBody).toContain('onDraft.value');
     // model：singles 分支仍写 session.json 域（防双源例外），1v1 分支表单化
     const modelBody = bodyOf('selectModel');
     expect(modelBody).toContain("updateSession(props.single.id, { model: value || null })");

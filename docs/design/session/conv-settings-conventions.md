@@ -1,12 +1,12 @@
 # 会话键契约（conv-settings-conventions）
 
 > 性质：规约——会话设置键（conv-settings）从注册到消费的全生命周期统一契约；新键作者的单一入口档。
-> 状态：现行 · cr-1094 2026-11-15 精简四批全部落地：值域校验退役（cr-1091）+ grants 退役（cr-1092）+ 发送时写（cr-1093）+ harnessTier 整键退役（cr-1094）。
+> 状态：现行 · cr-1259 2026-11-23 增补：`immediate` 键字段（选择即写——per-step 生效单键面，approval 首例；cr-1094 精简四批仍为基础层）。
 > 读者：要新增或修改会话键的人（内置键 owning 侧 / 生态扩展键作者 / 消费方行作者）；落笔任何键前通读全文。
 
 ## 一、键的旅程与生效模型
 
-键值沿一条数据流走到底：**控件 → 统一写口 → 服务端闸 → 落盘 → 读面 → 消费**。生效模型一句话：**设置随消息边界生效，进行中的 run 不受干扰**。
+键值沿一条数据流走到底：**控件 → 统一写口 → 服务端闸 → 落盘 → 读面 → 消费**。生效模型一句话：**设置随消息边界生效，进行中的 run 不受干扰**；例外——`immediate` 键选择即写，下一消费点（per-step）即生效（cr-1259）。
 
 ### 消息边界写（cr-1093 已实施）
 
@@ -15,6 +15,7 @@
 - **草稿位**：选择只改表单状态，无任何写机制；真实 sid 首条消息发送时一次 patch 写入全部键。
 - **续聊位**：改值暂记表单，随下一条消息发送生效（UI 显示表单值即未生效，属正常，无提示）。
 - 键级 patch 语义保留（多端并发不互清键）。
+- **immediate 例外（cr-1259）**：def 标 `immediate: true` 的键（首例 approval）选择即落盘——非草稿位上泛写口直接 `conv-settings/set` 单键 patch，写成功基线同步（不进发送边界 flush），写失败回滚表单 + toast（immediate 键真相 = 落盘值，静默吞会留「显示已改、实际未改」假象）；草稿位仍走发送边界。**判据**：只标给消费方逐调用读取的键（写落盘即被下一次消费看见——「写即生效」自洽）；run 装配点读的键（如 toolMode 收窄工具面）mid-run 写不改进行中 run 行为，制造「改了没生效」模糊态，禁标。
 
 **唯一写点 = 发送链**：`prepareSend`（草稿物化拿真实 sid）→ `flushConvSettings`（表单 vs 基线的脏值一次 patch）。键面 = toolMode / browserTier / 实验目录键 / 1v1 的 model。
 
@@ -106,18 +107,18 @@
 | toolMode | `tc-*` 开放词 | `effectiveToolMode`（收窄 LLM 工具面） | 专用控件（三档钮） |
 | browserTier | observe/manipulate/inject/disabled | web-tools 分层门禁：disabled 直读拦截；层级判定 = max(Agent levels.browser, 本键)（cr-1092 直读合一——与 grants 注入恒等，并集只升不降） | 专用控件（实验性二级） |
 | issueSubmit | enabled/disabled | **enabled = no-op**（def 无 grants，注入从未发生）；disabled = issue-tools 直读前置拦截 | 泛写口 |
-| approval | allow/ask/deny | 权限门 `onAskOf` 第一层（逐工具调用读 effective） | 泛写口 |
+| approval | allow/ask/deny | 权限门 `onAskOf` 第一层（逐工具调用读 effective） | 泛写口（immediate——选择即写，cr-1259） |
 | ~~harnessTier~~（生态） | — | **已整键退役（cr-1094）**：原为壳内 registerKey 注册键（宿主侧键目录不可见 = 双树裂痕）+ grants 零消费（cr-1092 已删），disabled 拦截臂是唯一活闸而写面到不了宿主——死键双向空转。会话级禁用改由 Agent 行卸载表达；`run_harness` 工具本体保留 | ——（不再出现在实验目录） |
 
-### 运行中切换语义（cr-1093 后）
+### 运行中切换语义（cr-1093 后；cr-1259 增补）
 
-**一句话**：设置随下一条消息生效，进行中的 run 不受干扰。
+**一句话**：设置随下一条消息生效，进行中的 run 不受干扰——immediate 键除外（选择即写，进行中 run 的下一消费点即生效）。
 
-cr-1087 实测的三种涌现语义（approval 半个 run 生效 / toolMode 下一 run 生效 / browserTier 工具面与执行门新旧并存）随「选择即写」一并消失——写只发生在发送边界，故**同一 run 内不会看到会话键变化**。消费方读取时机（逐调用 / run 装配）仍各异，但对用户可见效果统一为「下一条消息起生效」。
+cr-1087 实测的三种涌现语义（approval 半个 run 生效 / toolMode 下一 run 生效 / browserTier 工具面与执行门新旧并存）随「选择即写」一并消失——写只发生在发送边界，故**同一 run 内不会看到会话键变化**。消费方读取时机（逐调用 / run 装配）仍各异，但对用户可见效果统一为「下一条消息起生效」。cr-1259 起 approval 恢复且**结构化**了「半个 run 生效」：写时机不再是控件各自为政，而是 def `immediate` 字段统一声明（与读时机对齐的键才允许），门逐 tool call 读 effective 的既有消费面 + runApproved 缓存在设置链之后求值——mid-run 改 deny 立即压过已批准缓存，改 allow 立即免卡（sandbox-access 分级不变），改回 ask 与缓存正交（缓存兑现「本轮免再问」）。
 
 ## 六、反模式与防复发
 
-**反模式清单**（发现即改）：直写 `conv-settings/set` 绕过 `flushConvSettings` 发送链；控件里「选择即写」；草稿位读服务端；消费方内联 `humanPresentOf` 判定；前端写死键目录不走 `conv-settings/keys`；给哨兵键写任何值；壳内写会话设置；**新键给 def 加 grants 字段（字段已随 cr-1092 删除）**。
+**反模式清单**（发现即改）：直写 `conv-settings/set` 绕过 `flushConvSettings` 发送链（immediate 键泛写口分流除外）；非 immediate 键控件里「选择即写」；**给 run 装配点读的键标 immediate**（读时机不对齐——制造「改了没生效」模糊态）；草稿位读服务端；消费方内联 `humanPresentOf` 判定；前端写死键目录不走 `conv-settings/keys`；给哨兵键写任何值；壳内写会话设置；**新键给 def 加 grants 字段（字段已随 cr-1092 删除）**。
 
 | 事故 | 根因 | 沉淀为 |
 |---|---|---|

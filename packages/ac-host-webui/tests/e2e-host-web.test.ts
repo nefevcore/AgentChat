@@ -243,9 +243,12 @@ describe('8.5a 宿主 web 面接线', () => {
     await expect(rpc(ws, 'conv-settings/set', { conversationId: '__pending__', patch: { approval: 'allow' } }))
       .rejects.toThrow(/哨兵/);
     // 键目录只回实验组（cr-613：主线同款 group 过滤——model/access/
-    // toolMode 纯消费键不得混入输入框实验性菜单）
-    const keys = await rpc<{ keys: Array<{ key: string; group?: string }> }>(ws, 'conv-settings/keys', {});
+    // toolMode 纯消费键不得混入输入框实验性菜单）。immediate 投影透传
+    //（cr-1259：approval 选择即写——泛写口按 def 分流写时机）
+    const keys = await rpc<{ keys: Array<{ key: string; group?: string; immediate?: boolean }> }>(ws, 'conv-settings/keys', {});
     expect(keys.keys.map((k) => k.key).sort()).toEqual(['approval', 'browserTier', 'issueSubmit']);
+    expect(keys.keys.find((k) => k.key === 'approval')?.immediate).toBe(true);
+    expect(keys.keys.find((k) => k.key === 'browserTier')?.immediate).toBeUndefined();
 
     // ② deliver 合并点：1v1 直答不传 conversationId/model → 按 pairKey 读存盘覆盖。
     // 会话键显式传 uuid 形（cr-1120 词汇锁：对桶键 alpha~user 不是 singles——
