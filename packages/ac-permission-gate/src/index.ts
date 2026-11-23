@@ -14,7 +14,8 @@
 //   4 建议 allow → 直通（可信工具已自审——信任的收益）
 //   5 建议 ask：s := 设置链（会话键 approval〔仅有人会话〕> Agent settings
 //     ['permission-gate'].onAsk > 全局 config settings['permission-gate'].onAsk
-//     > 缺省 'deny'）；s=allow 放行并注入 sandbox-access（cr-1248「知情通过
+//     > 缺省 'ask'〔cr-1256 翻转 cr-1218——有人会话四层全空也弹卡问人；
+//     fail-closed 语义由无人桶 D7 格承担〕）；s=allow 放行并注入 sandbox-access（cr-1248「知情通过
 //     即 full」——预授权免弹卡但保留沙箱检查；含无人桶：运营者预授权，
 //     问不出的问题不问）/ s=deny 拒绝 /
 //     s=ask → 无人桶（humanPresentOf === false：self/agent~agent/g~member
@@ -71,8 +72,9 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
   /**
    * 设置链合成（cr-1079 四层）：会话键 approval（convSettings——第一层）>
    * Agent settings ['permission-gate'].onAsk（settingsOf——第二层）>
-   * 全局 config settings['permission-gate'].onAsk（第三层）> 缺省 'deny'
-   * （第四层，fail-closed）。非法值回落下一层（回落方向——非 'allow'）。
+   * 全局 config settings['permission-gate'].onAsk（第三层）> 缺省 'ask'
+   * （第四层，cr-1256——有人会话四层全空弹卡问人；fail-closed 由无人桶
+   * D7 格承担）。非法值回落下一层（回落方向——非 'allow'）。
    * cr-1217 面3：返回裁决层标签——veto 文案归因（Agent 被 deny 时知道
    * 是谁拒的、去哪解锁，不再盲试——ISSUE-20 实证 20+ 次盲试的根因）。
    */
@@ -113,7 +115,7 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
     if (g === 'allow' || g === 'ask' || g === 'deny') {
       return { value: g, layer: '全局 config（config.json settings.permission-gate.onAsk）' };
     }
-    return { value: 'deny', layer: '缺省（四层均未配置）' }; // 第四层：缺省恒拒（fail-closed）
+    return { value: 'ask', layer: '缺省（四层均未配置）' }; // 第四层：缺省问人（cr-1256——fail-closed 语义在无人桶 D7 格）
   }
 
   /**

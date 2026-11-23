@@ -70,8 +70,8 @@ async function boot(opts: BootOpts = {}) {
     await f; fibers.push(f);
     ((ctx as any).agents as AgentsStub).settings = opts.agentSettings;
   }
-  // 环境缺省 = 全局 onAsk 'ask'（等价旧行 config 缺省——既有弹卡路径测试
-  // 零改）；「四层缺省 deny」类用例显式传 {} 排空
+  // 环境缺省 = 全局 onAsk 'ask'（与 cr-1256 起四层缺省同值——既有弹卡路径
+  // 测试零改）；四层缺省用例显式传 {} 排空验证
   const store = opts.globalConfig ?? { settings: { 'permission-gate': { onAsk: 'ask' as const } } };
   if (store !== null) {
     const f = ctx.plugin(ConfigStub);
@@ -290,14 +290,22 @@ describe('决策序 5：ask → 设置链 → 审批', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('四层缺省：全无设置 → deny（cr-1079 fail-closed 缺省）；文案归因到缺省层（cr-1217 面3）', async () => {
+  it('四层缺省：有人会话全无设置 → 弹卡问人（cr-1256 缺省 ask——翻转 cr-1079/cr-1218 的链尾 deny）；批准放行', async () => {
     const { ctx } = await boot({ globalConfig: {} });
     await reg(ctx, { name: 'asker4', risk: () => 'ask' });
-    const r = await ctx.tools.execute({ name: 'asker4', args: {}, conversationId: 'user~x' });
+    const r = await runWithReply(ctx, { name: 'asker4', args: {}, conversationId: 'user~probe' });
+    expect(r.ok).toBe(true);
+    expect(ctx.durableInteraction.list({ kind: 'approval' })).toHaveLength(1); // 弹卡了
+  });
+
+  it('四层缺省：无人会话全无设置 → 拒（D7 fail-closed 格）；文案归因到缺省层（cr-1217 面3）', async () => {
+    const { ctx } = await boot({ globalConfig: {} });
+    await reg(ctx, { name: 'asker5', risk: () => 'ask' });
+    const r = await ctx.tools.execute({ name: 'asker5', args: {}, conversationId: 'alice~alice' });
     expect(r.ok).toBe(false);
-    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0); // 缺省 deny 不弹卡
-    expect(r.error).toContain('缺省（四层均未配置）'); // 归因：是哪层拒的
-    expect(r.error).toContain('不应自行改写'); // 解锁指引：运营者配置，非 Agent 自签
+    expect(ctx.durableInteraction.listOpen({ kind: 'approval' })).toHaveLength(0); // 无人桶不弹卡
+    expect(r.error).toContain('缺省（四层均未配置）'); // 归因：缺省层落的 ask
+    expect(r.error).toContain('无人类参与'); // D7 fail-closed 语义
   });
 
   it('Agent settings 层 deny → 文案点名该层与单元文件路径（cr-1217 面3）', async () => {
