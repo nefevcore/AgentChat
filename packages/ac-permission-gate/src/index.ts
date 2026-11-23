@@ -12,17 +12,19 @@
 //   2 建议 := def.risk?.(args) ?? (needPermission ? 'ask' : 'allow')
 //   3 建议 deny → 拒绝（工具自愿收紧，不可被设置放宽）
 //   4 建议 allow → 直通（可信工具已自审——信任的收益）
-//   5 建议 ask：s := 设置链（会话键 approval〔仅有人会话〕> Agent settings
-//     ['permission-gate'].onAsk > 全局 config settings['permission-gate'].onAsk
-//     > 缺省 'ask'〔cr-1256 翻转 cr-1218——有人会话四层全空也弹卡问人；
-//     fail-closed 语义由无人桶 D7 格承担〕）；s=allow 放行并注入 sandbox-access（cr-1248「知情通过
-//     即 full」——预授权免弹卡但保留沙箱检查；含无人桶：运营者预授权，
-//     问不出的问题不问）/ s=deny 拒绝 /
+//   5 建议 ask：s := 设置链（会话键 approval〔仅有人会话，cr-1261 四档：
+//     allow-sandbox / allow-full〕> Agent settings ['permission-gate'].onAsk
+//     > 全局 config settings['permission-gate'].onAsk > 缺省 'ask'〔cr-1256
+//     翻转 cr-1218——有人会话四层全空也弹卡问人；fail-closed 语义由无人桶
+//     D7 格承担〕）；s=allow 放行：会话键 allow-full 注 full-access（cr-1261
+//     ——用户显式选的全权，越沙箱生效），其余 allow 注 sandbox-access（cr-1248
+//     「知情通过即 full」——持久预授权免弹卡但保留沙箱检查；含无人桶：运营者
+//     预授权，问不出的问题不问）/ s=deny 拒绝 /
 //     s=ask → 无人桶（humanPresentOf === false：self/agent~agent/g~member
 //     ——问人不可达）→ 拒（D7 fail-closed：仅压「要弹卡」这一格，预授权
 //     层照常生效）；有人桶 → durableInteraction approval 审批卡 → 批准
 //     （call/run）→ 变异 call.access='full-access' 放行（弹卡 payload 含
-//     完整命令 = 知情授权，唯一 full 注入点）/ 拒绝·超时 → 拒。
+//     完整命令 = 知情授权，弹卡 full 注入点）/ 拒绝·超时 → 拒。
 // run 级批准缓存：Map<runId>，loop/before-run 清（批准一次本轮 ask 全免）。
 // 门缺席 = dontAsk 化（D9：沙箱边界轴照拦——workdir/命令级扫描在工具内）。
 // ============================================================
@@ -47,8 +49,14 @@ export interface PermissionGateRowOptions {
 
 export const inject = ['tools', 'durableInteraction'];
 
-/** 设置链合成值 */
+/** 设置链合成值（cr-1261：会话层四档——allow 拆 allow-sandbox/allow-full；
+ *  第二/三层维持三值，allow = sandbox 档强度——cr-1248 持久预授权语义不变） */
 type OnAsk = 'allow' | 'ask' | 'deny';
+
+/** allow 的强度档（cr-1261）：sandbox = 免卡注 sandbox-access（cr-1248）；
+ *  full = 免卡注 full-access——仅会话键 allow-full 合法（用户此刻显式选择
+ *  的知情面强于持久预授权；Agent/全局层 onAsk 无此档）。 */
+type AllowStrength = 'sandbox' | 'full';
 
 /** approval answer 形状（前端 ApprovalBar respondApproval 同源：approved=true 携 scope） */
 interface ApprovalAnswer { approved?: boolean; scope?: unknown }
@@ -78,17 +86,22 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
    * cr-1217 面3：返回裁决层标签——veto 文案归因（Agent 被 deny 时知道
    * 是谁拒的、去哪解锁，不再盲试——ISSUE-20 实证 20+ 次盲试的根因）。
    */
-  function onAskOf(call: ToolCall): { value: OnAsk; layer: string } {
+  function onAskOf(call: ToolCall): { value: OnAsk; layer: string; strength?: AllowStrength } {
     // 第一层：会话键（壳 = ConvSettingsShim / 宿主 = 服务，读面统一
     // effective——cr-1083 conv-scope 批1：无人桶恒 {}，与 cr-1079 续记的
-    // 内联门同语义，上收到读取面单源）。
+    // 内联门同语义，上收到读取面单源）。cr-1261 会话层四档：allow-full →
+    // full 强度；存量/旧前端 'allow' 读侧映射 allow-sandbox（保守——已有
+    // 会话行为不变，写恒新词，零迁移同 cr-947 access/elevation 先例）。
     if (call.conversationId !== undefined) {
       const convSettings = ctx.get('convSettings', false) as
         | { effective(id: string): Record<string, string> }
         | undefined;
       const v = convSettings?.effective(String(call.conversationId)).approval;
-      if (v === 'allow' || v === 'ask' || v === 'deny') {
-        return { value: v, layer: '会话键 approval（' + call.conversationId + '）' };
+      if (v === 'allow-full') {
+        return { value: 'allow', layer: '会话键 approval（' + call.conversationId + '）= allow-full', strength: 'full' };
+      }
+      if (v === 'allow' || v === 'allow-sandbox' || v === 'ask' || v === 'deny') {
+        return { value: v === 'allow-sandbox' ? 'allow' : v, layer: '会话键 approval（' + call.conversationId + '）' };
       }
     }
     // 第二层：Agent settings（settingsOf 两层合成——同 shell-tools limitsOf 形态）
@@ -200,7 +213,12 @@ export function apply(ctx: Context, options: PermissionGateRowOptions = {}) {
     // 白名单/readDeny 照拦。倒挂现场：含 $ 变量拼接的命令（risk 恒 ask）
     // 在 approval=allow 会话反而拿 full 免检，坦白的字面量命令却撞扫描）。
     if (s.value === 'allow') {
-      execution.call = { ...call, access: 'sandbox-access' };
+      // cr-1261 强度分流：会话键 allow-full → full-access（越沙箱自动生效
+      // ——含 write 白名单/命令级扫描/readDeny 默认表；恒拦闸〔防自杀/授权
+      // 工件写/accessDeny 控制面与凭据库〕不随 full 跳过）；其余 allow
+      //（会话 allow-sandbox / Agent settings / 全局 config）维持 cr-1248
+      // sandbox-access——持久预授权未看过具体命令，知情面不足 full。
+      execution.call = { ...call, access: s.strength === 'full' ? 'full-access' : 'sandbox-access' };
       return next();
     }
     if (s.value === 'deny') {

@@ -94,6 +94,31 @@ describe('宿主能力面注册面（cr-1121）', () => {
     client.close();
   });
 
+  it('execute update_agent_profile settings：授权工件键（security/permission-gate）禁写（cr-1262）——自写即自授；其余具名键照常', async () => {
+    const root = tmpRoot();
+    writeAgentConfig(root, { id: 'a1', model: 'm' });
+    await bootFace(root);
+    const client = new HostFaceClient();
+    await client.connect(pipeOf(root));
+    // security（沙箱 allowedPaths 边界）——mathematician 实证提权口，fail-loud
+    const sec = await client.execute('update_agent_profile', { fields: { settings: { security: { enabled: true, allowedPaths: ['X:/esc'] } } } }, { agentId: 'a1' });
+    expect(sec.ok).toBe(false);
+    expect(sec.error).toContain('授权工件');
+    // permission-gate（审批链第二层 onAsk）——同型
+    const gate = await client.execute('update_agent_profile', { fields: { settings: { 'permission-gate': { onAsk: 'allow' } } } }, { agentId: 'a1' });
+    expect(gate.ok).toBe(false);
+    expect(gate.error).toContain('授权工件');
+    // 落盘核验：两个键都未进 settings
+    const cfg = readAgentConfig(root, 'a1');
+    expect(cfg?.settings?.security).toBeUndefined();
+    expect(cfg?.settings?.['permission-gate']).toBeUndefined();
+    // 其余具名键照常（回归）
+    const okWrite = await client.execute('update_agent_profile', { fields: { settings: { 'my-plugin': { x: 1 } } } }, { agentId: 'a1' });
+    expect(okWrite.ok).toBe(true);
+    expect(readAgentConfig(root, 'a1')?.settings?.['my-plugin']).toEqual({ x: 1 });
+    client.close();
+  });
+
   it('execute timer：timers 服务缺席 → 可读错误（贡献行 use-time 软取）', async () => {
     const root = tmpRoot();
     await bootFace(root); // 未装 timers 行

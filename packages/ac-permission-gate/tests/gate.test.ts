@@ -552,6 +552,46 @@ describe('per-step 生效（cr-1259）：会话键 approval 选择即写 → 门
     expect(seenAccess).toBe('sandbox-access');
   });
 
+  it('cr-1261 四档：allow-full 免卡注 full-access；allow-sandbox/存量 allow 注 sandbox-access', async () => {
+    // allow-full：免弹卡 + full（越沙箱——工具体可见 access 档）
+    {
+      const { ctx } = await boot({ convSettings: { 'user~a': { approval: 'allow-full' } } });
+      let seenAccess: unknown;
+      const f = ctx.plugin({ name: 'ac-test-fullprobe', inject: ['tools'], apply(c: Context) {
+        c.tools.register({ name: 'fullprobe', risk: () => 'ask', execute: (_a, call) => { seenAccess = call.access; return { ok: true }; } });
+      } });
+      await f; booted.at(-1)!.fibers.push(f);
+      const r = await ctx.tools.execute({ name: 'fullprobe', args: {}, conversationId: 'user~a' });
+      expect(r.ok).toBe(true);
+      expect(ctx.durableInteraction.list({ kind: 'approval' }).length).toBe(0); // 无卡
+      expect(seenAccess).toBe('full-access');
+    }
+    // allow-sandbox（新词）：免弹卡 + sandbox 档
+    {
+      const { ctx } = await boot({ convSettings: { 'user~a': { approval: 'allow-sandbox' } } });
+      let seenAccess: unknown;
+      const f = ctx.plugin({ name: 'ac-test-sbprobe', inject: ['tools'], apply(c: Context) {
+        c.tools.register({ name: 'sbprobe', risk: () => 'ask', execute: (_a, call) => { seenAccess = call.access; return { ok: true }; } });
+      } });
+      await f; booted.at(-1)!.fibers.push(f);
+      const r = await ctx.tools.execute({ name: 'sbprobe', args: {}, conversationId: 'user~a' });
+      expect(r.ok).toBe(true);
+      expect(seenAccess).toBe('sandbox-access');
+    }
+    // 存量 'allow'（旧前端/历史落盘）：读侧映射 allow-sandbox——保守兼容
+    {
+      const { ctx } = await boot({ convSettings: { 'user~a': { approval: 'allow' } } });
+      let seenAccess: unknown;
+      const f = ctx.plugin({ name: 'ac-test-legacyprobe', inject: ['tools'], apply(c: Context) {
+        c.tools.register({ name: 'legacyprobe', risk: () => 'ask', execute: (_a, call) => { seenAccess = call.access; return { ok: true }; } });
+      } });
+      await f; booted.at(-1)!.fibers.push(f);
+      const r = await ctx.tools.execute({ name: 'legacyprobe', args: {}, conversationId: 'user~a' });
+      expect(r.ok).toBe(true);
+      expect(seenAccess).toBe('sandbox-access'); // 不是 full——存量会话不一夜全权
+    }
+  });
+
   it('run 缓存不读设置链——scope=run 批准后改回 ask：仍免问（正交共存）', async () => {
     const { ctx } = await boot({ convSettings: { 'user~a': {} } });
     await reg(ctx, { name: 'orth', risk: () => 'ask' });

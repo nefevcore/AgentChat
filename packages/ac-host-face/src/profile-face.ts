@@ -112,6 +112,15 @@ function executeProfile(
     if (fields.settings === null || typeof fields.settings !== 'object' || Array.isArray(fields.settings)) {
       return err('settings 字段须为对象（settings[具名] 配置）');
     }
+    // cr-1262 授权工件键禁写：settings.security（沙箱 allowedPaths——自写即
+    // 自扩磁盘边界）与 settings['permission-gate']（审批链第二层——自写
+    // onAsk 即自批）是授权工件，工具面恒禁写（cr-1217 面2 同款语义；运营者
+    // 写口 = 手编文件/宿主编辑面，不经本函数）。mathematician 实证：经本口
+    // 写 security.allowedPaths 成功且立即生效——受管对象自授权，fail-loud。
+    const blocked = Object.keys(fields.settings).filter((k) => k === 'security' || k === 'permission-gate');
+    if (blocked.length > 0) {
+      return err(`settings 键 ${blocked.join('/')} 是授权工件（沙箱边界/审批裁决），不得经 update_agent_profile 写入——运营者请直接编辑 agents/<id>/ 对应文件`);
+    }
     next.settings = { ...(current.settings ?? {}), ...(fields.settings as Record<string, unknown>) };
     changed.push('settings');
   }
@@ -130,7 +139,8 @@ export function makeProfileFaceRow(options: { dataRoot: string }): Plugin {
         tools: [{
           name: 'update_agent_profile',
           description:
-            '更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENTS.md。',
+            '更新 Agent 档案（name/description/system/persona/tools/maxSteps/settings）。默认改自己，具备 admin 能力可改他人；name 是显示名称（名册/群聊展示），description 是一句话简介（不影响显示名）；persona 写入 Agent 目录 AGENTS.md。settings 禁写授权工件键（security / permission-gate——授权由运营者配置，Agent 不得自授）。',
+
           parameters: {
             type: 'object',
             properties: {

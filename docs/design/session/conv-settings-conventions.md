@@ -107,7 +107,7 @@
 | toolMode | `tc-*` 开放词 | `effectiveToolMode`（收窄 LLM 工具面） | 专用控件（三档钮） |
 | browserTier | observe/manipulate/inject/disabled | web-tools 分层门禁：disabled 直读拦截；层级判定 = max(Agent levels.browser, 本键)（cr-1092 直读合一——与 grants 注入恒等，并集只升不降） | 专用控件（实验性二级） |
 | issueSubmit | enabled/disabled | **enabled = no-op**（def 无 grants，注入从未发生）；disabled = issue-tools 直读前置拦截 | 泛写口 |
-| approval | allow/ask/deny | 权限门 `onAskOf` 第一层（逐工具调用读 effective） | 泛写口（immediate——选择即写，cr-1259） |
+| approval | allow-sandbox / allow-full / ask / deny（存量 allow 读侧映射 allow-sandbox，写恒新词——cr-1261） | 权限门 `onAskOf` 第一层（逐工具调用读 effective；allow-full 免卡注 full-access 越沙箱生效——**仅本层合法**，Agent/全局层 onAsk 维持三值） | 泛写口（immediate——选择即写，cr-1259） |
 | ~~harnessTier~~（生态） | — | **已整键退役（cr-1094）**：原为壳内 registerKey 注册键（宿主侧键目录不可见 = 双树裂痕）+ grants 零消费（cr-1092 已删），disabled 拦截臂是唯一活闸而写面到不了宿主——死键双向空转。会话级禁用改由 Agent 行卸载表达；`run_harness` 工具本体保留 | ——（不再出现在实验目录） |
 
 ### 运行中切换语义（cr-1093 后；cr-1259 增补）

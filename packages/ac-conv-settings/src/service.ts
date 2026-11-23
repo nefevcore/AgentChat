@@ -90,17 +90,24 @@ const BUILTIN_KEYS: ConvSettingsKeyDef[] = [
     options: { observe: '只读浏览', manipulate: '交互操作', inject: 'JS 注入', disabled: '禁用浏览器' },
   },
   {
-    // cr-1066 权限门：ask 建议的归宿键——值域 allow（放行）/ ask（弹审批卡，
-    // 缺省）/ deny（拒绝）。进内置键而非门行 registerKey：壳/宿主分树下
-    // 垫片注册的键宿主 set 面不认识（readSettings 回读校验滤掉 + UI 写键
-    // 被静默清除），内置注册打通宿主读写链全链。
+    // cr-1066 权限门：ask 建议的归宿键。cr-1261 会话层四档：allow-sandbox
+    // （免卡，沙箱照拦）/ allow-full（免卡全权——越沙箱与机密读默认表）/
+    // ask（弹卡，缺省）/ deny（拒）。存量 'allow' 读侧映射 allow-sandbox
+    // （保守兼容）；第二/三层（Agent/全局 onAsk）维持三值不受本键值域影响。
+    // 进内置键而非门行 registerKey：壳/宿主分树下垫片注册的键宿主 set 面
+    // 不认识，内置注册打通宿主读写链全链。
     key: 'approval',
-    enum: ['allow', 'ask', 'deny'],
-    description: '权限门审批（ask 建议的归宿：allow 直过 / ask 弹卡（缺省）/ deny 拒绝）',
+    enum: ['allow-sandbox', 'allow-full', 'ask', 'deny'],
+    description: '权限门审批（ask 建议的归宿：allow-sandbox 沙箱内直过 / allow-full 全权直过 / ask 弹卡（缺省）/ deny 拒绝）',
     group: 'experimental',
     label: '工具审批',
     order: 4,
-    options: { allow: '本会话自动放行', ask: '每次询问（缺省）', deny: '本会话一律拒绝' },
+    options: {
+      'allow-sandbox': '沙箱内自动放行（越界仍拦）',
+      'allow-full': '全权放行（含沙箱外路径/机密文件，慎用）',
+      ask: '每次询问（缺省）',
+      deny: '本会话一律拒绝',
+    },
     // cr-1259：门 onAskOf 逐工具调用读 effective——选择即写落盘即生效
     // （进行中 run 的下一次 tool call 即见；草稿位无会话键仍走发送边界）。
     immediate: true,
