@@ -1,6 +1,6 @@
 {
- "scannedHead": "a4bc68307a02ec60c22dbaac453a2dda7c73529c",
- "generatedAt": "2026-11-22T14:42:22.120Z",
+ "scannedHead": "7a355de39befce84ad44e5dc10afa03f5cf76f3e",
+ "generatedAt": "2026-11-23T01:57:16.494Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4547,6 +4547,11 @@
     "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
+   },
+   {
+    "sha": "48a1164d0aea7a74be4320f7277f3b89b522abde",
+    "date": "2026-11-23",
+    "subject": "chore(cr): cr-1256 台账登记与详情正本（含活体验证证据链）；前批 cr-1036/1098/1124 收口与 cr-1040 drop 同批"
    }
   ],
   "1037": [
@@ -4583,6 +4588,13 @@
     "sha": "95d9376005556077ae278cc2b82844a048dfdac7",
     "date": "2026-11-12",
     "subject": "feat(assembly): cr-1036 迁移链完备性全批落地——版本化持久形态换轨器统一为相邻边迁移链 + 四断言校验器（严格相邻/from 无重复/链完整缺环列名/未来版本拒绝降级读），新增换档=注册新边、一次性 migrate 脚本禁令——批1 纯库 ac-migration-core（MigrationEdge + validateChain + planChain/runChain 逐边可审计，16 单测四断言各有红/绿点名）；批2 agent.patch 形态链（patch-chain.ts：v0 前菜单身份→v1 数组差量→v2 菜单片段，B−T 逆差量化 + legacyToMenuDefs 桥收编脚本孤本退役，LEGACY 席位/捆绑词汇冻结为历史边本体输入；detectPatchForm 多代探测 + migrateAgentPatchAt 链驱动执行含对账自检）+ migrate 工具换轨（328→116 行，换算代码清零）；批3 shell boot v3 缺席惰性走链 + notice 上报 + readAgentConfig/readChildConfig 读窗退役（残留 config.json 视同缺席）+ ac-import 写口换 v3（产线死透）+ workspace/home 42 存量收编转 .migrated 零残留（children 域 101 身份可读）；18 个测试文件 fixture 换 v3 写口（tags/tools 旧词形归一）；e2e-cutover 基线戳 rebase 修正（importRoot 空态戳 + existingStamp 保真冲突）；全量 427 文件 3072/3073 绿（1 例并发 flaky 复跑过）+ integration 89 绿 + typecheck + check:deps + 六锁全绿（cr-1039 收尾）"
+   }
+  ],
+  "1040": [
+   {
+    "sha": "48a1164d0aea7a74be4320f7277f3b89b522abde",
+    "date": "2026-11-23",
+    "subject": "chore(cr): cr-1256 台账登记与详情正本（含活体验证证据链）；前批 cr-1036/1098/1124 收口与 cr-1040 drop 同批"
    }
   ],
   "1041": [
@@ -6208,6 +6220,11 @@
     "sha": "3fe822f7558e6ae8315cef8862b6ca94a57d3ef1",
     "date": "2026-11-22",
     "subject": "fix(permission-gate): cr-1217+1218 ISSUE-20 审批策略三面加固"
+   },
+   {
+    "sha": "7b1a917fe90662752754e0a537af2c07daf3cd9c",
+    "date": "2026-11-23",
+    "subject": "feat(permission-gate): cr-1256 四层缺省 deny→ask——有人会话四层全空落弹卡问人，fail-closed 移驻无人桶 D7 格（翻转 cr-1218 裁决）；缺省双用例（有人弹卡/无人 D7 拒）+ 既有 33 例全绿"
    }
   ],
   "1223": [
@@ -6222,6 +6239,11 @@
     "sha": "3a8dfc357192ad44f6d26500bbfba06a3b12c536",
     "date": "2026-11-22",
     "subject": "fix(sandbox): cr-1224 bash-scan 引号内代码载荷剥离（node -e/python -c/pwsh -Command → <code-payload> 占位）——正则字面量/除号不再被路径启发式误拦，载荷外越界路径照拦（ISSUE-17，fail-closed 保持）"
+   },
+   {
+    "sha": "93f56b2626783b5485bd00184019d2215a450422",
+    "date": "2026-11-23",
+    "subject": "fix(sandbox): cr-1257 cr-1258 沙箱引号语义两修复（ISSUE-31）"
    }
   ],
   "1225": [
@@ -6262,6 +6284,21 @@
     "sha": "38fc0cbeb02d62903b7d0ed34f5c6d08794590e7",
     "date": "2026-11-22",
     "subject": "fix(timers): jitter must not re-deliver the same tick (cr-1231)"
+   },
+   {
+    "sha": "d21654b7bc8766d30d0d8a7fafa7a6f4b35d29f6",
+    "date": "2026-11-23",
+    "subject": "docs(timer): ISSUE-30 补 sampleGrid/consumeGrid 两格字段化"
+   },
+   {
+    "sha": "f95c77aa20285e4d78b7b2286e11cf3e38ec43a4",
+    "date": "2026-11-23",
+    "subject": "docs(timer): 代际闸改通用式 ngs(lf)；ISSUE-30 记录 arm/fire 日志缺失"
+   },
+   {
+    "sha": "b45ec38f43a2f7c40076bc3be606d11e23c9d4ec",
+    "date": "2026-11-23",
+    "subject": "docs(timer): 随机抖动类定时修复的六道闸验收范式（cr-1231 沉淀）"
    }
   ],
   "1233": [
@@ -6338,6 +6375,11 @@
     "sha": "60c696806c717b9d09c70b030cc2aef16605efa1",
     "date": "2026-11-22",
     "subject": "fix(permission-gate): cr-1248 预授权注入分级——设置链 allow 与 run 缓存命中改注 sandbox-access（免弹卡但恢复命令扫描），人工弹卡批准保持 full（知情通过即 full，修订 cr-1082）+ gate 分级回归锚 + access 契约 JSDoc 同步"
+   },
+   {
+    "sha": "718077a26376812a993fca0c552067e3924a9894",
+    "date": "2026-11-22",
+    "subject": "chore(cr): cr-commits 投影同步（本批 cr-1248~1251）"
    }
   ],
   "1249": [
@@ -6369,6 +6411,95 @@
     "sha": "5d334a3d7bd9b1dc208f92803b90bc67f464f0be",
     "date": "2026-11-22",
     "subject": "feat(skill): cr-1249 技能目录注入改造——<available_skills> 移出 system prompt（SKILLS 段退役，位号不回收），before-run 指纹注入（datetime/env-pulse 同构：变化才注 + .anchors 私有判重）+ catalog 七用例（src 实现随 cr-1251 注入面单写一并提交）"
+   }
+  ],
+  "1252": [
+   {
+    "sha": "627c0a66555ca10b3789f6894134a809be526245",
+    "date": "2026-11-23",
+    "subject": "merge: cr-1252/1253/1254 记忆机制合入主线（物化 seq + memory_forget 遗忘口 + dream 整理轮）——wip/creator-memory-dream-20261123 收口；融合 8e2fff12 时区修复（write 物化 seq + localDateWithCurrentTime）；探针 scripts/_shadow-breakdown.ts 不随合并入主线"
+   },
+   {
+    "sha": "8e2fff12882e4bd41ba92e6625fa71c2eae41436",
+    "date": "2026-11-23",
+    "subject": "fix(memory): date 回填时区错位（at 整体偏移一天）+ 正文日期前缀按本地日"
+   },
+   {
+    "sha": "b8fc15c7958509fe3b474a8b36c6852d8d4d5365",
+    "date": "2026-11-23",
+    "subject": "wip: cr-1252/1253/1254 记忆机制在途工作（__creator__ 作品，归属已确认）"
+   }
+  ],
+  "1253": [
+   {
+    "sha": "b8fc15c7958509fe3b474a8b36c6852d8d4d5365",
+    "date": "2026-11-23",
+    "subject": "wip: cr-1252/1253/1254 记忆机制在途工作（__creator__ 作品，归属已确认）"
+   }
+  ],
+  "1254": [
+   {
+    "sha": "b8fc15c7958509fe3b474a8b36c6852d8d4d5365",
+    "date": "2026-11-23",
+    "subject": "wip: cr-1252/1253/1254 记忆机制在途工作（__creator__ 作品，归属已确认）"
+   }
+  ],
+  "1255": [
+   {
+    "sha": "7a355de39befce84ad44e5dc10afa03f5cf76f3e",
+    "date": "2026-11-23",
+    "subject": "chore(cr): 台账登记 cr-1255 cr-1257 cr-1258（cr-1257/1258 = 沙箱引号语义修复，cr-1255 = activation 锁 pid 复用）"
+   },
+   {
+    "sha": "7ea6384fc868b801684225c9e3388fe657a325ae",
+    "date": "2026-11-23",
+    "subject": "chore(cr): cr-1255 台账收口（plan → done，随批闭环）"
+   },
+   {
+    "sha": "33ec2af0354135c57cebcba3ead76301e3fbc594",
+    "date": "2026-11-23",
+    "subject": "fix(envelope): cr-1255 activation 锁 pid 复用致永久锁死——接管权威改双证死因子（pid 死 ∨ 心跳租约超限 4×30s）+ manage probe 帧诊断定谳（不授权接管，防装配窗 split-brain）；心跳自锁获取即 touch 消装配窗空窗，接管凭据随 boot-progress 落盘（lockTakeover）；pid 复用/deadline 开关/同 pid 重入/探针四态共 8 例新回归"
+   }
+  ],
+  "1256": [
+   {
+    "sha": "48a1164d0aea7a74be4320f7277f3b89b522abde",
+    "date": "2026-11-23",
+    "subject": "chore(cr): cr-1256 台账登记与详情正本（含活体验证证据链）；前批 cr-1036/1098/1124 收口与 cr-1040 drop 同批"
+   },
+   {
+    "sha": "eab81e78718870feb9b9894f622553dc75bfb7f9",
+    "date": "2026-11-23",
+    "subject": "docs(permission-gate): cr-1256 决策序链尾缺省 ask 同步——plan §二 + handoff 决策链/关键事实/遗留项③c（→已实施）/接力入口"
+   },
+   {
+    "sha": "7b1a917fe90662752754e0a537af2c07daf3cd9c",
+    "date": "2026-11-23",
+    "subject": "feat(permission-gate): cr-1256 四层缺省 deny→ask——有人会话四层全空落弹卡问人，fail-closed 移驻无人桶 D7 格（翻转 cr-1218 裁决）；缺省双用例（有人弹卡/无人 D7 拒）+ 既有 33 例全绿"
+   }
+  ],
+  "1257": [
+   {
+    "sha": "7a355de39befce84ad44e5dc10afa03f5cf76f3e",
+    "date": "2026-11-23",
+    "subject": "chore(cr): 台账登记 cr-1255 cr-1257 cr-1258（cr-1257/1258 = 沙箱引号语义修复，cr-1255 = activation 锁 pid 复用）"
+   },
+   {
+    "sha": "93f56b2626783b5485bd00184019d2215a450422",
+    "date": "2026-11-23",
+    "subject": "fix(sandbox): cr-1257 cr-1258 沙箱引号语义两修复（ISSUE-31）"
+   }
+  ],
+  "1258": [
+   {
+    "sha": "7a355de39befce84ad44e5dc10afa03f5cf76f3e",
+    "date": "2026-11-23",
+    "subject": "chore(cr): 台账登记 cr-1255 cr-1257 cr-1258（cr-1257/1258 = 沙箱引号语义修复，cr-1255 = activation 锁 pid 复用）"
+   },
+   {
+    "sha": "93f56b2626783b5485bd00184019d2215a450422",
+    "date": "2026-11-23",
+    "subject": "fix(sandbox): cr-1257 cr-1258 沙箱引号语义两修复（ISSUE-31）"
    }
   ]
  }
