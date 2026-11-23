@@ -1281,4 +1281,6 @@
 - 【cr-1260 2026-11-23 会话渲染管线 P0 审计：数据根存量形态扫描与兜底命中计数】
 - 【cr-1261 2026-11-23 approval 键四档化（deny/ask/allow-sandbox/allow-full）：会话键显式选 full 的知情面强于持久预授权——会话层出四档（allow-full 注 full-access 越沙箱生效），Agent/全局层维持三值（allow=sandbox 档，cr-1248 不变）；存量 allow 读侧映射 allow-sandbox（零迁移，cr-947 先例）】
 - 【cr-1262 2026-11-23 update_agent_profile settings 写面禁授权工件键（security/permission-gate）——mathematician 经该口自写 security.json 白名单提权实证（ISSUE-20 自签同型）；运营者写口不经工具面不受影响；mathematician 白名单经运营者裁决转正】
+- 【cr-1263 2026-11-23 cr-1259 组合洞修复：草稿位 immediate 键两头漏写——selectExtKey 撞 onDraft 守卫不写 + dirtyConvPatch 排除不随 flush，值悬空后被物化回读重置（回落默认）；修 = 草稿位选择暂存 pendingImmediate，flush 合入（暂存不受会话切换 watch 重置影响，免疫物化竞态）】
+- 【cr-1264 2026-11-23 net-monitor 判定排除虚拟宿主网卡 + 闸门端点 DNS 预检（cr-1158 补修）】
 
