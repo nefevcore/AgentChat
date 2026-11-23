@@ -1275,4 +1275,6 @@
 - 【cr-1254 2026-11-22 记忆整理轮 dream 机制（ac-memory 内：run 收束后触发 → 自会话唤醒整理 run → 三件套落账）】
 - 【cr-1255 2026-11-23 activation 锁 pid 复用致永久锁死：仅凭 pid 存活判持有者，Windows 复用 pid 给无关进程后 isAlive 恒真，Agent 永久无法启动（writer 实测 12h）】
 - 【cr-1256 2026-11-23 权限门四层缺省 deny→ask：有人会话四层全空也弹审批卡（用户 2026-11-23 澄清，翻转 cr-1218 维持 deny 的裁决）；无人桶 fail-closed 语义不变（D7 压弹卡格） →cr-1079 →cr-1218 #security #permission-gate --status doing】
+- 【cr-1257 2026-11-23 沙箱假阳性：切段不感知引号致正则交替 | 被当命令分隔符，\[ \d \w 形段首归一成 / 被判 Unix 绝对路径（Select-String 正则全中招）——引号感知切段（ISSUE-31）】
+- 【cr-1258 2026-11-23 沙箱漏检：规则2 Unix 路径 token 边界 (?:^|\\s) 不含引号——Get-Content \ /etc/passwd\ 整条跳过路径检查（与规则1/4 边界语义不一致，ISSUE-28 缺口①同类）；规则2 改在反斜杠归一化前的原文上取 token（引号入边界），正则转义 \\d 形 token 在原文层不存在、不再需要形状豁免】
 
