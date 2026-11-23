@@ -1278,4 +1278,7 @@
 - 【cr-1257 2026-11-23 沙箱假阳性：切段不感知引号致正则交替 | 被当命令分隔符，\[ \d \w 形段首归一成 / 被判 Unix 绝对路径（Select-String 正则全中招）——引号感知切段（ISSUE-31）】
 - 【cr-1258 2026-11-23 沙箱漏检：规则2 Unix 路径 token 边界 (?:^|\\s) 不含引号——Get-Content \ /etc/passwd\ 整条跳过路径检查（与规则1/4 边界语义不一致，ISSUE-28 缺口①同类）；规则2 改在反斜杠归一化前的原文上取 token（引号入边界），正则转义 \\d 形 token 在原文层不存在、不再需要形状豁免】
 - 【cr-1259 2026-11-23 approval 键选择即写（per-step 生效）：ConvSettingsKeyDef 增 immediate 生效模型字段，泛写口按 def 决定写时机，approval 选择即落盘、发送边界跳过；修订 conv-settings-conventions §一/§五（cr-1093 发送时写的单键例外，用户定案）】
+- 【cr-1260 2026-11-23 会话渲染管线 P0 审计：数据根存量形态扫描与兜底命中计数】
+- 【cr-1261 2026-11-23 approval 键四档化（deny/ask/allow-sandbox/allow-full）：会话键显式选 full 的知情面强于持久预授权——会话层出四档（allow-full 注 full-access 越沙箱生效），Agent/全局层维持三值（allow=sandbox 档，cr-1248 不变）；存量 allow 读侧映射 allow-sandbox（零迁移，cr-947 先例）】
+- 【cr-1262 2026-11-23 update_agent_profile settings 写面禁授权工件键（security/permission-gate）——mathematician 经该口自写 security.json 白名单提权实证（ISSUE-20 自签同型）；运营者写口不经工具面不受影响；mathematician 白名单经运营者裁决转正】
 
