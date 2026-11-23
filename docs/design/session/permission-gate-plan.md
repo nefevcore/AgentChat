@@ -54,7 +54,7 @@
 5  建议 = ask：
    s := 设置链(会话键 approval〔仅有人会话——cr-1079 续记：无人桶跳过本层〕
        > Agent settings['permission-gate'].onAsk
-       > 全局 config settings['permission-gate'].onAsk > 缺省 'deny')   // cr-1079 四层
+       > 全局 config settings['permission-gate'].onAsk > 缺省 'ask')    // cr-1256：四层缺省 ask
    s = allow → 放行（含无人桶——运营者预授权，问不出的问题不问）
    s = deny → 拒绝
    s = ask → 无人桶（humanPresentOf === false：self / agent~agent / g-<gid>~member
