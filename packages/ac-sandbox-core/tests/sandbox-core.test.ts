@@ -442,6 +442,31 @@ describe('bash 命令扫描（heredoc 剥离 + 段级启发式）', () => {
     expect(bashCommandViolation('cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
   });
 
+  it('cr-1257/ISSUE-31：引号内正则交替 | 不当分隔符切段——\\[ \\d \\w 转义段首不判路径', () => {
+    // 复现现场：切段不感知引号，正则交替切出的段以 \ 开头，归一化后
+    // 恰是「段首 Unix 绝对路径」假形态 → 带交替的 Select-String 全中招
+    expect(bashCommandViolation("Select-String 'a|\[b\]'", opts)).toBeNull();
+    expect(bashCommandViolation("sls 'a|\d+'", opts)).toBeNull();
+    expect(bashCommandViolation("grep 'a|\\\\b'", opts)).toBeNull();
+    // 引号内 | 前不带转义（b\[c\]）本就 PASS——回归防退化
+    expect(bashCommandViolation("sls 'a|b\[c\]' f.txt", opts)).toBeNull();
+    // 引号外 / 正常段首路径照拦——引号感知只影响切段，不影响路径判定
+    expect(bashCommandViolation("Select-String 'a|\d+' f; cat /etc/passwd", opts)).toMatch(/Unix 绝对路径/);
+    // 引号内空白前导的路径 token 照拦（如 -Path ' /etc/x'——现实风险形态）
+    expect(bashCommandViolation("Select-String -Path ' /etc/x' 'a|\d+'", opts)).toMatch(/Unix 绝对路径/);
+    // 真管道：闭引号后的 | 照切（引号感知不得放过命令拼接）
+    expect(bashCommandViolation("echo 'a|\d+' | cat /etc/passwd", opts)).toMatch(/Unix 绝对路径/);
+    // 未闭合引号原文不拆——多拦侧（fail-closed）
+    expect(bashCommandViolation("Select-String 'a|cat /etc/passwd", opts)).toMatch(/Unix 绝对路径/);
+    // cr-1258：引号包裹的越界路径照拦——规则 2 token 边界与规则 1/4 对齐，
+    // 引号是 token 起点；token 在反斜杠归一化前的原文轨上取，正则转义形
+    // （'\d+'）在原文层无 /，天然不中（不回退 cr-1257）。
+    expect(bashCommandViolation("Get-Content '/etc/passwd'", opts)).toMatch(/Unix 绝对路径/);
+    expect(bashCommandViolation('Get-Content "/etc/passwd"', opts)).toMatch(/Unix 绝对路径/);
+    expect(bashCommandViolation("Select-String -Path '/ws/root/a' 'a|\\d+'", opts)).toBeNull();
+    expect(bashCommandViolation("Select-String -Path '/etc/x' 'a|\\d+'", opts)).toMatch(/Unix 绝对路径/);
+  });
+
   it('Unix 绝对路径拦截；白名单内放行', () => {
     expect(bashCommandViolation('cat /etc/passwd', opts)).toMatch(/Unix 绝对路径/);
   });

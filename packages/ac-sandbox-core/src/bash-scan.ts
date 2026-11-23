@@ -67,6 +67,40 @@ function stripInlineCodePayloads(command: string): string {
   );
 }
 
+/**
+ * 引号感知的命令段切分（; && || | 换行；cr-1257/ISSUE-31）：
+ * ' " 内的分隔符不是分隔符——引号载荷里的正则交替 |（Select-String
+ * 'a|\d+'）不该切段；切段后以 \ 开头的段（正则转义 \[ \d \w）经
+ * 反斜杠归一化成 /，恰好满足「段首 Unix 绝对路径」启发式 → 整条命令
+ * 被误拦。未闭合引号原文不拆（只可能多拦不可能漏拦）。
+ */
+function splitSegments(cmd: string): string[] {
+  const out: string[] = [];
+  let cur = '';
+  let quote: '"' | "'" | '' = '';
+  for (let i = 0; i < cmd.length; i++) {
+    const ch = cmd[i]!;
+    if (quote) {
+      cur += ch;
+      if (ch === quote) quote = ''; // PS 单引号 '' 与 bash 双引号 \" 均原样保留——分隔符语义不受影响
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      quote = ch;
+      cur += ch;
+      continue;
+    }
+    if (/[;&|\n]/.test(ch)) {
+      out.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
+
 export interface BashScanOptions {
   /** 允许根（与沙箱白名单同源；缺省 = cwd） */
   roots?: string[];
@@ -94,8 +128,7 @@ function isWindowsSwitch(token: string): boolean {
 
 /**
  * bash 命令级沙箱（启发式静态检查）：返回违规说明或 null（允许）。
- * 目标路径解析后落在允许根内则放行。已知残留误报：引号内直接执行的
- * 代码（node -e "…正则…"）不在剥离范围（src 明示语义）。
+ * 目标路径解析后落在允许根内则放行。
  */
 export function bashCommandViolation(command: string, options: BashScanOptions = {}): string | null {
   const base = options.cwd ? path.resolve(options.cwd) : process.cwd();
@@ -106,19 +139,25 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
   // \033 归一后会变作 /033 —— 恰好构成「空白后的 Unix 绝对路径」假 token
   // （/ 开头且首字符为数字，不落 Windows 开关豁免），Unix 下彩色输出命令
   // 被整体误拦（2026-09-13 CI：ANSI 清理用例 Linux 分支翻车）。
-  const norm = stripHeredocPayloads(command)
-    .replace(/\\[0-7]{1,3}/g, '')
-    .replace(/\\/g, '/');
+  const stripped = stripHeredocPayloads(command);
+  const raw = stripped.replace(/\\[0-7]{1,3}/g, '');
+  // 双轨（cr-1258）：norm 反斜杠归一（规则 1/3/4 用）；raw 保留原文反斜杠
+  // （规则 2 用——正则转义 \d 与路径 \ 在原文层天然分离，见下）。
+  const norm = raw.replace(/\\/g, '/');
   /** 目标是否落在允许根内（与 resolveSafePath 同一判定：词法 + 身份回退） */
   const contains = createRootsContainment(roots);
   const isAllowed = (target: string): boolean => contains(path.resolve(base, target));
 
-  // 按命令段拆分（; && || | 换行）
-  const segments = norm
-    .split(/[;&|]|\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-  for (const seg of segments) {
+  // 按命令段拆分（; && || | 换行）——引号内不拆（cr-1257/ISSUE-31）：
+  // 引号载荷里的正则交替 |（Select-String 'a|\d+'）不是分隔符；切段后
+  // 以 \ 开头的段（正则转义 \[ \d \w）归一化成 / 会被误判「Unix 绝对
+  // 路径」而整体拦截。未闭合引号原文不拆（只可能多拦不可能漏拦）。
+  // 双轨平行切段：norm 轨供规则 1/3/4，raw 轨供规则 2（见下）。
+  const segments = splitSegments(norm).map((s) => s.trim()).filter(Boolean);
+  const rawSegments = splitSegments(raw).map((s) => s.trim()).filter(Boolean);
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i]!;
+    const segRaw = rawSegments[i] ?? '';
     // 1. 盘符绝对路径（C:\ 或 C:/）。盘符前邻必须是行首或非「字母/数字/下划线」字符，
     //    排除 URL scheme（https:// … 字母串后的冒号+斜杠——曾把 https:// 里的
     //    s:// 误判成 S: 盘）与 $env: / %VAR% 变量展开（无 \ / 后缀）
@@ -131,13 +170,22 @@ export function bashCommandViolation(command: string, options: BashScanOptions =
       }
       continue; // 盘符在白名单内 → 放行
     }
-    // 2. Unix 风格绝对路径（独立路径参数，如 /etc /tmp）。
+    // 2. Unix 风格绝对路径（独立路径参数，如 /etc /tmp）。token 在原文轨
+    //    （raw）上取（cr-1258）：真路径的 / 是原文就有的；引号包裹的路径
+    //    （Get-Content '/etc/passwd'）与规则 1/4 一致把引号当 token 边界
+    //    （ISSUE-28 缺口①同类）。正则转义 \d \[ 形 token 在原文层不存在
+    //    （/ 由反斜杠归一化而来），天然不中——无需形状启发式，cr-1257 的
+    //    引号感知切段修复不回退。
     //    Windows 开关参数豁免（isWindowsSwitch）：`dir /b` / `date /t` 等
     //    不是路径——跳过路径判定，cd/.. 规则照跑。
-    const absTokens = seg.match(/(?:^|\s)\/[^\s;|&"'`]*/g) ?? [];
+    const absTokens = segRaw.match(/(?:^|[\s'"`])\/[^\s;|&"'`]*/g) ?? [];
     // 裸 /（cr-1224/ISSUE-17）：除号或撕裂的正则片段，非路径形态——
     // 路径至少含一个非斜杠字符。
-    const pathLike = absTokens.map((m) => m.trim()).filter((p) => p !== '/' && !isWindowsSwitch(p));
+    // token 边界含引号（cr-1258）——剥掉前导引号再判：带引号的串会被当
+    // 相对路径 resolve 进根内而误放行（trim 只剥空白）。
+    const pathLike = absTokens
+      .map((m) => m.trim().replace(/^['"`]/, ''))
+      .filter((p) => p !== '/' && !isWindowsSwitch(p));
     if (pathLike.length > 0) {
       for (const p of pathLike) {
         if (!isAllowed(p)) {
@@ -331,7 +379,7 @@ export function isLowRiskCommand(command: string): boolean {
   // 重定向 <> / 脚本块 {}（PS script block = 代码执行向量，计算属性同理）/
   // 变量展开 $（值不可静态判定，含 $env: 秘钥面）/ 反引号 —— 任一出现即 false
   if (/[<>{}$`]/.test(command)) return false;
-  const segments = command.split(/[;&|\n]/).map((s) => s.trim()).filter(Boolean);
+  const segments = splitSegments(command).map((s) => s.trim()).filter(Boolean);
   if (segments.length === 0) return false;
   return segments.every(isLowRiskSegment);
 }
