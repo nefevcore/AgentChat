@@ -9,6 +9,10 @@
 //   写出的行再读回零信息损失。零 fs（执行器与升头落盘住 ac-ledger 壳，
 //   M-B 工具消费本链）。文本行 seq 策略：恒等携带（v1 行原有 seq 保
 //   身份锚）；相位行 stepId 缺席的旧步（cr-772 前）无 seq 时置 0 不带。
+// cr-1307：v1 词形段行退役——边对 aggregated 聚合轨迹直产 v2 相位
+//   事件行（segmentRowToPhaseRows——cr-1306 等价映射），往返判据从
+//   facts 面升级为 foldStepsOf 投影恒等（aggregated/aggregated' 语义
+//   在投影面收敛；events 面继续 canon 多重集）。
 // ============================================================
 
 import {
@@ -19,6 +23,8 @@ import {
 import { runChain, assertChainIntegrity, type MigrationEdge, type VersionedValue } from 'ac-migration-core';
 import type { JournalToolResult, ProjectedStep } from './records.ts';
 import { injectSubcallCards } from './reader-core.ts';
+import { segmentRowToPhaseRows } from './segment-normalize.ts';
+import { foldStepsOf } from './fold-core.ts';
 
 /** 会话文件形态值（链上载荷） */
 export interface SessionForm {
@@ -132,22 +138,6 @@ export function eventToV2Row(ev: SessionEvent): Record<string, unknown> | null {
   return phaseRow(ev);
 }
 
-/** 段行 → 段行（v1 词形保留：无 type 键 + source:'segment'——v2RowToEvent
- *  的 'message' case 会截胡 type:'message' 段行直进 speech，而 v1 读侧
- *  走 source 判别进 aggregated。保留 v1 词形则两侧读判别天然对称
- * （v1/v2 同文件混词汇合法——cr-974 行级判别）。 */
-function segmentRow(domain: string, run: string, s: ProjectedStep): Record<string, unknown> {
-  return {
-    role: 'agent', source: 'segment', run,
-    content: '',
-    message_id: 'seg-' + run + '-' + (s.ts ?? 0),
-    timestamp: new Date(s.ts ?? Date.now()).toISOString(),
-    agent_id: domain,
-    ...(s.seq !== undefined ? { seq: s.seq } : {}),
-    steps: [s],
-  };
-}
-
 /** 边 1→2：v1 归一化事实 → v2 行序列（facts 往返恒等判据的产物面）。 */
 function migrateSessionV1ToV2(form: SessionForm): SessionForm {
   const f = form.facts;
@@ -155,12 +145,17 @@ function migrateSessionV1ToV2(form: SessionForm): SessionForm {
   // —— 事件时间线（speech ∪ contexts ∪ run 事实按全序重放）——
   // 稳定全序：ts 主序 + 收集序 tiebreak（同刻保归一化层读入序——
   // speech/contexts 按 domainFactsOf 扫描序，run 事实按 run 登记 + 事件序）。
-  type Slot = { ts: number; sub: number; ev: SessionEvent };
+  type Slot = { ts: number; sub: number; ev: SessionEvent } | { ts: number; sub: number; phaseRows: Array<Record<string, unknown>> };
   const slots: Slot[] = [];
   let sub = 0;
   for (const s of f.speech) slots.push({ ts: Date.parse(s.timestamp) || 0, sub: sub++, ev: s });
   for (const c of f.contexts) slots.push({ ts: Date.parse(c.timestamp) || 0, sub: sub++, ev: c });
-  for (const rf of f.runs.values()) {
+  for (const [run, rf] of f.runs) {
+    // 步面互斥（cr-1307）：aggregated 在场（v1 段行物化）时步轨迹由段行
+    // 相位块承载，journal 的 reasoning/content/tool-call 事件不重放（双放
+    // 会在读回后 steps 双投——旧读面靠 foldStepsOf aggregated 优先跳过，
+    // 新产物行面无此互斥信号）。inject/收束/结果补行不受影响。
+    const hasAgg = rf.aggregated !== undefined;
     // 步末计量随步内末相位行携带（v2 写面对齐 service.journalStep 的
     // Object.assign(last, meter)——placeEvent 按行读回 meters；v1
     // journal-step 的 meter 与相位行分离，序列化时合回末相位行）。
@@ -182,6 +177,7 @@ function migrateSessionV1ToV2(form: SessionForm): SessionForm {
     }
     const meterApplied = new Set<PhaseEvent>();
     for (const ev of rf.events) {
+      if (hasAgg && (ev.kind === 'reasoning' || ev.kind === 'content' || ev.kind === 'tool-call')) continue;
       let out = ev;
       if ((ev.kind === 'reasoning' || ev.kind === 'content' || ev.kind === 'tool-call')
         && lastOfStep.get(ev.step) === ev && !meterApplied.has(ev)) {
@@ -194,22 +190,24 @@ function migrateSessionV1ToV2(form: SessionForm): SessionForm {
       slots.push({ ts: ev.ts ?? 0, sub: sub++, ev: out });
     }
     if (rf.end !== undefined) slots.push({ ts: rf.end.ts, sub: sub++, ev: rf.end });
+    // v1 聚合轨迹：subcall 档案内联后直产相位行（cr-1307）。slot 粒度 = 步
+    // （ts = 步 ts——注入行按 ts 与步块正确交错，还原 v1 段行间的插位语义；
+    // 步 ts 缺席 0 守首）。
+    if (rf.aggregated !== undefined) {
+      const steps: ProjectedStep[] = rf.aggregated.map((s) => ({ ...s, ...(s.toolCalls !== undefined ? { toolCalls: s.toolCalls.map((tc) => ({ ...tc })) } : {}) }));
+      injectSubcallCards(steps, form.subcallArchive as JournalToolResult[]);
+      steps.forEach((s, i) => {
+        const single = segmentRowToPhaseRows({ role: 'agent', source: 'segment', run, content: '', message_id: '', timestamp: '', agent_id: f.domain, steps: [s] } as never, i).rows;
+        if (single.length === 0) return;
+        slots.push({ ts: (single[0] as { ts?: number }).ts ?? 0, sub: sub++, phaseRows: single });
+      });
+    }
   }
   slots.sort((a, b) => (a.ts - b.ts) || (a.sub - b.sub));
-  for (const { ev } of slots) {
-    const row = eventToV2Row(ev);
+  for (const slot of slots) {
+    if ('phaseRows' in slot) { rows.push(...slot.phaseRows); continue; }
+    const row = eventToV2Row(slot.ev);
     if (row !== null) rows.push(row);
-  }
-  // —— 段行（v1 物化聚合轨迹）——subcall 档案内联成 cr-803 前形态
-  //（injectSubcallCards 同构：宿主卡后按 seq 插卡、内联防重天然兼容）——
-  // M-C 退役 subcalls.jsonl 后 UI 平铺卡不丢（段行自含）。档案同时
-  // 保留在 SessionForm.subcallArchive 恒等携带（M-C 时转 .migrated）。
-  const archive = form.subcallArchive as JournalToolResult[];
-  for (const [run, rf] of f.runs) {
-    if (rf.aggregated === undefined) continue;
-    const steps: ProjectedStep[] = rf.aggregated.map((s) => ({ ...s, ...(s.toolCalls !== undefined ? { toolCalls: s.toolCalls.map((tc) => ({ ...tc })) } : {}) }));
-    injectSubcallCards(steps, archive);
-    for (const s of steps) rows.push(segmentRow(f.domain, run, s));
   }
   // —— 压缩代（compaction 单事件重放——fold 三态语义键）——
   for (const gen of f.compactions) {
@@ -228,7 +226,11 @@ function migrateSessionV1ToV2(form: SessionForm): SessionForm {
     const endRow = je !== undefined ? eventToV2Row(je) : null;
     rows.push(endRow ?? { type: 'run-end', run: gen.run, finish: 'completed', ts: gen.endTs });
   }
-  return { ...form, v2Rows: rows };
+  // seq 统一重排（cr-1307）：迁移产物行序 = ts 全序（重放序），恒等携带的
+  // 旧 seq 与新行序矛盾；按产物文件序重分配（v2 写面规范——行恒带 seq，
+  // foldStepsOf 相位序推导依赖 ev.seq）。与 cr-1306 工具同款策略。
+  const v2Rows = rows.map((r, i) => ({ ...r, seq: i + 1 }));
+  return { ...form, v2Rows };
 }
 
 /** 边 0→1：无 version 头（最早 writer 形态）→ v1 头行标注。行面零变化
@@ -257,11 +259,16 @@ export function migrateSessionForm(stored: VersionedValue<SessionForm>): { rows:
 // 对账 + 测试共用；fold 是 facts 的确定函数——facts 相等 ⇔ fold 四投影
 // 恒等）。injectionId 回填感知：v1 无锚侧按边同款词形补合成锚再比对。
 
-/** canonical 序列化（键序无关——对象键排序后序列化） */
+/** canonical 序列化（键序无关 + seq 豁免 + 空数组键归一——cr-1307 产物
+ *  行序重排后旧 seq 必然漂移：seq 是文件序身份锚非语义内容；空数组键只
+ *  出现在聚合直通/事件重建单侧（键面差无语义）。对象键排序后序列化。） */
 function canonOf(v: unknown): string {
   if (Array.isArray(v)) return '[' + v.map(canonOf).join(',') + ']';
   if (v !== null && typeof v === 'object') {
-    return '{' + Object.keys(v as Record<string, unknown>).sort().map((k) => JSON.stringify(k) + ':' + canonOf((v as Record<string, unknown>)[k])).join(',') + '}';
+    return '{' + Object.keys(v as Record<string, unknown>).sort()
+      .filter((k) => k !== 'seq')
+      .filter((k) => !Array.isArray((v as Record<string, unknown>)[k]) || ((v as Record<string, unknown>)[k] as unknown[]).length > 0)
+      .map((k) => JSON.stringify(k) + ':' + canonOf((v as Record<string, unknown>)[k])).join(',') + '}';
   }
   return JSON.stringify(v);
 }
@@ -295,10 +302,39 @@ function normBare(v: unknown): unknown {
 }
 
 /**
+ * 已收束 run 的无结果调用 synth 归一（对拍对齐 fold-core 事件路径语义）：
+ * 聚合直通面原样保留 result:null，事件重建面按 foldStepsOf 既有规则合成
+ * （finish 正常 → {ok:true}；finish 异常 → aborted ? TOOL_NOT_STARTED :
+ * TOOL_OUTCOME_UNKNOWN；未收束 run → 保持 null）。差异方向 = 向 v2 收敛。
+ */
+export function synthNullResults(steps: ProjectedStep[], rf: { end?: { finish?: string } }): ProjectedStep[] {
+  const finish = rf.end?.finish;
+  return steps.map((s) => {
+    if (s.toolCalls === undefined) return s;
+    const stepAborted = s.aborted === true;
+    return {
+      ...s,
+      toolCalls: s.toolCalls.map((tc) => {
+        if (tc.result !== null) return tc;
+        const synth = finish !== undefined
+          ? (finish !== 'completed'
+            ? (stepAborted ? { ok: false, error: 'TOOL_NOT_STARTED' } : { ok: false, error: 'TOOL_OUTCOME_UNKNOWN' })
+            : { ok: true })
+          : null;
+        return { ...tc, result: synth };
+      }),
+    };
+  });
+}
+
+/**
  * 两侧 facts 语义相等（diff 首处差异描述——工具报告面）。比对口径：
+ *  · seq 全面豁免（cr-1307：产物行序按 ts 全序重排 + 统一重分配——
+ *    旧 seq 是文件序身份锚非语义内容，恒等携带改判产物重排后必然漂移）；
  *  · speech/contexts 按 messageId 对齐逐条 canon（domain 置空——归属域不是往返面）；
- *  · runs 逐 run events/end/aggregated canon 比对（v1 侧 aggregated 先以
- *    a.subcallArchive 注入 subcall 卡——v2 段行已内联〔边产物〕）；
+ *  · runs 逐 run events/end canon 比对（inject 锚回填感知）；aggregated
+ *    面（cr-1307）= foldStepsOf 投影恒等——v1 侧聚合直通（档案内联 +
+ *    synth 归一）vs v2 侧事件重建，canonStep 归一（seq 豁免/空数组归一）；
  *  · meters 非空逐键相等（v1 空 meter 恒占键 vs v2 只记有字段的行）；
  *  · compactions canon（appendGeneration 两侧均重编代序）。
  */
@@ -327,10 +363,16 @@ export function sessionFactsEqual(a: DomainFacts, b: DomainFacts): { ok: boolean
     const fb = b.runs.get(run)!;
     // events：canon 多重集比对——v2 输出行序按 ts 全序重放，journal 落盘
     // 延迟的 inject（ts 早于步块、文件序在末）迁移后插位前移（ts 纠偏），
-    // 逐位比对恒红；语义内容（多重集）恒等才是判据面。
+    // 逐位比对恒红；语义内容（多重集）恒等才是判据面。步面互斥（cr-1307）：
+    // aggregated 在场侧剔除步相位事件（读面 foldStepsOf aggregated 优先跳过
+    // 同语义——journal 步块已被段行物化取代，不构成往返面）。
+    const phaseOf = (v: unknown): boolean => {
+      const k = (v as { kind?: string }).kind;
+      return k === 'reasoning' || k === 'content' || k === 'tool-call';
+    };
     const strip = (v: unknown) => canonInjectStrip(run, v);
-    const evA = fa.events.map(strip).sort();
-    const evB = fb.events.map(strip).sort();
+    const evA = (fa.aggregated !== undefined ? fa.events.filter((ev) => !phaseOf(ev)) : fa.events).map(strip).sort();
+    const evB = (fb.aggregated !== undefined ? fb.events.filter((ev) => !phaseOf(ev)) : fb.events).map(strip).sort();
     if (evA.join('\n') !== evB.join('\n')) {
       const first = evA.find((s) => !evB.includes(s)) ?? evB.find((s) => !evA.includes(s)) ?? '';
       return fail('run ' + run + ' events 多重集不等（' + fa.events.length + ' vs ' + fb.events.length + '）：首差 ' + first.slice(0, 160));
@@ -338,10 +380,17 @@ export function sessionFactsEqual(a: DomainFacts, b: DomainFacts): { ok: boolean
     if (strip(fb.end) !== strip(fa.end)) return fail('run ' + run + ' end 不等');
     if (fa.aggregated !== undefined || fb.aggregated !== undefined) {
       if (fa.aggregated === undefined || fb.aggregated === undefined) return fail('run ' + run + ' aggregated 单侧缺席');
-      // v1 侧（a）聚合轨迹不含 subcall 卡（档案分流）——以档案注入后比对（v2 段行已内联）
-      const expectA = fa.aggregated.map((s) => ({ ...s, ...(s.toolCalls !== undefined ? { toolCalls: s.toolCalls.map((tc) => ({ ...tc })) } : {}) }));
-      injectSubcallCards(expectA, a.subcallArchive);
-      if (canonOf(fb.aggregated) !== canonOf(expectA)) return fail('run ' + run + ' aggregated 不等');
+      // cr-1307：aggregated 对拍面 = foldStepsOf 投影恒等（语义收敛面）——
+      // v1 侧聚合直通（subcall 卡按档案内联后 null→synth 归一），v2 侧
+      // 事件重建投影，两侧 steps canon 比对。豁免与归一自 cr-1306 工具
+      // 提升为库面：seq（边按 ts 全序重排放弃段行 seq）；空数组键归一
+      // （展开行 vs 聚合步的键面差）；无结果调用 synth 归一（v1 侧 null
+      // 直通 vs v2 侧 foldStepsOf 合成终态——差异方向向 v2 收敛）。
+      const v1Steps = fa.aggregated.map((s) => ({ ...s, ...(s.toolCalls !== undefined ? { toolCalls: s.toolCalls.map((tc) => ({ ...tc })) } : {}) }));
+      injectSubcallCards(v1Steps, a.subcallArchive);
+      const v1Proj = canonOf(synthNullResults(v1Steps, fa));
+      const v2Steps = foldStepsOf(fb, [])?.steps ?? [];
+      if (v1Proj !== canonOf(v2Steps)) return fail('run ' + run + ' aggregated 投影不等');
     }
     const nonEmpty = (m: Map<number, unknown>) => [...m.entries()].filter(([, v]) => v !== undefined && Object.keys(v as object).length > 0);
     if (canonOf(nonEmpty(fb.meters)) !== canonOf(nonEmpty(fa.meters))) return fail('run ' + run + ' meters 不等');

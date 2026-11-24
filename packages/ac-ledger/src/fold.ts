@@ -541,24 +541,6 @@ export function trajectoryOfFacts(
       })
     : steps0;
   const out: LlmMessage[] = [];
-  // v1 聚合形态：按物化文件序（aggOrder）还原步块/注入插位
-  if (rf.aggOrder !== undefined) {
-    let idx = 0;
-    for (const mark of rf.aggOrder) {
-      if (mark.type === 'inject') {
-        if (kindOfT(mark.ev.injectSource) === 'none') continue;
-        out.push({
-          role: 'user',
-          content: wrapForReplay(mark.ev.content, kindOfT(mark.ev.injectSource)),
-          ...(mark.ev.attachments !== undefined ? { attachments: mark.ev.attachments } : {}),
-        });
-        continue;
-      }
-      for (let k = 0; k < mark.count; k++) { pushStep(out, steps[idx]); idx++; }
-    }
-    for (; idx < steps.length; idx++) pushStep(out, steps[idx]);
-    return out;
-  }
   // 事件行序 → 步/注入交错（步号按首见序对应 foldStepsOf 的 acc 序）
   const stepOrder: number[] = [];
   const seenStep = new Set<number>();

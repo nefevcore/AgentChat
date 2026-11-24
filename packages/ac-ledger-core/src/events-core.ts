@@ -12,6 +12,8 @@
 // journal 的物化产物——归一化不展开进事件流，作为该 run 的**聚合轨迹**
 // 直入（与 journal 相位事件互斥优先，沿用 stepsOfLedger ?? stepsOfRun
 // 回落语义）；subcalls.jsonl 档案行 → subcall 结果事件（D-1 内联的 v1 形）。
+// cr-1307：aggOrder 顺序簿退役（段行/注入行的插位还原账）——cr-1306
+// 存量归一后盘上段行/注入行归零、迁移边直产 v2 相位行，记账分支删除。
 // ============================================================
 import { normalizeAttachments, type JournalLine, type JournalStep, type JournalToolResult, type LedgerAttachment, type LedgerRow, type ProjectedStep, type RunUsage } from './records.ts';
 
@@ -127,8 +129,6 @@ export interface RunFactsV2 {
   end?: RunEndEvent;
   /** v1 物化段行的聚合 steps（在场则优先于相位重建——读兼容） */
   aggregated?: ProjectedStep[];
-  /** v1 聚合形态的文件序交错（段行步块/注入行——轨迹插位还原） */
-  aggOrder?: Array<{ type: 'steps'; count: number } | { type: 'inject'; ev: InjectEvent }>;
 }
 
 /** 压缩事实（§2.3 fold 三态语义边界——最新一次压缩）
@@ -287,7 +287,6 @@ export function domainFactsOf(
       const f = runOf(out.runs, r.run);
       const steps = Array.isArray(r.steps) ? r.steps as ProjectedStep[] : [];
       f.aggregated = [...(f.aggregated ?? []), ...steps];
-      f.aggOrder = [...(f.aggOrder ?? []), { type: 'steps', count: steps.length }];
       continue;
     }
     if (r.source === 'inject') {
@@ -296,7 +295,6 @@ export function domainFactsOf(
       const ev: InjectEvent = { kind: 'inject', run: r.run, content: r.content, ...attachOf(r.attachments), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), injectionId: r.message_id, ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ts: Number.isFinite(ts0) ? ts0 : 0, ...(r.seq !== undefined ? { seq: r.seq } : {}) };
       const f = runOf(out.runs, r.run);
       f.events.push(ev);
-      f.aggOrder = [...(f.aggOrder ?? []), { type: 'inject', ev }];
       continue;
     }
     if (String(r.message_id).startsWith('seg-')) continue; // cr-640 存量文本段行（无 source 标记）——过滤防双计；String 容忍异常缺 id 行（手写夹具/极端存量）

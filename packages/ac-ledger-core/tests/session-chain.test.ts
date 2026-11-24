@@ -1,16 +1,18 @@
 // ============================================================
-// session-chain.test.ts —— M-A cr-1270 v1→v2 迁移边：
+// session-chain.test.ts —— M-A cr-1270 v1→v2 迁移边（cr-1307 判据升级）：
 //   ① 链四断言（注册即过——严格相邻/from 无重复/链完整/未来拒绝）；
-//   ② facts 往返恒等：domainFactsOf(v1 三源) → 迁移边 → v2 行 →
-//      domainFactsOf(v2 行) 两次 facts 相等（fold 四投影恒等的构造前提）；
+//   ② facts 往返恒等：domainFactsOf(v1 三源) → 迁移边（段行直产相位行）→
+//      v2 行 → domainFactsOf(v2 行) 两次 facts 语义相等（库面
+//      sessionFactsEqual 单源——seq 豁免 / 空数组归一 / aggregated 投影
+//      恒等 / 步面互斥）；
 //   ③ 点名夹具：纯 v1 / 过渡态（v1 头 v2 行）/ 坏行 / subcalls 档案 /
-//      语义收窄点（段行相位序 → textBeforeTools）；
+//      语义收窄点（段行相位序 → 行序 → textBeforeTools 推导）；
 //   ④ injectionId 回填（cr-707 前行迁移后恒有锚）；
 //   ⑤ 混合文件升头（新头继承旧头全字段 + version:2 + migratedFrom:1）。
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import {
-  SESSION_CHAIN, migrateSessionForm, splitHeader, v2Header,
+  SESSION_CHAIN, migrateSessionForm, splitHeader, v2Header, sessionFactsEqual,
   type SessionForm,
 } from '../src/session-chain.ts';
 import { domainFactsOf, type DomainFacts } from '../src/index.ts';
@@ -37,58 +39,11 @@ function factsOfV2Rows(rows: Array<Record<string, unknown>>): DomainFacts {
   return domainFactsOf('agent-a', 2, rows as unknown as LedgerRow[], [], []);
 }
 
-/** facts 相等判据（逐面深比对——fold 四投影恒等的构造前提） */
+/** facts 相等判据（cr-1307 起委托库面 sessionFactsEqual——判据单源；
+ *  seq 全面豁免/空数组归一/aggregated 投影恒等已由库面承载） */
 function expectFactsEqual(a: DomainFacts, b: DomainFacts): void {
-  expect(b.version).toBe(2);
-  expect(a.domain).toBe(b.domain);
-  // speech：按 messageId 对齐（时间线重放不保序——比对语义内容）
-  const speechOf = (f: DomainFacts) => new Map(f.speech.map((s) => [s.messageId, s]));
-  const sa = speechOf(a);
-  const sb = speechOf(b);
-  expect([...sb.keys()].sort()).toEqual([...sa.keys()].sort());
-  for (const [id, s] of sa) {
-    const t = sb.get(id)!
-    expect({ ...t, domain: '' }).toEqual({ ...s, domain: '' });
-  }
-  // contexts：按 messageId 对齐
-  const ctxOf = (f: DomainFacts) => new Map(f.contexts.map((c) => [c.messageId, c]));
-  const ca = ctxOf(a);
-  const cb = ctxOf(b);
-  expect([...cb.keys()].sort()).toEqual([...ca.keys()].sort());
-  for (const [id, c] of ca) {
-    expect({ ...cb.get(id)!, domain: '' }).toEqual({ ...c, domain: '' });
-  }
-  // runs：run 键集 + 逐 run 事件序列（相位序）+ end + aggregated
-  expect([...b.runs.keys()].sort()).toEqual([...a.runs.keys()].sort());
-  for (const [run, rf] of a.runs) {
-    const t = b.runs.get(run)!;
-    // 事件序列语义比对——键序无关（canonicalize 排键后序列化）；
-    // injectionId 回填感知：期望侧（v1）先按边同款词形补合成锚
-    //（回填是 M-A 设计语义，非信息损失；独立用例已锁）。
-    const canon = (v: unknown): string => {
-      if (Array.isArray(v)) return '[' + v.map(canon).join(',') + ']';
-      if (v !== null && typeof v === 'object') {
-        return '{' + Object.keys(v as Record<string, unknown>).sort().map((k) => JSON.stringify(k) + ':' + canon((v as Record<string, unknown>)[k])).join(',') + '}';
-      }
-      return JSON.stringify(v) ?? 'null';
-    };
-    const strip = (ev: unknown) => {
-      if (typeof ev === 'object' && ev !== null && (ev as { kind?: string }).kind === 'inject' && (ev as { injectionId?: string }).injectionId === undefined) {
-        const { seq } = ev as { seq?: number };
-        return canon({ ...ev, injectionId: 'jinj-' + run + '-' + (seq ?? 0) });
-      }
-      return canon(ev);
-    };
-    expect(t.events.map(strip)).toEqual(rf.events.map(strip));
-    expect(t.end && strip(t.end)).toEqual(rf.end && strip(rf.end));
-    expect(t.aggregated && strip(t.aggregated)).toEqual(rf.aggregated && strip(rf.aggregated));
-    // meters 语义比对：v1 侧空 meter 对象恒占键（expandJournalStep 形态），
-    // v2 侧 placeEvent 只记有字段的行——两侧「非空 meter」逐键相等即语义恒等。
-    const nonEmpty = (m: Map<number, unknown>) => [...m.entries()].filter(([, v]) => v !== undefined && Object.keys(v as object).length > 0);
-    expect(nonEmpty(t.meters)).toEqual(nonEmpty(rf.meters));
-  }
-  // 压缩代
-  expect(JSON.stringify(b.compactions)).toBe(JSON.stringify(a.compactions));
+  const r = sessionFactsEqual(a, b);
+  if (!r.ok) throw new Error('facts 不等（库面判据）：' + r.diff);
 }
 
 // —— 夹具：典型纯 v1 会话（user 入站 + 两步 run + 收束 + 段行 + 注入）——
@@ -175,21 +130,41 @@ describe('M-A facts 往返恒等', () => {
     const form = formOf(fx.header, fx.rows, fx.journal, fx.subcalls);
     const { rows } = migrateSessionForm({ version: 1, value: form });
     const after = factsOfV2Rows(rows);
-    // 段行聚合轨迹保全（subcall 卡内联进段行 steps）
+    // cr-1307：边直产相位行（段行退役）——subcall 卡按 toolCallId 首段分组
+    // 进宿主卡（foldStepsOf 重建投影断言）
+    const { foldStepsOf } = await import('../src/fold-core.ts');
     const segRun = after.runs.get(RUN)!;
-    expect(segRun.aggregated).toBeDefined();
-    const flat = segRun.aggregated![0]!.toolCalls!.map((tc) => tc.id);
+    const proj = foldStepsOf(segRun, form.subcallArchive as JournalToolResult[]);
+    expect(proj).not.toBeNull();
+    const flat = proj!.steps[0]!.toolCalls!.map((tc) => tc.id);
     expect(flat).toContain('c1');
     expect(flat).toContain('c1#1');
-    // 恒等：v1 侧段行不含 subcall（档案分流），边内联后段行自含——
-    // facts 恒等比对以「段行 steps + 档案平铺 injectSubcallCards 后」为准
+    // 恒等：v1 侧聚合轨迹（档案内联 + journal duration 补行覆盖——v1 读面
+    // projectStep 同语义）与 v2 侧事件重建投影 steps 相等（seq 豁免——产物
+    // 行 seq 重排，canonOf 同判据）
     const expectSeg = form.facts.runs.get(RUN)!.aggregated!.map((s) => ({ ...s, ...(s.toolCalls !== undefined ? { toolCalls: s.toolCalls.map((tc) => ({ ...tc })) } : {}) }));
     const { injectSubcallCards } = await import('../src/reader-core.ts');
     injectSubcallCards(expectSeg, form.subcallArchive as JournalToolResult[]);
-    expect(JSON.stringify(segRun.aggregated)).toBe(JSON.stringify(expectSeg));
+    for (const line of fx.journal) {
+      if (line.type !== 'journal-tool-result') continue;
+      for (const s of expectSeg) {
+        for (const tc of s.toolCalls ?? []) {
+          if (tc.id === line.toolCallId && line.durationMs !== undefined) (tc as typeof tc & { durationMs?: number }).durationMs = line.durationMs;
+        }
+      }
+    }
+    const bare = (v: unknown): string => {
+      if (Array.isArray(v)) return '[' + v.map(bare).join(',') + ']';
+      if (v !== null && typeof v === 'object') {
+        const o = v as Record<string, unknown>;
+        return '{' + Object.keys(o).sort().filter((k) => k !== 'seq').map((k) => JSON.stringify(k) + ':' + bare(o[k])).join(',') + '}';
+      }
+      return JSON.stringify(v);
+    };
+    expect(JSON.stringify(bare(proj!.steps))).toBe(JSON.stringify(bare(expectSeg)));
   });
 
-  it('语义收窄点：段行相位序（textBeforeTools）保全——步内正文先于工具', () => {
+  it('语义收窄点：段行相位序（textBeforeTools）保全——步内正文先于工具', async () => {
     const fx = pureV1();
     (fx.rows as unknown as Array<Record<string, unknown>>).push({
       role: 'agent', source: 'segment', run: RUN, content: '',
@@ -199,7 +174,10 @@ describe('M-A facts 往返恒等', () => {
     const form = formOf(fx.header, fx.rows, fx.journal, fx.subcalls);
     const { rows } = migrateSessionForm({ version: 1, value: form });
     const after = factsOfV2Rows(rows);
-    const seg = after.runs.get(RUN)!.aggregated![0]!;
+    // cr-1307：textBeforeTools 由行序表达——正文行先于工具行入文件序，
+    // foldStepsOf 按首见序推导该字段（fold-core L111 同款判据）
+    const { foldStepsOf } = await import('../src/fold-core.ts');
+    const seg = foldStepsOf(after.runs.get(RUN)!, [])!.steps[0]!;
     expect(seg.textBeforeTools).toBe(true);
   });
 });

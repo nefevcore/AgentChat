@@ -16,6 +16,9 @@ import * as path from 'node:path';
 import { sessionDir } from '../src/index.ts';
 import { assembleSessionView } from '../src/view.ts';
 import { foldLlmReplay, foldSession, foldUserReplay, foldViewRecords } from '../src/fold.ts';
+import { splitHeader, migrateSessionForm } from 'ac-ledger-core/src/session-chain.ts';
+import { domainFactsOf } from 'ac-ledger-core/src/events-core.ts';
+import { readLedger, readJournal, readSubcalls } from '../src/reader.ts';
 
 const ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-fold-'));
 afterEach(() => { fs.rmSync(ROOT, { recursive: true, force: true }); fs.mkdirSync(ROOT, { recursive: true }); });
@@ -158,16 +161,16 @@ describe('fold 单源（cr-974 §2.5 性质化）', () => {
     const lines: Array<Record<string, unknown>> = [
       { type: 'session-header', version: 2, createdAt: '2026-11-09T10:00:00.000Z', participants: [AGENT, 'user'], kind: 'user' },
       { type: 'message', role: 'agent', agent_id: 'user', content: '问一', message_id: 'q1', requestId: 'q1', timestamp: '2026-11-09T10:00:01.000Z', seq: 1 },
-      { type: 'step/reasoning', run: 'run-1', step: 0, stepId: 'run-1:0', text: '想一下', reasoningMs: 100, ts: 1, seq: 2 },
-      { type: 'step/content', run: 'run-1', step: 0, stepId: 'run-1:0', text: '先查', ts: 2, seq: 3, usage: { prompt: 10, completion: 5 } },
-      { type: 'step/tool-call', run: 'run-1', step: 0, stepId: 'run-1:0', toolCallId: 'tc1', name: 'run_code', arguments: '{}', ts: 3, seq: 4 },
-      { type: 'step/tool-call-result', run: 'run-1', toolCallId: 'tc1', result: { ok: true }, ts: 4, seq: 5 },
-      { type: 'step/tool-call-result', run: 'run-1', toolCallId: 'tc1#2', result: { ok: true, output: 'sub' }, subcall: true, name: 'read', arguments: '{}', ts: 4, seq: 5 },
+      { type: 'step/reasoning', run: 'run-1', step: 0, stepId: 'run-1:0', text: '想一下', reasoningMs: 100, ts: Date.parse('2026-11-09T10:00:10.000Z'), seq: 2 },
+      { type: 'step/content', run: 'run-1', step: 0, stepId: 'run-1:0', text: '先查', ts: Date.parse('2026-11-09T10:00:10.000Z'), seq: 3, usage: { prompt: 10, completion: 5 } },
+      { type: 'step/tool-call', run: 'run-1', step: 0, stepId: 'run-1:0', toolCallId: 'tc1', name: 'run_code', arguments: '{}', ts: Date.parse('2026-11-09T10:00:10.000Z'), seq: 4 },
+      { type: 'step/tool-call-result', run: 'run-1', toolCallId: 'tc1', result: { ok: true }, ts: Date.parse('2026-11-09T10:00:10.000Z'), seq: 5 },
+      { type: 'step/tool-call-result', run: 'run-1', toolCallId: 'tc1#2', result: { ok: true, output: 'sub' }, subcall: true, name: 'read', arguments: '{}', ts: Date.parse('2026-11-09T10:00:10.000Z'), seq: 5 },
       { type: 'inject', run: 'run-1', content: '插一句', requestId: 'steer-1', injectionId: 'inj-1', ts: Date.parse('2026-11-09T10:00:11.000Z'), seq: 6 }, // cr-1132:ts 换真实 epoch——投影时间全序后 fake epoch 会漂移位次
-      { type: 'step/content', run: 'run-1', step: 1, stepId: 'run-1:1', text: '答一', ts: 6, seq: 7 },
+      { type: 'step/content', run: 'run-1', step: 1, stepId: 'run-1:1', text: '答一', ts: Date.parse('2026-11-09T10:00:12.000Z'), seq: 7 },
       { type: 'message', role: 'agent', agent_id: AGENT, content: '答一', message_id: 'a1', requestId: 'a1', run: 'run-1', runMs: 1500, timestamp: '2026-11-09T10:00:30.000Z', seq: 8 },
-      { type: 'run-end', run: 'run-1', finish: 'completed', ts: 7, seq: 9 },
-      { type: 'step/content', run: 'run-3', step: 0, stepId: 'run-3:0', text: '进行中', ts: 8, seq: 10 },
+      { type: 'run-end', run: 'run-1', finish: 'completed', ts: Date.parse('2026-11-09T10:00:29.000Z'), seq: 9 },
+      { type: 'step/content', run: 'run-3', step: 0, stepId: 'run-3:0', text: '进行中', ts: Date.parse('2026-11-09T10:02:00.000Z'), seq: 10 },
     ];
     fs.writeFileSync(path.join(dir2, 'messages.jsonl'), lines.map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
     // 对照 v1 子集会话（同内容、v1 形态：物化段行 + journal）
@@ -177,18 +180,35 @@ describe('fold 单源（cr-974 §2.5 性质化）', () => {
     fs.writeFileSync(path.join(dir1, 'messages.jsonl'), [
       { type: 'session-header', version: 1, createdAt: '2026-11-09T10:00:00.000Z', participants: [AGENT, 'user'], kind: 'user' },
       { role: 'agent', content: '问一', agent_id: 'user', requestId: 'q1', message_id: 'q1', timestamp: '2026-11-09T10:00:01.000Z', seq: 1 },
-      { role: 'agent', content: '', agent_id: AGENT, run: 'run-1', source: 'segment', steps: [{ content: '先查', reasoning: '想一下', reasoningMs: 100, ts: 2, stepId: 'run-1:0', textBeforeTools: true, usage: { prompt: 10, completion: 5 }, toolCalls: [{ id: 'tc1', name: 'run_code', arguments: '{}', result: { ok: true } }] }], message_id: 'seg-run-1-0', timestamp: '2026-11-09T10:00:10.000Z', seq: 2 },
+      { role: 'agent', content: '', agent_id: AGENT, run: 'run-1', source: 'segment', steps: [{ content: '先查', reasoning: '想一下', reasoningMs: 100, ts: Date.parse('2026-11-09T10:00:10.000Z'), stepId: 'run-1:0', textBeforeTools: true, usage: { prompt: 10, completion: 5 }, toolCalls: [{ id: 'tc1', name: 'run_code', arguments: '{}', result: { ok: true } }] }], message_id: 'seg-run-1-0', timestamp: '2026-11-09T10:00:10.000Z', seq: 2 },
       { role: 'agent', content: '插一句', agent_id: AGENT, run: 'run-1', source: 'inject', requestId: 'steer-1', message_id: 'inj-1', timestamp: '2026-11-09T10:00:11.000Z', seq: 3 },
-      { role: 'agent', content: '', agent_id: AGENT, run: 'run-1', source: 'segment', steps: [{ content: '答一', ts: 6, stepId: 'run-1:1' }], message_id: 'seg-run-1-2', timestamp: '2026-11-09T10:00:12.000Z', seq: 4 },
+      { role: 'agent', content: '', agent_id: AGENT, run: 'run-1', source: 'segment', steps: [{ content: '答一', ts: Date.parse('2026-11-09T10:00:12.000Z'), stepId: 'run-1:1' }], message_id: 'seg-run-1-2', timestamp: '2026-11-09T10:00:12.000Z', seq: 4 },
       { role: 'agent', content: '答一', agent_id: AGENT, requestId: 'a1', run: 'run-1', runMs: 1500, message_id: 'a1', timestamp: '2026-11-09T10:00:13.000Z', seq: 5 },
     ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
     fs.writeFileSync(path.join(dir1, 'journal', 'partials.jsonl'), [
-      { type: 'journal-settled', run: 'run-1', finish: 'ok', seq: 6 },
-      { type: 'journal-step', run: 'run-3', step: 0, content: '进行中', stepId: 'run-3:0', ts: 8, seq: 7 },
+      { type: 'journal-settled', run: 'run-1', finish: 'ok', ts: Date.parse('2026-11-09T10:00:29.000Z'), seq: 6 },
+      { type: 'journal-step', run: 'run-3', step: 0, content: '进行中', stepId: 'run-3:0', ts: Date.parse('2026-11-09T10:02:00.000Z'), seq: 7 },
     ].map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
     // cr-803 子调用档案（v1 分流形态——读面联查注入 UI 平铺，与 v2 内联等价）
     fs.writeFileSync(path.join(dir1, 'subcalls.jsonl'),
       JSON.stringify({ type: 'journal-tool-result', run: 'run-1', toolCallId: 'tc1#2', result: { ok: true, output: 'sub' }, subcall: true, name: 'read', arguments: '{}', seq: 8 }) + '\n', 'utf-8');
+    // cr-1307：v1 侧经迁移边换写 v2（归一化读旧 == 直读新——段行/注入行的
+    // 插位语义由边 ts 全序承载；v1 直读面的注入插位分支已随 aggOrder 退役）。
+    const lr = readLedger(dir1);
+    const journal = readJournal(dir1);
+    const subcalls = readSubcalls(dir1);
+    const v2out = migrateSessionForm({
+      version: 1,
+      value: {
+        header: splitHeader((lr.header ?? {}) as Record<string, unknown>),
+        facts: domainFactsOf(AGENT, 1, lr.rows, journal, subcalls),
+        v2Rows: [], subcallArchive: subcalls, badLines: [],
+      },
+    });
+    fs.writeFileSync(path.join(dir1, 'messages.jsonl'),
+      [JSON.stringify(v2out.header)].concat(v2out.rows.map((r) => JSON.stringify(r))).join('\n') + '\n', 'utf-8');
+    fs.rmSync(path.join(dir1, 'journal', 'partials.jsonl'));
+    fs.rmSync(path.join(dir1, 'subcalls.jsonl'));
     const cmp = (a: string, b: string): void => {
       // 独立构造的会话 timestamp/seq 是各自落账事实——结构等价对拍剥之
       const strip = (rows: unknown[]): unknown[] => rows.map((r) => {

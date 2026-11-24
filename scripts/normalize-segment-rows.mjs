@@ -19,6 +19,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { segmentRowToPhaseRows } from '../packages/ac-ledger-core/src/segment-normalize.ts';
+import { synthNullResults } from '../packages/ac-ledger-core/src/session-chain.ts';
 import { domainFactsOf } from '../packages/ac-ledger-core/src/events-core.ts';
 import { foldStepsOf } from '../packages/ac-ledger-core/src/fold-core.ts';
 import { readLedger } from '../packages/ac-ledger/src/reader.ts';
@@ -65,31 +66,8 @@ function sessionDirs(root) {
   return out;
 }
 
-/**
- * 已收束 run 的无结果调用 synth 归一（对拍对齐 fold-core 事件路径语义）：
- * 聚合直通路径原样保留 result:null，事件重建路径按 foldStepsOf 既有规则合成
- * （finish 正常 → {ok:true}；finish 异常 → aborted ? TOOL_NOT_STARTED :
- * TOOL_OUTCOME_UNKNOWN；未收束 run → 保持 null）。差异方向是「向 v2 收敛」。
- */
-function synthNullResults(steps, rf) {
-  const finish = rf.end?.finish;
-  return steps.map((s) => {
-    if (s.toolCalls === undefined) return s;
-    const stepAborted = s.aborted === true;
-    return {
-      ...s,
-      toolCalls: s.toolCalls.map((tc) => {
-        if (tc.result !== null) return tc;
-        const synth = finish !== undefined
-          ? (finish !== 'completed'
-            ? (stepAborted ? { ok: false, error: 'TOOL_NOT_STARTED' } : { ok: false, error: 'TOOL_OUTCOME_UNKNOWN' })
-            : { ok: true })
-          : null;
-        return { ...tc, result: synth };
-      }),
-    };
-  });
-}
+// cr-1307：synthNullResults 归一判据提升为库面（session-chain.ts 导出）——
+// 工具经 import 单源消费，不再本地复写。
 
 /** 每 run 步投影 canon（seq 豁免 / 空数组归一 / 键序无关；withSynth = 对拍 before 侧） */
 function runStepsCanon(rows, domain, withSynth = false) {
