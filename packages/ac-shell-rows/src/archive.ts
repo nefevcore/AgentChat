@@ -31,7 +31,6 @@ import {
   SUMMARY_TOKEN_CAP,
   keepBudgetOf,
   replayProjection,
-  replaySummaryHead,
   replayTokensFor,
   replayTokensOf,
   splitForArchive,
@@ -42,7 +41,7 @@ import {
 import type { ToolCall, ToolResult } from 'ac-tools';
 import { estimateTokens } from 'ac-text-budget';
 import { parseKey, pairIncludes } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
-import { ARCHIVE_SUMMARY_SOURCE, foldSession, foldStepsOf, readDomainFacts, readLedger, rowShadowedBy, summaryTextOf, type LedgerRow } from 'ac-ledger';
+import { ARCHIVE_SUMMARY_SOURCE, foldSession, foldStepsOf, readDomainFacts, readLedger, rowShadowedBy, type LedgerRow } from 'ac-ledger';
 import type { LoopRunRequest, LoopRunResult } from 'ac-agent-loop';
 
 declare module '@agentchat/cordis' {
@@ -200,14 +199,22 @@ export class ArchiveShellService extends Service {
   }
 
   /** settings['archive'] 原值读面（缺省 undefined；直读不缓存——配置轴 =
-   * 文件文集，与 shims settingsOf 同源） */
+   * 文件文集，与 shims settingsOf 同源）。
+   *
+   * cr-1259 修正：原实现读 agents/<id>/config.json 的 settings.archive——
+   * 该文件是 v3 前的旧形态（cr-1036 批3 产线退役，config 已入
+   * RESERVED_UNIT_NAMES），活数据根内不存在 ⟹ **per-Agent 归档预算覆盖
+   * 自 v3 起从未生效**（所有 Agent 恒用行缺省）。v3 形态下 settings 按插件
+   * 单元拆文件（writePluginConfig → agents/<id>/<unit>.json），故此处改读
+   * 单元文件 archive.json 本体（= settings['archive'] 原值，非包一层）。 */
   private archiveSettingsOf(_uuid: string): Record<string, unknown> | undefined {
     try {
-      const config = JSON.parse(fs.readFileSync(
-        path.join(this.dataRoot, 'agents', this.agentId, 'config.json'), 'utf-8',
-      )) as { settings?: Record<string, Record<string, unknown>> };
-      const s = config.settings?.archive;
-      if (s !== undefined && typeof s === 'object') return s;
+      const s = JSON.parse(fs.readFileSync(
+        path.join(this.dataRoot, 'agents', this.agentId, 'archive.json'), 'utf-8',
+      )) as unknown;
+      if (s !== null && typeof s === 'object' && !Array.isArray(s)) {
+        return s as Record<string, unknown>;
+      }
     } catch {
       // 配置缺席 = 行缺省
     }
@@ -248,9 +255,9 @@ export class ArchiveShellService extends Service {
     const facts = readDomainFacts(dir, this.agentId);
     const fold = foldSession(this.dataRoot, uuid, [dir]);
     // cr-1245 B2 投影单源：shadow 过滤 + 伪行合成（版本判据 = 行面，cr-1214）
-    // + 摘要头选择（digest 单源防双计——cr-1191）全在 ac-archive-core
-    // replayProjection；本行只保留目录编排与 v1 兼容窗兜底。
-    const proj = replayProjection(rows, facts, replaySummaryHead(fold, summaryTextOf(dir)), {
+    // 全在 ac-archive-core replayProjection。摘要头恒 null（cr-1274 V3 单源：
+    // archive-summary 行正文在 picked 内计量，头不再另发防双计）。
+    const proj = replayProjection(rows, facts, null, {
       activeOnly: opts.activeOnly,
       viewer: this.agentId,
     });

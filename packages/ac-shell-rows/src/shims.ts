@@ -17,6 +17,19 @@ import { issueRequestId, type Envelope } from 'ac-envelope-core';
 import { readCredential, credentialKey, deriveKey, machineMaterial, GLOBAL_AGENT_ID } from 'ac-credentials-core';
 import { humanPresentOf } from 'ac-agents';
 
+/**
+ * 路径包含判定（cr-1279，垫片自足——不引入 ac-sandbox-core 的 fs 身份回退）：
+ * 词法 relative 判定，win32 大小写不敏感（盘面惯例；身份回退只在符号链接/
+ * 8.3 短名场景必要，媒体读面路径均由上传/工作区登记产出，词法足用）。
+ */
+function isUnderRoot(target: string, root: string): boolean {
+  const rel = path.relative(root, target);
+  if (rel === '') return true;
+  if (path.isAbsolute(rel)) return false;
+  const norm = process.platform === 'win32' ? rel.toLowerCase() : rel;
+  return !norm.startsWith('..');
+}
+
 /** ctx.agents 最小面（沿用行消费口：get / settingsOf / ids / list）+ 模式注册面（cr-1049） */
 export class AgentsShim extends Service {
   private dataRoot: string;
@@ -255,6 +268,45 @@ export class WorkspaceShim extends Service {
 
   agentWorkdir(agentId?: string): string {
     return this.sandboxWorkdir(agentId);
+  }
+
+  /**
+   * 读面定位（cr-1279）：ctx.workspace 的媒体物化消费面（ac-llm-pool
+   * workspaceMediaResolver）按 ac-workspace 主线语义调用 resolveFile(ref)。
+   * 此前垫片只有 root/sandboxWorkdir/agentWorkdir——`typeof ws.resolveFile
+   * !== 'function'` 使适配层对每个 workspace 引用都判「不可物化」，
+   * 图片一律降级为 `[图片无法加载: …]` 文本块（多模态整链唯一剩余断点）。
+   * 词形两形态并存：workspace 相对（files/<id>/_tmp/x.png）与绝对路径
+   * （cr-22 主形态——上传 absPath，read 工具跨锚点可达）。
+   * 基准 = 数据根 ∪ 已登记工作区根；越界/缺失照抛（调用方降级占位）。
+   */
+  resolveFile(ref: string): string {
+    if (typeof ref !== 'string' || ref.trim() === '') throw new Error('媒体引用为空');
+    const target = path.isAbsolute(ref) ? path.resolve(ref) : path.resolve(this.dataRoot, ref);
+    const roots = [path.resolve(this.dataRoot), ...this.registeredWorkspaceRoots()];
+    if (!roots.some((r) => isUnderRoot(target, r))) throw new Error('媒体引用越界（仅限工作区目录内）：' + ref);
+    if (!fs.statSync(target).isFile()) throw new Error('媒体引用不是文件：' + ref);
+    return target;
+  }
+
+  /** 已登记工作区根（meta/workspaces.json 顶层数组；缺席/损坏 = 空） */
+  private registeredWorkspaceRoots(): string[] {
+    const file = fs.existsSync(path.join(this.dataRoot, 'meta', 'workspaces.json'))
+      ? path.join(this.dataRoot, 'meta', 'workspaces.json')
+      : path.join(this.dataRoot, 'workspaces.json');
+    try {
+      const raw: unknown = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      const list = Array.isArray(raw)
+        ? raw
+        : raw !== null && typeof raw === 'object' ? (raw as { workspaces?: unknown }).workspaces : undefined;
+      if (!Array.isArray(list)) return [];
+      return list
+        .filter((w): w is { path: string } => w !== null && typeof w === 'object'
+          && typeof (w as { path?: unknown }).path === 'string' && (w as { path: string }).path !== '')
+        .map((w) => path.resolve(w.path));
+    } catch {
+      return [];
+    }
   }
 
   /** 懒建 + 幂等缓存（建目录失败由工具侧自然报错——主线同语义） */

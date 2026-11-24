@@ -12,7 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import { computed } from 'vue';
 import { toHistoryMessages } from 'ac-client-ui-conversation/client/historyApi.ts';
-import { buildTurns, pairMessageToChatMessage } from 'ac-client-ui-conversation/client/feed.ts';
+import { buildTurns, historyRowToChatMessage } from 'ac-client-ui-conversation/client/feed.ts';
 import { registerInjectCardView } from 'ac-client-ui-conversation/client/injectCardViews.ts';
 import { useTurnDisplayItems } from 'ac-client-ui-conversation/client/useTurnDisplayItems.ts';
 import { VIEWER_ID } from 'ac-client-ui-conversation/client/viewer.ts';
@@ -23,7 +23,7 @@ describe('toHistoryMessages：注入行正文透传', () => {
   it('注入型行（source:skill）带 contextContent，label 仍是行文案', () => {
     const rows = [{ role: 'context', content: INJ_BODY, source: 'skill', label: '已加载技能 demo', agent_id: 'a', message_id: 'ctx-1', timestamp: new Date(1000).toISOString(), seq: 1 }];
     const out = toHistoryMessages(rows as never, 'a~user');
-    const ev = out.find((m) => m.role === 'event') as Record<string, unknown>;
+    const ev = out.find((m) => m.role === 'event')!;
     expect(ev).toBeTruthy();
     expect(ev.contextContent).toBe(INJ_BODY);
     expect(ev.content).toBe('已加载技能 demo');
@@ -35,7 +35,7 @@ describe('toHistoryMessages：注入行正文透传', () => {
       { role: 'context', content: 'LLM 失败', source: 'error', agent_id: 'a', message_id: 'e2', timestamp: new Date(1100).toISOString(), seq: 2 },
     ];
     const out = toHistoryMessages(rows as never, 'a~user');
-    for (const m of out) expect((m as Record<string, unknown>).contextContent).toBeUndefined();
+    for (const m of out) expect(m.contextContent).toBeUndefined();
   });
 
   it('会话设置变更通知行（cr-889：source:event + label/content 双在场）卡片化——正文透传 contextContent', () => {
@@ -46,7 +46,7 @@ describe('toHistoryMessages：注入行正文透传', () => {
       timestamp: new Date(1000).toISOString(), seq: 3,
     }];
     const out = toHistoryMessages(rows as never, 'a~user');
-    const ev = out.find((m) => m.role === 'event') as Record<string, unknown>;
+    const ev = out.find((m) => m.role === 'event')!;
     expect(ev).toBeTruthy();
     expect(ev.contextContent).toBe(rows[0].content);
     expect(ev.content).toBe('会话设置变更');
@@ -141,11 +141,11 @@ describe('useTurnDisplayItems：降级轮 → 独立卡 item', () => {
   });
 });
 
-describe('真实管线回归：pairMessageToChatMessage 透传', () => {
-  it('注入 event 行经 pair 转换保留 source/contextContent（子代理视图路径）', () => {
+describe('真实管线回归：historyRowToChatMessage 透传', () => {
+  it('注入 event 行经历史行转换保留 source/contextContent（pair 只读视图路径）', () => {
     const rows = [{ role: 'context', content: INJ_BODY, source: 'skill', label: '已加载技能 demo', agent_id: 'a', message_id: 'ctx-1', timestamp: new Date(1000).toISOString(), seq: 1 }];
     const out = toHistoryMessages(rows as never, 'a~user');
-    const cm = pairMessageToChatMessage(out[0] as never, 'a');
+    const cm = historyRowToChatMessage(out[0] as never, { idPrefix: 'pair', fallbackAgentId: 'a' });
     expect(cm.source?.kind).toBe('skill');
     expect(cm.contextContent).toBe(INJ_BODY);
     // 经 buildTurns：单轮挂靠（历史路径与直播同构）
@@ -161,10 +161,10 @@ describe('真实管线回归：pairMessageToChatMessage 透传', () => {
       payload: { questions: [{ question: '选哪个？', options: ['A', 'B'] }], answers: ['A'], outcome: 'answered' },
     }];
     const out = toHistoryMessages(rows as never, 'a~user');
-    const ev = out.find((m) => m.role === 'event') as Record<string, unknown>;
+    const ev = out.find((m) => m.role === 'event')!;
     expect(ev.payload).toMatchObject({ outcome: 'answered' });
     // pair 转换（子代理视图路径）不丢 payload——AskCard outcome 判据
-    const cm = pairMessageToChatMessage(ev as never, 'a');
+    const cm = historyRowToChatMessage(ev as never, { idPrefix: 'pair', fallbackAgentId: 'a' });
     expect(cm.payload).toMatchObject({ outcome: 'answered', answers: ['A'] });
     // buildTurns 注入卡携带 payload（InjectCard 数据面完整）
     const turns = buildTurns([cm, stepMsg('s1', 2000)]);
@@ -174,7 +174,7 @@ describe('真实管线回归：pairMessageToChatMessage 透传', () => {
 });
 
 describe('锚挂靠（cr-1132——投影层锚定，启发式坍缩）', () => {
-  /** 历史路径消息（historyMsgToChatMessage 产物形态——persistedMsgId/anchor 在场） */
+  /** 历史路径消息（historyRowToChatMessage 产物形态——persistedMsgId/anchor 在场） */
   const histMsg = (o: Partial<import('ac-client-ui-conversation/client/types.ts').ChatMessage> & { id: string; role: string; timestamp: number }): any => ({
     agent_id: 'a', ...o,
   });

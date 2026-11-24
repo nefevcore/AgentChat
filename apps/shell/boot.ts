@@ -1222,7 +1222,7 @@ export async function bootShell(
   ctx.on('session/context-injected', (
     conversationId: string,
     agent: string | undefined,
-    meta: { source: string; injectionId?: string; label?: string } | undefined,
+    meta: { source: string; injectionId?: string; run?: string; label?: string } | undefined,
   ) => {
     if (conversationId === '' || meta === undefined) return;
     emitStreamFrame({
@@ -1231,6 +1231,8 @@ export async function bootShell(
       source: meta.source,
       ...(meta.label !== undefined ? { label: meta.label } : {}),
       ...(meta.injectionId !== undefined ? { injectionId: meta.injectionId } : {}),
+      // run 键随帧（cr-1285 P3-4）：直播注入卡 run 归口挂靠——与刷新投影行同键
+      ...(meta.run !== undefined ? { run: meta.run } : {}),
       meta: { agent: agent ?? args.agentId, conversationId },
     });
   });

@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "ac-conv-keys": "workspace:*",
+    "ac-migration-core": "workspace:*",
     "ac-envelope-core": "workspace:*",
     "ac-core-utils": "workspace:*"
   },

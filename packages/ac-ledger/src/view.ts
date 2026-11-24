@@ -45,6 +45,10 @@ export interface ViewRow {
   /** 挂靠锚（cr-1132：无 run 锚 context 行携带——时间线上最近后续 agent
    *  发言行 message_id；投影层全会话视野派生，前端据此挂轮不猜） */
   anchor?: string;
+  /** 轮身份键（cr-1286 P4-1 投影分组）：run 承载行 = run；用户/发步行 =
+   *  自身 message_id；无键机制行（event/error/直落 context）缺席——前端
+   *  回落窗口局部启发。词汇增量，读侧派生，不落盘。 */
+  turnId?: string;
 }
 import * as fs from 'node:fs';
 import * as path from 'node:path';

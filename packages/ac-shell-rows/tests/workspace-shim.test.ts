@@ -136,4 +136,33 @@ describe('WorkspaceShim 沙箱消费面（cr-614）', () => {
     expect(shim.conversationWorkspaceRoot('conv-c')).toBeNull();
     expect(shim.sandboxAllowedPaths('neko', 'conv-c')).toEqual([]);
   });
+
+  // cr-1279：媒体物化读面——ac-llm-pool 的 workspaceMediaResolver 调
+  // ws.resolveFile(ref)；垫片此前无该方法 → 每个 workspace 引用恒不可
+  // 物化 → 图片一律降级「[图片无法加载: …]」（多模态整链最后断点）。
+  it('cr-1279 resolveFile：相对/绝对双形态命中，越界与缺失照抛', () => {
+    const rel = path.join('files', 'neko', '_tmp', 'a.png');
+    fs.mkdirSync(path.dirname(path.join(ROOT, rel)), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, rel), Buffer.from([0x89, 0x50]));
+    const ctx = new Context();
+    const shim = new WorkspaceShim(ctx, ROOT);
+    const abs = path.join(ROOT, rel);
+    // ① workspace 相对形态（files/<id>/_tmp/x.png）
+    expect(shim.resolveFile(rel)).toBe(abs);
+    // ② 绝对形态（cr-22 上传 absPath 主形态）
+    expect(shim.resolveFile(abs)).toBe(abs);
+    // ③ 大小写不同（win32 盘面惯例）仍命中——返回可读路径，拼写随输入
+    if (process.platform === 'win32') expect(shim.resolveFile(abs.toUpperCase()).toLowerCase()).toBe(abs.toLowerCase());
+    // ④ 越界（数据根之外）照抛——媒体读面不得成为任意读口
+    expect(() => shim.resolveFile(path.resolve(ROOT, '..', 'outside.png'))).toThrow();
+    // ⑤ 缺失文件 / 空引用照抛（调用方降级占位）
+    expect(() => shim.resolveFile(path.join('files', 'neko', '_tmp', 'gone.png'))).toThrow();
+    expect(() => shim.resolveFile('')).toThrow();
+    // ⑥ 已登记外挂工作区根内的绝对路径放行
+    fs.mkdirSync(WS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'workspaces.json'), JSON.stringify([{ id: 'ws-r', name: 'r', path: WS_DIR }]), 'utf-8');
+    const mounted = path.join(WS_DIR, 'shot.png');
+    fs.writeFileSync(mounted, Buffer.from([1]));
+    expect(shim.resolveFile(mounted)).toBe(mounted);
+  });
 });

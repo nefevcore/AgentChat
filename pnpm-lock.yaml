@@ -2956,6 +2956,9 @@ importers:
       ac-envelope-core:
         specifier: workspace:*
         version: link:../ac-envelope-core
+      ac-migration-core:
+        specifier: workspace:*
+        version: link:../ac-migration-core
     devDependencies:
       vitest:
         specifier: ^4.1.10

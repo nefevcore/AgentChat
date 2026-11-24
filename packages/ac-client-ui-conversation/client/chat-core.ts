@@ -133,11 +133,17 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
    * 当前会话上下文是否生成中（per-dialog 流式态）。全局 turnInProgress 会被
    * 任何会话的运行点亮——用它驱动输入框会让别的会话流式时当前会话误显
    * 「打断并发送」，且发送前的自动打断会误杀其他会话的运行（隔离缺陷）。
+   * cr-1303：无活跃会话时（activeDialogId = null——移动端导航态/选中被清空）
+   * 此前回落全局 turnInProgress → **任何其他会话的 run 都把输入框点亮成
+   * 「停止」**，点主按钮走 interruptGeneration 而非 send，消息发不出去
+   * （真机实测：creator run 在跑时 designer 会话输入框恒「停止」；把
+   * turnInProgress 置 false 即恢复「发送」——因果已实证）。无活跃会话 =
+   * 没有可归属的生成目标，恒 false（发送走 send，忙态由壳侧 lane 决策兜底）。
    */
   const contextBusy = computed(() => {
     const id = feed.activeDialogId;
-    const d = id ? feed.getDialog(id) : null;
-    return d ? d.streaming : turnInProgress.value;
+    if (!id) return false;
+    return feed.getDialog(id)?.streaming === true;
   });
 
   // ══ 视图状态（委托 feed，storeToRefs 保持响应式引用）══
@@ -461,7 +467,10 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
   function composeContent(content: string, files: import('./types.ts').FileAttachment[] | undefined): string {
     if (!files?.length) return content;
     const lines = files.map((f) => {
-      const path = chatPresence.uploadPaths.get(f.hash) ?? chatPresence.uploadPaths.get(f.filename);
+      // cr-1279：第三层回退 f.text（上传返回的 absPath 随附件对象携带）——
+      // 刷新后 chatPresence 内存登记丢失时，此前只剩「路径未记录」降级行，
+      // 连 read 工具路径都断（与 imageAttachmentsOf 同款三层回退口径一致）。
+      const path = chatPresence.uploadPaths.get(f.hash) ?? chatPresence.uploadPaths.get(f.filename) ?? (f.text || '');
       return path ? `[附件] ${path}` : `[附件] ${f.filename}（已上传，路径未记录）`;
     });
     return `${content}\n${lines.join('\n')}`.trim();

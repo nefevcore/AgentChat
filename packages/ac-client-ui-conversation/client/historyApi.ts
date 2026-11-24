@@ -7,7 +7,7 @@
 //（fetchGroupHistory/expandGroupRecord）迁入。rpc 契约面注入（包装传 wireRpc 缺省）。
 // ============================================================
 import type { RpcClientFace } from 'ac-client-runtime';
-import { fmtElapsed } from './feed.ts';
+import { fmtElapsed, type HistoryRow } from './feed.ts';
 
 type Rpc = Pick<RpcClientFace, 'call'>;
 
@@ -30,8 +30,6 @@ export interface PSessionRecord {
   timestamp: string;
   /** 说话人端点（中性格式归属标记，M21/D13——一切真实发言 role:'agent' 必有） */
   agent_id?: string;
-  /** 旧 baked 格式说话人标注（兼容读取） */
-  name?: string;
   /** 事件来源标注（role:'event' 行；P3）/ context 行来源决策词（词汇 v2） */
   source?: string;
   /** context 行 UI 文案（词汇 v2；缺省按 source 回落） */
@@ -55,6 +53,8 @@ export interface PSessionRecord {
   payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' };
   /** 挂靠锚（cr-1132：投影层派生——时间线上最近 agent 发言行 message_id） */
   anchor?: string;
+  /** 轮身份键（cr-1286 P4-1 投影分组）：run 承载行 = run；用户行 = message_id；机制行缺席 */
+  turnId?: string;
 }
 
 interface PSessionStep {
@@ -98,7 +98,7 @@ interface PSessionStep {
   }>;
 }
 
-/** pair 历史消息（宽松形态，按 role 渲染；feed.pairMessageToChatMessage 消费） */
+/** pair 历史消息（宽松形态，按 role 渲染；feed.historyRowToChatMessage 消费——cr-1283 并轨单源） */
 interface PairHistoryMessage {
   role: string;
   content: string | null;
@@ -113,7 +113,8 @@ interface PairHistoryMessage {
  * SessionRecord[] → src 历史消息行（pair 视角 + WS history.response 共用）。
  * 【M21/D13 中性格式】role:'agent' 行 = 一切真实发言，归属 agent_id（取代
  * name）；'error' 行 = run 错误收束（错误分隔符）。旧 baked 行（user/
- * assistant + name）兼容读取，产出同构输出。带 steps 的回复行（M18 #6）→
+ * assistant + name）兼容读取已随 v1 存量迁移退役（cr-1273——服务端
+ * ViewRow 投影无 name 键，读取链恒 undefined）。带 steps 的回复行（M18 #6）→
  * 按步重建：每步一个 assistant 气泡（含 thinking/toolCalls）+ 每个工具调用
  * 一个 tool 气泡（与直播/resume 快照同构——工具卡片刷新后不丢）；event 行
  * （P3：timer/机制触发）→ role:'event' 事件分隔符。
@@ -123,22 +124,22 @@ interface PairHistoryMessage {
  * 以自身时刻展开，末尾对全列表做**稳定**时间排序：插行回到真实位置；无
  * 步级 ts 的旧行整块按行时刻排序（行为与此前一致）。
  */
-export function toHistoryMessages(records: PSessionRecord[], conversationId: string): Array<Record<string, unknown>> {
-  const out: Array<Record<string, unknown>> = [];
+export function toHistoryMessages(records: PSessionRecord[], conversationId: string): HistoryRow[] {
+  const out: HistoryRow[] = [];
   for (const r of records) {
     // B1 行级 seq 透传（cr-1150 修正可达性）：本记录展开的所有行统一打标。
     // 此前打标语句在末尾 context 分支——agent/user/tool/error 分支各自
     // continue 早退，回复行的 seq 从未到达客户端（水位恒缺、读位只能凭
     // messageId）。存量行无 seq → 不带（前端回落位置锚）。
-    const pushRow = (row: Record<string, unknown>): void => {
+    const pushRow = (row: HistoryRow): void => {
       out.push(r.seq !== undefined ? { ...row, seq: r.seq } : row);
     };
     if (r.role === 'user') {
-      pushRow({ role: 'agent', content: r.content, agent_id: r.agent_id ?? r.name ?? 'user', message_id: r.message_id, timestamp: r.timestamp, ...(r.attachments?.length ? { attachments: r.attachments } : {}) });
+      pushRow({ role: 'agent', content: r.content, agent_id: r.agent_id ?? 'user', message_id: r.message_id, timestamp: r.timestamp, ...(r.turnId !== undefined ? { turnId: r.turnId } : {}), ...(r.attachments?.length ? { attachments: r.attachments } : {}) });
       continue;
     }
     if (r.role === 'agent' || r.role === 'assistant') {
-      const agentId = r.agent_id ?? r.name ?? conversationId;
+      const agentId = r.agent_id ?? conversationId;
       if (r.steps && r.steps.length > 0) {
         // reasoning 单份存储（2026-09-20 终版）读侧：正源 = steps[].reasoning
         // 直读；存量行级 reasoning_content（迁移前旧数据）挂首步保底
@@ -153,14 +154,13 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         //（singles/fork、session/truncate）才能命中；此前合成的 `<base>-s{i}`
         // 在后端不存在，分支/截断锚点失效。渲染 key 去重改用下行合成 sid。
         const ridBase = r.message_id;
-        const legacyRc = r.reasoning_content || '';
         for (let i = 0; i < r.steps.length; i++) {
           const s = r.steps[i];
-          const stepThinking = s.reasoning || (i === 0 ? legacyRc : '');
+          const stepThinking = s.reasoning || ''; // 行级 reasoning_content 挂首步已退役（cr-1275：全数据根零命中）
           const stepTs = typeof s.ts === 'number' ? new Date(s.ts).toISOString() : r.timestamp;
           // 幻影调用（id/name 双空的聚合残片——provider 空冲洗片曾产生）不
           // 展开：否则历史多一张无名工具卡（result null 永久转圈）
-          // 键名用 src 持久化约定 tool_calls（historyMsgToChatMessage 消费下划线形）
+          // 键名用 src 持久化约定 tool_calls（historyRowToChatMessage 消费下划线形）
           const toolCalls = (s.toolCalls ?? []).filter((tc) => tc.id || tc.name).map((tc) => ({
             id: tc.id,
             name: tc.name,
@@ -180,6 +180,9 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             // run 身份键透传（cr-699）：buildTurns sameRun 拆轮豁免——
             // 中断-续跑 run 的中途总结步不独立成卡
             ...(typeof r.run === 'string' && r.run !== '' ? { runId: r.run } : {}),
+            // 轮身份键透传（cr-1286 P4-1）：步行与终稿行同键恒同轮——
+            // 跨分页窗口轮边界恒同的判定源；用户行 = message_id
+            ...(r.turnId !== undefined ? { turnId: r.turnId } : {}),
             // 步身份键透传（身份贯通）：直播 delta 帧 meta.stepId 与此同值——
             // 历史合并按键配对（mergeHistory 键控快路径）
             ...(typeof s.stepId === 'string' && s.stepId ? { stepId: s.stepId } : {}),
@@ -198,7 +201,6 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             ...(r.runMs !== undefined && i === 0 ? { runMs: r.runMs } : {}),
             ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
             agent_id: agentId,
-            name: r.name,
             // 真实收束行 id（服务端锚点）+ 合成 sid（渲染 key 去重——
             // mergeHistoryPage 仍按 persistedMsgId 去重，同锚步行第二条起
             // 靠本字段保 Vue key 唯一）
@@ -219,6 +221,8 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
               // 参数透传（工具卡按参数渲染专用视图——edit diff / write 预览）
               ...(tc.subcall === true ? { subcall: true, arguments: parseToolArgs(tc.arguments) } : {}),
               message_id: tc.id || `${r.message_id}-s${i}-t`,
+              // 轮身份键透传（cr-1286）：tool 行与同轮步行同键
+              ...(r.turnId !== undefined ? { turnId: r.turnId } : {}),
               timestamp: stepTs,
             });
           }
@@ -229,10 +233,11 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         role: 'agent',
         content: r.content,
         agent_id: agentId,
-        name: r.name,
         message_id: r.message_id,
         timestamp: r.timestamp,
         ...(typeof r.run === 'string' && r.run !== '' ? { runId: r.run } : {}),
+        // 轮身份键透传（cr-1286 P4-1）——无步终稿行/用户直通行
+        ...(r.turnId !== undefined ? { turnId: r.turnId } : {}),
         // reasoning 单份存储读侧投影：行级缺场（新数据）从 steps[].reasoning
         // 拼整轮（replayTrajectory 关闭用户的折叠栏）；存量行级原样透传
         ...(r.reasoning_content !== undefined
@@ -251,7 +256,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       continue;
     }
     if (r.role === 'tool') {
-      pushRow({ role: 'tool', content: r.content, agent_id: r.agent_id ?? r.name ?? conversationId, name: r.name, tool_call_id: r.message_id, message_id: r.message_id, timestamp: r.timestamp });
+      pushRow({ role: 'tool', content: r.content, agent_id: r.agent_id ?? conversationId, tool_call_id: r.message_id, message_id: r.message_id, timestamp: r.timestamp });
       continue;
     }
     // 词汇 v2：context 行（source:event 机制行 / source:skill 技能注入）与
@@ -266,7 +271,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
     pushRow({
       role: 'event',
       content: r.label ?? r.content,
-      agent_id: r.agent_id ?? r.name ?? 'system',
+      agent_id: r.agent_id ?? 'system',
       message_id: r.message_id,
       timestamp: r.timestamp,
       ...(hasDataPlane ? { contextContent: r.content } : {}),
@@ -275,6 +280,9 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       ...(r.anchor !== undefined ? { anchor: r.anchor } : {}),
       // cr-1112:kind 开放 string 后 as never 宽化退役——存储 source 决策词原样透传
       ...(r.source !== undefined ? { source: { summary: r.label ?? '', ...(typeof r.source === 'string' ? { kind: r.source } : {}) } } : {}),
+      // run 归口键透传（cr-1285 P3-4）：注入行挂靠按键不猜——run 归口卡
+      //（fold projectInject 携带 c.run/ev.run）与直播帧同键
+      ...(typeof r.run === 'string' && r.run !== '' ? { runId: r.run } : {}),
     });
   }
   // 稳定时间排序（步级 ts 展开后恢复与落盘事件序一致的渲染序；等时刻
@@ -324,7 +332,7 @@ export async function fetchPairHistory(from: string, to: string, limit: number, 
 
 // ---- 群历史（本体投影展开） ----
 
-/** 群历史行（feed.groupMessageToChatMessage 的宽松输入形状） */
+/** 群历史行（feed.historyRowToChatMessage 的宽松输入形状——cr-1283 并轨单源） */
 interface GroupHistoryMessage {
   /** 落盘锚（群行的 readMark 键：requestId 优先，缺席 = 成员:message_id）——
    *  读位位置锚（cr-1150：群未读按此消） */

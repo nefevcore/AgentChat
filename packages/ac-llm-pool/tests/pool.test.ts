@@ -539,3 +539,34 @@ describe('协议多态（cr-39：protocol 字段 + PROTOCOLS 注册表）', () =
   });
 });
 
+// cr-1280：能力缺口可观测化——此前「服务缺 resolveFile」与「文件不可物化」
+// 同形静默 undefined，图片全域降级 `[图片无法加载: …]` 却零日志线索
+//（cr-1279 第三处断点即此）。告警按 resolver 实例去重（逐 ref 报会刷屏）。
+describe('媒体物化能力缺口告警（cr-1280）', () => {
+  it('ctx.workspace 缺 resolveFile：首次物化 warn 一次，后续带图轮不再刷屏', async () => {
+    const root = tmpRoot({ myds: { base_url: 'https://a/v1', models: ['v-1'], visionModels: ['v-1'] } });
+    const { ctx } = await boot(root); // 无 workspace 桩 = 服务面缺 resolveFile
+    const warns: string[] = [];
+    // 级别闸：logger 缺省阈值 1（info）会把 warn(2) 过滤掉——显式放开到 error 级全收
+    ctx.logger.exporter({
+      levels: { default: 4 },
+      export: (m: { args: unknown[] }) => { warns.push(String(m.args[0])); },
+    } as never);
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('stub', { status: 404 })) as unknown as typeof fetch;
+    try {
+      for (let i = 0; i < 3; i++) {
+        await ctx.llm.chat({
+          model: 'v-1',
+          messages: [{ role: 'user', content: 'q', attachments: [{ kind: 'image', ref: `files/user/_tmp/${i}.png` }] }],
+        }).catch(() => undefined);
+      }
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    const hits = warns.filter((w) => w.includes('缺 resolveFile'));
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toContain('媒体引用一律不可物化');
+  });
+});
+

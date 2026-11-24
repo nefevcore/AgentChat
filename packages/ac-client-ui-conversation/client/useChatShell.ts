@@ -15,6 +15,7 @@
 // ============================================================
 
 import { onScopeDispose, ref, watch, type Ref } from 'vue';
+import { retainLoop, scheduleFrame } from './frameScheduler.ts';
 
 interface ChatShellOptions {
   /** 消息滚动容器 ref */
@@ -64,8 +65,12 @@ export function useChatShell(opts: ChatShellOptions) {
   // 作为跟随引擎帧级判定的基线。
   let expectedScrollTop = NaN;
 
-  // ── 跟随引擎（单 rAF 循环；gliding = 指数缓动追赶，false = 贴底吸附）──
-  let followRaf = 0;
+  // ── 跟随引擎（P4-2 cr-1287：由帧调度器 scroll 阶段驱动——全前端单 rAF
+  //    链；gliding = 指数缓动追赶，false = 贴底吸附）──
+  /** 本引擎在调度器 scroll 阶段是否已登记下一拍 */
+  let followQueued = false;
+  /** 持帧释放函数（非 null = 引擎活跃） */
+  let releaseLoop: (() => void) | null = null;
   let gliding = false;
   let glideT0 = 0;
   let glideY = 0;
@@ -83,10 +88,21 @@ export function useChatShell(opts: ChatShellOptions) {
     return actual;
   }
 
+  /** 引擎停机：撤下一拍登记 + 释放持帧（不再占用调度循环） */
   function stopFollow() {
-    if (followRaf) cancelAnimationFrame(followRaf);
-    followRaf = 0;
+    followQueued = false;
+    if (releaseLoop) {
+      releaseLoop();
+      releaseLoop = null;
+    }
     gliding = false;
+  }
+
+  /** 登记下一拍到调度器 scroll 阶段（同帧合并：已登记则不重复） */
+  function queueFollowTick() {
+    if (followQueued) return;
+    followQueued = true;
+    scheduleFrame('scroll', followTick);
   }
 
   /** 跟随引擎心跳（每帧一次）：
@@ -99,6 +115,7 @@ export function useChatShell(opts: ChatShellOptions) {
    *     连续流）；卡片级增量（整块上屏）切入缓动段平滑揭示；
    *  ④ 静默退出：流式停歇且已贴底 → 空转 FOLLOW_IDLE_MS 后停机。 */
   function followTick() {
+    followQueued = false; // 本拍已消费
     const el = opts.container.value;
     if (!el) { stopFollow(); return; }
 
@@ -152,16 +169,16 @@ export function useChatShell(opts: ChatShellOptions) {
     }
 
     if (!gliding && target - el.scrollTop <= 0.5 && now - lastActivity > FOLLOW_IDLE_MS) {
-      followRaf = 0; // 贴底且静默 → 停机（下次 signal 变化会重新拉起）
+      stopFollow(); // 贴底且静默 → 停机（下次 signal 变化会重新拉起）
       return;
     }
-    followRaf = requestAnimationFrame(followTick);
+    queueFollowTick();
   }
 
   /** 确保跟随循环在跑：不在跑则按当前距底距离选模式拉起（距底远 → 缓动
    *  追赶；已贴底 → 直接吸附吸收增量） */
   function ensureFollow() {
-    if (followRaf) return;
+    if (releaseLoop) return; // 引擎已在跑
     const el = opts.container.value;
     if (!el) return;
     const now = performance.now();
@@ -170,7 +187,9 @@ export function useChatShell(opts: ChatShellOptions) {
     glideT0 = now;
     glideY = el.scrollTop;
     glideT = now;
-    followRaf = requestAnimationFrame(followTick);
+    // 持帧（引擎活跃期间调度循环不停）+ 登记首拍
+    releaseLoop = retainLoop();
+    queueFollowTick();
   }
 
   /** 滚动到底部：恢复自动跟随并平滑缓动下去（发送消息/切换会话/首载完成）。
@@ -195,7 +214,8 @@ export function useChatShell(opts: ChatShellOptions) {
       glideT = now;
     }
     lastActivity = now;
-    followRaf = requestAnimationFrame(followTick);
+    if (releaseLoop === null) releaseLoop = retainLoop(); // 已被 ensureFollow 持帧则复用
+    queueFollowTick();
   }
 
 
@@ -268,7 +288,7 @@ export function useChatShell(opts: ChatShellOptions) {
   function scheduleAutoScroll() {
     if (scrollScheduled) return;
     scrollScheduled = true;
-    requestAnimationFrame(() => {
+    scheduleFrame('scroll', () => {
       scrollScheduled = false;
       lastActivity = performance.now();
       if (!isUserScrolledUp.value) ensureFollow();

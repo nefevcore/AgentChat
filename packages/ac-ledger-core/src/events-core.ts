@@ -13,7 +13,13 @@
 // 直入（与 journal 相位事件互斥优先，沿用 stepsOfLedger ?? stepsOfRun
 // 回落语义）；subcalls.jsonl 档案行 → subcall 结果事件（D-1 内联的 v1 形）。
 // ============================================================
-import type { JournalLine, JournalStep, JournalToolResult, LedgerRow, ProjectedStep, RunUsage } from './records.ts';
+import { normalizeAttachments, type JournalLine, type JournalStep, type JournalToolResult, type LedgerAttachment, type LedgerRow, type ProjectedStep, type RunUsage } from './records.ts';
+
+/** 附件旁挂（cr-1278）：行体 → 事件的可选键片段（非法/空 = 零键） */
+function attachOf(v: unknown): { attachments?: LedgerAttachment[] } {
+  const a = normalizeAttachments(v);
+  return a !== undefined ? { attachments: a } : {};
+}
 
 /** run 终态（run-end.finish；v1 settled.finish ok → completed） */
 export type RunFinish = 'completed' | 'interrupted' | 'error';
@@ -26,6 +32,8 @@ export interface SpeechEvent {
   /** 归属域（事件行投影的 agent_id 取源——cr-946 存量 restarted 行） */
   domain: string;
   content: string;
+  /** 多模态附件引用（cr-1278：入站发言行旁挂——回放还原为 LlmMessage.attachments） */
+  attachments?: LedgerAttachment[];
   messageId: string;
   requestId?: string;
   run?: string;
@@ -80,6 +88,8 @@ export interface InjectEvent {
   injectSource?: string;
   label?: string;
   payload?: unknown;
+  /** 多模态附件引用（cr-1278：busy-steer 插话携带的图——消费点落账、回放还原） */
+  attachments?: LedgerAttachment[];
   ts?: number;
   seq?: number;
 }
@@ -183,7 +193,7 @@ function runOf(facts: Map<string, RunFactsV2>, run: string): RunFactsV2 {
 function v2RowToEvent(row: Record<string, unknown>): SessionEvent | 'segment' | null {
   switch (row.type) {
     case 'message':
-      return { kind: 'speech', role: 'agent', agentId: String(row.agent_id ?? ''), domain: '', content: String(row.content ?? ''), messageId: String(row.message_id ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.run !== undefined && row.run !== '' ? { run: String(row.run) } : {}), ...(row.runMs !== undefined ? { runMs: Number(row.runMs) } : {}), timestamp: String(row.timestamp ?? ''), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}), ...(typeof row.source === 'string' && row.source.startsWith('run:') ? { sourceRun: row.source.slice(4) } : {}) };
+      return { kind: 'speech', role: 'agent', agentId: String(row.agent_id ?? ''), domain: '', content: String(row.content ?? ''), messageId: String(row.message_id ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.run !== undefined && row.run !== '' ? { run: String(row.run) } : {}), ...(row.runMs !== undefined ? { runMs: Number(row.runMs) } : {}), ...attachOf(row.attachments), timestamp: String(row.timestamp ?? ''), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}), ...(typeof row.source === 'string' && row.source.startsWith('run:') ? { sourceRun: row.source.slice(4) } : {}) };
     case 'context':
       return { kind: 'context', agentId: String(row.agent_id ?? ''), source: String(row.source ?? ''), content: String(row.content ?? ''), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ...(row.run !== undefined && row.run !== '' ? { run: String(row.run) } : {}), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), messageId: String(row.message_id ?? ''), timestamp: String(row.timestamp ?? ''), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'step/reasoning':
@@ -194,7 +204,7 @@ function v2RowToEvent(row: Record<string, unknown>): SessionEvent | 'segment' | 
     case 'step/tool-call-result':
       return { kind: 'tool-call-result', run: String(row.run ?? ''), toolCallId: String(row.toolCallId ?? ''), result: (row.result ?? { ok: false }) as { ok: boolean; output?: unknown; error?: string }, ...(row.durationMs !== undefined ? { durationMs: Number(row.durationMs) } : {}), ...(row.subcall === true ? { subcall: true, ...(row.name !== undefined ? { name: String(row.name) } : {}), ...(row.arguments !== undefined ? { arguments: String(row.arguments) } : {}) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'inject':
-      return { kind: 'inject', run: String(row.run ?? ''), content: String(row.content ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectionId !== undefined ? { injectionId: String(row.injectionId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
+      return { kind: 'inject', run: String(row.run ?? ''), content: String(row.content ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectionId !== undefined ? { injectionId: String(row.injectionId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ...attachOf(row.attachments), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'compaction':
       return { kind: 'compaction', run: String(row.run ?? ''), ...(row.boundarySeq !== undefined ? { boundarySeq: Number(row.boundarySeq) } : {}), endTs: Number(row.ts ?? 0), ...(row.summary !== undefined ? { summary: String(row.summary ?? '') } : {}), ...(row.stats !== undefined ? { stats: row.stats as { shadowedRows?: number; estimatedTokens?: number } } : {}), ...(row.model !== undefined ? { model: String(row.model) } : {}), ...(row.generation !== undefined ? { generation: Number(row.generation) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'compaction/start':
@@ -283,14 +293,14 @@ export function domainFactsOf(
     if (r.source === 'inject') {
       if (r.run === undefined) continue;
       const ts0 = Date.parse(r.timestamp);
-      const ev: InjectEvent = { kind: 'inject', run: r.run, content: r.content, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), injectionId: r.message_id, ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ts: Number.isFinite(ts0) ? ts0 : 0, ...(r.seq !== undefined ? { seq: r.seq } : {}) };
+      const ev: InjectEvent = { kind: 'inject', run: r.run, content: r.content, ...attachOf(r.attachments), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), injectionId: r.message_id, ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ts: Number.isFinite(ts0) ? ts0 : 0, ...(r.seq !== undefined ? { seq: r.seq } : {}) };
       const f = runOf(out.runs, r.run);
       f.events.push(ev);
       f.aggOrder = [...(f.aggOrder ?? []), { type: 'inject', ev }];
       continue;
     }
     if (String(r.message_id).startsWith('seg-')) continue; // cr-640 存量文本段行（无 source 标记）——过滤防双计；String 容忍异常缺 id 行（手写夹具/极端存量）
-    out.speech.push({ kind: 'speech', role: 'agent', agentId: r.agent_id, domain, content: r.content, messageId: r.message_id, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(typeof r.source === 'string' && r.source.startsWith('run:') ? { sourceRun: r.source.slice(4) } : {}) });
+    out.speech.push({ kind: 'speech', role: 'agent', agentId: r.agent_id, domain, content: r.content, ...attachOf(r.attachments), messageId: r.message_id, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(typeof r.source === 'string' && r.source.startsWith('run:') ? { sourceRun: r.source.slice(4) } : {}) });
   }
   // v1 journal 行（v2 会话恒空）
   for (const line of journal) {

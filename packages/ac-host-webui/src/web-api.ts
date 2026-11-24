@@ -21,7 +21,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { readFileSync, readdirSync, statSync, type Dirent } from 'node:fs';
 import type { MultipartBody, RouteCall } from 'ac-web-server';
 import * as path from 'node:path';
-import { assembleSessionView, conversationDirs, deleteConversationRow, historyView, truncateConversation, type JournalToolResult } from 'ac-ledger';
+import { assembleSessionView, conversationDirs, deleteConversationRow, historyView, normalizeAttachments, truncateConversation, type JournalToolResult, type LedgerAttachment } from 'ac-ledger';
 import { listAgentIds, readAgentConfig, isPresetId, materializedChildIds } from 'ac-agents-core';
 import { pairIncludes, isAgentIdentity } from 'ac-conv-keys'; // 端点谓词/键词法单源（cr-1238 B3——isAgentIdentity 本体迁键库）
 import { humanPresentOf } from 'ac-agents'; // conv-scope 批3：无人桶写键 fail-loud 门
@@ -117,7 +117,7 @@ interface SessionMetaRow {
 export interface WebApiDeps {
   /** user 壳桩（R-2——deliver 的投递执行体） */
   user: {
-    send(agentId: string, text: string, options?: { uuid?: string; requestId?: string }): Promise<{ uuid: string; dispatched: unknown[] }>;
+    send(agentId: string, text: string, options?: { uuid?: string; requestId?: string; model?: string; lane?: 'next-step' | 'next-turn'; placement?: 'steer' | 'next-run'; attachments?: LedgerAttachment[] }): Promise<{ uuid: string; dispatched: unknown[] }>;
   };
   /** 数据根（历史读 / agents 直读锚点） */
   dataRoot: string;
@@ -204,8 +204,9 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const p = obj(params);
         const agentId = reqStr(p, 'agentId');
         // 主线 message 形态：string | {role, content, attachments}——preview 首版
-        // 收 string 与对象 content 字段（前端 composeContent 产物），attachments
-        // 面未接（恒缺省）。lane/placement 白名单窄化后随信透传（cr-575——
+        // 收 string 与对象 content 字段（前端 composeContent 产物）；顶层
+        // attachments 旁路 cr-1278 补齐（此前恒缺省——V3 重写丢账）。
+        // lane/placement 白名单窄化后随信透传（cr-575——
         // 忙态决策归壳侧 ConversationMachine，busy 时 next-turn 排队/steer 注入）。
         const raw = p.message;
         const text = typeof raw === 'string' ? raw
@@ -213,6 +214,11 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
             ? (raw as Record<string, unknown>).content as string
             : '';
         if (text === '') throw new Error('参数 message 缺失或无 content');
+        // 多模态附件旁路（cr-1278）：V3 重写期此处曾「attachments 面未接（恒缺省）」，
+        // 图片只余 [附件] 路径行——旁路补齐。白名单窄化（kind/ref/50 上限）后随信
+        // 透传；非法项丢弃而非拒信（单图缺失由 provider 适配层降级占位）。
+        // 两形态兼容（主线 message 形态）：顶层 attachments 优先，对象 message.attachments 次之
+        const attachments = normalizeAttachments(p.attachments ?? (typeof raw === 'object' && raw !== null ? (raw as Record<string, unknown>).attachments : undefined));
         const requestId = optStr(p.requestId);
         // 会话键归一（cr-1059）：显式入参（single sid）优先；缺省 = 1v1 直答对桶键
         // pairKey('user', agentId)——与 ac-conversation deliver 的对桶缺省（D3：
@@ -239,6 +245,7 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
           ...(model !== undefined ? { model } : {}),
           ...(lane !== undefined ? { lane } : {}),
           ...(placement !== undefined ? { placement } : {}),
+          ...(attachments !== undefined ? { attachments } : {}),
         });
         // 前端对返回值无消费（fire-and-forget + 超时容错）；返回主线程一形状
         return { kind: 'run', uuid: result.uuid };

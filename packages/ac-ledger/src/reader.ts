@@ -318,11 +318,3 @@ function idTailSeq(toolCallId: string): number {
   return Number.isFinite(tail) ? tail : 0;
 }
 
-/** 会话概要（会话目录 summary.md——归档写、回放读，同源单文件） */
-export function summaryTextOf(dir: string): string {
-  try {
-    return fs.readFileSync(path.join(dir, 'summary.md'), 'utf-8').trim();
-  } catch {
-    return '';
-  }
-}

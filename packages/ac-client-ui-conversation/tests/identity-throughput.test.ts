@@ -112,8 +112,8 @@ describe('mergeHistory 键控对齐', () => {
 });
 
 describe('turn 前缀身份复用（步边界性能）', () => {
-  it('步边界（末两条消息签名变化）→ 未变化前缀 turn 复用旧对象身份', async () => {
-    const { buildTurnsIncremental } = await import('../client/feed.ts');
+  it('步边界（末条消息换身）→ 未变化前缀 turn 复用旧对象身份', async () => {
+    const { deriveTurns } = await import('../client/feed.ts');
     const t0 = Date.parse('2026-01-01T00:00:00Z');
     const mk = (id: string, content: string, streaming = false) => ({
       id, role: 'agent' as const, content, timestamp: t0, agent_id: 'a', isStreaming: streaming,
@@ -126,16 +126,16 @@ describe('turn 前缀身份复用（步边界性能）', () => {
       mk('a1', '步0'),
       mk('a2', '流式尾部', true),
     ];
-    const memo1 = buildTurnsIncremental(null, base as any, true);
-    // 步边界：a1 关闭（isStreaming 翻转 false→true 变化签名）+ a2 新增——多条变化
+    const s1 = deriveTurns(null, base as any, true);
+    // 步边界：a2 换身（内容追加——reviseMsg 换新引用）
     const next = [...base.slice(0, 4), { ...mk('a2', '流式尾部更多'), isStreaming: true }];
-    const memo2 = buildTurnsIncremental(memo1, next as any, true);
+    const s2 = deriveTurns(s1, next as any, true);
     // 前缀 turn（第一轮）身份复用——props 稳定不重渲染
-    const first1 = memo1.turns.find((t: any) => t.agent_id === 'a' && t.final?.content === '第一轮答');
-    const first2 = memo2.turns.find((t: any) => t.agent_id === 'a' && t.final?.content === '第一轮答');
+    const first1 = s1.turns.find((t: any) => t.agent_id === 'a' && t.final?.content === '第一轮答');
+    const first2 = s2.turns.find((t: any) => t.agent_id === 'a' && t.final?.content === '第一轮答');
     expect(first1).toBe(first2); // 同一对象
     // 尾部 turn 内容已更新
-    const last = memo2.turns[memo2.turns.length - 1];
+    const last = s2.turns[s2.turns.length - 1];
     expect((last as any).final).toBe(null); // 流式悬置
   });
 });

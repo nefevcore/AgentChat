@@ -51,7 +51,7 @@ function seedChild(parentId: string, childId: string): void {
  *  gate（可选）= 慢 mock 闸门（首流挂起直到放行——busy 窗口用，cr-575）；
  *  gates（可选）= 逐调用闸门（第 n 次流调用等 gates[n]——多 run 顺序挂起，
  *  cr-745 链跑交接面用；与 gate 二选一）。 */
-async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<void>, providerError?: Error, chatTools?: string[][], chatMessages?: Array<Array<{ role: string; content: string }>>, postOfficeAddress?: string, gates?: Array<Promise<void>>, parentId?: string): Promise<{ ctx: Context; fibers: Fiber[]; conv: ConversationService }> {
+async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<void>, providerError?: Error, chatTools?: string[][], chatMessages?: Array<Array<{ role: string; content: string; attachments?: unknown }>>, postOfficeAddress?: string, gates?: Array<Promise<void>>, parentId?: string): Promise<{ ctx: Context; fibers: Fiber[]; conv: ConversationService }> {
   const ctx = new Context();
   const fibers: Fiber[] = [];
   const rows: Array<unknown> = [toolsRow, llmRow, loopRow];
@@ -71,7 +71,7 @@ async function bootTree(agentId: string, chatModels?: string[], gate?: Promise<v
           if (providerError !== undefined) throw providerError;
           chatModels?.push(input.model ?? '');
           chatTools?.push((input.tools ?? []).map((t) => t.function?.name ?? ''));
-          chatMessages?.push(input.messages.map((m) => ({ role: m.role, content: m.content })));
+          chatMessages?.push(input.messages.map((m) => ({ role: m.role, content: m.content, ...((m as { attachments?: unknown }).attachments !== undefined ? { attachments: (m as { attachments?: unknown }).attachments } : {}) })));
           const last = input.messages.filter((m) => m.role === 'user').at(-1);
           yield { delta: '[回复 ' + (last?.content ?? '') + ']' };
           yield { delta: '', finish: 'stop', usage: { prompt: 1, completion: 1 } };
@@ -111,8 +111,8 @@ async function dispose(fibers: Fiber[]): Promise<void> {
   }
 }
 
-function msg(uuid: string, requestId: string, text: string, sender = 'user', lane?: 'next-step' | 'next-turn'): Envelope {
-  return makeEnvelope({ uuid, requestId, sender, to: 'alpha', payload: { text, ...(lane !== undefined ? { lane } : {}) } });
+function msg(uuid: string, requestId: string, text: string, sender = 'user', lane?: 'next-step' | 'next-turn', attachments?: unknown[]): Envelope {
+  return makeEnvelope({ uuid, requestId, sender, to: 'alpha', payload: { text, ...(lane !== undefined ? { lane } : {}), ...(attachments !== undefined ? { attachments } : {}) } });
 }
 
 const UUID = 'u-conv-1';
@@ -201,6 +201,37 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       expect(chatMessages[1].filter((m) => m.role === 'user' && m.content === '第二问')).toHaveLength(1);
       // 第二轮完整历史 = 第一问 + 终稿 + 第二问（3 行，无重复）
       expect(chatMessages[1].map((m) => m.content)).toEqual(['第一问', '[回复 第一问]', '第二问']);
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  // cr-1278：多模态附件旁路（V3 重写丢账补回）——信封 payload.attachments →
+  // 壳侧入站行落账 → 账本回放 → 模型输入。三处同源断言（防再次静默丢账）。
+  it('cr-1278 附件旁路：入站 attachments 随行落账并进入模型输入', async () => {
+    seedAgent('alpha');
+    const chatMessages: Array<Array<{ role: string; content: string; attachments?: unknown }>> = [];
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, chatMessages);
+    try {
+      const atts = [{ kind: 'image', ref: 'files/alpha/_tmp/x.png', mime: 'image/png', filename: 'x.png' }];
+      await conv.receiveEnvelope(msg(UUID, 'att-1', '看图', 'user', undefined, atts), { fresh: true });
+      // ① 账本行：入站发言行携带附件引用（只存 ref，不内联 base64）
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
+      const inbound = rows.find((r) => r.role !== undefined && r.agent_id === 'user' && r.content === '看图') as unknown as { attachments?: unknown };
+      expect(inbound.attachments).toEqual(atts);
+      // ② 模型输入：user 消息携带 attachments（base64 物化收敛在 provider 边界）
+      expect(chatMessages[0].find((m) => m.role === 'user' && m.content === '看图')?.attachments).toEqual(atts);
+      // ③ assistant 位恒无附件（两家协议只允许 user 消息带图）
+      expect(chatMessages[0].find((m) => m.role === 'assistant')?.attachments).toBeUndefined();
+      // 非法项丢弃（缺 ref / ref 超长）——单图缺失不炸轮、不留空壳
+      await conv.receiveEnvelope(msg(UUID, 'att-2', '再看', 'user', undefined, [
+        { kind: 'image' },
+        { kind: 'video', ref: 'x'.repeat(3000) },
+        { kind: 'image', ref: 'files/a/y.png' },
+      ]), { fresh: true });
+      const { rows: rows2 } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
+      const second = rows2.find((r) => r.role !== undefined && r.agent_id === 'user' && r.content === '再看') as unknown as { attachments?: unknown };
+      expect(second.attachments).toEqual([{ kind: 'image', ref: 'files/a/y.png' }]);
     } finally {
       await dispose(fibers);
     }

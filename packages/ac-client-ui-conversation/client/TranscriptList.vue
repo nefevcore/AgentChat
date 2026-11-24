@@ -11,6 +11,7 @@ import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { formatRelativeTime } from './format.ts';
 import { BusyRing, Tooltip } from '@agentchat/webui-kit';
 import { useChatShell } from './useChatShell.ts';
+import { scheduleFrame } from './frameScheduler.ts';
 import type { DisplayItem } from './types.ts';
 import TurnDisplayItem from './Message/TurnDisplayItem.vue';
 import InjectCardHost from './Message/InjectCardHost.vue';
@@ -86,25 +87,29 @@ const REFILL_BATCH = 24;
 
 /** 渲染窗口起始索引（0 = 全量已挂） */
 const renderFrom = ref(0);
-let refillTimer: ReturnType<typeof setTimeout> | null = null;
+/** 补挂下一批是否已登记到调度器（cr-1287 P4-2：原 setTimeout 节拍归一） */
+let refillQueued = false;
 
 function clearRefill() {
-  if (refillTimer !== null) {
-    clearTimeout(refillTimer);
-    refillTimer = null;
-  }
+  // 已登记的任务不自撤（调度器无按任务取消的持有句柄）；用 refillQueued
+  // 标志失效——任务执行时见标志为 false 即自行退出，等价于取消
+  refillQueued = false;
 }
 
 /** 分帧补挂进行中（重入短路判据：进行中的分帧说明本会话尚未完整挂载） */
 function refilling(): boolean {
-  return refillTimer !== null;
+  return refillQueued;
 }
 
-/** 逐批补挂（批次之间让出主线程；补齐即停；归零登记见 renderFrom watch） */
+/** 逐批补挂（cr-1287 P4-2：批次间隔归一为帧节拍——调度器 scroll 阶段，
+ *  与滚动引擎同帧有序：补挂产生的高度变化当帧即被滚动修正吸收。
+ *  补齐即停；归零登记见 renderFrom watch） */
 function scheduleRefill() {
-  if (refillTimer !== null || renderFrom.value === 0) return;
-  refillTimer = setTimeout(() => {
-    refillTimer = null;
+  if (refillQueued || renderFrom.value === 0) return;
+  refillQueued = true;
+  scheduleFrame('scroll', () => {
+    if (!refillQueued) return; // 已被 clearRefill 失效
+    refillQueued = false;
     if (renderFrom.value === 0) return;
     const box = messagesContainer.value;
     const keepBottom = !shell.isUserScrolledUp.value;
@@ -120,7 +125,7 @@ function scheduleRefill() {
       }
       scheduleRefill();
     });
-  }, 16);
+  });
 }
 
 // fullyMounted = 本组件实例内「已完整挂载过」的会话键记忆：同实例切回

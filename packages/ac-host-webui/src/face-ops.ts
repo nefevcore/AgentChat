@@ -36,10 +36,10 @@ import { runNativeOpen } from 'ac-workspace/src/native-open.ts';
 import { resolveOpenTargets, refreshTarget, runOpenWith, targetIconOf } from 'ac-workspace/src/open-targets.ts';
 import { assocIconOfExt, folderIconOf } from 'ac-workspace/src/file-assoc-icons.ts';
 import { readCatalog } from 'ac-rowset-core';
-import { conversationDirs, foldSession, projectUserReplay, readDomainFacts, readJournal, readLedger, summaryTextOf } from 'ac-ledger';
+import { conversationDirs, foldSession, projectUserReplay, readDomainFacts, readJournal, readLedger } from 'ac-ledger';
 import { readAgentConfig, settingsOf } from 'ac-agents-core';
 import { estimateTokens } from 'ac-text-budget';
-import { replayProjection, replaySummaryHead, replayTokensFor } from 'ac-archive-core';
+import { replayProjection, replayTokensFor } from 'ac-archive-core';
 
 interface WebFace {
   registerRpc(method: string, handler: (params: unknown) => unknown): void;
@@ -816,11 +816,11 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
       const domain = path.basename(path.dirname(path.dirname(dir)));
       const facts = readDomainFacts(dir, domain);
       // cr-1245 B2 投影单源：shadow 过滤 + 伪行合成（版本判据 = 行面，
-      // cr-1214——此前本面只判 facts.version 漏混合会话伪行）+ 摘要头
-      // 选择全在 ac-archive-core replayProjection（activeOnly 恒 true——
-      // 回落路径与索引 activeContextTokens 口径对齐，cr-1191）。
-      const fold = foldSession(deps.dataRoot, conversationId, [dir]);
-      const proj = replayProjection(rows, facts, replaySummaryHead(fold, summaryTextOf(dir)), {
+      // cr-1214——此前本面只判 facts.version 漏混合会话伪行）全在
+      // ac-archive-core replayProjection（activeOnly 恒 true——回落路径
+      // 与索引 activeContextTokens 口径对齐，cr-1191）。摘要头恒 null
+      //（cr-1274 V3 单源——archive-summary 行正文在 picked 内计量）。
+      const proj = replayProjection(rows, facts, null, {
         activeOnly: true,
         viewer: agentId ?? domain,
       });

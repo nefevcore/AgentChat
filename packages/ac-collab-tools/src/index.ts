@@ -152,8 +152,10 @@ export function apply(ctx: Context) {
       // 契约静态化为纯行为规则；群身份单源住 CONVERSATION。
       // per-Agent 覆盖（A/B 文案实验——主线 contractFor 同语义）：
       // settings['group'].contractText 非空覆盖正典，空/缺省回落
-      const s = ctx.agents.settingsOf(agent, 'group') as { contractText?: unknown };
-      const override = typeof s.contractText === 'string' && s.contractText.trim() !== ''
+      //（settingsOf 合成缺席 = undefined——壳垫片无全局层且 agent 无 'group'
+      // 键即此形；判空对齐 timers-row layerOf 同款防御，缺层回落正典）
+      const s = ctx.agents.settingsOf(agent, 'group') as { contractText?: unknown } | undefined;
+      const override = typeof s?.contractText === 'string' && s.contractText.trim() !== ''
         ? s.contractText
         : GROUP_CONTRACT_TEXT;
       return override;

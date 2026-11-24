@@ -26,10 +26,7 @@ const records = [
 describe('journal 提升行时刻还原（hint 步位）', () => {
   it('注入行 timestamp = 注入时刻 → 前端排序落在步1 与终稿之间', () => {
     const out = toHistoryMessages(records as never, 'a~user');
-    const brief = out.map((m) => {
-      const r = m as Record<string, unknown>;
-      return String(r.role) + ':' + String(r.content ?? '').slice(0, 12);
-    });
+    const brief = out.map((m) => String(m.role) + ':' + String(m.content ?? '').slice(0, 12));
     const iStep1 = brief.findIndex((x) => x.includes('步1'));
     const iHint = brief.findIndex((x) => x.startsWith('event'));
     const iFinal = brief.findIndex((x) => x.includes('终稿'));

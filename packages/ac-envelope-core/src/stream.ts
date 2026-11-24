@@ -55,7 +55,7 @@ export type StreamFrame =
   /** 上下文注入通知（cr-625）：主线 session/context-injected 事件旁带——
    * 前端流式运行期注入可见性（feed 事件分隔行：已收到用户回答/技能加载
    * 等 label 直出）。stream = conversationId；宿主直转主线同名帧。 */
-  | { stream: StreamId; kind: 'context-injected'; source: string; label?: string; injectionId?: string; meta?: StreamMeta }
+  | { stream: StreamId; kind: 'context-injected'; source: string; label?: string; injectionId?: string; run?: string; meta?: StreamMeta }
   /** 后台任务通知（cr-677）：主线 job/started · job/settled 事件旁带——
    * 前端 jobBoard（运行跟踪面板后台任务区/会话头 chip）帧驱动刷新唯一源。
    * stream = job id；job = 主线 JobSnapshot 透传（meta 预览化住宿主面）。 */

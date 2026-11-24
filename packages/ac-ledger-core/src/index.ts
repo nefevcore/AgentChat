@@ -12,3 +12,4 @@ export * from './records.ts';
 export * from './events-core.ts';
 export * from './fold-core.ts';
 export * from './doctor.ts';
+export * from './session-chain.ts';

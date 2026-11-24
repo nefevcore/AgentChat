@@ -66,7 +66,7 @@ export function projectSession(
       createdAt: headerCreatedAt ?? (rows.length > 0 && 'timestamp' in rows[0] ? (rows[0] as LegacyRow).timestamp : new Date().toISOString()),
       participants: ctx.participants,
       kind: ctx.kind,
-      // @ts-expect-error migrated 标记（R-10：会话 header 标 migrated: true——行协议不加标记字段）
+      // migrated 标记（R-10：会话 header 标 migrated: true）
       migrated: true,
     },
     rows: [],

@@ -18,7 +18,7 @@ declare module '@agentchat/cordis' {
     'session/context-injected'(
       conversationId: string,
       agentId: string,
-      meta: { source: string; injectionId?: string; label?: string; bytes?: number; payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' } },
+      meta: { source: string; injectionId?: string; run?: string; label?: string; bytes?: number; payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' } },
     ): void;
     /**
      * 安全重启就绪（emit；cr-629 restart_shell / cr-658 自然收束语义）：

@@ -10,7 +10,7 @@
 // ============================================================
 import type { Envelope } from 'ac-envelope-core';
 import { issueConversationId, issueRequestId, makeEnvelope } from 'ac-envelope-core';
-import { projectUserReplay, type UserReplayRow } from 'ac-ledger';
+import { projectUserReplay, type LedgerAttachment, type UserReplayRow } from 'ac-ledger';
 import type { PostOffice, DispatchResult } from 'ac-post-office';
 
 export interface UserSendOptions {
@@ -22,6 +22,11 @@ export interface UserSendOptions {
   /** 忙态投递方式（DSH 语义——随 payload 透传壳侧 ConversationMachine 决策，cr-575） */
   lane?: 'next-step' | 'next-turn';
   placement?: 'steer' | 'next-run';
+  /**
+   * 多模态附件引用（cr-1278）：随信封 payload 透传——壳侧入站行落账、
+   * 回放还原为 LlmMessage.attachments（provider 边界物化）。只存引用。
+   */
+  attachments?: LedgerAttachment[];
 }
 
 /**
@@ -72,6 +77,7 @@ export class UserStub {
         text,
         ...(options.lane !== undefined ? { lane: options.lane } : {}),
         ...(options.placement !== undefined ? { placement: options.placement } : {}),
+        ...(options.attachments !== undefined ? { attachments: options.attachments } : {}),
       },
       ...(options.model !== undefined ? { model: options.model } : {}),
 

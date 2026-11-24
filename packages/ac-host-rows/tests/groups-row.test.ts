@@ -139,6 +139,9 @@ describe('宿主群存储行（send 扇出 + history 合并）', () => {
     expect(sent).toHaveLength(2);
     expect(sent.map((e) => e.uuid).sort()).toEqual([gid + '~alpha', gid + '~beta'].sort());
     expect(sent.every((e) => e.sender === 'user' && (e.payload as { text?: string }).text === '大家好')).toBe(true);
+    // cr-1291 群刷屏根修：扇出信封恒带 broadcast 标记（终稿不回投发送方——
+    // replyTargetOf 切断 R-2；缺标记致成员互答回投链式唤起刷屏）
+    expect(sent.every((e) => (e.payload as { broadcast?: unknown }).broadcast === true)).toBe(true);
     expect(new Set(sent.map((e) => e.requestId)).size).toBe(1); // 同一消息共享 requestId（history 去重键）
     // cr-1157：post 帧载荷带 message（id = 扇出 requestId——前端 live 帧/未读锚）
     expect(frames.at(-1)).toMatchObject({ type: 'group/message-posted', args: [gid, { id: expect.any(String), groupId: gid, from: 'user' }] });
@@ -186,5 +189,32 @@ describe('宿主群存储行（send 扇出 + history 合并）', () => {
     expect(fs.existsSync(snapOf(gid))).toBe(false); // delete 级联清群本体快照
     expect(fs.existsSync(snapOf(gid + '~alpha'))).toBe(false); // delete 级联清成员流快照
     expect(await handlers.get('group/delete')!({ groupId: gid })).toEqual({ deleted: false });
+  });
+
+  // cr-1278：群发图片旁路——attachments 随扇出信封抵达各成员流（壳侧入站
+  // 行落账即模型可见），history 合并行回带（刷新后 chips 恢复）。
+  it('cr-1278：send 携带 attachments 扇出到成员信封 + history 回带', async () => {
+    seedAgent('alpha');
+    seedAgent('beta');
+    const { handlers, sent } = boot();
+    const gid = ((await handlers.get('group/create')!({ name: 'g', members: ['alpha', 'beta'] })) as { group: { id: string } }).group.id;
+    const atts = [{ kind: 'image', ref: 'files/alpha/_tmp/g.png', mime: 'image/png' }];
+    const out = await handlers.get('group/send')!({ groupId: gid, from: 'user', content: '大家看图', attachments: atts }) as { message: { attachments?: unknown } };
+    expect(sent).toHaveLength(2);
+    expect(sent.every((e) => (e.payload as { attachments?: unknown }).attachments !== undefined)).toBe(true);
+    expect(out.message.attachments).toEqual(atts);
+    // 非法项丢弃（缺 ref）——信封不带空壳键
+    sent.length = 0;
+    await handlers.get('group/send')!({ groupId: gid, from: 'user', content: '再发', attachments: [{ kind: 'image' }] });
+    expect(sent.every((e) => (e.payload as { attachments?: unknown }).attachments === undefined)).toBe(true);
+    // history：成员流入站行带附件 → 合并行回带（跨流同 requestId 去重保留首见行）
+    writeStream('alpha', gid + '~alpha', [
+      { role: 'agent', agent_id: 'user', content: '大家看图', message_id: 'a1', requestId: 'g-att', timestamp: '2026-10-22T02:00:00Z', attachments: atts },
+    ]);
+    writeStream('beta', gid + '~beta', [
+      { role: 'agent', agent_id: 'user', content: '大家看图', message_id: 'b1', requestId: 'g-att', timestamp: '2026-10-22T02:00:00Z', attachments: atts },
+    ]);
+    const hist = await handlers.get('group/history')!({ groupId: gid }) as { messages: Array<{ id: string; attachments?: unknown }> };
+    expect(hist.messages.find((m) => m.id === 'g-att')?.attachments).toEqual(atts);
   });
 });

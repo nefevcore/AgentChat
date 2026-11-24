@@ -5,8 +5,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { readLedger, readDomainFacts, foldSession } from '../packages/ac-ledger/src/index.ts';
 import { doctorScan } from '../packages/ac-ledger-core/src/doctor.ts';
-import { replayProjection, replaySummaryHead, replayTokensFor } from '../packages/ac-archive-core/src/index.ts';
-import { summaryTextOf } from '../packages/ac-ledger/src/reader.ts';
+import { replayProjection, replayTokensFor } from '../packages/ac-archive-core/src/index.ts';
 
 const dataRoot = path.resolve(process.argv[2] ?? './workspace/home');
 
@@ -36,8 +35,7 @@ for (const s of sessions) {
   if (rows.length === 0) continue;
   scanned++;
   const facts = readDomainFacts(s.dir, s.agent);
-  const fold = foldSession(dataRoot, s.uuid, [s.dir]);
-  const proj = replayProjection(rows, facts, replaySummaryHead(fold, summaryTextOf(s.dir)), { activeOnly: true, viewer: s.agent });
+  const proj = replayProjection(rows, facts, null, { activeOnly: true, viewer: s.agent });
   const fs2 = doctorScan(rows, facts, { activeTokens: () => replayTokensFor(proj, s.agent) });
   for (const f of fs2) findings.push({ ...f, session: s.agent + '/' + s.uuid });
 }

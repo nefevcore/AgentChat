@@ -1,8 +1,8 @@
 // ============================================================
 // compaction.test.ts —— 压缩事件化 + 归档物理回收（cr-974 §2.3 / S5）
 //
-// ① 事件回路：writer.compaction → foldSummaryOf → foldLlmReplay 三态
-//    （system 头 = 事件摘要；shadowed 前缀不注入）。
+// ① 事件回路（cr-1274 摘要头退役后）：compaction 落账 → 边界过滤生效；
+//    事件 summary 字段不再作为回放头（摘要单源 = V3 archive-summary 行）。
 // ② webui 视图：compaction 事件 log-only 不渲染。
 // ③ 物理回收（S5 白名单唯一重写）：shadowed 前缀整段单流 gzip 落
 //    archive/history_N.jsonl.gz（Node 24.18 无 zstdSync——回落 gzip）；
@@ -15,7 +15,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as zlib from 'node:zlib';
 import { LedgerWriter, sessionDir } from '../src/index.ts';
-import { foldLlmReplay, foldSession, foldSummaryOf, foldViewRecords } from '../src/fold.ts';
+import { foldLlmReplay, foldSession, foldViewRecords } from '../src/fold.ts';
 // 索引一致性断言住 ac-session-index/tests/compaction-index.test.ts（依赖方向：ledger 不依赖索引包）
 
 const ROOT0 = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-compaction-'));
@@ -57,13 +57,11 @@ describe('压缩事件化（cr-974 §2.3）', () => {
     await w.compaction('cmp-1', { summary: '此前：用户问了旧问，Agent 回了旧答。', shadowedSeq: oldFinalSeq });
 
     const fold = foldSession(ROOT, UUID);
-    const summary = foldSummaryOf(fold);
-    expect(summary).not.toBeNull();
-    expect(summary!.text).toBe('此前：用户问了旧问，Agent 回了旧答。');
-    expect(summary!.boundarySeq).toBe(oldFinalSeq);
+    expect(fold.compactions[0]?.boundarySeq).toBe(oldFinalSeq);
 
     const llm = foldLlmReplay(fold, AGENT, ROOT, UUID);
-    expect(llm[0]).toEqual({ role: 'system', content: '此前：用户问了旧问，Agent 回了旧答。' });
+    // cr-1274：事件 summary 不再当回放头（V3 单源）——无摘要行即无 system 头
+    expect(llm[0]?.role).not.toBe('system');
     expect(llm.some((m) => m.content === '旧问')).toBe(false); // shadowed 前缀不注入
     expect(llm.some((m) => m.content === '旧答步')).toBe(false);
     expect(llm.some((m) => m.content === '新问')).toBe(true); // 边界后照常
@@ -112,7 +110,7 @@ describe('压缩事件化（cr-974 §2.3）', () => {
     // 尾部投影不变（边界后内容三面同源）
     const fold = foldSession(ROOT, UUID);
     const llm = foldLlmReplay(fold, AGENT, ROOT, UUID);
-    expect(llm[0]).toEqual({ role: 'system', content: '此前：旧轮已整理。' });
+    expect(llm[0]?.role).not.toBe('system'); // cr-1274：事件摘要不当头
     expect(llm.some((m) => m.content === '新问')).toBe(true);
     expect(llm.some((m) => m.content === '新答')).toBe(true);
     const view = foldViewRecords(fold, ROOT, UUID);
@@ -135,13 +133,11 @@ describe('cr-1160 压缩 V2（单事件 + 多轮边界 + 概要协议）', () =>
     expect(after.some((r) => r.type === 'compaction' && r.summary === '此前，第一轮。' && r.model === 'test-model')).toBe(true);
     expect(after.some((r) => String(r.type).startsWith('compaction/'))).toBe(false); // 单事件不再落三连
     const fold = foldSession(ROOT, UUID);
-    const summary = foldSummaryOf(fold);
-    expect(summary?.text).toBe('此前，第一轮。');
     expect(fold.compactions.length).toBe(1);
     expect(fold.compactions[0]?.generation).toBe(1);
     expect(fold.compactions[0]?.stats?.estimatedTokens).toBe(100);
     const llm = foldLlmReplay(fold, AGENT, ROOT, UUID);
-    expect(llm[0]).toEqual({ role: 'system', content: '此前，第一轮。' });
+    expect(llm[0]?.role).not.toBe('system'); // cr-1274：事件摘要不当头
     expect(llm.some((m) => m.content === '旧问')).toBe(false);
     expect(llm.some((m) => m.content === '新问')).toBe(true);
   });
@@ -160,7 +156,7 @@ describe('cr-1160 压缩 V2（单事件 + 多轮边界 + 概要协议）', () =>
     expect(fold.compactions.length).toBe(2);
     expect(fold.compactions[1]?.generation).toBe(2);
     const llm = foldLlmReplay(fold, AGENT, ROOT, UUID);
-    expect(llm[0]).toEqual({ role: 'system', content: '此前，两轮。' });
+    expect(llm[0]?.role).not.toBe('system'); // cr-1274：事件摘要不当头
     expect(llm.some((m) => m.content === '旧问')).toBe(false); // 第 1 代边界仍生效
     expect(llm.some((m) => m.content === '新问')).toBe(false); // 第 2 代边界
     expect(llm.some((m) => m.content === '第三问')).toBe(true);
@@ -179,10 +175,9 @@ describe('cr-1160 压缩 V2（单事件 + 多轮边界 + 概要协议）', () =>
     const fold = foldSession(ROOT, UUID);
     expect(fold.compactions.length).toBe(2);
     expect(fold.compactions[1]?.summaryOmitted).toBe(true);
-    const summary = foldSummaryOf(fold);
-    expect(summary?.text).toBe('此前，第一轮。'); // 回落上一代
+    // cr-1274：事件摘要头退役——无 V3 行即无 system 头（回落上一代的语义随之退役）
     const llm = foldLlmReplay(fold, AGENT, ROOT, UUID);
-    expect(llm[0]).toEqual({ role: 'system', content: '此前，第一轮。' });
+    expect(llm[0]?.role).not.toBe('system');
     expect(llm.some((m) => m.content === '新问')).toBe(false); // 边界照滤
     expect(llm.some((m) => m.content === '第三问')).toBe(true);
   });
@@ -227,7 +222,7 @@ describe('cr-1160 压缩 V2（单事件 + 多轮边界 + 概要协议）', () =>
     expect(fold.compactions[0]?.summary).toBe('此前，旧内容。');
     expect(fold.compactions[0]?.boundarySeq).toBe(1);
     const llm = foldLlmReplay(fold, AGENT, ROOT, uuid);
-    expect(llm[0]).toEqual({ role: 'system', content: '此前，旧内容。' });
+    expect(llm[0]?.role).not.toBe('system'); // cr-1274：事件摘要不当头
     expect(llm.some((m) => m.content === '旧问')).toBe(false);
     expect(llm.some((m) => m.content === '新问')).toBe(true);
   });

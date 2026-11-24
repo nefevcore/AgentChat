@@ -10,7 +10,7 @@
 // 依赖方向：ac-archive-core → ac-ledger-core（纯库 → 纯库）。
 // ============================================================
 import { estimateReplayTokens, type ArchiveMessage } from './index.ts';
-import { rowShadowedBy, foldStepsOf, foldDigestOf, foldSummaryOf, type SessionFold, type DomainFacts, type CompactionFacts } from 'ac-ledger-core';
+import { rowShadowedBy, foldStepsOf, foldDigestOf, type SessionFold, type DomainFacts, type CompactionFacts } from 'ac-ledger-core';
 import type { LedgerRow, ProjectedStep } from 'ac-ledger-core';
 
 /**
@@ -94,13 +94,6 @@ export function replayProjection(
     ? rows.filter((r) => !shadowed(typeof r.seq === 'number' ? r.seq : undefined, rowTsOf(r)))
     : rows;
   return { picked, pseudo, summary: foldSummary };
-}
-
-/** 摘要头选择（digest 行单源 → v2 存量代 → null；v1 兼容窗文本由调用方兜底传入） */
-export function replaySummaryHead(fold: SessionFold, v1Fallback: string): string | null {
-  const digest = foldDigestOf(fold);
-  if (digest !== null) return null; // digest 行正文已在 picked 内——头不再发防双计
-  return foldSummaryOf(fold)?.text ?? (v1Fallback !== '' ? v1Fallback : null);
 }
 
 /** 计量组合口：投影 → 回放口径估算值（归档阈值/水位判断唯一口径） */

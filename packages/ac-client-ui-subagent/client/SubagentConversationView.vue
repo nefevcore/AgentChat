@@ -6,8 +6,8 @@
 //
 // 数据链（全现成纯函数复用）：
 //   subagents/history RPC → toHistoryMessages（steps[] 按步展开：工具卡/
-//   思维链折叠栏/已思考耗时/步级 ts 排序）→ pairMessageToChatMessage →
-//   buildTurns → useTurnDisplayItems → TranscriptList。
+//   思维链折叠栏/已思考耗时/步级 ts 排序）→ historyRowToChatMessage
+//   （cr-1283 转换器并轨单源）→ buildTurns → useTurnDisplayItems → TranscriptList。
 // 刷新驱动：ctx.subagentBoard 投影（subagents/list RPC + subagents/updated
 // 帧驱动）——该 subId 条目 displayStatus 变化即重拉历史；手动刷新钮兜底。
 // P0 纯历史回放——live 流式见计划 §七 P1。（cr-752：原押 jobBoard
@@ -25,7 +25,7 @@ import {
   toHistoryMessages,
   type PSessionRecord,
 } from 'ac-client-ui-conversation/client/historyApi.ts';
-import { pairMessageToChatMessage, buildTurns } from 'ac-client-ui-conversation/client/feed.ts';
+import { historyRowToChatMessage, buildTurns } from 'ac-client-ui-conversation/client/feed.ts';
 import { useTurnDisplayItems } from 'ac-client-ui-conversation/client/useTurnDisplayItems.ts';
 import TranscriptList from 'ac-client-ui-conversation/client/TranscriptList.vue';
 import { subStatusLabel } from 'ac-client-ui-jobs/client';
@@ -111,10 +111,8 @@ async function fetchPage(pageOffset: number): Promise<PSessionRecord[]> {
 }
 
 // ── 渲染管线（现成纯函数链——与 pair 历史回放同构） ──
-const messages = computed(() => {
-  const expanded = toHistoryMessages(records.value, props.subId) as Array<Record<string, unknown>>;
-  return expanded.map((m) => pairMessageToChatMessage(m as never, props.subId));
-});
+const messages = computed(() =>
+  toHistoryMessages(records.value, props.subId).map((m) => historyRowToChatMessage(m, { fallbackAgentId: props.subId })));
 const turns = computed<Turn[]>(() => buildTurns(messages.value));
 const turnDisplayItems = useTurnDisplayItems(turns);
 

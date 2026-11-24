@@ -75,7 +75,7 @@ describe('fold 单源（cr-974 §2.5 性质化）', () => {
     fs.writeFileSync(path.join(dir, 'messages.jsonl'), rows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
     const llm = foldLlmReplay(foldSession(ROOT, uuid), AGENT, ROOT, uuid);
     const texts = llm.map((m) => String(m.content));
-    expect(llm[0]?.role).toBe('system'); // 摘要头在场
+    expect(llm[0]?.role).not.toBe('system'); // cr-1274：事件摘要不当头（V3 行单源）
     expect(texts.some((t) => t.includes('晚上好'))).toBe(true); // 修复前：被 seq≤1323 静默滤出
     expect(texts.some((t) => t.includes('收到'))).toBe(true);
   });
@@ -93,6 +93,19 @@ describe('fold 单源（cr-974 §2.5 性质化）', () => {
     // cr-1101 回放契约：未闭合 run（孤儿）轨迹进 LLM 回放——once 绝不允许
     //（excludeRun 才可排除；不回写不变式由 D-3 用例锁定）
     expect(llm.some((m) => m.content === '进行中')).toBe(true);
+  });
+
+  it('cr-1286 P4-1：轮身份键打点——run 承载行 = run / 用户行 = message_id / 机制行缺席', () => {
+    seedV1();
+    const view = foldViewRecords(foldSession(ROOT, UUID), ROOT, UUID);
+    const byId = (mid: string) => view.find((r) => r.message_id === mid);
+    expect(byId('q1')?.turnId).toBe('q1'); // 用户行 = message_id
+    expect(byId('a1')?.turnId).toBe('run-1'); // 终稿行（带 run）= run
+    expect(byId('a2')).toBeUndefined(); // 空终稿行不投（既有语义——run-2 由盲区行承载）
+    expect(byId('ev1')?.turnId).toBeUndefined(); // 机制 event 行无键
+    expect(byId('e2')?.turnId).toBeUndefined(); // 错误行无键
+    expect(view.find((r) => r.run === 'run-3' && r.partial)?.turnId).toBe('run-3'); // 盲区行 = run
+    expect(byId('inj-1')?.turnId).toBeUndefined(); // 注入行（run 归口 context）无键——前端按 run/anchor 挂轮
   });
 
   it('读方配平（D-3）：未闭合 run 投 partial 不回写', () => {
@@ -234,8 +247,9 @@ describe('回放契约（cr-1101 / docs/design/session/replay-contract.md）', (
     expect(excl.some((m) => m.content === '答一')).toBe(true);
   });
 
-  it('判重 v1 门控：v1 双写遗产兜底保留；v2 跳过（写面幂等是唯一防线）', () => {
-    // v1：同 requestId 的入站行 + 注入行 → 入站行不复读（cr-713 兜底）
+  it('判重门控退役（cr-1273）：双写遗产不再兜底——同 requestId 入站行 + 注入行都进回放', () => {
+    // v1 门控已随 v1 存量迁移退役：数据根头行全 v2 恒不触发；v2 写面三重
+    // 幂等（machine 准入 / writer requestId 门 / receiveEnvelope 查重）唯一防线。
     const d1 = sessionDir(ROOT, AGENT, 'conv-dup-v1');
     fs.mkdirSync(path.join(d1, 'journal'), { recursive: true });
     fs.writeFileSync(path.join(d1, 'messages.jsonl'), [
@@ -246,8 +260,9 @@ describe('回放契约（cr-1101 / docs/design/session/replay-contract.md）', (
       { role: 'agent', content: '终稿', agent_id: AGENT, requestId: 'a-d', run: 'run-d', message_id: 'a-d', timestamp: '2026-11-09T10:00:04.000Z', seq: 4 },
     ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
     const llm1 = foldLlmReplay(foldSession(ROOT, 'conv-dup-v1'), AGENT, ROOT, 'conv-dup-v1');
-    expect(llm1.filter((m) => m.content.includes('dup文')).map((m) => m.content)).toEqual(['<system-reminder>dup文</system-reminder>']);
-    // v2：同形态 → 判重不生效（数据根实证 0 对共存；写面三重幂等唯一防线）
+    expect(llm1.filter((m) => m.content === 'dup文')).toHaveLength(1);
+    expect(llm1.filter((m) => m.content === '<system-reminder>dup文</system-reminder>')).toHaveLength(1);
+    // v2：同形态（判重恒不生效——写面幂等唯一防线）
     const d2 = sessionDir(ROOT, AGENT, 'conv-dup-v2');
     fs.mkdirSync(d2, { recursive: true });
     fs.writeFileSync(path.join(d2, 'messages.jsonl'), [

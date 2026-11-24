@@ -132,6 +132,24 @@ describe('8.5a 宿主 web 面接线', () => {
     ws.close();
   }, 30_000);
 
+  // cr-1278：deliver 顶层 attachments 旁路（V3 重写期曾「attachments 面未接」
+  // ——图片只剩 [附件] 路径行）。agent 离线 → outbox 滞留，信封即断言面。
+  it('cr-1278：deliver attachments 透传到信封（outbox）；非法项丢弃不背包', async () => {
+    writeAgentConfig(ROOT, { id: 'alpha' });
+    fs.writeFileSync(path.join(ROOT, 'config.json'), '{}', 'utf-8');
+    host = await bootHostWeb({ dataRoot: ROOT });
+    const { ws } = await connect(host.port);
+    const atts = [{ kind: 'image', ref: 'files/alpha/_tmp/x.png', mime: 'image/png' }];
+    await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '看图', requestId: 'rq-att', attachments: atts });
+    const entry = JSON.parse(fs.readFileSync(path.join(ROOT, 'outbox', '1-rq-att.json'), 'utf-8')) as { envelope: { payload: { text?: string; attachments?: unknown } } };
+    expect(entry.envelope.payload).toEqual({ text: '看图', attachments: atts });
+    // 非法项（缺 ref）→ 整组丢弃，信封不带空键
+    await rpc(ws, 'conversation/deliver', { agentId: 'alpha', message: '再看', requestId: 'rq-att2', attachments: [{ kind: 'image' }] });
+    const entry2 = JSON.parse(fs.readFileSync(path.join(ROOT, 'outbox', '2-rq-att2.json'), 'utf-8')) as { envelope: { payload: Record<string, unknown> } };
+    expect(entry2.envelope.payload.attachments).toBeUndefined();
+    ws.close();
+  }, 30_000);
+
   // cr-1186 回归锁：user 虚拟身份必须在名册（isAgentIdentity 词形单义——
   // cr-1175 曾把保留字拒斥内嵌进词形判定，user 被名册除名 → 前端
   // getAgentAvatar('user') 恒 null → 用户头像全域消失）。

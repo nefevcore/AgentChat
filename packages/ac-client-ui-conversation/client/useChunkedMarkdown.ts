@@ -17,6 +17,7 @@
 
 import { ref, watch, onBeforeUnmount } from 'vue';
 import { splitStreamingContent } from './streamingMarkdown.ts';
+import { markActivity, noteCommit, scheduleFrame, whenIdle } from './frameScheduler.ts';
 
 import { hljsLanguageVersion, hljsLastRegistered } from 'ac-client-ui-renderer/client/hljs-languages.ts';
 import { katexVersion } from 'ac-client-ui-renderer/client/markdownMath.ts';
@@ -30,15 +31,17 @@ export function useChunkedMarkdown(renderFn: (content: string) => string) {
   /** 待提交尾部（原始文本，模板中直接插值，Vue 自动转义） */
   const pendingText = ref('');
   let committed = '';
-  let frame = 0;
-  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 本 hook 在调度器 commit 阶段是否已有登记任务（同帧多次 update 合并） */
+  let scheduled = false;
+  /** 静默提交订阅取消函数（P4-2：判据升调度器级——不再自持 setTimeout） */
+  let idleCancel: (() => void) | null = null;
   let latestContent = '';
   let latestStreaming = false;
 
   function clearIdleTimer() {
-    if (idleTimer) {
-      clearTimeout(idleTimer);
-      idleTimer = null;
+    if (idleCancel) {
+      idleCancel();
+      idleCancel = null;
     }
   }
 
@@ -49,6 +52,7 @@ export function useChunkedMarkdown(renderFn: (content: string) => string) {
       if (committed !== content) {
         committed = content;
         html.value = renderFn(content);
+        noteCommit();
       }
       pendingText.value = '';
       return;
@@ -57,41 +61,44 @@ export function useChunkedMarkdown(renderFn: (content: string) => string) {
     if (c !== committed) {
       committed = c;
       html.value = renderFn(c);
+      noteCommit();
     }
     pendingText.value = pending;
-    // 静止提交：有未并入的尾部且内容已停止增长 → 全量渲染，消除
-    // 工具挂起窗口的原始 markdown 纯文本残留（无增量 = 前缀已含全部
-    // 内容 → 定时器空转重设，不产生渲染）
+    // 静止提交（P4-2 cr-1287）：有未并入的尾部 → 向调度器订阅静默判据
+    //（活动时钟由 markActivity 单点维护——与 feed ingest / 滚动共享
+    // 「本帧是否还在流」的判定，不再各自 setTimeout 各算各的静止）。
+    // 无增量（committed === latestContent）时不订阅，避免静止期空转渲染。
     clearIdleTimer();
     if (pending) {
-      idleTimer = setTimeout(() => {
-        idleTimer = null;
+      idleCancel = whenIdle(IDLE_COMMIT_MS, () => {
+        idleCancel = null;
         if (latestStreaming && latestContent && latestContent !== committed) {
           committed = latestContent;
           html.value = renderFn(latestContent);
           pendingText.value = '';
+          noteCommit(true);
         }
-      }, IDLE_COMMIT_MS);
+      });
     }
   }
 
-  /** 内容变化时调用（内部 rAF 合并到同一帧，且总是使用最新内容） */
+  /** 内容变化时调用（登记到调度器 commit 阶段：同帧多次 update 合并一次
+   *  渲染，且总是使用最新内容；P4-2 cr-1287 起与 ingest/scroll 同帧有序） */
   function update(content: string, streaming: boolean) {
     latestContent = content;
     latestStreaming = streaming;
-    if (frame) return;
-    frame = requestAnimationFrame(() => {
-      frame = 0;
+    markActivity();
+    if (scheduled) return;
+    scheduled = true;
+    scheduleFrame('commit', () => {
+      scheduled = false;
       renderNow(latestContent, latestStreaming);
     });
   }
 
   /** 立即强制渲染（流式结束时保证最终态正确） */
   function flush(content: string) {
-    if (frame) {
-      cancelAnimationFrame(frame);
-      frame = 0;
-    }
+    scheduled = false; // 未执行的 commit 登记失效（本轮内容已由下方全量渲染覆盖）
     clearIdleTimer();
     renderNow(content, false);
   }
@@ -118,7 +125,6 @@ export function useChunkedMarkdown(renderFn: (content: string) => string) {
   });
 
   onBeforeUnmount(() => {
-    if (frame) cancelAnimationFrame(frame);
     clearIdleTimer();
   });
 

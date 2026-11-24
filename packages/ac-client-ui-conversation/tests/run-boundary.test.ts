@@ -14,27 +14,12 @@
 // ============================================================
 import { describe, it, expect } from 'vitest';
 import { toHistoryMessages } from '../client/historyApi.ts';
-import { buildTurns, chainSteps } from '../client/feed.ts';
+import { buildTurns, chainSteps, historyRowToChatMessage, type HistoryRow } from '../client/feed.ts';
 
-/** 历史行（toHistoryMessages 输出）→ buildTurns 消费的 ChatMessage 形 */
-function toChat(rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
-  return rows.map((m) => ({
-    id: (m.sid as string) ?? (m.message_id as string),
-    role: m.role,
-    content: typeof m.content === 'string' ? m.content : '',
-    agent_id: m.agent_id,
-    thinking: m.reasoning_content,
-    reasoning_content: m.reasoning_content,
-    toolCalls: m.tool_calls,
-    tool_call_id: m.tool_call_id,
-    name: m.name,
-    toolName: m.name,
-    label: m.label,
-    ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
-    ...(m.stepId !== undefined ? { stepId: m.stepId } : {}),
-    ...(m.runId !== undefined ? { runId: m.runId } : {}),
-    timestamp: Date.parse(String(m.timestamp ?? '2026-01-01T00:00:00Z')),
-  }));
+/** 历史行（toHistoryMessages 输出）→ buildTurns 消费的 ChatMessage 形。
+ *  cr-1283 转换器并轨：本地小转换器退役，走 historyRowToChatMessage 单源。 */
+function toChat(rows: HistoryRow[]) {
+  return rows.map((m) => historyRowToChatMessage(m));
 }
 
 const t = (n: number): string => new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString();

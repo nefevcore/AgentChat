@@ -21,7 +21,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { issueRequestId, makeEnvelope } from 'ac-envelope-core';
-import { readLedger, LedgerWriter, sessionDir, type LedgerRow } from 'ac-ledger';
+import { normalizeAttachments, readLedger, LedgerWriter, sessionDir, type LedgerAttachment, type LedgerRow } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
 import { SnapshotStore } from 'ac-file-snapshots/src/store.ts';
 import type { PostOffice } from 'ac-post-office';
@@ -47,6 +47,8 @@ export interface GroupMessageView {
   from: string;
   content: string;
   at: number;
+  /** 多模态附件引用（cr-1278：群输入图片——刷新后 chips 恢复与回放旁路同源） */
+  attachments?: LedgerAttachment[];
 }
 
 interface WebFace {
@@ -275,6 +277,9 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
         const gid = reqStr(p, 'groupId');
         const from = reqStr(p, 'from');
         const content = reqStr(p, 'content');
+        // 多模态附件旁路（cr-1278）：群发图片随信封扇出到各成员流——
+        // 壳侧入站行落账即模型可见（与直答 deliver 同口径窄化）
+        const attachments = normalizeAttachments(p.attachments);
         const group = mustGroup(gid);
         if (from !== 'user' && !group.members.includes(from)) {
           throw new Error('发送者 "' + from + '" 不在群内（user 保留端点或成员 Agent）');
@@ -290,11 +295,15 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
             requestId,
             sender: from,
             to: member,
-            payload: { text: content },
+            // broadcast 标记（cr-1291 群刷屏根修——对齐壳侧 GroupShim.send）：
+            // 收信方终稿只落自己成员流、不回投发送方（replyTargetOf 切断 R-2）。
+            // 缺标记时群回复被当 1v1 回信回投发送方——Agent 成员互答链式唤起
+            // 刷屏（41+ run/2min 雪崩靠 budget 衰减才止血）。
+            payload: { text: content, broadcast: true, ...(attachments !== undefined ? { attachments } : {}) },
           }));
           triggered.push(member);
         }
-        const message: GroupMessageView = { id: requestId, groupId: gid, from, content, at: Date.now() };
+        const message: GroupMessageView = { id: requestId, groupId: gid, from, content, at: Date.now(), ...(attachments !== undefined ? { attachments } : {}) };
         emit('group/message-posted', gid, message);
         // cr-1157 群未读计数：成员发言（user 自己发的不计——本地已上屏）。
         // 幂等键 = 扇出 requestId；计数器纯库，行不依赖 webui。
@@ -321,6 +330,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
               from: r.agent_id,
               content: r.content,
               at: Date.parse(r.timestamp) || 0,
+              ...(r.attachments !== undefined ? { attachments: r.attachments } : {}),
             });
           }
         }

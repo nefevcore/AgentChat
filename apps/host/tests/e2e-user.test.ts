@@ -13,7 +13,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { socketPathFor, makeEnvelope, waitForShellReady } from 'ac-envelope-core';
+import { socketPathFor, makeEnvelope, waitForShellReady, type Envelope } from 'ac-envelope-core';
 import { PostOffice } from 'ac-post-office';
 import { UserStub } from '../user-stub.ts';
 import { readLedger } from 'ac-ledger';
@@ -220,6 +220,33 @@ describe('独立私信直播帧（cr-1144：onStandalone——send_agent(to:user
         payload: { text: '终稿', run: 'run-x' },
       }));
       expect(frames).toHaveLength(1);
+    } finally {
+      user.stop();
+      await po.close();
+    }
+  });
+});
+
+// cr-1278：多模态附件旁路——UserStub 是 deliver → 壳侧入站行的唯一信道，
+// 此前 UserSendOptions 无 attachments（V3 重写丢账），图片只剩 [附件] 文本行。
+describe('附件旁路（cr-1278：send 携带 attachments 随信封透传）', () => {
+  it('UserSendOptions.attachments → 信封 payload；无附件形态零键', async () => {
+    const po = new PostOffice({ dataRoot: ROOT });
+    await po.listen();
+    const user = new UserStub(po, ROOT);
+    const seen: Envelope[] = [];
+    po.registerLocal('alpha', async (env) => { seen.push(env); return { ack: env.requestId, fresh: true }; });
+    try {
+      const atts = [{ kind: 'image' as const, ref: 'files/alpha/_tmp/a.png', mime: 'image/png' }];
+      const { uuid, dispatched } = await user.send('alpha', '看图', { attachments: atts });
+      expect(dispatched[0]).toMatchObject({ to: 'alpha', channel: 'local' });
+      expect(seen).toHaveLength(1);
+      expect(seen[0]).toMatchObject({ uuid, sender: 'user', to: 'alpha' });
+      expect(seen[0]!.payload).toEqual({ text: '看图', attachments: atts });
+      // 回归：普通消息不背包（空键也不许——GLM additionalProperties:false 口径）
+      seen.length = 0;
+      await user.send('alpha', '纯文本');
+      expect((seen[0]!.payload as { attachments?: unknown }).attachments).toBeUndefined();
     } finally {
       user.stop();
       await po.close();

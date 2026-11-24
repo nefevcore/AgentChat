@@ -18,6 +18,8 @@ import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { fetchGroupHistory, fetchPairHistory, toHistoryMessages } from './historyApi.ts';
+import { probeHit, readFallbackProbes } from './fallback-probes.ts';
+import { frameStats, markActivity } from './frameScheduler.ts';
 import {
   routeDialog, isUserConversation, streamOf, parseArgs, stringifyToolResult, errText,
   historyPage, historyServed, chatPresence, extractPartialJsonString, uid,
@@ -31,14 +33,13 @@ import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId, pairDialog,
   pairPartnerOf, pairHasViewer, bucketKey, fmtElapsed,
-  mergeHistoryPage, mergeTimeOrdered, buildTurnsIncremental, type TurnsMemo, lastStreaming, closeAllStreaming, closeRunningToolCalls,
-  groupMessageToChatMessage, pairMessageToChatMessage, attachmentFilesOf, splitAttachmentLines,
+  mergeHistoryPage, mergeTimeOrdered, deriveTurns, type TurnsState, lastStreaming, closeAllStreaming, closeRunningToolCalls, freezeMsg,
+  historyRowToChatMessage, attachmentFilesOf, splitAttachmentLines, type HistoryRow,
 } from './feed.ts';
 
 const HISTORY_PAGE_SIZE = 5;
 const GROUP_HISTORY_PAGE_SIZE = 50;
 const TURN_DONE_DELAY = 300;
-
 
 /** 单个对话分区的完整状态 */
 interface DialogFeed {
@@ -95,12 +96,19 @@ interface DialogFeed {
    * （「临时态等收束」体系的逃生口）。
    */
   lastStreamAt?: number;
+  /**
+   * 消息 id → rawMessages 槽位索引（P3-2 cr-1282 keyed store）：push 与
+   * 结构性替换时维护；reviseMsg 换身后同步刷新。id 唯一性 = 现行约定
+   * （渲染 key / mergeHistoryPage 双键去重同源）。
+   */
+  slotOf: Map<string, number>;
 }
 
 function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): DialogFeed {
   return {
     id, kind, partner,
     rawMessages: [],
+    slotOf: new Map(),
     status: 'idle', hasMore: false, offset: 0,
     lastActivity: 0, lastMessage: null, streaming: false,
   };
@@ -148,8 +156,38 @@ export function createFeedCore(
   //   重设计原料保留在 ac-core-utils/unread.ts 与 ac-session-index 谓词列。
 
   const _turnsCache = new Map<DialogId, ComputedRef<Turn[]>>();
-  /** 增量 turns 状态：完成轮次复用对象身份，避免每个 token 全列表重渲染 */
-  const _turnsMemo = new Map<DialogId, TurnsMemo>();
+  /** 派生 turns 状态（P3-2 cr-1282 引用 diff）：完成轮次复用对象身份，避免每个 token 全列表重渲染 */
+  const _turnsMemo = new Map<DialogId, TurnsState>();
+
+  // ── P3-2 keyed store 不可变化身基建（cr-1282）──
+  /** 入位：push + 冻结 + 槽位登记（一切新增消息的唯一入口） */
+  function pushMsg(d: DialogFeed, m: ChatMessage): void {
+    d.rawMessages.push(freezeMsg(m));
+    d.slotOf.set(m.id, d.rawMessages.length - 1);
+  }
+  /** 入位（中间插入）：冻结 + 槽位重建（splice 位后索引全移位） */
+  function insertMsg(d: DialogFeed, at: number, m: ChatMessage): void {
+    d.rawMessages.splice(at, 0, freezeMsg(m));
+    rebuildSlots(d);
+  }
+  /** 槽位索引重建（结构性替换后调用：整体替换 / 过滤 / 截断 / 换名） */
+  function rebuildSlots(d: DialogFeed): void {
+    d.slotOf.clear();
+    for (let i = 0; i < d.rawMessages.length; i++) d.slotOf.set(d.rawMessages[i].id, i);
+  }
+  /**
+   * 换身变异（不可变化身 keyed store 的唯一写口）：draft 草稿修改 → 新对象
+   * 写回同槽。同 id 连续 revise 各自成新身（不合并）——调用方逐帧调用。
+   */
+  function reviseMsg(d: DialogId, id: string, draft: (m: ChatMessage) => ChatMessage): ChatMessage | null {
+    const dd = dialogs.value[d];
+    if (!dd) return null;
+    const slot = dd.slotOf.get(id);
+    if (slot === undefined || slot >= dd.rawMessages.length || dd.rawMessages[slot].id !== id) return null;
+    const next = freezeMsg(draft(dd.rawMessages[slot]));
+    dd.rawMessages[slot] = next;
+    return next;
+  }
   const _historyOffset: Record<string, number> = {};
 
 
@@ -292,6 +330,9 @@ export function createFeedCore(
   function bump(id: DialogId) {
     noteLru(id); // A2 热集新鲜度（变更 = 最近使用；每 delta O(1) 重插）
     versionOf(id).value += 1;
+    // ingest 活动打点（cr-1287 P4-2）：一切 rawMessages 变更经本函数——
+    // 调度器静默判据据此感知「本帧仍在流」（markdown idle-commit 共用）
+    markActivity();
     // 活动 ↔ 存活信号（cr-107 悬挂流探针）：分区任何变更刷新基线；流式中
     // 的分区顺手挂探针（懒启动——每分区至多一个在途，fire 后按需重排）。
     // 在途判据与 runInFlight 同口径（cr-763）：占位在场即 run 在途——
@@ -308,9 +349,6 @@ export function createFeedCore(
     }
   }
   /** 结构性变更（增删/替换/截断/整体替换）→ 失效增量 turns memo，下次派生全量重建 */
-  function invalidateTurns(id: DialogId) {
-    _turnsMemo.delete(id);
-  }
   function touch(id: DialogId, agentId: string, content: string, ts: number) {
     const d = dialogs.value[id];
     if (!d) return;
@@ -391,10 +429,12 @@ export function createFeedCore(
         if (!d) return [];
         // run 级流式态参与派生（d.streaming 跨步边界不熄灭，覆盖步间
         // 静默窗口——上一步 after-step 关闭消息级标记后、下一步
-        // step-started 前的整个 LLM API 往返期，final 仍须悬置）
-        const memo = buildTurnsIncremental(_turnsMemo.get(id) ?? null, d.rawMessages, d.streaming);
-        _turnsMemo.set(id, memo);
-        return memo.turns;
+        // step-started 前的整个 LLM API 往返期，final 仍须悬置）。
+        // P3-2 cr-1282：引用 diff 派生（前缀消息引用相同 ⇒ 复用旧 Turn
+        // 对象）——签名枚举与手工失效契约整体退役
+        const state = deriveTurns(_turnsMemo.get(id) ?? null, d.rawMessages, d.streaming);
+        _turnsMemo.set(id, state);
+        return state.turns;
       });
       _turnsCache.set(id, c);
     }
@@ -410,7 +450,7 @@ export function createFeedCore(
   // ── 消息操作原语 ──
   function append(id: DialogId, msg: ChatMessage) {
     const d = ensureById(id);
-    d.rawMessages.push(msg);
+    pushMsg(d, msg);
     touch(id, msg.agent_id || '', msg.content || '', msg.timestamp || Date.now());
     bump(id);
     return d;
@@ -419,7 +459,7 @@ export function createFeedCore(
     const d = dialogs.value[id];
     if (!d) return;
     d.rawMessages = d.rawMessages.filter(m => m.id !== msgId);
-    invalidateTurns(id);
+    rebuildSlots(d);
     bump(id);
   }
   function replaceMessage(id: DialogId, msgId: string, patch: Partial<ChatMessage>) {
@@ -427,35 +467,35 @@ export function createFeedCore(
     if (!d) return;
     const idx = d.rawMessages.findIndex(m => m.id === msgId);
     if (idx === -1) return;
-    d.rawMessages[idx] = { ...d.rawMessages[idx], ...patch };
-    invalidateTurns(id);
+    d.rawMessages[idx] = freezeMsg({ ...d.rawMessages[idx], ...patch });
+    rebuildSlots(d);
     bump(id);
   }
   function truncateAfter(id: DialogId, index: number) {
     const d = dialogs.value[id];
     if (!d) return;
     d.rawMessages = d.rawMessages.slice(0, index + 1);
-    invalidateTurns(id);
+    rebuildSlots(d);
     bump(id);
   }
   function resetDialog(id: DialogId) {
     const d = dialogs.value[id];
     if (!d) return;
     d.rawMessages = [];
+    d.slotOf.clear();
     d.hasMore = false;
     d.offset = 0;
     d.status = 'idle';
     d.streaming = false;
     d.historyFingerprint = undefined; // 重置（归档 compact/编辑后）：下次首屏强制全量
     d.historySeqHigh = undefined; // B1 水位同清（compact 重写后 seq 空间可能重排）
-    invalidateTurns(id);
     bump(id);
   }
   /** 整体替换 rawMessages（编辑/重新推理等场景） */
   function setRaw(id: DialogId, msgs: ChatMessage[]) {
     const d = ensureById(id);
-    d.rawMessages = msgs;
-    invalidateTurns(id);
+    d.rawMessages = msgs.map(freezeMsg);
+    rebuildSlots(d);
     bump(id);
   }
 
@@ -700,154 +740,81 @@ export function createFeedCore(
     // 才落盘），整体替换若丢直播行：已完成步的工具卡永久转圈、续流新步正常
     // OK——同名工具连排时视觉即"同一调用两张卡"（2026-09-04 反馈）。
     // 保留范围 = 本 run 全部直播行（最后一条 viewer 消息之后，不只流式占位
-    // ——已完成步的直播结果同样只在内存里）；历史页中同 run 的行按
-    // tool_call_id 识别剔除，防同一调用两张卡。
+    // ——已完成步的直播结果同样只在内存里）；历史页中同 run 的行按键识别
+    // 剔除，防同一调用两张卡。
     let streamingTail: ChatMessage[] = [];
-    let liveRunInFlight = false;
     if (isFirstPage) {
       // run 进行中判定：分区流式标志或任何流式占位/未闭合工具行（onStepEnd
       // 在步间短暂置 false——工具执行窗口内靠占位兜住）
       const inFlight = d.streaming
         || d.rawMessages.some(m => m.isStreaming || (m.role === 'tool' && !m.content));
       if (inFlight) {
-        liveRunInFlight = true;
         let lastUserIdx = -1;
         for (let i = d.rawMessages.length - 1; i >= 0; i--) {
           if (d.rawMessages[i].agent_id === VIEWER_ID.value) { lastUserIdx = i; break; }
         }
         streamingTail = d.rawMessages.slice(lastUserIdx + 1);
+        // ── P3-1 键控单机制（cr-1281）：直播/历史合并对齐只认身份键 ──
+        // 键族 = 注入行 injectionId（→persistedMsgId 同锚）/ 工具行
+        // tool_call_id / agent 步行 stepId（absorbLongerInto 长度取胜回写保
+        // 全内容）。四代内容猜测层积（内容前缀互验 / 内容配额抵扣 / 内容
+        // 等值兜底 / liveRunInFlight 死变量）退役；同锚覆盖兜底与影子断言
+        // 亦已删（cr-1294——双静态扫描零命中，缺键行统一保留）。缺键历史
+        // 行不猜——保留至收束（run/settled delay=0）重拉换权威行（宁重不丢）。
         const liveIds = new Set(streamingTail.map(m => m.tool_call_id).filter((x): x is string => !!x));
-        // 重连竞态对齐（2026-09-21 前端反馈 #4）：断线重连后 run 仍在途时，
-        // 历史首屏带回的 journal 步行（完整步）与直播流式占位（同一步的部分
-        // 内容）并存——同一步渲染两张思考卡/正文卡（「思考→正文→思考(重复)
-        // →正文(重复)」）。tool_call_id 对齐覆盖不到纯文本步/思考步；这里按
-        // 内容前缀对齐：历史 agent 行的 thinking+content 与占位重叠（互为前缀）
-        // → 丢弃历史行，直播载体续流（与 mergeResumeSnapshot「长度取胜不回卷」
-        // 同语义——journal 全量与直播部分谁长谁留下是不对的：直播占位才是流式
-        // 载体，后续 delta 只认它；历史行的完整内容在收束 settlement 重拉时
-        // 以权威形态回来）。
-        const liveAgents = streamingTail.filter(m => m.role === 'agent' && m.isStreaming);
-        // 长度取胜回写（键控/前缀两路共用）：journal 全量比直播占位长（断线
-        // 丢帧）时把完整内容搬进占位——占位是唯一流式载体（后续 delta 只认
-        // 它），历史行丢弃后其内容必须在此保全，否则本步只剩部分内容。
-        const absorbLongerInto = (hit: ChatMessage, hist: ChatMessage) => {
-          const histThinking = hist.thinking ?? hist.reasoning_content ?? '';
-          if (histThinking.length > (hit.thinking ?? hit.reasoning_content ?? '').length) {
-            hit.thinking = histThinking || hit.thinking;
-            hit.reasoning_content = histThinking || hit.reasoning_content;
-          }
-          if (hist.content.length > hit.content.length) hit.content = hist.content;
-        };
-        // 身份贯通：直播行 stepId → 消息映射（journal 同步行按键互认；含已
-        // 收口步——run 进行中已完成步的直播载体同样带驻留键）
         const liveStepIds = new Map<string, ChatMessage>();
         for (const m of streamingTail) {
           if (m.role === 'agent' && typeof m.stepId === 'string' && m.stepId) liveStepIds.set(m.stepId, m);
         }
-        // event 行对齐（injectionId 贯通）：直播 event 行（context-injected 帧
-        // 上屏）带服务端锚 persistedMsgId，与历史活投影行/提升行同 message_id——
-        // 精确 id 命中即丢弃历史行（mergeHistoryPage 双键去重之外的前置防线，
-        // 防 streamingTail 拼接绕过合并路径）。存量兜底：无锚直播行（旧后端
-        // 帧）与无锚历史行（旧 journal 投影，message_id 恒空）按内容配额多重
-        // 集抵扣——只删无锚行且按直播行数封顶，带锚定稿行（跨轮同文通知）
-        // 永不误删；配额耗尽即保留（宁重不丢）。
-        const liveEventIds = new Set(streamingTail
-          .filter(m => m.role === 'event' && m.persistedMsgId)
-          .map(m => m.persistedMsgId as string));
-        const legacyEventQuota = new Map<string, number>();
-        for (const m of streamingTail) {
-          if (m.role === 'event' && !m.persistedMsgId) {
-            const k = String(m.content);
-            legacyEventQuota.set(k, (legacyEventQuota.get(k) ?? 0) + 1);
+        // 长度取胜回写（P3-2 cr-1282 换身式）：journal 全量比直播占位长（断线
+        // 丢帧）时把完整内容搬进占位——占位是唯一流式载体（后续 delta 只认
+        // 它），历史行丢弃后其内容必须在此保全，否则本步只剩部分内容。
+        // 返回新身（不可变消息），调用方经 reviseMsg 写回分区并刷新索引。
+        const absorbLongerInto = (hit: ChatMessage, hist: ChatMessage): ChatMessage => {
+          const histThinking = hist.thinking ?? hist.reasoning_content ?? '';
+          let next = hit;
+          if (histThinking.length > (hit.thinking ?? hit.reasoning_content ?? '').length) {
+            next = { ...next, thinking: histThinking || hit.thinking, reasoning_content: histThinking || hit.reasoning_content };
           }
-        }
-        // 同锚覆盖（cr-671 终稿上浮+重复根修）：同轮步行与终稿行共享收束行
-        // message_id——键控强路径（tool_call_id / stepId）命中的行把锚登记为
-        // 「本 run 已由直播载体承载」，后续同锚无键行（viewer 侧平文终稿行、
-        // 帧缺键的终稿步行）随之一并丢弃，不残留 deduped 前部（inFlight 首屏
-        // 合并 nextRaw = [...deduped, ...streamingTail] 会把它们顶到直播
-        // 步骤链之前，且指纹短路把乱序固化到手动刷新）。
-        const coveredAnchors = new Set<string>();
-        for (const m of msgs) {
-          if (!m.persistedMsgId) continue;
-          if ((m.role === 'tool' && m.tool_call_id && liveIds.has(m.tool_call_id))
-            || (m.role === 'agent' && m.stepId && liveStepIds.has(m.stepId))) coveredAnchors.add(m.persistedMsgId);
-        }
-        // 内容等值兜底的轮域下界：本轮 user 锚时刻（历史页时钟域优先——
-        // incoming 行与下界同域；无 viewer 行回落本地分区锚）。内容等值只在
-        // 本轮区域内生效，跨轮同文行（定时通知等）不误删。
-        let turnFloorTs = -1;
-        for (const m of msgs) {
-          if (m.agent_id === VIEWER_ID.value && m.timestamp > turnFloorTs) turnFloorTs = m.timestamp;
-        }
-        if (turnFloorTs < 0 && lastUserIdx >= 0) turnFloorTs = d.rawMessages[lastUserIdx].timestamp;
-        const liveAgentRowsAll = streamingTail.filter(m => m.role === 'agent');
-        // 同锚注入行吸收（cr-767）：注入行正文的唯一载体 = 历史行（直播帧
-        // 按瘦身纪律不广播 contextContent）——同锚命中不能只丢历史行，须先把
-        // contextContent 补进直播行（否则 run 存续期间注入卡裸 label、点击无反应）。
+          if (hist.content.length > hit.content.length) next = { ...next, content: hist.content };
+          return next;
+        };
+        // 同锚注入行吸收（cr-767；P3-2 换身式）：注入行正文的唯一载体 = 历史
+        // 行（直播帧按瘦身纪律不广播 contextContent）——同锚命中不能只丢历
+        // 史行，须先把 contextContent 补进直播行（否则 run 存续期间注入卡裸
+        // label、点击无反应）。
         const liveEventById = new Map<string, ChatMessage>();
         for (const m of streamingTail) {
           if (m.role === 'event' && m.persistedMsgId) liveEventById.set(m.persistedMsgId, m);
         }
+        // 同锚覆盖兜底已删（cr-1294 anchor-cover 删除批）：cr-1281 观察
+        // 窗关闭（双静态扫描零命中——275 会话 + 全根 1440 会话生产形态 0 候
+        // 选），键控单机制终态收敛为「键命中即吸收，缺键保留（收束重拉换
+        // 权威行）」。同锚无键终稿行此后不再丢弃——宁重不丢语义的统一。
         msgs = msgs.filter(m => {
-          if (m.role === 'event') {
-            // 新链路：同锚即同一份注入事实——直播行承载位次，历史行丢弃；
-            // 正文吸收先行（与 absorbLongerInto 同语义：历史值不回卷直播值）
-            if (m.persistedMsgId && liveEventIds.has(m.persistedMsgId)) {
-              const live = liveEventById.get(m.persistedMsgId);
-              if (live && m.contextContent !== undefined && live.contextContent === undefined) {
-                live.contextContent = m.contextContent;
-              }
-              return false;
+          // 注入行：injectionId 贯通——同锚即同一份注入事实，直播行承载位
+          // 次，历史行丢弃；正文吸收先行（历史值不回卷直播值）。
+          if (m.role === 'event' && m.persistedMsgId && liveEventById.has(m.persistedMsgId)) {
+            const live = liveEventById.get(m.persistedMsgId);
+            if (live && m.contextContent !== undefined && live.contextContent === undefined) {
+              const swapped = reviseMsg(dialogId, live.id, (x) => ({ ...x, contextContent: m.contextContent }));
+              if (swapped) liveEventById.set(m.persistedMsgId, swapped);
             }
-            // 存量兜底：无锚投影行按内容抵扣（等量），带锚行不入场
-            if (!m.persistedMsgId) {
-              const k = String(m.content);
-              const q = legacyEventQuota.get(k) ?? 0;
-              if (q > 0) { legacyEventQuota.set(k, q - 1); return false; }
-            }
+            return false;
           }
           if (m.role === 'tool' && m.tool_call_id && liveIds.has(m.tool_call_id)) return false;
           if (m.role === 'agent' && Array.isArray(m.toolCalls)
             && (m.toolCalls as any[]).some(tc => tc?.id && liveIds.has(tc.id))) return false;
-          // 身份贯通快路径（2026-09-24）：历史行带 stepId 且直播行同键在场 →
-          // 同一步的 journal 投影，直播载体续流——直接丢弃历史行（长度取胜
-          // 回写 absorbLongerInto 保全）。命中后不再进内容前缀互验（同键已
-          // 判定同一事实，前缀比对反而可能因部分内容误判 miss）。
+          // 步行：stepId 同键 = 同一步的 journal 投影，直播载体续流——直接
+          // 丢弃历史行（absorbLongerInto 保全内容）。
           if (m.role === 'agent' && m.stepId && liveStepIds.has(m.stepId)) {
-            absorbLongerInto(liveStepIds.get(m.stepId)!, m);
+            const live = liveStepIds.get(m.stepId)!;
+            const swapped = reviseMsg(dialogId, live.id, (x) => absorbLongerInto(x, m));
+            if (swapped) liveStepIds.set(m.stepId, swapped);
             return false;
           }
-          if (m.role === 'agent' && liveAgents.length > 0) {
-            const histThinking = m.thinking ?? m.reasoning_content ?? '';
-            const histBody = `${histThinking}\u0000${m.content}`;
-            const hit = liveAgents.find((live) => {
-              // 身份门（2026-10-02 吸收事故）：中性格式下用户落盘行同为
-              // role:'agent'——身份不同的行永非「同一步」，内容前缀不得跨
-              // 身份吸收（用户正文灌进 Agent 占位 = Agent 气泡镜像用户消息）。
-              if (live.agent_id !== m.agent_id) return false;
-              // 空载门：占位先建、内容后到（step-started 先于首 delta），空占
-              // 位是任何历史行的前缀——互验在空载态退化为全域命中。两侧任一
-              // 无内容 = 无对齐证据，不吸收（宁重不丢，收束重拉兜底；stepId
-              // 键控路径不受此门约束——键即身份）。
-              if (!(live.thinking || live.reasoning_content || live.content)) return false;
-              if (!histThinking && !m.content) return false;
-              const liveBody = `${live.thinking ?? live.reasoning_content ?? ''}\u0000${live.content}`;
-              return liveBody.startsWith(histBody) || histBody.startsWith(liveBody);
-            });
-            if (hit) {
-              absorbLongerInto(hit, m);
-              if (m.persistedMsgId) coveredAnchors.add(m.persistedMsgId);
-              return false;
-            }
-          }
-          // 同锚覆盖：本 run 已由直播载体承载（键控/前缀路径命中过同锚行）
-          if (m.persistedMsgId && coveredAnchors.has(m.persistedMsgId)) return false;
-          // 内容等值兜底：无键终稿行与直播行正文全等（thinking 形态差异：
-          // 历史行级 reasoning = 整轮拼接 vs 直播步级 thinking）→ 同一份
-          // 终稿事实，直播载体承载，历史行丢弃（宁重不丢口径内的强证据匹配）
-          if (m.role === 'agent' && m.content && m.timestamp >= turnFloorTs
-            && liveAgentRowsAll.some(live => live.agent_id === m.agent_id && live.content === m.content)) return false;
+          // 缺键历史行：不猜——保留（收束重拉 delay=0 兜底换权威行）。
+          //（同锚覆盖兜底已随 cr-1294 删除——观察窗关闭零命中）
           return true;
         });
       }
@@ -890,13 +857,18 @@ export function createFeedCore(
       }
     }
     const { merged: deduped, userCount } = mergeHistoryPage(msgs, d.rawMessages, isFirstPage, VIEWER_ID.value);
+    // 直播尾重取（P3-2 cr-1282）：filter 期间的吸收换身写进了分区槽位——
+    // streamingTail 是换身前的旧引用切片，须按 id 重取新身防吸收丢失
+    const tailFresh = streamingTail.map((m) => d.rawMessages[d.slotOf.get(m.id) ?? -1]?.id === m.id
+      ? d.rawMessages[d.slotOf.get(m.id)!] : m);
     // 首屏：历史块 + 活跃 run 直播尾按**时间序**归并（cr-707）——原样拼接会把
     // 直播期已上屏的注入行整体押到历史块之后（注入卡「始终在最下方」的根因）
     const nextRaw = isFirstPage
-      ? (streamingTail.length > 0 && !deduped.some(m => m.isStreaming) ? mergeTimeOrdered(deduped, streamingTail) : deduped)
+      ? (tailFresh.length > 0 && !deduped.some(m => m.isStreaming) ? mergeTimeOrdered(deduped, tailFresh) : deduped)
       : deduped;
     if (prevOffset > 0) _historyOffset[agentId] = prevOffset - HISTORY_PAGE_SIZE + userCount;
-    d.rawMessages = nextRaw;
+    d.rawMessages = nextRaw.map(freezeMsg);
+    rebuildSlots(d);
     // B1 行级 seq 水位维护：页内 max(seq) 只增不减（重放/回退页不拉低水位）
     for (const m of nextRaw) {
       if (typeof (m as { seq?: unknown }).seq === 'number') {
@@ -906,7 +878,6 @@ export function createFeedCore(
     }
     // 首屏整体替换：重置 resume 合并标记（切走再切回/刷新竞态后允许按快照重新合并）
     if (isFirstPage) resumeMerged.delete(dialogId);
-    invalidateTurns(dialogId);
     bump(dialogId);
     maybeEvict(); // A2：热集增长主路径——首屏/续拉合并后对账淘汰
     traceSwitch('merge', `${dialogId} ${isFirstPage ? '首屏' : '续拉'} → ${nextRaw.length} 条，merge 耗时 ${(performance.now() - mergeT0).toFixed(1)}ms`);
@@ -934,15 +905,15 @@ export function createFeedCore(
     const preLen = d.rawMessages.length;
     try {
       const data = await fetchGroupHistory(groupId, 0, 50, rpc);
-      const msgs = data.messages.map(groupMessageToChatMessage);
+      const msgs = data.messages.map(m => historyRowToChatMessage(m, { idPrefix: 'grp' }));
       const liveTail = d.rawMessages.slice(preLen);
-      d.rawMessages = liveTail.length > 0 ? [...msgs, ...liveTail] : msgs;
+      d.rawMessages = liveTail.length > 0 ? [...msgs.map(freezeMsg), ...liveTail] : msgs.map(freezeMsg);
+      rebuildSlots(d);
       d.offset = msgs.length;
       // 只有拉满一页才可能还有更早历史；空群聊/短群聊 hasMore=false，
       // 避免 direct 自动续拉逻辑在群聊空态无限递归（ConversationView 已另加守卫）。
       d.hasMore = msgs.length >= GROUP_HISTORY_PAGE_SIZE;
       d.status = 'ready';
-      invalidateTurns(dialogId);
       bump(dialogId);
       maybeEvict(); // A2：群历史整页装载同样计入热集
     } catch {
@@ -956,11 +927,11 @@ export function createFeedCore(
     if (!d || d.status === 'loading' || !d.hasMore) return null;
     try {
       const data = await fetchGroupHistory(groupId, d.offset, 50, rpc);
-      const older = data.messages.map(groupMessageToChatMessage);
+      const older = data.messages.map(m => historyRowToChatMessage(m, { idPrefix: 'grp' }));
       if (older.length > 0) {
-        d.rawMessages = [...older, ...d.rawMessages];
+        d.rawMessages = [...older.map(freezeMsg), ...d.rawMessages];
+        rebuildSlots(d);
         d.offset += older.length;
-        invalidateTurns(dialogId);
         bump(dialogId);
       }
       return older;
@@ -978,12 +949,12 @@ export function createFeedCore(
     d.status = silent ? 'converging' : 'loading';
     try {
       const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0, rpc);
-      const msgs = data.messages.map(m => pairMessageToChatMessage(m, a));
-      d.rawMessages = msgs;
+      const msgs = data.messages.map(m => historyRowToChatMessage(m, { idPrefix: 'pair', fallbackAgentId: a }));
+      d.rawMessages = msgs.map(freezeMsg);
+      rebuildSlots(d);
       d.offset = msgs.length;
       d.hasMore = msgs.length >= PAIR_HISTORY_PAGE_SIZE;
       d.status = 'ready';
-      invalidateTurns(dialogId);
       bump(dialogId);
     } catch {
       d.status = 'ready';
@@ -996,11 +967,11 @@ export function createFeedCore(
     if (!d || d.status === 'loading' || d.status === 'converging' || !d.hasMore) return null;
     try {
       const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset, rpc);
-      const older = data.messages.map(m => pairMessageToChatMessage(m, a));
+      const older = data.messages.map(m => historyRowToChatMessage(m, { idPrefix: 'pair', fallbackAgentId: a }));
       if (older.length > 0) {
-        d.rawMessages = [...older, ...d.rawMessages];
+        d.rawMessages = [...older.map(freezeMsg), ...d.rawMessages];
+        rebuildSlots(d);
         d.offset += older.length;
-        invalidateTurns(dialogId);
         bump(dialogId);
       }
       return older;
@@ -1020,13 +991,6 @@ export function createFeedCore(
       pendingDoneTimer = null;
       if (!lastStreaming(msgs, 'agent')) turnInProgress.value = false;
     }, TURN_DONE_DELAY);
-  }
-
-  /** 返回可变的 toolCalls 数组（宽松类型：含 result/label/running/preparing 等运行期字段） */
-  function toolCallsOf(asst: ChatMessage | null): any[] {
-    if (!asst) return [];
-    if (!asst.toolCalls) asst.toolCalls = [] as any;
-    return asst.toolCalls as any[];
   }
 
   // ── 流式事件处理（操作 rawMessages，派生自动反映）──
@@ -1057,13 +1021,20 @@ export function createFeedCore(
       // 校准差分复用为「轮首」——用 runStartAt 而非建占位时刻，吸收
       // run-started → step-started 的投递间隔）
       asst.runStartAt = d.runStartAt;
-      msgs.push(asst);
+      pushMsg(d, asst);
     }
     // 身份贯通：stepId 驻留载体 + carrier 索引登记（后续 delta 帧 O(1) 直达
     // ——取代 lastStreaming 位置扫描）。同一 run 的多步各自独立条目；重放
     //（同 stepId 已登记）保持原对象不换。
     if (stepKeys?.stepId) {
-      asst.stepId = stepKeys.stepId;
+      if (!asst.stepId) asst = reviseMsg(id, asst.id, (x) => ({ ...x, stepId: stepKeys.stepId })) ?? asst;
+      // cr-1289 直播键落位：runId 驻留载体（步帧 meta 恒带——stepId 前缀的
+      // 显式形）。驻留后 buildTurns runsInWindow/lastTurn.runId 直读命中——
+      // 直播窗口的 run 键挂靠（P3-4）与同 run 拆轮豁免不再依赖历史合并后的
+      // 键补；turnId 派生 = run（fold 投影同语义：run 承载行 = run）。
+      if (stepKeys.runId && !asst.runId) {
+        asst = reviseMsg(id, asst.id, (x) => ({ ...x, runId: stepKeys.runId, turnId: stepKeys.runId })) ?? asst;
+      }
       const st = streamOf(streams, id);
       // 相位标志按步重置：StreamState 寿命已延至 run 收束（delta-end 不再
       // 丢弃——carrier 要活到步收束），sawReasoning/sawText/sawToolCall 若
@@ -1093,10 +1064,10 @@ export function createFeedCore(
     // ——后续帧（下一步）不再命中本条
     const st = streams.get(id);
     const asst = (stepKeys?.stepId && st?.carrier.get(stepKeys.stepId)) || lastStreaming(msgs, 'agent');
-    if (asst) asst.isStreaming = false;
+    if (asst) reviseMsg(id, asst.id, (x) => ({ ...x, isStreaming: false }));
     if (stepKeys?.stepId && st?.carrier) st.carrier.delete(stepKeys.stepId);
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === 'tool' && msgs[i].isStreaming) msgs[i].isStreaming = false;
+      if (msgs[i].role === 'tool' && msgs[i].isStreaming) reviseMsg(id, msgs[i].id, (x) => ({ ...x, isStreaming: false }));
     }
     // streaming 是 run 级信号（忙态投递/停止按钮/光环）：本步带工具调用
     // → 工具即将执行、下一步必来，run 仍在途中不熄灭。后端 after-step
@@ -1138,8 +1109,9 @@ export function createFeedCore(
     if (fallback && stepId && st) {
       // 补登记：step-started 帧晚到/丢失时，首个 delta 把现有流式载体认作
       // 本步载体（与旧路径同判定面），后续帧走快路径
-      if (!fallback.stepId) fallback.stepId = stepId;
-      st.carrier.set(stepId, fallback);
+      const swapped = fallback.stepId ? fallback : reviseMsg(id, fallback.id, (x) => ({ ...x, stepId }));
+      st.carrier.set(stepId, swapped ?? fallback);
+      return swapped ?? fallback;
     }
     return fallback;
   }
@@ -1154,24 +1126,27 @@ export function createFeedCore(
     if (asst && ((asst.thinking || asst.reasoning_content || '').trim())) {
       // 双 thinking.start（重连重放）：先关闭旧占位再开新占位——旧占位残留
       // isStreaming=true 会让派生 step 恒流式（思考消息恒「思考中」、dots 不灭）
-      asst.isStreaming = false;
+      reviseMsg(id, asst.id, (x) => ({ ...x, isStreaming: false }));
       asst = newAssistant(agentKeyOf(id));
-      msgs.push(asst);
+      pushMsg(ensureById(id), asst);
       if (stepKeys?.stepId && st) st.carrier.set(stepKeys.stepId, asst);
     }
-    if (asst && data.label) asst.label = data.label;
+    if (asst && data.label) reviseMsg(id, asst.id, (x) => ({ ...x, label: data.label }));
     bump(id);
   }
   function onThinkingUpdate(id: DialogId | null, data: any, st?: StreamState, stepKeys?: StepKeys) {
     if (!id) return;
     const asst = carrierOf(id, st, stepKeys?.stepId);
-    if (asst) { const dd = data.delta ?? ''; asst.thinking = (asst.thinking ?? '') + dd; asst.reasoning_content = (asst.reasoning_content ?? '') + dd; }
+    if (asst) {
+      const dd = data.delta ?? '';
+      reviseMsg(id, asst.id, (x) => ({ ...x, thinking: (x.thinking ?? '') + dd, reasoning_content: (x.reasoning_content ?? '') + dd }));
+    }
     bump(id);
   }
   function onThinkingEnd(id: DialogId | null, data: any, st?: StreamState, stepKeys?: StepKeys) {
     if (!id) return;
     const asst = carrierOf(id, st, stepKeys?.stepId);
-    if (asst) asst.label = data.label || undefined;
+    if (asst) reviseMsg(id, asst.id, (x) => ({ ...x, label: data.label || undefined }));
     bump(id);
   }
   /** 思考收束：按流内记录的思考相位起点（首个 reasoning 片到达时刻）定格
@@ -1191,7 +1166,7 @@ export function createFeedCore(
   function onMessageUpdate(id: DialogId | null, data: any, st?: StreamState, stepKeys?: StepKeys) {
     if (!id) return;
     const asst = carrierOf(id, st, stepKeys?.stepId);
-    if (asst) asst.content += data.delta ?? '';
+    if (asst) reviseMsg(id, asst.id, (x) => ({ ...x, content: x.content + (data.delta ?? '') }));
     bump(id);
   }
   function onMessageEnd(id: DialogId | null, data: any, st?: StreamState, stepKeys?: StepKeys) {
@@ -1201,28 +1176,32 @@ export function createFeedCore(
     if (!asst) return;
     // 身份贯通驻留：步终值把 stepId 盖到载体上——settlement 重拉时
     // 历史行（steps[].stepId 展开）与本条直播行按键互认（mergeHistory 键控）
-    if (stepKeys?.stepId) asst.stepId = stepKeys.stepId;
-    asst.content = data.content ?? asst.content;
-    asst.thinking = data.reasoning ?? asst.thinking;
-    asst.reasoning_content = data.reasoning ?? asst.reasoning_content;
-    if ((data as { aborted?: boolean }).aborted === true) asst.aborted = true;
-    if (data.tool_calls != null) asst.toolCalls = data.tool_calls;
-    // 步级 API 计时/补全 token（after-step 透传）：链头速率（Σcompletion/Σms）
-    // 的逐步数据源——随消息驻留分区 rawMessages，跨步重建不丢
-    if (typeof data.apiMs === 'number' && data.apiMs >= 0) asst.apiMs = data.apiMs;
-    if (typeof data.apiCompletion === 'number' && data.apiCompletion >= 0) asst.apiCompletion = data.apiCompletion;
-    // 链栏耗时校准对（after-step 透传；见 types.ts ChatMessage.runCalibMs 注释）：
-    // 后端权威的「截至本步收束」整轮耗时锚（step.ts − 轮首消息时刻）。
-    // 每步收束覆盖——前端计时在其上续跑（显示 = runCalibMs + now − runCalibAt）
-    if (typeof data.runCalibMs === 'number' && data.runCalibMs >= 0) {
-      asst.runCalibMs = data.runCalibMs;
-      asst.runCalibAt = Date.now();
-    }
+    // P3-2 cr-1282：步终值全量替换 = 单次换身（draft 内取 x 现值兜底）
+    // cr-1289 直播键落位：runId/turnId 同驻（终值帧带键时补——onStepStart
+    // 未驻留的场景：journal 兜底建卡路径 / 旧载体复用）。
+    const bumpPreview = reviseMsg(id, asst.id, (x) => ({
+      ...x,
+      ...(stepKeys?.stepId ? { stepId: stepKeys.stepId } : {}),
+      ...(stepKeys?.runId && !x.runId ? { runId: stepKeys.runId, turnId: stepKeys.runId } : {}),
+      content: data.content ?? x.content,
+      thinking: data.reasoning ?? x.thinking,
+      reasoning_content: data.reasoning ?? x.reasoning_content,
+      ...((data as { aborted?: boolean }).aborted === true ? { aborted: true } : {}),
+      ...(data.tool_calls != null ? { toolCalls: data.tool_calls } : {}),
+      // 步级 API 计时/补全 token（after-step 透传）：链头速率（Σcompletion/Σms）
+      // 的逐步数据源——随消息驻留分区 rawMessages，跨步重建不丢
+      ...(typeof data.apiMs === 'number' && data.apiMs >= 0 ? { apiMs: data.apiMs } : {}),
+      ...(typeof data.apiCompletion === 'number' && data.apiCompletion >= 0 ? { apiCompletion: data.apiCompletion } : {}),
+      // 链栏耗时校准对（after-step 透传）：后端权威的「截至本步收束」整轮
+      // 耗时锚——每步收束覆盖，前端计时在其上续跑
+      ...(typeof data.runCalibMs === 'number' && data.runCalibMs >= 0 ? { runCalibMs: data.runCalibMs, runCalibAt: Date.now() } : {}),
+    }));
+    const nextAsst = bumpPreview ?? asst;
     // bump 目标 = 事件所属 Agent（bumpAgent 固定打给"当前激活 Agent"，
     // 后台 Agent 流式完成时会把别人的回复写进激活项的列表预览/排序）。
     // 仅 viewer 参与会话：agent 对/自会话（矩阵格）不进 agent⇋viewer 名册
-    if (asst.content && isViewerDialog(id)) {
-      roster().bumpAgentById(agentKeyOf(id), 'assistant', asst.content);
+    if (nextAsst.content && isViewerDialog(id)) {
+      roster().bumpAgentById(agentKeyOf(id), 'assistant', nextAsst.content);
     }
     bump(id);
   }
@@ -1241,8 +1220,7 @@ export function createFeedCore(
       for (let i = msgs.length - 1; i >= 0; i--) {
         const m = msgs[i];
         if (m.role === 'agent' && m.isStreaming) {
-          m.isStreaming = false;
-          if (!m.content.trim()) m.content = '(生成失败)';
+          reviseMsg(id, m.id, (x) => ({ ...x, isStreaming: false, ...(x.content.trim() ? {} : { content: '(生成失败)' }) }));
         }
       }
       closeAllStreaming(msgs);
@@ -1302,11 +1280,11 @@ export function createFeedCore(
     // onToolUpdate 的 tool_call_id 精确匹配立即命中，无占位升级窗口；
     // prep- 占位 id 仅作无早期 id provider 的兜底路径。
     const prepId = realId || `prep-${idx}-${Date.now()}`;
-    toolCallsOf(asst).push({
+    reviseMsg(id, asst.id, (x) => ({ ...x, toolCalls: [...(x.toolCalls ?? []), {
       id: prepId, name, arguments: {}, result: '',
       label: `正在调用工具: ${name}`, preparing: true, running: true, startTime: Date.now(),
-    });
-    msgs.push({
+    } as any] }));
+    pushMsg(d, {
       id: `tool-${prepId}`, role: 'tool', content: '',
       name, toolName: name, tool_call_id: prepId, arguments: {},
       label: `正在调用工具: ${name}`, isStreaming: true, timestamp: Date.now(),
@@ -1333,7 +1311,7 @@ export function createFeedCore(
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role === 'tool' && m.isStreaming && closeSet.has(m.tool_call_id ?? '')) {
-        m.isStreaming = false;
+        reviseMsg(id, m.id, (x) => ({ ...x, isStreaming: false }));
         changed = true;
       }
     }
@@ -1346,34 +1324,29 @@ export function createFeedCore(
     const d = ensureById(id);
     const msgs = d.rawMessages;
     const asst = lastStreaming(msgs, 'agent');
-    const addToolCall = (tc: any) => {
-      const tcs = toolCallsOf(asst);
-      const found = tcs.find((x: any) => x.id === tc.id);
-      if (found) { found.label = tc.label; }
-      else tcs.push(tc);
+    /** 换身改写宿主步 toolCalls（P3-2 cr-1282：数组级重建） */
+    const withToolCalls = (mut: (tcs: any[]) => any[]) => {
+      if (!asst) return;
+      reviseMsg(id, asst.id, (x) => ({ ...x, toolCalls: mut([...(x.toolCalls ?? [])]) }));
     };
     // 升级 prepareToolCall 建立的占位（参数流式阶段已显示"正在调用工具"）：
     // 同名并行只认【未被认领】的 preparing 条目（find 不回头）——已被升级的
     // 条目 preparing=false，不会二次认领（旧按 name 全查会抢已升级的）。
     // 真 id 占位（C1）按 id 精确配对优先——同名并行调用不靠 name 也能对上；
     // name 配对仅作 prep- 占位（无早期 id provider）的兜底。
-    const tcsPrep = toolCallsOf(asst);
+    const tcsPrep = (asst?.toolCalls ?? []) as any[];
     const prep = tcsPrep.find((tc: any) => tc.preparing && tc.id === data.tool_call_id)
       ?? tcsPrep.find((tc: any) => tc.preparing && tc.name === data.tool_name);
     if (prep) {
       const prepRowId = prep.id; // prep-… 原始占位 id（重命名前捕获——占位行按它精确配对）
-      prep.id = data.tool_call_id;
-      prep.preparing = false;
-      prep.arguments = data.arguments;
-      prep.label = data.label || data.tool_name;
+      withToolCalls((tcs) => tcs.map((tc) => tc.id === prepRowId
+        ? { ...tc, id: data.tool_call_id, preparing: false, arguments: data.arguments, label: data.label || data.tool_name }
+        : tc));
       // 占位行按 prepRowId 精确配对（不能用 lastStreaming——并行多占位时
       // 最后一条流式 tool 可能是别的调用的占位，位置匹配会漏升级本行）
       const prepRow = [...msgs].reverse().find(m => m.role === 'tool' && m.tool_call_id === prepRowId);
       if (prepRow) {
-        prepRow.id = `tool-${data.tool_call_id}`;
-        prepRow.tool_call_id = data.tool_call_id;
-        prepRow.label = data.label || data.tool_name;
-        prepRow.arguments = data.arguments;
+        reviseMsg(id, prepRow.id, (x) => ({ ...x, id: `tool-${data.tool_call_id}`, tool_call_id: data.tool_call_id, label: data.label || data.tool_name, arguments: data.arguments }));
       }
       bump(id);
       return;
@@ -1383,21 +1356,20 @@ export function createFeedCore(
     // 结果再无落点，卡片永久转圈，2026-09-04 "只有最后一个 OK"反馈）。
     const existing = lastStreaming(msgs, 'tool');
     if (existing && existing.tool_call_id === data.tool_call_id) {
-      existing.id = `tool-${data.tool_call_id}`;
-      existing.label = data.label || data.tool_name;
-      existing.name = data.tool_name;
-      existing.toolName = data.tool_name;
-      existing.tool_call_id = data.tool_call_id;
-      existing.arguments = data.arguments;
-      if (asst) addToolCall({ id: data.tool_call_id, name: data.tool_name, arguments: data.arguments, result: '', label: data.label || data.tool_name, running: true, startTime: Date.now() });
+      reviseMsg(id, existing.id, (x) => ({ ...x, id: `tool-${data.tool_call_id}`, label: data.label || data.tool_name, name: data.tool_name, toolName: data.tool_name, tool_call_id: data.tool_call_id, arguments: data.arguments }));
+      withToolCalls((tcs) => {
+        const found = tcs.find((x: any) => x.id === data.tool_call_id);
+        if (found) return tcs.map((x) => (x.id === data.tool_call_id ? { ...x, label: data.label || data.tool_name } : x));
+        return [...tcs, { id: data.tool_call_id, name: data.tool_name, arguments: data.arguments, result: '', label: data.label || data.tool_name, running: true, startTime: Date.now() }];
+      });
     } else {
-      msgs.push({
+      pushMsg(d, {
         id: `tool-${data.tool_call_id}`, role: 'tool', content: '',
         name: data.tool_name, toolName: data.tool_name,
         tool_call_id: data.tool_call_id, arguments: data.arguments,
         label: data.label || data.tool_name, isStreaming: true, timestamp: Date.now(),
       });
-      if (asst) addToolCall({ id: data.tool_call_id, name: data.tool_name, arguments: data.arguments, result: '', label: data.label || data.tool_name, running: true, startTime: Date.now() });
+      withToolCalls((tcs) => [...tcs, { id: data.tool_call_id, name: data.tool_name, arguments: data.arguments, result: '', label: data.label || data.tool_name, running: true, startTime: Date.now() }]);
     }
     bump(id);
   }
@@ -1437,22 +1409,29 @@ export function createFeedCore(
     // 载体定位：runId 精确匹配宿主步；miss 回落启发式
     const asst = hostByRunId(id, data.runId, msgs);
     if (!asst) return; // 无 agent 载体（异常时序）：丢弃——不破坏消息流形状
-    const tc = toolCallsOf(asst);
+    const tc = (asst.toolCalls ?? []) as any[];
     const existing = tc.find((x: any) => x.id === data.tool_call_id);
-    if (existing) {
-      // 已在场（started 重放 / end 先到）：仅补 running 标记，不覆盖已有 result
-      existing.running = existing.result === undefined || existing.result === '' ? true : existing.running;
-      if (data.arguments !== undefined && (!existing.arguments || (typeof existing.arguments === 'object' && Object.keys(existing.arguments as object).length === 0))) {
-        existing.arguments = data.arguments;
+    reviseMsg(id, asst.id, (x) => ({ ...x, toolCalls: (() => {
+      const tcs = [...(x.toolCalls ?? [])] as any[];
+      const hit = tcs.find((e: any) => e.id === data.tool_call_id);
+      if (hit) {
+        // 已在场（started 重放 / end 先到）：仅补 running 标记，不覆盖已有 result
+        tcs[tcs.indexOf(hit)] = {
+          ...hit,
+          running: hit.result === undefined || hit.result === '' ? true : hit.running,
+          ...(data.arguments !== undefined && (!hit.arguments || (typeof hit.arguments === 'object' && Object.keys(hit.arguments as object).length === 0))
+            ? { arguments: data.arguments } : {}),
+        };
+      } else {
+        tcs.push({ id: data.tool_call_id, name: data.tool_name || '(subcall)', arguments: data.arguments ?? {}, result: '', subcall: true, running: true, startTime: Date.now() });
       }
-    } else {
-      tc.push({ id: data.tool_call_id, name: data.tool_name || '(subcall)', arguments: data.arguments ?? {}, result: '', subcall: true, running: true, startTime: Date.now() });
-    }
+      return tcs;
+    })() }));
     const row = msgs.find((m: any) => m.role === 'tool' && m.tool_call_id === data.tool_call_id);
     if (row) {
-      if (row.isStreaming !== true && !row.content) row.isStreaming = true; // 终值未到才回 running（重放防回卷）
+      if (row.isStreaming !== true && !row.content) reviseMsg(id, row.id, (x) => ({ ...x, isStreaming: true })); // 终值未到才回 running（重放防回卷）
     } else {
-      msgs.push({
+      pushMsg(d, {
         id: 'tool-' + data.tool_call_id, role: 'tool', content: '',
         name: data.tool_name, toolName: data.tool_name,
         tool_call_id: data.tool_call_id, arguments: data.arguments ?? {},
@@ -1476,24 +1455,22 @@ export function createFeedCore(
     // 身份贯通：runId 精确匹配宿主步（与 onSubcallStart 同源）；miss 回落启发式
     const asst = hostByRunId(id, data.runId, msgs);
     if (!asst) return; // 无 agent 载体（异常时序）：丢弃——不破坏消息流形状
-    const tc = toolCallsOf(asst);
-    const existingTc = tc.find((x: any) => x.id === data.tool_call_id);
-    if (existingTc) {
-      // 占位在场（tool/started 先到）：原地填终值
-      existingTc.result = data.result;
-      existingTc.running = false;
-      if (data.arguments !== undefined) existingTc.arguments = data.arguments;
-    } else if (!tc.some((x: any) => x.id === data.tool_call_id)) {
-      const entry: any = { id: data.tool_call_id, name: data.tool_name || '(subcall)', arguments: data.arguments ?? {}, result: data.result, subcall: true, running: false, startTime: Date.now() };
-      tc.push(entry);
-    }
+    reviseMsg(id, asst.id, (x) => ({ ...x, toolCalls: (() => {
+      const tcs = [...(x.toolCalls ?? [])] as any[];
+      const hit = tcs.find((e: any) => e.id === data.tool_call_id);
+      if (hit) {
+        // 占位在场（tool/started 先到）：填终值
+        tcs[tcs.indexOf(hit)] = { ...hit, result: data.result, running: false, ...(data.arguments !== undefined ? { arguments: data.arguments } : {}) };
+      } else if (!tcs.some((e: any) => e.id === data.tool_call_id)) {
+        tcs.push({ id: data.tool_call_id, name: data.tool_name || '(subcall)', arguments: data.arguments ?? {}, result: data.result, subcall: true, running: false, startTime: Date.now() });
+      }
+      return tcs;
+    })() }));
     const row = msgs.find((m: any) => m.role === 'tool' && m.tool_call_id === data.tool_call_id);
     if (row) {
-      row.content = data.result;
-      row.arguments = data.arguments ?? row.arguments;
-      row.isStreaming = false; // 占位在场：关停 running（最短转圈不适用——占位本身即长等待信号）
+      reviseMsg(id, row.id, (x) => ({ ...x, content: data.result, arguments: data.arguments ?? x.arguments, isStreaming: false })); // 占位在场：关停 running（最短转圈不适用——占位本身即长等待信号）
     } else {
-      msgs.push({
+      pushMsg(d, {
         id: 'tool-' + data.tool_call_id, role: 'tool', content: data.result,
         name: data.tool_name, toolName: data.tool_name,
         tool_call_id: data.tool_call_id, arguments: data.arguments ?? {},
@@ -1512,19 +1489,13 @@ export function createFeedCore(
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role === 'tool' && m.tool_call_id === data.tool_call_id) {
-        m.content = data.result ?? ''; closedById = true; break;
+        reviseMsg(id, m.id, (x) => ({ ...x, content: data.result ?? '' })); closedById = true; break;
       }
     }
-    // 兼容回退：旧事件无 tool_call_id 时退回位置匹配（单工具场景等价）
-    if (!closedById && !data.tool_call_id) {
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const m = msgs[i];
-        if (m.role === 'tool' && m.toolName && m.isStreaming) { m.content = data.result ?? ''; m.isStreaming = false; break; }
-      }
-    }
+    void closedById; // 精确匹配 miss = 结果行无占位（已被历史合并吸收）——不回退位置匹配（cr-1275：旧无 id 事件窗口已过）
     const asst = subcallHostFallback(msgs);
-    const tc = toolCallsOf(asst).find((x: any) => x.id === data.tool_call_id);
-    if (tc) { tc.running = false; tc.result = data.result ?? ''; }
+    const tc = ((asst?.toolCalls ?? []) as any[]).find((x: any) => x.id === data.tool_call_id);
+    if (asst && tc) reviseMsg(id, asst.id, (x) => ({ ...x, toolCalls: (x.toolCalls as any[]).map((e: any) => e.id === data.tool_call_id ? { ...e, running: false, result: data.result ?? '' } : e) }));
     // 最短转圈：数据已落（content/result 上面即写），视觉关停延至占位建立
     // 后满 TOOL_MIN_SPIN_MS——快工具的终态不再同帧吞掉 running dots。
     // 边界事件（步终/收束/中断/重连）经 flushSpinHolds 强制收口。
@@ -1543,7 +1514,7 @@ export function createFeedCore(
           }
         }, hold);
       } else {
-        row.isStreaming = false;
+        reviseMsg(id, row.id, (x) => ({ ...x, isStreaming: false }));
       }
     }
     bump(id);
@@ -1558,11 +1529,11 @@ export function createFeedCore(
       if (msgs[i].role === 'tool' && msgs[i].tool_call_id === data.tool_call_id) { existing = msgs[i]; break; }
     }
     if (!existing && !data.tool_call_id) existing = lastStreaming(msgs, 'tool');
-    if (existing) existing.content += data.delta ?? '';
+    if (existing) reviseMsg(id, existing.id, (x) => ({ ...x, content: x.content + (data.delta ?? '') }));
     // 同步 toolCalls 的 result —— turns 派生的 ToolMessage 内容来自 assistant.toolCalls
     const asst = lastStreaming(msgs, 'agent');
-    const tc = toolCallsOf(asst).find((x: any) => x.id === data.tool_call_id);
-    if (tc) tc.result = (tc.result || '') + (data.delta ?? '');
+    const tc = ((asst?.toolCalls ?? []) as any[]).find((x: any) => x.id === data.tool_call_id);
+    if (asst && tc) reviseMsg(id, asst.id, (x) => ({ ...x, toolCalls: (x.toolCalls as any[]).map((e: any) => e.id === data.tool_call_id ? { ...e, result: (e.result || '') + (data.delta ?? '') } : e) }));
     bump(id);
   }
   function onInterrupted(id: DialogId | null, active: boolean) {
@@ -1573,8 +1544,7 @@ export function createFeedCore(
     for (let i = msgs.length - 1; i >= 0; i--) {
       const m = msgs[i];
       if (m.role === 'agent' && m.isStreaming) {
-        m.isStreaming = false;
-        if (!m.content.trim()) m.content = '\u23F8\uFE0F (已被中断)';
+        reviseMsg(id, m.id, (x) => ({ ...x, isStreaming: false, ...(x.content.trim() ? {} : { content: '\u23F8\uFE0F (已被中断)' }) }));
       }
     }
     closeAllStreaming(msgs);
@@ -1596,11 +1566,10 @@ export function createFeedCore(
       const streaming = lastStreaming(msgs, 'agent');
       const alreadyHas = msgs.some((m) => m.role === 'agent' && m.content === content && !m.isStreaming);
       if (streaming && !streaming.content.trim()) {
-        streaming.content = content;
-        streaming.isStreaming = false;
+        reviseMsg(id, streaming.id, (x) => ({ ...x, content, isStreaming: false }));
         fallbackAdded = true;
       } else if (!alreadyHas) {
-        msgs.push({
+        pushMsg(d, {
           id: uid('final'),
           role: 'agent',
           content,
@@ -1713,24 +1682,16 @@ export function createFeedCore(
         const ts = (msgs[i] as any).timestamp ?? 0;
         if (ts > umTs) { insertAt = i; break; }
       }
-      msgs.splice(insertAt, 0, {
+      insertMsg(ensureById(dialogId), insertAt, {
         id: uid('user'), role: 'agent', content: split.content,
         timestamp: umTs, agent_id: VIEWER_ID.value,
         ...(split.files ? { files: split.files } : {}),
       } as ChatMessage);
     }
 
-    // ② 已完成的 ReAct 步骤（跳过已落盘部分）。
-    // 旧载荷兼容：进行中步骤曾被并入 steps 尾部，与顶层 content/thinking
-    // 同源同值——按镜像特征剔除（全空步骤不剔：tools-only 已完成步骤
-    // content/thinking 也为空，误剔会丢工具记录）。
-    const rawSteps: any[] = d.steps || [];
-    const lastRaw = rawSteps[rawSteps.length - 1];
-    const mirrorsCurrent = !!lastRaw
-      && ((lastRaw.content || '') !== '' || (lastRaw.thinking || '') !== '')
-      && (lastRaw.content || '') === (d.content || '')
-      && (lastRaw.thinking || '') === (d.thinking || '');
-    const steps: any[] = (mirrorsCurrent ? rawSteps.slice(0, -1) : rawSteps).map((s: any) => ({
+    // ② 已完成的 ReAct 步骤（跳过已落盘部分）。镜像剔除已退役（cr-1275：
+    // 旧载荷「进行中步骤并入 steps 尾部」形态的窗口已过——现载荷 steps 恒已完成步骤）。
+    const steps: any[] = (d.steps || []).map((s: any) => ({
       thinking: s.thinking || '',
       label: s.label || '',
       tool_calls: (s.tool_calls || []).map((tc: any) => ({
@@ -1743,13 +1704,14 @@ export function createFeedCore(
     for (const s of steps.slice(skipSteps)) {
       if (s.content || s.thinking || s.tool_calls?.length) {
         const stepMsgId = uid('asst');
-        msgs.push({
+        const dd2 = ensureById(dialogId);
+        pushMsg(dd2, {
           id: stepMsgId, role: 'agent', content: s.content || '',
           thinking: s.thinking, reasoning_content: s.thinking, label: s.label,
           toolCalls: s.tool_calls as any, timestamp: s.ts || Date.now(), agent_id: d.agentId,
         });
         for (const tc of s.tool_calls || []) {
-          msgs.push({
+          pushMsg(dd2, {
             id: `tool-${tc.id}`, role: 'tool', content: tc.result || '',
             name: tc.name, toolName: tc.name, tool_call_id: tc.id,
             label: tc.label || tc.name || '', timestamp: s.ts || Date.now(),
@@ -1759,19 +1721,21 @@ export function createFeedCore(
     }
 
     // ③ 进行中的 assistant（当前正在流式的部分）：优先复用已有载体
+    // P3-2 cr-1282：复用 = 换身合并（长度取胜——subscribe 往返期间直播 delta
+    // 可能已渗出更长的内容，按快照整体覆盖会"回卷"）。
     let asst: ChatMessage;
+    const dd3 = ensureById(dialogId);
+    const mergeLonger = (x: ChatMessage): ChatMessage => ({
+      ...x,
+      isStreaming: true,
+      content: (d.content || '').length > x.content.length ? d.content : x.content,
+      thinking: (d.thinking || '').length > (x.thinking ?? x.reasoning_content ?? '').length ? d.thinking : x.thinking,
+      reasoning_content: (d.thinking || '').length > (x.thinking ?? x.reasoning_content ?? '').length ? d.thinking : x.reasoning_content,
+      ...(d.label ? { label: d.label } : {}),
+    });
     if (persistedAssistants > steps.length && lastTurnAsst) {
-      // 最后一条落盘 assistant = currentStep 的已落盘前缀：原地续流。
-      // 长度取胜：subscribe 往返期间直播 delta 可能已渗出更长的内容，
-      // 按快照整体覆盖会"回卷"（丢已渗出尾巴，后续 delta 追加即重复）。
-      asst = lastTurnAsst;
-      asst.isStreaming = true;
-      if ((d.content || '').length > (asst.content || '').length) asst.content = d.content;
-      if ((d.thinking || '').length > (asst.thinking || asst.reasoning_content || '').length) {
-        asst.thinking = d.thinking;
-        asst.reasoning_content = d.thinking;
-      }
-      if (d.label) asst.label = d.label;
+      // 最后一条落盘 assistant = currentStep 的已落盘前缀：换身续流
+      asst = reviseMsg(dialogId, lastTurnAsst.id, mergeLonger) ?? lastTurnAsst;
     } else {
       // 直播分区已有流式占位（切回运行中的 Agent 的即时合并路径）：复用它，
       // 不得新建第二个占位——旧占位会冻结在部分内容（堆叠根因）。
@@ -1781,13 +1745,7 @@ export function createFeedCore(
         if (m.role === 'agent' && m.agent_id === d.agentId && m.isStreaming) { live = m; break; }
       }
       if (live) {
-        asst = live;
-        if ((d.content || '').length > (asst.content || '').length) asst.content = d.content;
-        if ((d.thinking || '').length > (asst.thinking || asst.reasoning_content || '').length) {
-          asst.thinking = d.thinking;
-          asst.reasoning_content = d.thinking;
-        }
-        if (d.label && !asst.label) asst.label = d.label;
+        asst = reviseMsg(dialogId, live.id, mergeLonger) ?? live;
       } else {
         asst = newAssistant(d.agentId);
         asst.thinking = d.thinking || undefined;
@@ -1798,21 +1756,20 @@ export function createFeedCore(
         // 已知最早后端时刻，比 Date.now()（=恢复时刻）更接近真实起点）
         const firstStepTs = steps.length > 0 ? steps[0].ts : undefined;
         asst.runStartAt = firstStepTs ?? Date.now();
-        msgs.push(asst);
+        pushMsg(dd3, asst);
       }
     }
     if (d.phase === 'tool' && d.toolCallId) {
       // 复用落盘前缀时 toolCalls 里已有该调用（含真实 id）：只标记 running，避免重复条目
-      const tcs = toolCallsOf(asst);
-      const existing = tcs.find((tc: any) => tc.id === d.toolCallId);
-      if (existing) {
-        existing.running = true;
-        if (d.label) existing.label = existing.label || d.label;
-      } else {
-        tcs.push({ id: d.toolCallId, name: d.toolName || '', arguments: {}, result: '', label: d.label || d.toolName || '', running: true, startTime: Date.now() });
-      }
+      reviseMsg(dialogId, asst.id, (x) => ({ ...x, toolCalls: (() => {
+        const tcs = [...(x.toolCalls ?? [])] as any[];
+        const hit = tcs.find((tc: any) => tc.id === d.toolCallId);
+        if (hit) tcs[tcs.indexOf(hit)] = { ...hit, running: true, ...(d.label && !hit.label ? { label: d.label } : {}) };
+        else tcs.push({ id: d.toolCallId, name: d.toolName || '', arguments: {}, result: '', label: d.label || d.toolName || '', running: true, startTime: Date.now() });
+        return tcs;
+      })() }));
       if (!msgs.some(m => m.role === 'tool' && m.tool_call_id === d.toolCallId)) {
-        msgs.push({
+        pushMsg(dd3, {
           id: `tool-${d.toolCallId}`, role: 'tool', content: '',
           name: d.toolName, toolName: d.toolName,
           label: d.label || d.toolName,
@@ -1848,7 +1805,7 @@ export function createFeedCore(
         return;
       }
       const dialogId = singleDialog(sid);
-      const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
+      const msgs = (data.messages ?? []).map((m: HistoryRow) => historyRowToChatMessage(m));
       traceSwitch('resp', `single:${sid.slice(-8)} ${msgs.length} 条，${rtt}`);
       const isFirstPage = (_historyOffset[sid] || 0) === 0;
       mergeHistory(dialogId, msgs, isFirstPage, typeof data.serverHasMore === 'boolean' ? data.serverHasMore : undefined);
@@ -1871,7 +1828,7 @@ export function createFeedCore(
       return;
     }
     const dialogId = directDialog(target);
-    const msgs = (data.messages ?? []).map(historyMsgToChatMessage);
+    const msgs = (data.messages ?? []).map((m: HistoryRow) => historyRowToChatMessage(m));
     traceSwitch('resp', `${target} ${msgs.length} 条，${rtt}`);
     const isFirstPage = (_historyOffset[target] || 0) === 0;
     mergeHistory(dialogId, msgs, isFirstPage, typeof data.serverHasMore === 'boolean' ? data.serverHasMore : undefined);
@@ -1879,52 +1836,6 @@ export function createFeedCore(
     if (isFirstPage && resumeSnapshot && resumeSnapshot.agentId === target) {
       mergeResumeSnapshot(resumeSnapshot);
     }
-  }
-
-  /** 后端 PersistedMessage → 前端 ChatMessage（历史加载共用） */
-  function historyMsgToChatMessage(m: any): ChatMessage {
-    // [附件] 行剥离（刷新后与实况同形）：正文尾部的合成路径行 → chips
-    //（LLM 侧不动——落盘正文与非视觉模型的 read 路径原样保留）
-    const split = splitAttachmentLines(
-      typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-      attachmentFilesOf(m.attachments),
-    );
-    return {
-      // id 优先 sid（多步轮步行合成 key——同轮步行共享收束行 message_id，
-      // Vue key 须唯一；sid 仅渲染去重用，服务端锚点恒走 persistedMsgId）
-      id: m.sid ?? m.message_id ?? uid('hist'),
-      role: m.role, content: split.content,
-      agent_id: m.agent_id, toolCalls: m.tool_calls, tool_call_id: m.tool_call_id, name: m.name, toolName: m.name, label: m.label,
-      thinking: m.reasoning_content, reasoning_content: m.reasoning_content,
-      // 步内相位序透传（历史 steps 展开；直播自判值随收束重拉对齐）
-      ...(m.textBeforeTools !== undefined ? { textBeforeTools: m.textBeforeTools } : {}),
-      // 身份键透传（2026-09-24 身份贯通）：历史行与直播行按键控对齐
-      ...(typeof m.stepId === 'string' && m.stepId ? { stepId: m.stepId } : {}),
-      // run 身份键透传（cr-699）：buildTurns sameRun 拆轮豁免判定源
-      //（toHistoryMessages 携带——同 run 步序连续不拆思考链）
-      ...(typeof m.runId === 'string' && m.runId ? { runId: m.runId } : {}),
-      // 步级 API 计时/补全 token 透传（链头速率数据源，见 types.ts apiMs 注释）
-      ...(typeof m.apiMs === 'number' ? { apiMs: m.apiMs } : {}),
-      ...(typeof m.apiCompletion === 'number' ? { apiCompletion: m.apiCompletion } : {}),
-      // run 墙钟耗时透传（cr-772）：历史链栏「用时」段权威锚（挂首步）
-      ...(typeof m.runMs === 'number' ? { runMs: m.runMs } : {}),
-      // B1 行级 seq 透传：历史行水位锚（存量行缺席 → 不带）
-      ...(typeof m.seq === 'number' ? { seq: m.seq } : {}),
-      // 服务端锚点：多步轮步行 = 收束行真实 message_id（同轮同锚——fork/
-      // truncate 按整轮命中；2026-09-21 分支锚点修复，此前合成 `-s{i}` 后端不存在）
-      persistedMsgId: m.message_id,
-      source: m.source,
-      // 注入行透传（2026-09-26 注入卡）：展开体数据源（toHistoryMessages 携带）
-      ...(m.contextContent !== undefined ? { contextContent: m.contextContent } : {}),
-      // 挂靠锚透传（cr-1132）：投影层派生的时间线锚——buildTurns 据此挂轮
-      ...(typeof m.anchor === 'string' && m.anchor ? { anchor: m.anchor } : {}),
-      // 注入结构化载荷（问答卡 outcome 判据）：历史链丢失会让回执卡退化成
-      // pending「向用户提问」——发起卡与回执卡同标题的根因，随行透传
-      ...(m.payload !== undefined ? { payload: m.payload } : {}),
-      // 附件引用 → chips（多模态：text=ref 即 workspace 路径，点击可预览）
-      ...(split.files ? { files: split.files } : {}),
-      timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
-    };
   }
 
   // ── 事件路由 ──
@@ -2090,7 +2001,7 @@ export function createFeedCore(
       return;
     }
     const d = ensureById(dialogId);
-    d.rawMessages.push({
+    pushMsg(d, {
       id: uid('msg'), role: 'agent', content: payload, agent_id: from, timestamp: Date.now(),
     });
     touch(dialogId, from, payload, Date.now());
@@ -2116,14 +2027,14 @@ export function createFeedCore(
   /** 机制通知上屏（source='event' 入站——message-received 空闲路径与
    *  steered 忙路径共用）：系统事件行（分隔符渲染），与落盘 role:'event' /
    *  刷新历史同形。群分区同样不进（内容源 = post 行；群历史无 event 行）。 */
-  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string, anchor?: string, injectSource?: string, injectBytes?: number, payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' }): void {
+  function showEventNotice(agent: string | undefined, conversationId: string | undefined, content: string, anchor?: string, injectSource?: string, injectBytes?: number, payload?: { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' }, runId?: string): void {
     // anchor（injectionId）双重职责：消息行去重键 + 未读幂等锚（cr-1139）
     const keys = routeDialog(agent, conversationId, agent);
     if (!keys) return;
     const dialogId = keys.dialogId;
     if (parseDialogId(dialogId).kind === 'group') return; // 群分区唯一内容源 = post 行
     const d = ensureById(dialogId);
-    d.rawMessages.push({
+    pushMsg(d, {
       // 注入身份键（injectionId）贯通：直播行带服务端锚点——与刷新后的
       // 活投影行/提升行同 message_id，mergeHistoryPage 双键去重直接生效
       //（运行中切换会话回视的重复 context 行根修）；缺席（旧后端）回落本地 id
@@ -2137,6 +2048,8 @@ export function createFeedCore(
       ...(injectSource !== undefined ? { source: { kind: injectSource, summary: '' } } : {}),
       ...(injectBytes !== undefined ? { injectBytes } : {}),
       ...(payload !== undefined ? { payload } : {}),
+      // run 归口键（cr-1285 P3-4）：直播注入卡与刷新投影行同键挂靠
+      ...(runId !== undefined ? { runId } : {}),
     });
     touch(dialogId, 'system', content, Date.now());
     bump(dialogId);
@@ -2225,7 +2138,7 @@ export function createFeedCore(
             // 残留他步载体：定格收口（内容原样保留——步事实在账本，重拉对账
             // 补权威行）后必须建本步新载体——只收不建会让本步首个 delta 被
             // carrierOf 回落判无载体而丢弃（cr-1200）。
-            if (stale !== null) stale.isStreaming = false;
+            if (stale !== null) reviseMsg(keys.dialogId, stale.id, (x) => ({ ...x, isStreaming: false }));
             onStepStart(keys.dialogId, isForActiveAgent(keys), stepKeys);
           }
           // stale 无驻留键/同键：carrierOf 回落认领（补登记）——不建第二卡
@@ -2252,8 +2165,8 @@ export function createFeedCore(
             // 起点驻留消息（2026-09-21 计时反馈）：「思考中 · Xs」实时计时与收束
             // label 共用同源起点——组件重挂载/跨步重建不丢，收束不倒跳
             const liveAsst = carrierOf(keys.dialogId, st, stepKeys?.stepId);
-            if (liveAsst && liveAsst.reasoningStartAt === undefined) {
-              liveAsst.reasoningStartAt = st.reasoningStartAt;
+            if (liveAsst && liveAsst.reasoningStartAt === undefined && st.reasoningStartAt) {
+              reviseMsg(keys.dialogId, liveAsst.id, (x) => ({ ...x, reasoningStartAt: st.reasoningStartAt }));
             }
           }
           onThinkingUpdate(keys.dialogId, { delta: reasoning }, st, stepKeys);
@@ -2269,7 +2182,7 @@ export function createFeedCore(
             st.sawText = true;
             if (!st.sawToolCall) {
               const asst = carrierOf(keys.dialogId, st, stepKeys?.stepId);
-              if (asst) asst.textBeforeTools = true;
+              if (asst) reviseMsg(keys.dialogId, asst.id, (x) => ({ ...x, textBeforeTools: true }));
             }
           }
           onMessageUpdate(keys.dialogId, { delta }, st, stepKeys);
@@ -2305,14 +2218,14 @@ export function createFeedCore(
                 const msgs2 = dialogs.value[keys.dialogId]?.rawMessages;
                 if (msgs2) {
                   const asst2 = carrierOf(keys.dialogId, st, stepKeys?.stepId);
-                  const tcs2 = asst2 ? toolCallsOf(asst2) : [];
-                  const prep2 = tcs2.find((x: any) => x.preparing && x.name === 'run_code');
+                  const prep2 = asst2 ? ((asst2.toolCalls ?? []) as any[]).find((x: any) => x.preparing && x.name === 'run_code') : undefined;
                   if (prep2) {
                     const prevLen = typeof (prep2.arguments as any)?.code === 'string' ? (prep2.arguments as any).code.length : 0;
                     if (draft.length > prevLen) {
-                      prep2.arguments = { ...(prep2.arguments as object), code: draft };
+                      const nextArgs = { ...(prep2.arguments as object), code: draft };
+                      if (asst2) reviseMsg(keys.dialogId, asst2.id, (x) => ({ ...x, toolCalls: (x.toolCalls as any[]).map((e: any) => (e.preparing && e.name === 'run_code') ? { ...e, arguments: nextArgs } : e) }));
                       const row2 = [...msgs2].reverse().find((m: any) => m.role === 'tool' && m.tool_call_id === prep2.id);
-                      if (row2) row2.arguments = prep2.arguments;
+                      if (row2) reviseMsg(keys.dialogId, row2.id, (x) => ({ ...x, arguments: nextArgs }));
                       bump(keys.dialogId);
                     }
                   }
@@ -2476,7 +2389,7 @@ export function createFeedCore(
             // 与 delta 前沿同款收口+建卡（cr-1200）：残留他步载体定格后建本步
             // 新卡（终值随 onMessageEnd 落进新卡）；无驻留键/同键留给下方
             // carrier 定位（onStepStart 复用空占位逻辑也在职）。
-            if (staleJ !== null) staleJ.isStreaming = false;
+            if (staleJ !== null) reviseMsg(keys.dialogId, staleJ.id, (x) => ({ ...x, isStreaming: false }));
             onStepStart(keys.dialogId, isForActiveAgent(keys), { runId: p?.run, stepId });
           }
         }
@@ -2489,7 +2402,7 @@ export function createFeedCore(
           if (seen === undefined || p.seq > seen) st.lastStepSeq.set(stepId, p.seq);
           const anchored = st.carrier.get(stepId)
             ?? [...dialogs.value[keys.dialogId]?.rawMessages ?? []].reverse().find((m: any) => m.stepId === stepId);
-          if (anchored) anchored.seq = p.seq;
+          if (anchored) reviseMsg(keys.dialogId, anchored.id, (x) => ({ ...x, seq: p.seq }));
         }
         const stKeys = stepKeysOf({ runId: p?.run, stepId });
         // 步终值：message.end（全量替换语义）+ step.end（关闭占位；
@@ -2601,7 +2514,7 @@ export function createFeedCore(
         // toHistoryMessages 的 r.label ?? r.content 同源同形（2026-09-21 前端
         // 反馈：此前 skill 行再拼「已注入技能上下文：」前缀，落账 label 本身
         // 已是完整文案，流式与刷新文本不一致）；label 缺席回落摘要词。
-        const [conversationId, agentId, meta] = args as [string | undefined, string | undefined, { source?: unknown; label?: unknown; injectionId?: unknown; bytes?: unknown; payload?: unknown } | undefined];
+        const [conversationId, agentId, meta] = args as [string | undefined, string | undefined, { source?: unknown; label?: unknown; injectionId?: unknown; run?: unknown; bytes?: unknown; payload?: unknown } | undefined];
         if (!conversationId) return;
         const source = typeof meta?.source === 'string' ? meta.source : '';
         const label = typeof meta?.label === 'string' && meta.label ? meta.label : '';
@@ -2613,10 +2526,13 @@ export function createFeedCore(
         // injectionId（注入身份键）：直播行带锚——与刷新后的活投影行/提升行
         // 同 message_id，历史合并去重恒等生效；缺席（旧后端帧）回落本地 id
         const anchor = typeof meta?.injectionId === 'string' && meta.injectionId ? meta.injectionId : undefined;
+        // run 归口键（cr-1285 P3-4）：帧携带（recordContext 发射时查活 run）——
+        // run 死窗口注入缺席，直播行回落位置启发（与直落投影行同形）
+        const injectRun = typeof meta?.run === 'string' && meta.run ? meta.run : undefined;
         // 注入型行（source 非机制词）带 source 挂直播行（2026-09-26 注入卡）：
         // 挂轮判定读 source.kind；正文仍不广播（瘦身纪律——延迟重拉补：cr-767
         // 修复前 run 存续期间直播卡恒裸 label 无从展开，收束重拉对长 run 迟到）。
-        showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined, injectBytes, payload);
+        showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined, injectBytes, payload, injectRun);
         // 注入落账即调度延迟重拉（500ms，cr-767）：权威行带 contextContent，与
         // 直播行同锚合并（吸收语义）后卡片即可展开。与 settlement 重拉共用同一
         // 函数（指纹短路 + requestId 守卫天然幂等，不产生风暴）。
@@ -2646,7 +2562,7 @@ export function createFeedCore(
         // [附件] 行剥离：群发正文由发送端合成（composeContent），live 帧
         // 也按 chips 呈现——与刷新后的群历史同形
         const posted = splitAttachmentLines(String(message.content ?? ''), attachmentFilesOf(message.attachments));
-        gd.rawMessages.push({
+        pushMsg(gd, {
           id: uid('msg'), role: 'agent', content: posted.content, agent_id: from, timestamp: Date.now(),
           ...(posted.files ? { files: posted.files } : {}),
         });
@@ -2778,6 +2694,19 @@ export function createFeedCore(
     closeRunningToolCalls(d.rawMessages);
     d.streaming = false;
     bump(id);
+  }
+
+  // 观察窗读面接线（cr-1289 P4-1 收尾）：dev 控制台暴露——cr-1276 预留
+  // （readFallbackProbes 接控制台/遥测即可）的落地。计数器模块级、页面级
+  // 生命周期（刷新清零）——观察语义即「本页面会话累计」。非浏览器（Node
+  // 测试进程）无 window，typeof 守卫跳过；非安全边界（module-system 同款
+  // 定界——仅诊断面）。
+  if (typeof window !== 'undefined') {
+    (window as unknown as Record<string, unknown>)['__AC_FALLBACK_PROBES__'] = readFallbackProbes;
+    // P0-B 探针读面（cr-1296）：frameScheduler 统计挂 window——「每帧恰一次
+    // 提交」等 P4-2 验收口径经 CDP/控制台可观测（frameStats 只读快照，
+    // 复位走 resetFrameScheduler——诊断面，同 FALLBACK_PROBES 定界）。
+    (window as unknown as Record<string, unknown>)['__AC_FRAME_STATS__'] = frameStats;
   }
 
   return {

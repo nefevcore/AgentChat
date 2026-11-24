@@ -191,27 +191,6 @@ export function rowShadowedBy(
   return beforeEvent === true;
 }
 
-/**
- * 域名归并辅助（上）——会话压缩三态查询口（§2.3）：当前态回放的
- * 摘要头与边界（shadowed 前缀 seq ≤ boundarySeq 不进回放；v1 会话
- * 无压缩事件 → null，调用方回落 summary.md 兼容窗）。endTs = 压缩收束
- * 时刻（cr-1156 回放过滤时刻维度）。
- * cr-1189 V3：新代起摘要住 archive-summary 注入行（本文件
- * foldDigestOf）——本函数只服务 v2 存量代（compaction 事件摘要），
- * 调用方须先查 foldDigestOf（行在场时不再回落本面，防双份）。
- */
-export function foldSummaryOf(fold: SessionFold): { text: string; boundarySeq: number; endTs: number } | null {
-  // cr-1160 P3：最新代概要缺席（summaryOmitted/空文）→ 回落上一代概要
-  // （「无新概要的压缩」合法——头可能过时但语义完整）；全部缺席 → null。
-  for (let i = fold.compactions.length - 1; i >= 0; i--) {
-    const c = fold.compactions[i]!;
-    if (c.summary !== '' && c.summaryOmitted !== true) {
-      return { text: c.summary, boundarySeq: c.boundarySeq, endTs: c.endTs };
-    }
-  }
-  return null;
-}
-
 /** V3 归档摘要行 source 词（cr-1189）——archive-summary context 行判别键 */
 export const ARCHIVE_SUMMARY_SOURCE = 'archive-summary';
 
@@ -251,7 +230,9 @@ export function foldUserReplay(fold: SessionFold): UserReplayRow[] {
     if (r.messageId && seen.has(r.requestId ?? r.messageId)) continue;
     if (r.requestId !== undefined) seen.add(r.requestId);
     if (r.messageId) seen.add(r.messageId);
-    out.push({ role: 'user', agentId: 'user', content: r.content, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ord: out.length });
+    // cr-1286 P4-1：messageId 透出（user 行同款升格——主投影 turnId 打点源；
+    // 亦使 ViewRow.message_id 与 peer 行对齐，anchor 派生受益同源）
+    out.push({ role: 'user', agentId: 'user', content: r.content, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ord: out.length });
   }
   for (const r of fold.speech) {
     if (r.agentId === 'user') continue; // user 行与机制通知行（restarted-* 已滤）

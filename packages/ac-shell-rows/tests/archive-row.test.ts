@@ -93,6 +93,13 @@ function seedAgent(id: string, settings?: Record<string, unknown>) {
   const dir = path.join(ROOT, 'agents', id);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'config.json'), JSON.stringify({ id, model: 'mock', ...(settings !== undefined ? { settings } : {}) }), 'utf-8');
+  // cr-1259：v3 形态下 settings 按插件单元拆文件（生产 writePluginConfig →
+  // agents/<id>/<unit>.json）。archive 行读单元文件 archive.json 本体，
+  // 不再读 v3 已退役的 config.json（config 已入 RESERVED_UNIT_NAMES）。
+  const archiveUnit = (settings as { archive?: unknown } | undefined)?.archive;
+  if (archiveUnit !== undefined) {
+    fs.writeFileSync(path.join(dir, 'archive.json'), JSON.stringify(archiveUnit), 'utf-8');
+  }
 }
 
 /** 直落 N 行大内容（超阈值——每行 ~500 token × N） */
@@ -173,6 +180,35 @@ describe('archive 行（cr-1189 V3）', () => {
       const out = await toolsSvc.execute({ name: 'session_digest', args: { text: '不该被收' }, conversationId: 'user~gamma' });
       expect((out as { ok: boolean }).ok).toBe(false);
       expect(String((out as { error?: string }).error)).toContain('仅在归档整理轮');
+    } finally {
+      await h.dispose();
+    }
+  }, 10_000);
+
+  it('cr-1259：归档预算读 v3 单元文件 archive.json——config.json 的 settings.archive 不再生效', async () => {
+    // 反例设计（区分读哪个文件的必要性）：
+    //   config.json  = 阈值 100 万（旧路径，若被读则【不触发】）
+    //   archive.json = 阈值 100（v3 单元文件，若被读则【触发】）
+    // 旧实现（读 config.json）此用例必红；新实现（读 archive.json）必绿。
+    seedAgent('zeta', { archive: { maxContextTokens: 1_000_000, archiveTokenRatio: 0.5 } });
+    const dir = path.join(ROOT, 'agents', 'zeta');
+    // v3 单元文件（seedAgent 已按 settings.archive 写了一份 1M——此处覆盖为自会话键）
+    fs.writeFileSync(path.join(dir, 'archive.json'), JSON.stringify({
+      maxSelfContextTokens: 100, archiveTokenRatio: 0.5, keepRecentRatio: 0.03,
+    }), 'utf-8');
+    const h = await bootShellRows('zeta');
+    try {
+      // 直取预算面（private 仅编译期可见；运行时可达）——判断读的是哪个文件：
+      //   config.json.settings.archive.maxContextTokens = 1,000,000（旧路径）
+      //   archive.json.maxSelfContextTokens            = 100      （v3 单元文件）
+      // 旧实现读 config.json ⟹ 自会话落 DEFAULT_SELF_CONTEXT_TOKENS=400,000（红）
+      // 新实现读 archive.json ⟹ maxContextTokens=100（绿）
+      const budgetsOf = (h.archive as unknown as {
+        budgetsFor(uuid: string): { maxContextTokens: number; archiveTokenRatio: number };
+      }).budgetsFor.bind(h.archive);
+      expect(budgetsOf('zeta~zeta').maxContextTokens).toBe(100);
+      // 非自会话桶读同一单元文件的 maxContextTokens（未设 ⟹ 行缺省，不是 100）
+      expect(budgetsOf('user~zeta').maxContextTokens).toBe(1_000_000);
     } finally {
       await h.dispose();
     }

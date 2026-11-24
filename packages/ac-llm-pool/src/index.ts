@@ -242,11 +242,25 @@ const MEDIA_CACHE_MAX_ENTRIES = 24;
  */
 function workspaceMediaResolver(ctx: Context): (ref: string) => Promise<string | undefined> {
   const cache = new Map<string, { mtimeMs: number; size: number; url: string }>();
+  /** 能力缺口告警只报一次（本 resolver = 一条连接，实例级去重） */
+  let capabilityWarned = false;
   return async (ref: string) => {
     const ws = ctx.get('workspace', false) as
       | { resolveFile?(relPath: string): string }
       | undefined;
-    if (typeof ws?.resolveFile !== 'function') return undefined;
+    if (typeof ws?.resolveFile !== 'function') {
+      // cr-1280：此前恒静默 undefined——「服务缺方法」与「文件不可物化」同形，
+      // 图片全域降级成 `[图片无法加载: …]` 却无任何日志线索（cr-1279 的
+      // 三处静默断点之一即此）。能力缺口是装配缺陷（非数据问题），报一次即可；
+      // 逐 ref 报会刷屏（每条带图消息都命中）。
+      if (!capabilityWarned) {
+        capabilityWarned = true;
+        ctx.logger.warn(
+          '[llm-pool] ctx.workspace 缺 resolveFile——workspace 媒体引用一律不可物化（图片降级为文本占位）；壳侧加载面需补该读面（cr-1279）',
+        );
+      }
+      return undefined;
+    }
     let file: string;
     let stat: { mtimeMs: number; size: number };
     try {

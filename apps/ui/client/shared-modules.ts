@@ -1,7 +1,7 @@
 // ============================================================
 // shared-modules.ts —— 跨模块共享深路径注册表（8.5c）
 //
-// 域行互相深引（chatStore/uiStore/themeStore/rosterAccess…56 说明符，
+// 域行互相深引（chatStore/uiStore/themeStore/rosterAccess…59 说明符（cr-1296 增 frameScheduler/feed-core；cr-1300 增 fallback-probes），
 // 2026-10-19 扫描）——通道 bundle 外部化这些说明符后，宿主侧必须提供
 // 同一模块实例（importmap 解析目标）。它们是被跨模块共享的状态面与
 // 纯函数面 = 事实上的共享基座（ui-tree §3 单例契约的物理载体）。
@@ -23,7 +23,13 @@ import * as convDraftParking from 'ac-client-ui-conversation/client/draftParking
 import * as convIndex from 'ac-client-ui-conversation/client/index.ts';
 import * as convComposePrefs from 'ac-client-ui-conversation/client/composePrefs.ts';
 import * as convFeed from 'ac-client-ui-conversation/client/feed.ts';
+import * as convFeedCore from 'ac-client-ui-conversation/client/feed-core.ts';
 import * as convFeedStore from 'ac-client-ui-conversation/client/feedStore.ts';
+// cr-1300：兜底探针是模块级计数器单例（feed.ts / feed-core.ts 双引用，
+// 两方均在共享面）——不入共享面则 main/通道双内嵌 → 计数与读面分裂
+//（cr-1296 frameScheduler 同族）。
+import * as convFallbackProbes from 'ac-client-ui-conversation/client/fallback-probes.ts';
+import * as convFrameScheduler from 'ac-client-ui-conversation/client/frameScheduler.ts';
 import * as convHistoryApi from 'ac-client-ui-conversation/client/historyApi.ts';
 import * as convInjectCardViews from 'ac-client-ui-conversation/client/injectCardViews.ts';
 import * as convSwitchTrace from 'ac-client-ui-conversation/client/switchTrace.ts';
@@ -78,7 +84,7 @@ import * as workspaceOpenWithButton from 'ac-client-ui-workspace/client/OpenWith
 // 垫片与 vite alias 同源；settings 等 8.5b 四包外部化依赖它）
 import * as agentchatProtocol from '@agentchat/protocol';
 
-/** 深路径共享说明符 → 宿主模块实例（56 键——完整说明符 = importmap 键） */
+/** 深路径共享说明符 → 宿主模块实例（58 键——完整说明符 = importmap 键；cr-1296 增 frameScheduler/feed-core） */
 export function sharedModules(): Record<string, unknown> {
   return {
     'ac-client-ui-agents/client': agentsClient,
@@ -94,7 +100,13 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-conversation/client/index.ts': convIndex,
     'ac-client-ui-conversation/client/composePrefs.ts': convComposePrefs,
     'ac-client-ui-conversation/client/feed.ts': convFeed,
+    // cr-1296 P0-B 探针采集实锤：frameScheduler（rAF 流水线全局单例）
+    // 不共享 → main/channel 双实例 → stats 分裂（读面恒 0）+ 双 rAF 链。
+    // feed-core（装配点挂读面）同列——挂载侧与消费侧须同实例。
+    'ac-client-ui-conversation/client/feed-core.ts': convFeedCore,
+    'ac-client-ui-conversation/client/frameScheduler.ts': convFrameScheduler,
     'ac-client-ui-conversation/client/feedStore.ts': convFeedStore,
+    'ac-client-ui-conversation/client/fallback-probes.ts': convFallbackProbes,
     'ac-client-ui-conversation/client/historyApi.ts': convHistoryApi,
     'ac-client-ui-conversation/client/injectCardViews.ts': convInjectCardViews,
     'ac-client-ui-conversation/client/switchTrace.ts': convSwitchTrace,

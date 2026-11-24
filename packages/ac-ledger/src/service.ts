@@ -11,13 +11,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Service, type Context, type Plugin } from '@agentchat/cordis';
 import { LedgerWriter } from './writer.ts';
-import { summaryTextOf, UNCOMMITTED_TOOL_ERROR } from './reader.ts';
-import { foldDigestOf, foldLlmReplay, foldSession, foldSummaryOf, foldTextReplay, rowShadowedBy } from './fold.ts';
+import { UNCOMMITTED_TOOL_ERROR } from './reader.ts';
+import { foldDigestOf, foldLlmReplay, foldSession, foldTextReplay, rowShadowedBy } from './fold.ts';
 import { REPLAY_BUILTIN_WORDS, type ReplayDecl, type ReplayKind } from './replay.ts';
 import { wrapSystemReminder } from 'ac-core-utils';
 import { readDomainFacts, type RunFactsV2 } from './events-v2.ts';
 import { readAnchor, type CompactOptions, type CompactReport } from './archive.ts';
-import type { LedgerRow, JournalInject, RunUsage } from './records.ts';
+import { normalizeAttachments, type LedgerRow, type LedgerAttachment, type JournalInject, type RunUsage } from './records.ts';
 import type { LoopStepRecord, LoopStepEnvelope, LoopRunRequestLike, LoopRunResult } from './loop-events.ts';
 
 /** tool/after-execute 首参最小面（执行身份四键 + 子调用档案键——主线 ToolCall 子集） */
@@ -142,7 +142,7 @@ export class LedgerService extends Service {
       agent: string | undefined,
       conversationId: string | undefined,
       runId: string | undefined,
-      consumed: Array<{ message: { content?: unknown }; meta: { injectSource: string; injectionId?: string; label?: string; payload?: unknown; requestId?: string; replay?: string } }>,
+      consumed: Array<{ message: { content?: unknown; attachments?: unknown }; meta: { injectSource: string; injectionId?: string; label?: string; payload?: unknown; requestId?: string; replay?: string } }>,
     ) => {
       if (agent !== this.agentId || conversationId === undefined || runId === undefined) return;
       for (const c of consumed) {
@@ -156,9 +156,12 @@ export class LedgerService extends Service {
           bytes: content.length,
           ...(c.meta.payload !== undefined ? { payload: c.meta.payload as { questions?: Array<{ question: string; options?: string[]; multi?: boolean }>; answers?: Array<string | string[] | null>; outcome?: 'answered' | 'timeout' } } : {}),
         });
+        // cr-1278：插话携带的附件随注入行落账（loop 传入的 LlmMessage 即真值源）
+        const attachments = normalizeAttachments(c.message.attachments);
         void this.journalInject(conversationId, runId, content, c.meta.requestId, {
           injectionId,
           injectSource: c.meta.injectSource,
+          ...(attachments !== undefined ? { attachments } : {}),
           ...(c.meta.label !== undefined ? { label: c.meta.label } : {}),
           ...(c.meta.payload !== undefined ? { payload: c.meta.payload as JournalInject['payload'] } : {}),
         }).catch(() => { /* 落账失败不阻断（直播帧已发）——fail-soft 与既有 recordContext 口径一致 */ });
@@ -297,7 +300,7 @@ export class LedgerService extends Service {
     run: string,
     content: string,
     requestId?: string,
-    extra?: { injectionId?: string; injectSource?: string; label?: string; payload?: JournalInject['payload']; ts?: number },
+    extra?: { injectionId?: string; injectSource?: string; label?: string; payload?: JournalInject['payload']; attachments?: LedgerAttachment[]; ts?: number },
   ): Promise<void> {
     if (run === '') return;
     await this.writerFor(uuid, [this.agentId], 'user').appendEvents([{
@@ -305,6 +308,7 @@ export class LedgerService extends Service {
       run,
       content,
       ...(requestId !== undefined ? { requestId } : {}),
+      ...(extra?.attachments !== undefined ? { attachments: extra.attachments } : {}),
       ...(extra?.injectionId !== undefined ? { injectionId: extra.injectionId } : {}),
       ...(extra?.injectSource !== undefined ? { injectSource: extra.injectSource } : {}),
       ...(extra?.label !== undefined ? { label: extra.label } : {}),
@@ -387,7 +391,9 @@ export class LedgerService extends Service {
     // 摘要（§2.3 三态）→ summary.md 兼容窗（v1）；文本投影走 fold 单源
     // （含 shadowed 过滤）
     const fold = foldSession(this.dataRoot, uuid, [dir]);
-    const summary = foldDigestOf(fold) ?? foldSummaryOf(fold)?.text ?? summaryTextOf(dir);
+    // cr-1274 摘要单源：archive-summary 行（V3）唯一级——foldTextReplay 只投
+    // speech 行不含 context，摘要行经 foldDigestOf 显式置首。
+    const summary = foldDigestOf(fold) ?? '';
     const view = foldTextReplay(fold, viewer);
     return summary !== '' ? [{ role: 'system', content: summary }, ...view] : view;
   }
@@ -444,22 +450,16 @@ export class LedgerService extends Service {
   historyMessagesFor(uuid: string, opts: { excludeRun?: string } = {}): LlmMessage[] {
     const dir = path.join(this.agentDirOf(), 'sessions', uuid);
     // cr-974：LLM 回放走 fold 单源——压缩在场时摘要头与 shadowed 过滤
-    // 均由 fold 三态承载（system 头在 foldLlmReplay 内置）；v1 概要
-    // 兼容窗仍取 summary.md（fold 无压缩时）。parity 由 fold.test.ts 锁定。
-    // cr-1101：excludeRun——活动 run 轨迹排除（driveRun 轮间重派生防双喂）。
+    // 均由 fold 承载（system 头在 foldLlmReplay 内置；摘要单源 = V3
+    // archive-summary 行——cr-1274，v1 概要窗已随存量物化退役）。
+    // parity 由 fold.test.ts 锁定。cr-1101：excludeRun——活动 run 轨迹
+    // 排除（driveRun 轮间重派生防双喂）。
     const fold = foldSession(this.dataRoot, uuid, [dir]);
-    const out = foldLlmReplay(fold, this.agentId, this.dataRoot, uuid, undefined, {
+    return foldLlmReplay(fold, this.agentId, this.dataRoot, uuid, undefined, {
       excludeRun: opts.excludeRun,
       // cr-1104 注册制：声明词按 owning 插件的注册档回放（缺省 wrapper）
       replayOf: (word) => this.replayDecls.get(word),
     });
-    // v1 概要兼容窗（cr-1189 V3 单源序）：无 V3 摘要行且无 v2 压缩代时
-    // 才回落 summary.md——foldLlmReplay 只对 v2 代发 system 头
-    if (foldDigestOf(fold) === null && foldSummaryOf(fold) === null) {
-      const summary = summaryTextOf(dir);
-      return summary !== '' ? [{ role: 'system', content: summary }, ...out] : out;
-    }
-    return out;
   }
 
   /**

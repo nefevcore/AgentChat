@@ -30,6 +30,13 @@ export const HOST_MODULE_SPECS = Object.freeze([
   "ac-client-ui-conversation/client/draftParking.ts",
   "ac-client-ui-conversation/client/composePrefs.ts",
   "ac-client-ui-conversation/client/feed.ts",
+  // cr-1296 P0-B：frameScheduler（rAF 单例）+ feed-core（读面装配点）入共享面——
+  // 双实例分裂会破坏 P4-2 单流水线语义（stats 分裂实测：读面恒 0）。
+  "ac-client-ui-conversation/client/feed-core.ts",
+  "ac-client-ui-conversation/client/frameScheduler.ts",
+  // cr-1300：兜底探针模块级计数单例（feed/feed-core 双引用）——双内嵌
+  // 即计数分裂（cr-1296 frameScheduler 同族）。
+  "ac-client-ui-conversation/client/fallback-probes.ts",
   "ac-client-ui-conversation/client/feedStore.ts",
   "ac-client-ui-conversation/client/historyApi.ts",
   "ac-client-ui-conversation/client/index.ts",

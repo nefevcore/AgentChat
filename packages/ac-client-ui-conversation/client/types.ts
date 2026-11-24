@@ -21,6 +21,8 @@ export interface TurnStep {
 /** 一个完整的对话轮次：任意 Agent（含用户）的思考+回复 */
 export interface Turn {
   agent_id: string;
+  /** 轮身份键（cr-1286 P4-1）：轮首行 turnId（启发域轮缺席）——渲染 key 源 */
+  turnId?: string;
   steps: TurnStep[];
   /** 最终纯文本回复（无 toolCalls 的 assistant），可为 null */
   final: ChatMessage | null;
@@ -55,6 +57,9 @@ export interface InjectCard {
   /** 挂靠锚（cr-1132：投影层派生——时间线上最近 agent 发言行 message_id；
    *  窗口内按锚精确挂轮，锚被窗口边界切掉时挂下一 agent 轮头） */
   anchor?: string;
+  /** run 归口键（cr-1285 P3-4）：直播帧与刷新投影行同键——注入卡挂到
+   *  该 run 所在轮（afterStep 按同 run 步序定位），取代位置启发 */
+  runId?: string;
   ts?: number;
   afterStep?: number;
   key: string;
@@ -99,6 +104,13 @@ export interface ChatMessage {
    * 的长程 run 恒为一条思考链（run 边界（信封/收束行）才是拆轮判据）。
    */
   runId?: string;
+  /**
+   * 轮身份键（cr-1286 P4-1 投影分组）：前端轮分组的权威键——投影行 =
+   * run（run 承载行）/ message_id（用户行）；直播步行随步帧 run 键驻留
+   * （cr-1289：= run，与投影同语义）。双方在场同值恒并轮、异值恒拆轮；
+   * 缺席回落窗口局部启发（双写过渡期，探针 turn-gap-fallback 观察归零）。
+   */
+  turnId?: string;
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;
   /**

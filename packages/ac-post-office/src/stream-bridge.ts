@@ -151,6 +151,7 @@ export function streamFrameToFrontend(
             source: frame.source,
             ...(frame.injectionId !== undefined ? { injectionId: frame.injectionId } : {}),
             ...(frame.label !== undefined ? { label: frame.label } : {}),
+            ...(frame.run !== undefined ? { run: frame.run } : {}),
           },
         ],
       },

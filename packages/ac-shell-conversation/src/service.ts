@@ -21,7 +21,7 @@ import { pairKey } from 'ac-core-utils';
 import { parseKey } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import type { Envelope } from 'ac-envelope-core';
 import { budgetAfterReceive, deliver, entersInbox, type RendezvousPaths } from 'ac-envelope-core';
-import { readLedger, readJournal } from 'ac-ledger';
+import { normalizeAttachments, readLedger, readJournal, type LedgerAttachment } from 'ac-ledger';
 import { poolFallbackRef, splitModelRef } from 'ac-llm'; // 模型缺省回落单源（cr-313 语义——cr-561 复用）+ name@model 引用拆分
 import { effectiveToolMode, discoverTools, narrowToolsByMode, humanPresentOf } from 'ac-agents'; // 工具调用模式收窄单源（估算与真实 run 同口径）+ 两步投影（cr-1049）+ 档位判定单源（cr-888 指纹键面 / cr-947 access 词面）+ 无人桶判定（cr-1148 peer 提问路由轴）
 import { answerNotice } from 'ac-ask-questions'; // 应答通知正文单源（cr-636 恢复面重放口径与主线 late-reply 同源）
@@ -620,7 +620,13 @@ export class ConversationService extends Service {
     if (plan.action === 'steer') {
       // steer：注入活跃 run（主线 loop Service 方法——runAddress 词汇）
       const handle = this.steerHandle(uuid);
-      const injected = this.ctx.agentLoop.steer(handle, { role: 'user', content: this.textOf(env) }, { sender: env.sender, requestId: env.requestId });
+      // cr-1278：插话携带的附件随 LlmMessage 进模型（回放由 inject 消费点落账承接）
+      const steerAttachments = this.attachmentsOf(env);
+      const injected = this.ctx.agentLoop.steer(handle, {
+        role: 'user',
+        content: this.textOf(env),
+        ...(steerAttachments !== undefined ? { attachments: steerAttachments } : {}),
+      }, { sender: env.sender, requestId: env.requestId });
       if (injected) {
         // cr-1251：落账归 ac-ledger（消费点统一落账——loop/inject-consumed）；
         // 壳侧只登记 inbox durable。崩溃安全：不进机器队列（收束链跑不消费）；
@@ -1189,17 +1195,20 @@ export class ConversationService extends Service {
   ): Promise<void> {
     const injectionId = extra.injectionId ?? 'inj-' + crypto.randomUUID();
     const ts = Date.now();
+    const run = this.machines.get(this.gateKey(conversationId))?.state().currentRun ?? '';
     // 帧带轻量 meta（cr-765 #5）：bytes = 注入体字节数（载入态显示用）——
     // 正文仍不广播（瘦身纪律），几十字节 meta 不破例。payload 随帧透传
-    //（#4 问答卡直播行数据面）。
+    //（#4 问答卡数据面）。run 随帧（cr-1285 P3-4 直播挂靠并轨）：注入卡
+    // 直播行与刷新投影行（journal-inject 落账恒带 run 键）同键挂靠——
+    // 前端 buildTurns 按 run 归口，不再位置启发。
     this.ctx.emit('session/context-injected', conversationId, this.agentId, {
       source: extra.source,
       injectionId,
+      ...(run !== '' ? { run } : {}),
       ...(extra.label !== undefined ? { label: extra.label } : {}),
       bytes: content.length,
       ...(extra.payload !== undefined ? { payload: extra.payload } : {}),
     });
-    const run = this.machines.get(this.gateKey(conversationId))?.state().currentRun ?? '';
     // cr-1106 run 死窗口兜底:run 不活跃(收束竞态/迟到注入)不再只发直播帧
     // 丢落账——降级直落会话级 context 行(source 词 + label + payload 随行),
     // 回放经时间线全量准入在场(cr-1106),UI 注入卡同形。
@@ -1249,11 +1258,18 @@ export class ConversationService extends Service {
   private inboundRowOf(
     env: Envelope,
     text: string,
-  ): { role: 'agent' | 'context'; content: string; agent_id: string; requestId: string; uuid: string; source?: string } {
+  ): { role: 'agent' | 'context'; content: string; agent_id: string; requestId: string; uuid: string; source?: string; attachments?: LedgerAttachment[] } {
     const mechanism = (env.payload as { mechanism?: unknown } | null)?.mechanism === true;
+    // cr-1278：入站附件旁路（白名单窄化单源）——发言行随行落账，回放还原
+    const attachments = this.attachmentsOf(env);
     return mechanism
       ? { role: 'context', source: 'event', content: text, agent_id: this.agentId, requestId: env.requestId, uuid: env.uuid }
-      : { role: 'agent', content: text, agent_id: env.sender, requestId: env.requestId, uuid: env.uuid };
+      : { role: 'agent', content: text, agent_id: env.sender, requestId: env.requestId, uuid: env.uuid, ...(attachments !== undefined ? { attachments } : {}) };
+  }
+
+  /** 信封附件（cr-1278）：payload.attachments 白名单窄化（kind/ref 校验 + 50 上限） */
+  private attachmentsOf(env: Envelope): LedgerAttachment[] | undefined {
+    return normalizeAttachments((env.payload as { attachments?: unknown } | null)?.attachments);
   }
 
   /** 机制排队行消费点落账（cr-1119）：busy 排队的机制信在 receiveEnvelope

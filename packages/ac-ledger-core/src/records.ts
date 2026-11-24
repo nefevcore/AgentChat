@@ -11,6 +11,50 @@
 /** 行角色（消费通道）：agent = 真实发言；context = 上下文材料 */
 type LedgerRole = 'agent' | 'context';
 
+/**
+ * 多模态附件引用（cr-1278）：与 ac-llm 的 LlmAttachment 结构同形——本包
+ * 零依赖（不 import ac-llm），同形由 ac-ledger fold 的类型赋值锁定。
+ * 只存引用（http(s) 直传 / workspace 相对路径），base64 物化收敛在
+ * provider 适配层；落盘几十字节，前缀缓存不受污染。
+ */
+export type LedgerAttachment =
+  | { kind: 'image'; ref: string; mime?: string; filename?: string; detail?: 'low' | 'high' | 'original' | 'auto' }
+  | { kind: 'video'; ref: string; mime?: string; filename?: string }
+  | { kind: 'file'; ref: string; mime?: string; filename?: string };
+
+/** 单个附件上限（与前端采集闸、provider 约束同口径） */
+export const ATTACHMENT_LIMIT = 50;
+/** ref 长度上限（防误传整段 base64 进账本） */
+export const ATTACHMENT_REF_MAX = 2048;
+
+/**
+ * 附件白名单窄化（cr-1278 入口单源）：deliver / group/send / 壳侧入站行
+ * 三处共用。kind ∈ image|video|file（缺省 image——多模态一期契约），ref
+ * 非空且 ≤2048，超限截断（不静默扩容）。非法项丢弃而非炸轮（单图缺失
+ * 由适配层降级占位）。
+ */
+export function normalizeAttachments(input: unknown, limit = ATTACHMENT_LIMIT): LedgerAttachment[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+  const out: LedgerAttachment[] = [];
+  for (const raw of input) {
+    if (out.length >= limit) break;
+    if (raw === null || typeof raw !== 'object') continue;
+    const r = raw as Record<string, unknown>;
+    const kind = typeof r.kind === 'string' ? r.kind : 'image';
+    const ref = typeof r.ref === 'string' ? r.ref : '';
+    if (ref === '' || ref.length > ATTACHMENT_REF_MAX) continue;
+    const base = { ref, ...(typeof r.mime === 'string' ? { mime: r.mime } : {}), ...(typeof r.filename === 'string' ? { filename: r.filename } : {}) };
+    if (kind === 'image') {
+      const detail = r.detail === 'low' || r.detail === 'high' || r.detail === 'original' || r.detail === 'auto' ? r.detail : undefined;
+      out.push({ kind: 'image', ...base, ...(detail !== undefined ? { detail } : {}) });
+      continue;
+    }
+    if (kind === 'video') { out.push({ kind: 'video', ...base }); continue; }
+    if (kind === 'file') { out.push({ kind: 'file', ...base }); }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 /** 账本行（messages.jsonl 每行一 JSON） */
 export interface LedgerRow {
   role: LedgerRole;
@@ -53,6 +97,12 @@ export interface LedgerRow {
   /** 结构化载荷（cr-765 #4 起公共数据面；cr-1107 泛化：问答卡 Q/A /
    *  memory 水位 memoryBaseline 等按词携带——键域随 source 词开放） */
   payload?: Record<string, unknown>;
+  /**
+   * 多模态附件引用（cr-1278）：发言行的入站附件旁路——回放层还原为
+   * LlmMessage.attachments（provider 边界物化），UI 刷新后恢复附件 chips。
+   * 存量行缺席 = 无附件（向后兼容，零迁移）。
+   */
+  attachments?: LedgerAttachment[];
   /** 单调序号（writer 按文件分配——崩溃检测 + 去重锚） */
   seq?: number;
 }
@@ -108,6 +158,10 @@ export interface LedgerHeader {
   participants: string[];
   /** 形态标记（user/agent/group/… 开放词汇） */
   kind: string;
+  /** 升头继承键（M-A cr-1270）：迁移产物头携带 migratedFrom；过渡态
+   *  旧头可能携带 migrated——splitHeader 白名单外全进 extra 原样继承 */
+  migratedFrom?: number;
+  migrated?: boolean;
 }
 
 /** journal 步行（partials.jsonl——run 周期台账；行序 = 模型消息数组实际序） */

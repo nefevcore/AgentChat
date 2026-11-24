@@ -9,18 +9,18 @@ import { sessionDir } from './writer.ts';
 import { pairIncludes } from 'ac-conv-keys'; // 会话键词法单源（cr-1238 B3）
 import { readDomainFacts, type DomainFacts, type RunFactsV2, type SpeechEvent, type ContextEvent, type StepMeter } from './events-v2.ts';
 import { conversationDirs } from './manage.ts';
-import type { JournalToolResult, ProjectedStep } from './records.ts';
+import type { JournalToolResult, LedgerAttachment, ProjectedStep } from './records.ts';
 import type { UserReplayRow } from './user.ts';
 import { UNCOMMITTED_TOOL_ERROR } from './reader.ts';
 import { wrapForReplay, REPLAY_BUILTIN_NONE, type ReplayKind } from './replay.ts';
 import type { ViewRow } from './view.ts';
 // cr-1245 B1：纯核 re-export（消费方 import 路径不变）
 export {
-  foldStepsOf, foldFromFacts, emptyFold, rowShadowedBy, foldSummaryOf,
+  foldStepsOf, foldFromFacts, emptyFold, rowShadowedBy,
   foldDigestOf, foldUserReplay, foldTextReplay, ARCHIVE_SUMMARY_SOURCE,
   type SessionFold,
 } from 'ac-ledger-core/src/fold-core.ts';
-import { foldStepsOf, rowShadowedBy, foldSummaryOf, foldDigestOf, foldUserReplay, emptyFold, foldFromFacts, type SessionFold } from 'ac-ledger-core/src/fold-core.ts';
+import { foldStepsOf, rowShadowedBy, foldDigestOf, foldUserReplay, emptyFold, foldFromFacts, type SessionFold } from 'ac-ledger-core/src/fold-core.ts';
 // foldStepsOf 依赖注入卡（core reader-core）——壳内继续可用
 import { injectSubcallCards } from 'ac-ledger-core/src/reader-core.ts';
 
@@ -186,6 +186,9 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       // cr-1132:发言行 message_id 升格携带——anchor 锚目标(注入卡挂靠)
       ...(r.messageId ? { message_id: r.messageId } : {}),
       ...(r.run !== undefined ? { run: r.run } : {}),
+      // cr-1286 P4-1:轮身份键——peer 行 = run(无 run 回落 message_id);user 行 =
+      // message_id(用户轮独立成轮;老形态 run 键覆盖对话边界的场景 run 优先)
+      ...(r.run ?? r.messageId ? { turnId: r.run ?? r.messageId } : {}),
       ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
       ...(r.seq !== undefined ? { seq: r.seq } : {}),
       ...(projected !== null ? { steps: projected.steps, ...(projected.partial ? { partial: true } : {}) } : {}),
@@ -201,7 +204,7 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
     if (p === null || !p.partial) continue;
     all.push(...(injectRowsOf.get(run0.runId) ?? []));
     for (const s of p.steps) {
-      all.push({ role: 'assistant', agent_id: run0.agentId, content: '', run: run0.runId, steps: [s], partial: true, ...(typeof s.ts === 'number' && s.ts > 0 ? { timestamp: new Date(s.ts).toISOString() } : {}) });
+      all.push({ role: 'assistant', agent_id: run0.agentId, content: '', run: run0.runId, steps: [s], partial: true, turnId: run0.runId, ...(typeof s.ts === 'number' && s.ts > 0 ? { timestamp: new Date(s.ts).toISOString() } : {}) });
     }
   }
   // 盲区投影（cr-628/698）+ 配平（D-3：未闭合 run 投 partial——不回写）
@@ -238,6 +241,8 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       agent_id: ledgerOwner,
       content: '',
       run,
+      // cr-1286 P4-1:盲区行轮身份键 = run
+      turnId: run,
       steps: p.steps,
       ...(p.partial ? { partial: true } : {}),
       ...(lastTs > 0 ? { timestamp: new Date(lastTs).toISOString() } : {}),
@@ -383,26 +388,13 @@ export function foldLlmReplay(
   // （未 shadow）时摘要即行——wrapper 档随下方时间线进回放，天然落新代
   // 头部，system 头不再另发（防与 v2 存量摘要双份）；无行才回落 v2
   // 事件摘要头；v1 无压缩 → 调用方概要兼容窗
-  const digest = foldDigestOf(fold);
-  if (digest === null) {
-    const compaction = foldSummaryOf(fold);
-    if (compaction !== null) out.push({ role: 'system', content: compaction.text });
-  }
+  // cr-1274 摘要单源：V3 行正文以 context 行进时间线（wrapper 包裹），
+  // digest 在场时不发 system 头防双计；v2 存量代头已随全量物化退役。
+  void foldDigestOf;
   // cr-1104 注册制分档：声明词按注册档（original 原文/none 跳过），缺省 wrapper
   const kindOf = (word: string | undefined): ReplayKind =>
     (word !== undefined && REPLAY_BUILTIN_NONE.has(word)) ? 'none' : (word !== undefined ? opts.replayOf?.(word) : undefined) ?? 'wrapper';
-  // 注入判重（cr-713）→ v1 门控（cr-1101）：注入行携带 requestId 的对应
-  // 入站行文本不再复读——只为 v1 双写遗产兜底（数据根实证 202 对共存，
-  // 全部 v1）。v2 写面三重幂等（machine 准入 / writer requestId 门 /
-  // 恢复面盘面查重 receiveEnvelope）+ 实证 0 对共存 → 跳过。
-  const injected = new Set<string>();
-  if (fold.version === 1) {
-    for (const rf of fold.runs.values()) {
-      for (const ev of rf.events) {
-        if (ev.kind === 'inject' && ev.requestId !== undefined && ev.requestId !== '') injected.add(ev.requestId);
-      }
-    }
-  }
+
   // 时间线（文件序 ≈ 时间序；稳定归并——speech 先于同刻 context）。
   // cr-1101：error 行进时间线（曾进入 run 的失败事实必须回放——user
   // 语义位 + wrapper 包裹）；孤儿 run（有步/注入事实、无 run-end、无终稿
@@ -493,8 +485,15 @@ export function foldLlmReplay(
         out.push(...traj);
       }
     }
-    if (r.content.trim() !== '' && !injected.has(r.requestId ?? '')) {
-      out.push({ role: r.agentId === viewer ? 'assistant' : 'user', content: r.content });
+    if (r.content.trim() !== '') {
+      // cr-1278：入站发言行的附件旁路随回放还原（仅 user 位——provider 物化
+      // 只认 user 消息；assistant 行恒无附件）
+      const toUser = r.agentId !== viewer;
+      out.push({
+        role: toUser ? 'user' : 'assistant',
+        content: r.content,
+        ...(toUser && r.attachments !== undefined ? { attachments: r.attachments } : {}),
+      });
     }
   }
   return out;
@@ -548,7 +547,11 @@ export function trajectoryOfFacts(
     for (const mark of rf.aggOrder) {
       if (mark.type === 'inject') {
         if (kindOfT(mark.ev.injectSource) === 'none') continue;
-        out.push({ role: 'user', content: wrapForReplay(mark.ev.content, kindOfT(mark.ev.injectSource)) });
+        out.push({
+          role: 'user',
+          content: wrapForReplay(mark.ev.content, kindOfT(mark.ev.injectSource)),
+          ...(mark.ev.attachments !== undefined ? { attachments: mark.ev.attachments } : {}),
+        });
         continue;
       }
       for (let k = 0; k < mark.count; k++) { pushStep(out, steps[idx]); idx++; }
@@ -559,9 +562,9 @@ export function trajectoryOfFacts(
   // 事件行序 → 步/注入交错（步号按首见序对应 foldStepsOf 的 acc 序）
   const stepOrder: number[] = [];
   const seenStep = new Set<number>();
-  const slots: Array<{ kind: 'step'; step: number } | { kind: 'inject'; content: string; injectSource?: string }> = [];
+  const slots: Array<{ kind: 'step'; step: number } | { kind: 'inject'; content: string; injectSource?: string; attachments?: LedgerAttachment[] }> = [];
   for (const ev of rf.events) {
-    if (ev.kind === 'inject') { slots.push({ kind: 'inject', content: ev.content, ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}) }); continue; }
+    if (ev.kind === 'inject') { slots.push({ kind: 'inject', content: ev.content, ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}), ...(ev.attachments !== undefined ? { attachments: ev.attachments } : {}) }); continue; }
     if (ev.kind === 'tool-call-result') continue;
     if (!seenStep.has(ev.step)) { seenStep.add(ev.step); stepOrder.push(ev.step); slots.push({ kind: 'step', step: ev.step }); }
   }
@@ -571,7 +574,11 @@ export function trajectoryOfFacts(
   for (const slot of slots) {
     if (slot.kind === 'inject') {
       if (kindOfT(slot.injectSource) === 'none') continue;
-      out.push({ role: 'user', content: wrapForReplay(slot.content, kindOfT(slot.injectSource)) });
+      out.push({
+        role: 'user',
+        content: wrapForReplay(slot.content, kindOfT(slot.injectSource)),
+        ...(slot.attachments !== undefined ? { attachments: slot.attachments } : {}),
+      });
       continue;
     }
     pushStep(out, byStep.get(slot.step));
