@@ -107,6 +107,7 @@ SessionStepRecord 持久层内嵌：agent（回复）行的 ReAct 步记录
 `{ role, content, name?, tool_call_id?, attachments? }`，role ∈ `system | user | assistant | tool`。
 `name` 是可选的说话人标注——回放产物带 `name`（由存储行 `agent_id` 投影而来，§2.6，**由回放层统一保证，不依赖调用方记得带**）。
 `attachments`（image/video/file 引用）随行回放，base64 物化收敛在 provider 适配层。
+（cr-1278：V3 重写期该旁路曾整段丢失——deliver / UserStub / 壳侧入站行 / 账本行 / fold 回放五处已补齐，回归锁 `packages/ac-ledger/tests/cr1278-attachments.test.ts` + `ac-shell-conversation/tests/service.test.ts`。）
 
 ### 2.2 SessionRecord（持久行）
 
@@ -134,7 +135,7 @@ SessionStepRecord 持久层内嵌：agent（回复）行的 ReAct 步记录
 | `run?` | run 关联键 | 切段后同 run 可有多条段行（注入行是切分点） |
 | `injectionId?` / `injectSource?` | 注入行身份快照（cr-707） | 注入行随 journal 落盘携带，宿主 `session/history` 读面投影为 context 行 |
 | `requestId?`（注入行） | 信封关联键（cr-739 不变量） | 再现某入站消息的行必携带该消息的 requestId；`session/history` 消费此键做跨域关联——busy-steer 注入行与 viewer 域同键 user 行同现时只呈现用户卡（注入卡不投），机制注入不受影响 |
-| `attachments?` | 多模态附件引用 | 只存引用（几十字节），UI 刷新后恢复附件 chips |
+| `attachments?` | 多模态附件引用（`LedgerAttachment`，与 `ac-llm` 的 `LlmAttachment` 结构同形） | 只存引用（几十字节），UI 刷新后恢复附件 chips；入站发言行与 busy-steer 注入行均携带（cr-1278），存量行缺席 = 无附件 |
 
 ### 2.3 判别行（type 键：非消息行，同 `session-header` 机制）
 
@@ -717,6 +718,7 @@ news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
 |---|---|
 | 根 `README.md` | 根级事实源（布局/架构/命令/文档地图）——冲突时以它为准（原 `src/README.md` 已随 cr-703 退役） |
 | `docs/design/session/run-lifecycle-checkpoints.md` | Run 生命周期临时态与收敛 checkpoint 全景（§8 引） |
+| `docs/design/session/session-render-pipeline-plan.md` | 会话渲染管线结构优化 + v1 存量全量迁移实施计划（cr-1265，2026-11-23 立档；审计基线 cr-1260）——webui 消费面收敛与账本形态归一的执行计划 |
 | `docs/design/platform/skill-injection-and-storage-vocab.md` | 存储词汇 v2 + 技能注入三通道 + 迁移机制（§2 的规范出处） |
 | `../archive/session/message-pipeline-analysis.md` | 消息链路根因分析（cr-87，2026-10-06 归档；有效结论已并入 §7） |
 | `../archive/session/message-pipeline-d1-convergence-plan.md` | D1 收敛协议实施计划（cr-94 已实施，冻结） |

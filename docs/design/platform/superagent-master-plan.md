@@ -73,7 +73,7 @@
 
 | # | 缺口 | 对标物 | AgentChat 现状 | 独立收益 |
 |---|---|---|---|---|
-| E1 | 工具/技能渐进披露（tool-search 模式） | dsh dev_tool_search + skill_search/skill_load（catalog 全量注入在场 0/9 锚定 vs 去掉 ~81% 锚定，issue #6 实测） | 技能目录 cr-1249 起改 before-run 指纹注入（变化才落 context 行——已非 system 常驻）；llmToolFace 全量给模型；run_code 投影全量 | 特性面增厚（133 包、工具数十）下每轮 schema+catalog 成本线性涨；目录当索引用、正文按需取 |
+| E1 | 工具/技能渐进披露（tool-search 模式） | dsh dev_tool_search + skill_search/skill_load（catalog 全量注入在场 0/9 锚定 vs 去掉 ~81% 锚定，issue #6 实测） | 技能目录 cr-1249 起改 before-run 指纹注入（变化才落 context 行——已非 system 常驻）；llmToolFace 全量给模型；run_code 投影全量 | 特性面增厚（133 包、工具数十）下每轮 schema+catalog 成本线性涨；目录当索引用、正文按需取（cr-1284 实施档：[tool-schema-progressive-disclosure-plan.md](tool-schema-progressive-disclosure-plan.md)） |
 | E2 | PTY 持久 shell | dsh bash-persistent（PTY 会话跨调用、terminal 注册中心；Windows 降级 custom-bash） | bash/pwsh 每次 spawn 独立进程（grep PTY 零命中），env/cd/venv 每轮重来 | 编码型 Worker 体验 + token 成本；沙箱词法扫描需新增「状态逃逸」防御面 |
 | E3 | plan mode | dsh plan-mode（只读探索→exit_plan_mode 提交→人批→动手；工具目录跨模式不变保 KV） | 全仓 grep `plan.?mode|exit_plan` 零命中；ask_questions 不等价（无只读约束、无模式状态机） | 人的注意力管理：先看计划再授权比看结果再收拾便宜；可与 Ticket person/review 阶段合并设计 |
 

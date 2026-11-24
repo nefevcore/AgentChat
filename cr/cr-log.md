@@ -1283,4 +1283,45 @@
 - 【cr-1262 2026-11-23 update_agent_profile settings 写面禁授权工件键（security/permission-gate）——mathematician 经该口自写 security.json 白名单提权实证（ISSUE-20 自签同型）；运营者写口不经工具面不受影响；mathematician 白名单经运营者裁决转正】
 - 【cr-1263 2026-11-23 cr-1259 组合洞修复：草稿位 immediate 键两头漏写——selectExtKey 撞 onDraft 守卫不写 + dirtyConvPatch 排除不随 flush，值悬空后被物化回读重置（回落默认）；修 = 草稿位选择暂存 pendingImmediate，flush 合入（暂存不受会话切换 watch 重置影响，免疫物化竞态）】
 - 【cr-1264 2026-11-23 net-monitor 判定排除虚拟宿主网卡 + 闸门端点 DNS 预检（cr-1158 补修）】
+- 【cr-1265 2026-11-23 会话渲染管线结构优化实施计划（P0-P4 总计划 + v1 存量全量迁移）：docs/design/session 立档】
+- 【cr-1266 2026-11-23 计划档批次状态板初始化（P0-A ☑ 其余 ☐）——多会话接力进度事实源】
+- 【cr-1267 2026-11-23 P1-1 签名单源化：msgSig/turnContentSig 同一 render-shape 字段清单派生 + 字段覆盖测试锁】
+- 【cr-1268 2026-11-23 P1-2 签名滚动哈希：strLen 长度身位 → djb2 值缓存哈希（等长异容触发重建）】
+- 【cr-1269 2026-11-23 P1-3 稳定 key 同刻消歧（turn-<agent>-<ts>-<n>）+ P1-4 mergeHistoryPage 前插后稳定 ts 排序收口】
+- 【cr-1270 2026-11-23 P0-B 用户裁决搁置（暂无手机场景；P4-2 前复测时重启）+ M-A 迁移边纯函数+注册 开工】
+- 【cr-1271 2026-11-23 M-B 迁移工具 scripts/migrate-sessions-v2.mjs：链驱动 --dry 预演 + 过滤 + 幂等重入 + 逐会话报告 + staging 原子换名】
+- 【cr-1272 2026-11-23 M-C 真实数据根执行 migrate-sessions-v2：备份 + idle 窗口 + 迁后断言（v1 头归零 + fold 对拍）】
+- 【cr-1273 2026-11-23 P2-B v1 依赖项删（7 处）：name 兼容/restarted 判别/注入判重门控/v1 概要窗/聚合双路径/legacyEventQuota/读面缩减——迁后零命中证明 + 快照对拍】
+- 【cr-1274 2026-11-23 摘要载体归一 V3：存量 summary.md / compaction 代摘要物化为 archive-summary 行（幂等 append）+ V1/V2 摘要读面全面退役（summaryTextOf/foldSummaryOf/概要窗/v1Fallback）】
+- 【cr-1275 2026-11-23 P2-A 死代码直删 3 处：onToolEnd 位置匹配回退 / mergeResumeSnapshot 镜像剔除 / legacyRc 行级 reasoning 挂首步】
+- 【cr-1276 2026-11-23 P2-C 兜底探针化：isInjectEvent 启发 + legacyEventQuota 配额 + 内容前缀互验挂命中计数探针（观察窗）】
+- 【cr-1277 2026-11-24 移除 Agent 轮次上限配置（max-steps）：quant 档案删除 60，系统不对轮次设限】
+- 【cr-1278 2026-11-24 V3 消息架构补回多模态附件旁路：deliver/UserStub/壳侧入站行/账本行协议/fold 回放/群发六处透传 attachments】
+- 【cr-1279 2026-11-24 工作区垫片补 resolveFile（多媒体物化此前恒降级「图片无法加载」）+ 附件行路径三层回退】
+- 【cr-1280 2026-11-24 媒体物化器缺 resolveFile 时打一次 warn（静默降级可观测化）】
+- 【cr-1281 2026-11-24 P3-1 合并对齐收敛：四重机制 → 键控单机制 + 显式兜底归位（内容互验/配额抵扣/内容等值/同锚推论退役）】
+- 【cr-1282 2026-11-24 P3-2 keyed store：rawMessages → Map<id,msg> + 有序 id 表；轮复用 → turnId 键 diff；msgSig/turnContentSig/invalidateTurns 整体退役】
+- 【cr-1283 2026-11-24 P3-3 转换器并轨：三份视角转换器并轨为单份 historyRowToChatMessage（群链仅转换并轨不动投影）】
+- 【cr-1284 2026-11-24 工具 schema 渐进披露：schema 瘦身 + tools_help 按需披露（方案调研立项）】
+- 【cr-1285 2026-11-24 P3-4 直播挂靠并轨 run 归口：context-injected 帧与投影行补 run 键，注入卡三路径（刷新/直播/上翻）恒同挂靠，curOwner 位置启发退役】
+- 【cr-1286 2026-11-24 P4-1 投影分组：foldViewRecords 输出 TurnNode 分组树（turnId = runId 或首行 message_id），buildTurns 六段启发坍缩为按键装配，双写过渡】
+- 【cr-1287 2026-11-24 P4-2 统一帧调度器：ingest→derive→markdown commit→scroll 单 rAF 流水线，idle-commit 升为调度器级静默判据】
+- 【cr-1288 2026-11-24 fix conversation channel browser ReferenceError process undefined (cr-1281 shadow flag) #webui】
+- 【cr-1289 2026-11-24 P4-1 收尾①：兜底探针读面接线（dev 全局暴露）+ 直播行 turnId/runId 派生落位（解锁 turn-gap-fallback 归零路径）】
+- 【cr-1290 2026-11-24 collab-tools GROUP_CONTRACT 段 settingsOf 缺席判空（壳垫片无全局层 + agent 无 group 键时 undefined 读 contractText 抛 TypeError——信封处理失败根修）】
+- 【cr-1291 2026-11-24 群刷屏根修：宿主 group/send 扇出信封补 broadcast 标记（对齐壳侧 GroupShim——终稿不回投发送方；缺标记致群回复被当 1v1 回信回投、链式唤起刷屏 41+ run/2min）】
+- 【cr-1292 2026-11-24 冻结消息 invariant 崩溃根修：freezeMsg 剥 reactive 壳再冻结（merge 写回把 vue proxy 一并冻进 rawMessages，深层 reactive 读 toolCalls 违反 proxy invariant → 视角宿主崩溃退位；restart_host 触发 converge 重拉时爆发）】
+- 【cr-1293 2026-11-24 冻结不变量收口补修：closeAllStreaming/closeRunningToolCalls 换身产物经 freezeMsg（收口索引赋值绕过入位冻结防线——每 run 收束撕开一次，cr-1282 构造性防线失守；外部 Agent 复现锁定）】
+- 【cr-1294 2026-11-24 anchor-cover 删除批（P3-1 第三步）：coveredAnchors 同锚覆盖兜底退役（双静态扫描零命中——cr-1281 275 会话 + cr-1294 全根 1440 会话，生产形态 0 候选）+ shadowAssertNoKeyGuess 影子一并退役（既定第三步）；缺键行统一走「保留 + 收束重拉」语义】
+- 【cr-1295 2026-11-24 session-render-pipeline 实施质量评估（cr-1267~1294 逐批核验）+ 补缺：render-contract ViewRow turnId 勾销与判据矩阵退役注记、feed-core P3-1 注释块收敛（coveredAnchors/shadow 残句）、merge-final-anchor 头注释与用例名随 cr-1294 语义反转校准 #render-pipeline】
+- 【cr-1296 2026-11-24 P0-B 性能基线采集（真机 K20 + desktop 同口径）：探针脚本收编 scripts/perf-probe/ + rAF 直方图/longtask/CPU profile/首载切换/上翻指标成文计划档 §九 #render-pipeline】
+- 【cr-1297 2026-11-24 session-render-pipeline 实施质量评估（第三轮）+ 补缺：cr-1296 后增量审计 + 4 缺口（上翻补挂未测 / 重连帧疑点 / P2-B 留观项开放项化 / sandbox 残留）】
+- 【cr-1298 2026-11-24 P4-3 虚拟滚动判读收口：用户裁决不启动——补挂实测瓶颈为渲染成本非 DOM 体量，单向窗口化已覆盖；计划档四处勾销】
+- 【cr-1299 2026-11-24 render-pipeline 第三轮查漏补缺：观察窗 14 采样时间线判读（世代重建/流式基线校正/turn-gap 判据口径修正）+ 探针分域升级与采集窗增量】
+- 【cr-1300 2026-11-24 fallback-probes 模块实例分裂根修：入共享面（feed/feed-core 双引用单例计数探针，main/通道双内嵌——cr-1296 frameScheduler 同族）】
+- 【cr-1301 2026-11-24 性能采集口径缺陷：hidden 页面读数不能代表帧投递（手机页 visibilityState=hidden 实证：rAF/定时器不回调、frameStats 与探针冻结）——§九 遗留疑点结论修正 + 本地双指标对照实验成文】
+- 【cr-1302 2026-11-24 遗留疑点确定性 e2e 复现：restart_host + 页面不刷新 → busy 卡死/消息不落账/无回复（epoch 通知未触发页面 reload——cr-948 换代检测在 MIUI 浏览器实测失效）；reload 即恢复。流式基线真机首采 60fps/零长任务】
+- 【cr-1303 2026-11-24 contextBusy 跨会话串台根修：无活跃会话时回落全局 turnInProgress → 任何其他会话 run 让输入框误显停止（点发送变 interrupt，消息发不出）；因果已实证 + cr-1302 e2e 结论修正】
+- 【cr-1304 2026-11-24 遗留疑点复测定性：串台修复后 restart_host + 页面不刷新 + 发消息 → 全链路健康（消息落账 165→170 行 + 壳按需拉起 + 回复上屏 <30s + busy 正常回落）——原疑点不成立，§八/10 收口；附带记录 post-office 拉壳窗瞬时转投告警（ipc 并发/连接关闭，自愈形态）】
+- 【cr-1305 2026-11-24 aggOrder 留观项判读收口：写面归零已达成（新代 0 新写，段行最晚 2026-11-09）+ 存量扫描（现行 16262 行/218 文件 + 归档 79 行/5 文件）——读侧删除前置 = 存量归一化裁决】
 
