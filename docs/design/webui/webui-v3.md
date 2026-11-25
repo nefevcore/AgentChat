@@ -200,6 +200,7 @@ isolated 档（沙盒内无种子）+ 资产 realpath 囚笼。此界说不新�
 | 项 | 裁决 |
 |---|---|
 | 构建器 | `build-channel.mjs` 唯一：dev 直调与发版 CI 调同一脚本同一产物位；`--out` 出参整体退役 |
+| external 根修（cr-1310） | rollup external 原按说明符字面匹配——通道包内部相对引用链（`feed-core → ./feed.ts`）解析后是绝对路径永不命中 → 共享面单例被内联成副本（cr-1296/1300 三例同族：frameScheduler / feed-core / fallback-probes）。治本 = `shared-externalize.ts` resolveId 插件（第二遍挂载，isolated 自含档不挂）：命中共享面源文件集合的相对引用归一为宿主模块表说明符并直标 external——产物 require 词命中种子①支、纯度门同词闭环。共享面新增模块只需入 shared-modules / host-module-table，相对引用链随归一自动外部化。配套 chatOps 入列（cr-1300 审计残留实例收口） |
 | 产物位 | 包内 `<pkg>/client/dist/`：factory 注册 bundle + revision 清单；不入 git（.gitignore），npm 发包 files 含之 |
 | entry 词形 | `ac.faces.web.entry = ./client/dist/index.js`（显式指产物，全仓同批切换）；package.json = 唯一 manifest |
 | 构建必要性 | 与框架无关（React/Vue 对称：DSH 用 React 同样预构建）——TS/SFC 浏览器不可解析；factory 形态/外部化/纯度门是构建器职责 |

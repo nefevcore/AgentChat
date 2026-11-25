@@ -1326,4 +1326,19 @@
 - 【cr-1305 2026-11-24 aggOrder 留观项判读收口：写面归零已达成（新代 0 新写，段行最晚 2026-11-09）+ 存量扫描（现行 16262 行/218 文件 + 归档 79 行/5 文件）——读侧删除前置 = 存量归一化裁决】
 - 【cr-1306 2026-11-24 aggOrder 存量归一化：段行(source=segment)→v2 事件行等价映射 + 一次性数据根迁移（解锁读侧 aggOrder 分支退役）】
 - 【cr-1307 2026-11-25 aggOrder 读侧退役：迁移边直产 v2 相位行（复用 cr-1306 映射）+ aggOrder 全链删除 + sessionFactsEqual 对拍面升级为 foldStepsOf 投影恒等】
+- 【cr-1308 2026-11-25 render-pipeline 第四轮查漏补缺：cr-1306 归一工具丢 session-header 头行根修（218 文件补头恢复 + 对拍面升级含头恒等）+ 宿主运行时生效缺口（cr-1307 代码晚于宿主换代）+ 共享面计数注释漂移】
+- 【cr-1309 2026-11-25 restarted-* 存量通知行归一迁移批A：10 条 legacy 发言形 → context+event 词形（保头 staging 原子换名 + fold 投影对拍恒等）——解锁 3 处读侧判别分支退役（§八/6）】
+- 【cr-1310 2026-11-25 构建面 external 根修（§八/9）：共享面相对引用链按解析后路径归一为宿主模块表说明符并外部化——消灭通道 bundle 内联单例副本（cr-1296/1300 同族三例）】
+- 【cr-1311 2026-11-25 质量评估 + 补缺（第五轮）：cr-1308 后增量核验（cr-1309/1310 逐批）+ 全档查漏】
+- 【cr-1312 2026-11-25 第一次程序精简（session-render 管线）：整体实现可合并简化分析 + 已退役逻辑清理】
+- 【cr-1313 2026-11-25 timer v3 监控源参考文档成文：timer-source-reference.md——采集/触发/授权/LLM 面/运维全域现行事实汇编（供各消费方编写实施文档）】
+- 【cr-1314 2026-11-25 壳 boot 死管道 EPIPE 防护前移 main 入口——接管代子代理 spawn 四连崩（cr-612 挂点位置缺陷）】
+- 【cr-1315 2026-11-25 越面拦截结果 durable 化：agent-loop 拦截分支 emit tool/after-execute 使 result 行落账（回放前缀一致 + 前端卡片如实）】
+- 【cr-1316 2026-11-25 historyRowToChatMessage 补 arguments/subcall/durationMs 透传：前端 subcall 平铺卡参数查询缺口（P3-3 并轨收尾）】
+- 【cr-1317 2026-11-25 对等 Agent 完成回执注入防自激引导行（send_agent 回声往返治理，方案见 admin 报告 2026-11-25）】
+- 【cr-1318 2026-11-25 兜底探针观察窗判读（session-render 收尾批 A）：turn-gap-fallback / inject-run-miss / inject-heuristic 三链 rows 口径定性 + 缺席面覆盖采样】
+- 【cr-1319 2026-11-25 用户本地行出生带键（直播键落位补齐批 B1a）：sendMessage requestId 先铸后用作本地行 id/turnId——run 收束重拉后与权威投影同值恒等（cr-1318 判读确认 tgf rows=1 真凶 = 本地直发行无键）】
+- 【cr-1320 2026-11-25 直播键落位收口 B2：message-received/steered 帧补 message 身份（B1b 回显行带键）+ 双写对拍全数据根恒等验证 + judges 五判据/MERGE_GAP_MS/keyedMiss 探针同批退役】
+- 【cr-1321 2026-11-25 judges 物理删除批：buildTurns 五判据（gapTooLong/plainAfterComplete/runCut/solo/afterSolo）+ MERGE_GAP_MS + sameRun + heuristic 开关 + keyedMiss/tgf 探针同批退役（前置全证：1223 会话对拍恒等 + 直播窗归零实证）；sub_* 旧存量豁免成文（v0 无键写面残留，读侧走 sender 拆轮）】
+- 【cr-1322 2026-11-25 session-render-pipeline 计划收官批：sandbox 临时物清理 + cr-1308~1321 存量分域提交 + 计划档冻结归档（§六判据全达）+ 状态漂移校准 + cr-1313 详情补缺】
 

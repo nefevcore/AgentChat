@@ -170,7 +170,7 @@ writer/读侧以 `"type":"…"` 前缀判定，避免全量 JSON.parse；旧版�
 | 机制标记 run（`meta[ARCHIVE_REVIEW_META]` / `GROUP_HINT_META`） | **不入账** | 机制产物非会话事实（三消费方：session 不入账 / usage 不记账 / conversation 不进视图） |
 > **error 行读面透传（cr-807）**：error 收束行落 agent 域账本（settle 终稿行后），不派生 viewer 行（空终稿 run 的 viewer 派生缺席语义不变）；session/history 读面在 steps 盲区投影段从 agent 域行面直读透传为 role:'error' 行（渲染序：该 run 轨迹 → 红条）——错误文案从瞬态帧升级为持久可见。
 
-> **壳侧合成催办信 = 机制行（cr-946）**：信封带 `payload.mechanism` 时（现行唯一来源：restart_shell 兑现后新壳注入的「已重启」续跑通知）按上表「机制触发」行落账（`context+event`、`agent_id=目标自身`）——它仍开续跑 run、LLM 回放按 user 喂回，但**不是会话发言**：投成发言行会让 viewer 投影对它恒盲（派生器只派生 agent 域自著行），读面因此丢掉两段 run 之间的轮边界（相邻 run 被并成一轮、前一段终稿降级成链内中间步而整段消失）。读面同时兼容存量形态（cr-946 前按发言行落账、`requestId` 前缀 `restarted-*` 的行）——账本 append-only，不改写历史行，只改投影。
+> **壳侧合成催办信 = 机制行（cr-946）**：信封带 `payload.mechanism` 时（现行唯一来源：restart_shell 兑现后新壳注入的「已重启」续跑通知）按上表「机制触发」行落账（`context+event`、`agent_id=目标自身`）——它仍开续跑 run、LLM 回放按 user 喂回，但**不是会话发言**：投成发言行会让 viewer 投影对它恒盲（派生器只派生 agent 域自著行），读面因此丢掉两段 run 之间的轮边界（相邻 run 被并成一轮、前一段终稿降级成链内中间步而整段消失）。读面不再兼容 legacy 形态（cr-946 前按发言行落账、`requestId` 前缀 `restarted-*` 的行）——cr-1309 一次性归一后盘上恒为 context+event 词形（normalize-restarted-rows.mjs；判别分支已退役）。
 
 ### 2.6 回放投影（视角变换，纯函数 `projectRecord`）
 
@@ -718,7 +718,7 @@ news 逐 run 双峰：稳态定时轮 95–99%（miss = 本轮新工具输出，
 |---|---|
 | 根 `README.md` | 根级事实源（布局/架构/命令/文档地图）——冲突时以它为准（原 `src/README.md` 已随 cr-703 退役） |
 | `docs/design/session/run-lifecycle-checkpoints.md` | Run 生命周期临时态与收敛 checkpoint 全景（§8 引） |
-| `docs/design/session/session-render-pipeline-plan.md` | 会话渲染管线结构优化 + v1 存量全量迁移实施计划（cr-1265，2026-11-23 立档；审计基线 cr-1260）——webui 消费面收敛与账本形态归一的执行计划 |
+| `docs/design/archive/session/session-render-pipeline-plan.md` | 会话渲染管线结构优化 + v1 存量全量迁移实施计划（cr-1265 2026-11-23 立档 · cr-1322 2026-11-25 收官归档：§六判据全达，执行链 cr-1265~1321）——webui 消费面收敛与账本形态归一的执行计划 |
 | `docs/design/platform/skill-injection-and-storage-vocab.md` | 存储词汇 v2 + 技能注入三通道 + 迁移机制（§2 的规范出处） |
 | `../archive/session/message-pipeline-analysis.md` | 消息链路根因分析（cr-87，2026-10-06 归档；有效结论已并入 §7） |
 | `../archive/session/message-pipeline-d1-convergence-plan.md` | D1 收敛协议实施计划（cr-94 已实施，冻结） |

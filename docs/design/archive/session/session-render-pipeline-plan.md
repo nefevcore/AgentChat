@@ -1,7 +1,7 @@
 # 会话渲染管线结构优化实施计划（session-render-pipeline-plan）
 
 > 性质：实施计划——前端会话渲染管线的结构性优化总计划：身份键贯通后的消费面收敛（签名系统退役 / 对齐机制单源 / 投影分组 / 帧调度归一）+ v1 存量全量迁移。
-> 状态：现行 · cr-1265 2026-11-23 立档（审计基线 cr-1260；分析草稿已吸收：三轮管线分析 + `sandbox/v1-migration-analysis.md`）· 群链 R2 缺口按裁决搁置（§八）。
+> 状态：已冻结归档 · cr-1322 2026-11-25 收官（§六判据全达，执行链 cr-1265~1321；群链 R2 缺口按裁决搁置 §八）· 原立档 cr-1265 2026-11-23。
 > 读者：实施本计划的开发者（含 Agent 会话）——按阶段顺序读对应节；每批动手前先登记该批 CR，收官只认验证目标。
 
 ## 一、背景与根因
@@ -89,16 +89,16 @@ P1 加固 ──┴───────────┴──▶ P3 键控收敛
 | P1-4 mergeHistory 排序收口 | ☑ | cr-1269 | 2026-11-23 | 交叉用例绿；详情 cr/logs/cr-1269.md |
 | M-A 迁移边纯函数+注册 | ☑ | cr-1270 | 2026-11-23 | 边住 ac-ledger-core session-chain（facts 往返恒等）；详情 cr/logs/cr-1270.md |
 | M-B migrate-sessions-v2 工具 | ☑ | cr-1271 | 2026-11-23 | 真实根 --dry：1518 全覆盖错误 0（可迁 1284/v2 228/残留 5/空 1）；详情 cr/logs/cr-1271.md |
-| M-C 真实数据根执行 | ☑ | cr-1272 | 2026-11-23 | 1517 全 v2 归零；fold 对拍 1274 恒等 + 10 例定性零回归；备份 sandbox/ledger-backup-2026-11-23T22-29-24 |
+| M-C 真实数据根执行 | ☑ | cr-1272 | 2026-11-23 | 1517 全 v2 归零；fold 对拍 1274 恒等 + 10 例定性零回归；备份 sandbox/ledger-backup-2026-11-23T22-29-24；**cr-1308 补注**：归一工具曾丢 218 文件 session-header（cr-1306 缺陷，本批恢复） |
 | P2-A 死代码直删（3 处） | ☑ | cr-1275 | 2026-11-23 | onToolEnd 位置回退 / mergeResume 镜像剔除 / legacyRc 零命中直删 |
-| P2-B v1 依赖项删（7 处） | ☑ | cr-1273/1274 | 2026-11-23 | 删 name 兼容 + 判重门控（1273）；摘要载体全量升 V3 + summaryTextOf/foldSummaryOf/概要窗退役（1274，用户裁决路径）；aggOrder/restarted/quota 实测仍服役留观 |
+| P2-B v1 依赖项删（7 处） | ☑ | cr-1273/1274 | 2026-11-23 | 删 name 兼容 + 判重门控（1273）；摘要载体全量升 V3 + summaryTextOf/foldSummaryOf/概要窗退役（1274，用户裁决路径）；aggOrder ☑ cr-1307 全链退役 / restarted ☑ cr-1309 归一（§八/6）/ quota 已终态（§八/7，cr-1297） |
 | P2-C 兜底探针化 | ☑ | cr-1276 | 2026-11-23 | 三链挂计数（inject-heuristic/event-quota/content-prefix）；观察窗归零即删 |
 | P3-1 对齐机制收敛 | ☑ | cr-1281 | 2026-11-24 | 键控单机制 + coveredAnchors 探针化显式兜底（anchor-cover，归零即删）；影子 oracle fail-loud + 真实数据根扫描残差 0；详情 cr/logs/cr-1281.md |
 | P3-2 keyed store | ☑ | cr-1282 | 2026-11-24 | 不可变化身（freeze+reviseMsg，A 案）+ deriveTurns 引用 diff；签名系统零残留（grep 证）；详情 cr/logs/cr-1282.md |
-| P3-3 转换器并轨 | ☑ | cr-1283 | 2026-11-24 | 单源 historyRowToChatMessage + HistoryRow 词表；三视角恒同 ChatMessage、键族全量透传（pair 只读视角键控打通、group id 稳定化、第四份本地 toChat 退役）；群链仅转换并轨；详情 cr/logs/cr-1283.md |
+| P3-3 转换器并轨 | ☑ | cr-1283 | 2026-11-24 | 单源 historyRowToChatMessage + HistoryRow 词表；三视角恒同 ChatMessage、键族全量透传（pair 只读视角键控打通、group id 稳定化、第四份本地 toChat 退役）；群链仅转换并轨；详情 cr/logs/cr-1283.md。**cr-1316 补缺**（2026-11-25）：工具行 arguments/subcall/durationMs 三键当时只在 HistoryRow 接口声明、映射体未消费 → 刷新后 subcall 平铺卡参数恒空（edit diff/write 预览/pwsh 命令行失效）+ 缩进样式失效 + 耗时缺；已补透传（feed.ts 映射体 + historyApi tool 行投 durationMs）；会话 01a21179 实证 |
 | P3-4 直播挂靠并轨 | ☑ | cr-1285 | 2026-11-24 | context-injected 帧 + 投影 event 行补 run 键，挂靠降级链 run>anchor>位置启发（inject-run-miss 探针）；双拍同形测试锁三路径恒同；详情 cr/logs/cr-1285.md |
 | P4-1 投影分组 | ☑ | cr-1286 | 2026-11-24 | ViewRow.turnId 增量词 + buildTurns 键控拆轮（同值恒并/异值恒拆，MERGE_GAP_MS 降位存量兜底）；turn-gap-fallback 探针；真实数据根三路径轮边界 0 不一致；详情 cr/logs/cr-1286.md |
-| P4-2 统一帧调度器 | ☑ | cr-1287 | 2026-11-24 | 单 rAF 四阶段流水线（ingest→derive→commit→scroll）+ 调度器级静默判据 + 提交探针（每帧恰一次）；P0-B 口径复测维持搁置（用户裁决——真机场景暂缺，§九 数字待补）；详情 cr/logs/cr-1287.md |
+| P4-2 统一帧调度器 | ☑ | cr-1287 | 2026-11-24 | 单 rAF 四阶段流水线（ingest→derive→commit→scroll）+ 调度器级静默判据 + 提交探针（每帧恰一次）；P0-B 口径复测维持搁置（用户裁决——真机流式已由 cr-1302 v5 补采〔60fps/零长任务，§八/8〕，desktop 数字待补）；详情 cr/logs/cr-1287.md |
 | P4-1c 观察窗启动 | ☑ | cr-1289 | 2026-11-24 | 探针读面接线（window.__AC_FALLBACK_PROBES__）+ 直播步行 runId/turnId 落位（解锁 turn-gap-fallback 归零路径；附带修纯直播窗口 run 键挂靠不命中缺口）；剩余缺席面 = 无键域行/旧后端帧/旧投影行；详情 cr/logs/cr-1289.md |
 | P3-1c anchor-cover 删除 | ☑ | cr-1294 | 2026-11-24 | coveredAnchors 同锚覆盖兜底 + shadowAssertNoKeyGuess 影子一并退役（既定第三步；双静态扫描零命中——275+1440 会话生产形态 0 候选）；键控单机制终态收敛——缺键行统一「保留 + 收束重拉」；详情 cr/logs/cr-1294.md |
 | 质量评估 + 补缺 | ☑ | cr-1295 | 2026-11-24 | 14 个已收口批逐批实证核验（声明属实：测试抽样 32 例绿 / v1 头全根复扫 0 / 键贯通三层在位 / 调度器四接线在位）；补缺三处：render-contract ViewRow turnId 契约勾销 + feed-core P3-1 注释块收敛 + merge-final-anchor 头注释校准；详情 cr/logs/cr-1295.md |
@@ -112,8 +112,17 @@ P1 加固 ──┴───────────┴──▶ P3 键控收敛
 | 真机重测 + 遗留疑点 e2e 复现 | ☑ | cr-1302 | 2026-11-24 | 链路重建（adb 位置反查 + 浏览器重拉）→ 可见页采集全通过（可见性门 + 双指标读面上线）；流式基线真机首采：40s 窗 60fps/零长任务（v5，§八/8 补齐）；**遗留疑点确定性复现**：restart_host + 不刷新 → busy 卡死/消息不落账（epoch reload 未触发），reload 即愈——cr-1297 tap 假说不成立；详情 cr/logs/cr-1302.md |
 | 采集口径修正（hidden 页无效） | ☑ | cr-1301 | 2026-11-24 | 手机页 `visibilityState=hidden` 实证 → §九「frameStats 恒 0 = 帧没到前端」推断作废；双指标对照实验 {hits 4560 / rows 5} 实证判读轴；§八/10 遗留疑点降级「待复测」；详情 cr/logs/cr-1301.md |
 | fallback-probes 实例分裂根修 | ☑ | cr-1300 | 2026-11-24 | 探针单例入共享面（59 说明符）+ 冻结清单同步；cr-1296 frameScheduler 同族第三例；详情 cr/logs/cr-1300.md |
+| 质量评估 + 补缺（第四轮） | ☑ | cr-1308 | 2026-11-25 | cr-1299 后增量核验（cr-1300~1307 逐批：退役零残留 / 测试 3632 全绿 / 对账锁在位）；**根修 cr-1306 丢头缺陷**——归一工具 staging 只写行集 → 218 文件 session-header 全丢（投影恒等测不出：判据不含头）；恢复 = 备份头行原样写回（restoredBy:cr-1308 标记）+ 工具保头根修 + 迁移工具无头防线 + 复扫口径补「无头」项；宿主运行时缺口收口（cr-1307 代码晚于宿主换代 → restart_host）；共享面计数注释校准（59/58→68）；详情 cr/logs/cr-1308.md |
+| restarted-* 存量归一（§八/6） | ☑ | cr-1309 | 2026-11-25 | legacy 通知行 10 条（cr-1297 报 5960 为 substring 口径虚增）→ context+event 现行词形（normalize-restarted-rows.mjs：view 恒等 verify + 保头 staging + 原子换名；备份 sandbox/restarted-normalize-backup-2026-11-25）+ 3 处读侧判别分支退役 + 2 用例改迁移判据；LLM 回放包壳差异 = cr-946 收敛语义（已声明）；详情 cr/logs/cr-1309.md |
+| 构建面 external 根修（§八/9） | ☑ | cr-1310 | 2026-11-25 | 共享面相对引用链按解析后路径归一为宿主模块表说明符并外部化（shared-externalize.ts resolveId 插件——第二遍挂载，isolated 不挂）+ chatOps 入列共享面 + 产物级实证（内联副本特征串归零）+ viteCommon 死代码删除；双构建配对 + test:unit 3640 例绿；详情 cr/logs/cr-1310.md |
+| 质量评估 + 补缺（第五轮） | ☑ | cr-1311 | 2026-11-25 | cr-1308 后增量核验（cr-1309/1310 逐批：读侧退役 / 幂等 dry 复跑 / 产物级外部化复证——require 25 深词全 x1、m2/m6 绑定源确认、chatPresence 等 4 特征串 0 内联）；全档查漏：数据根复扫 v1=0/过渡=0/无头=0、段行 0、run-restarted 5714/74 零触碰、验证阶梯 3640 例全绿；补缺四处（注释 .mjs→.ts 校准 ×3 + §八/7 状态 ☐→☑ 收敛）+ cr-1309 备份目录名残缺备案；详情 cr/logs/cr-1311.md |
+| 第一次程序精简 | ☑ | cr-1312 | 2026-11-25 | 退役词表全仓求证：**代码残留为零**（命中皆存史注记/测试判据/迁移边——历轮批次删净，无可清项）；可合并简化三件落地：对桶键推导 6 处→2 单源（bucketKey 转发 ac-conv-keys pairKey + pairConversationKey 新单源语义 B）/ RunStatusDockHost 本地 parseId 重复删除 / feed.ts 死链与 useTurnDisplayItems 头部过时描述校准；判读不做项与保守边界成文 sandbox/simplify-analysis-cr1312.md；验证阶梯全绿（3640 例 + 双构建配对）；详情 cr/logs/cr-1312.md |
+| 兜底探针观察窗判读（批 A） | ☑ | cr-1318 | 2026-11-25 | 三链定性：turn-gap-fallback **历史路径零缺席**（40 会话横扫 + 三专项静态复算 misses=0；读数 rows 增量 = 直播帧瞬态首见——设计内语义）／ inject-heuristic rows 全现行词 = 未注册专用卡的设计内降级（存量词 0）／ inject-run-miss 零命中；**判据修正：rows 归零对该链不可达**（流式行先无键后带键，刷新即重计首见）→ 终删判定改走双写对拍（§八/11）；详情 cr/logs/cr-1318.md |
+| 本地行出生带键（B1a） | ☑ | cr-1319 | 2026-11-25 | sendMessage 本地乐观行 id = requestId = turnId 单源铸造（与 fold 投影用户行 turnId = message_id 恒等——收束换身键恒等不跳变；对账核验：首屏整体替换 + anchor 保护无双投路径）；3 例锁（tests/local-turn-key.test.ts）+ 3648 全绿 + 双构建配对 + reload 0 错；直播 e2e 留自然对话窗（B2 前置实证）；详情 cr/logs/cr-1319.md |
+| 直播键落位收口（B2） | ☑ | cr-1320 | 2026-11-25 | B1b：showInbound 消费入站帧 message_id（user-stub 私信路径已带）→ id/turnId 直采 + 同 id 幂等防线；B2 双写对拍：buildTurns heuristic 开关 + 五判据挂 heurGate，全数据根 **1223 主流域会话 judges 开/关零差异零无键行——PARITY OK**（6 diff 全为 sub_* v0 旧写面存量——写面已换代，豁免）；单测锁（turn-keyed-grouping B2 恒等用例）+ 3649 全绿 + 双构建；judges 物理删除批就绪（前置 = tgf 直播窗归零实证）；详情 cr/logs/cr-1320.md |
+| judges 物理删除批（判据退役终态） | ☑ | cr-1321 | 2026-11-25 | buildTurns 五判据（gapTooLong/plainAfterComplete/runCut/solo/afterSolo）+ MERGE_GAP_MS + sameRun + heuristic 开关 + keyedMiss/tgf 探针同批物理删除（feed.ts -50 行）——拆轮判定终态 = keyedBreak/keyedDiff/sender 三项；冗余性证明链：1223 会话对拍恒等 + 直播窗归零 + sub_* v0 旧写面豁免（38:17 写面已换代）；五测试族翻转/修形（判据退役行为锁）；483 文件 3649 例全绿 + 双构建 + reload 探针面全空；**P4-1「六段判据层积」病灶物理终结**；详情 cr/logs/cr-1321.md |
 
-### P0 基线（审计 ☑ cr-1260 / 探针 ☐）
+### P0 基线（审计 ☑ cr-1260 / 探针 ☑ cr-1296）
 
 | 批 | 内容 | 测试标准 | 验证目标 |
 |---|---|---|---|
@@ -180,8 +189,8 @@ P1 加固 ──┴───────────┴──▶ P3 键控收敛
 |---|---|
 | 表现不稳定 | 流式期 stale 复用类缺陷归零；三路径同构夹具常绿；P0-B 基线复测流式 fps 达标 |
 | 顺序缝隙 | 「直播中上翻续拉」构造用例常绿；三路径轮边界恒同 |
-| 层积债务 | 净减估算：配额兜底 ~60 + 签名系统 ~150 + 对齐层 ~150 + 转换并轨 ~200 + v1 读兼容层；兜底探针分探针判据（cr-1289 口径校准；cr-1299 双指标判读口径）：anchor-cover ☑ 已删（cr-1294，双静态扫描零命中）；turn-gap-fallback / inject-run-miss 归零即删——**判读按 rows（去重行数）口径**（hits = derive 重扫次数，含流式期每帧重评估存量行——累计口径永不可归零）；inject-heuristic 终态 = 保留机制、存量词命中归零（§三 护栏：owning 行未装载降级不退役） |
-| v1 存量 | 重跑 cr-1260 扫描：纯 v1 + 过渡态 = 0 |
+| 层积债务 | 净减估算：配额兜底 ~60 + 签名系统 ~150 + 对齐层 ~150 + 转换并轨 ~200 + v1 读兼容层；兜底探针分探针判据（cr-1289 口径校准；cr-1299 双指标判读口径）：anchor-cover ☑ 已删（cr-1294，双静态扫描零命中）；turn-gap-fallback / inject-run-miss 归零即删——**判读按 rows（去重行数）口径**（hits = derive 重扫次数，含流式期每帧重评估存量行——累计口径永不可归零）；inject-heuristic 终态 = 保留机制、存量词命中归零（§三 护栏：owning 行未装载降级不退役）。**批 A 判读结论（cr-1318）**：inject-heuristic 存量词 0 ☑、inject-run-miss 零命中 ☑；turn-gap-fallback 历史路径零缺席 ☑，rows 口径不可达归零 → 双写对拍路径收口：**cr-1321 判据族物理删除（五判据 + MERGE_GAP_MS + tgf 探针），键缺席域收窄为 sub_* v0 旧写面存量（读侧 sender 拆轮）——判据退役终态 ☑** |
+| v1 存量 | 重跑 cr-1260 扫描：纯 v1 + 过渡态 = 0（复扫口径 cr-1308 补：无头文件单独计——历轮只查 version===1，头丢失静默漏报） |
 
 ## 七、节奏建议
 
@@ -196,11 +205,12 @@ P0-B → P1（当周，并行 M-A/M-B）→ M-C（idle 窗口）→ P2（按探�
 | 3 | 虚拟滚动 | ✕ 不做（用户裁决 2026-11-24，cr-1298） | cr-1297 实测判读：瓶颈 = 补挂批渲染成本（组件挂载/markdown），非 DOM 体量（4229 节点/40MB 堆稳定）——虚拟滚动无收益面；纯滚动 59.1fps 健康。单向窗口化（renderFrom：首载 24 + 分帧补挂）已覆盖其解决面。后续 hitch 优化走小杠杆：REFILL_BATCH 调小 / 补挂提前量（另行裁决） |
 | 4 | 全局 seq 逻辑时钟 | 不做 | 同刻边界语义位裁决已覆盖 |
 | 5 | `aggOrder` v1 聚合词（fold.ts:545 + events-core.ts:131/290/299） | ☑ **读侧已退役（cr-1307）** | cr-1305 判据核实（写面归零）+ cr-1306 存量归一（218 文件 16262 段行 → v2 相位行，盘上段行归零）后，cr-1307 完成收口双件：**迁移边直产 v2 相位行**（`segmentRow` v1 词形删除；aggregated 复用 cr-1306 映射逐步 slot 展开——注入行按 ts 与步块交错，还原段行间插位；步面互斥：aggregated 在场时跳过 journal 步相位事件重放防双投）+ **aggOrder 全链删除**（RunFactsV2 键 + events-core 段行/注入行记账 + fold.ts trajectoryOfFacts 消费分支）。`aggregated` 读分支保留（迁移边输入面——v1 外部导入读侧归一化入口不撤）。配套：产物行 seq 改统一重排（ts 全序 + 逐行重分配——foldStepsOf 相位序推导依赖 ev.seq）；`sessionFactsEqual` 对拍面升级（seq 全面豁免 + 空数组归一 + aggregated 投影恒等 + events 步面互斥；`synthNullResults` 提升库面，normalize 工具 import 单源）；测试判据单源（expectFactsEqual 委托库面；fold.test v1/v2 等价改「归一化读旧 == 直读新」）。全仓 3632 例绿 + integration 99 例绿。详情 cr/logs/cr-1306.md / cr-1307.md |
-| 6 | `restarted-*` 存量通知行（fold.ts:283 读侧判别） | ☐ 留观 | P2-B 留观项——cr-1297 全根扫描：5960 行在盘（creator 5822 / admin 134 / standard 3 / tester 1），全部 cr-946 前落形；现行机制已改 context+event 行。退役判据：读侧判别分支保留至盘上存量无消费价值（或一次性数据根归一化裁决） |
-| 7 | `legacyEventQuota` 前端配额抵扣语义 | ☐ 留观 | P2-B 留观项——cr-1295 确认机制已删（cr-1281 event-quota 探针关闭）；「quota」残留仅注释。**判读：已终态**——§四 P2-B 状态板「quota 实测仍服役留观」为滞留表述，无行动项 |
+| 6 | ~~`restarted-*` 存量通知行~~ | **☑ cr-1309 已归一** | 复扫口径修正：cr-1297 报 5960 系 substring 把 `run-restarted-*` 全体行计入；**实质 legacy 通知行 10 条**（speech 词形，全 `__creator__` 域，最晚 2026-11-08）。cr-1309 归一双件：① normalize-restarted-rows.mjs（10 行 → context+event 现行词形；view 投影恒等 verify + 保头 staging + 备份 sandbox/restarted-normalize-backup-2026-11-25）；② 3 处读侧判别分支退役（fold-core user 滤除 / fold.ts legacy 捞投 / project.ts 滤除）+ 2 用例改迁移判据形态。已知收敛差异：LLM 回放对通知行包 `<system-reminder>` 壳（event 词 wrapForReplay wrapper 档——cr-946 现行语义，非回归）。run-restarted-* 步相位行零触碰 |
+| 7 | `legacyEventQuota` 前端配额抵扣语义 | **☑ 已终态（cr-1311 复核）** | P2-B 留观项——cr-1295 确认机制已删（cr-1281 event-quota 探针关闭）；「quota」残留仅注释（cr-1311 复核：fallback-probes.ts L16 存史注记，全 conversation 包无活代码）。判读沿用 cr-1295：已终态，无行动项 |
 | 8 | ~~真机流式基线缺口~~ | **☑ cr-1302 已采** | 真机流式 40s 窗（v5，可见页 + 生成中）：60fps / p99 16.8ms / 零长任务 / DOM 3388 稳定——**桌面节拍流结论（59.8fps）在真机节拍下同样成立**（cr-1299 曾判该缺口未采） |
-| 9 | 构建面根因：rollup `external` 按说明符字面匹配 | ☐ 开放 | cr-1300 实证三例同族（frameScheduler / feed-core〔cr-1296〕、fallback-probes〔cr-1300〕）——共享面模块内部的**相对引用链**不被外部化 → 单例副本随 bundle 内联。治标 = 逐例入清单（现有做法）；治本 = external 按**解析后路径**匹配（共享面源文件绝对路径集合）。当前残留实例：`chatOps.ts`（`historyCursor` 会话分页游标）——调用方全在共享面故运行时一致，任何非共享模块接入即分裂。属构建机制改造，待裁决 |
+| 9 | ~~构建面根因：rollup `external` 按说明符字面匹配~~ | **☑ cr-1310 根修** | 治本落地：`apps/ui/scripts/shared-externalize.ts` resolveId 插件（build-channel 第二遍挂载）把命中共享面源文件集合的相对引用链归一为宿主模块表说明符并直标 external——产物 require 词命中种子①支、纯度门同词闭环；共享面新增模块只需入 shared-modules / host-module-table（相对引用链随归一自动外部化，cr-1296/1300 的逐例入清单治标路径退役）。配套：chatOps 入列（cr-1300 审计残留实例——chatPresence/historyCursor 单例）、纯函数 + 微型 vite 实构建两面测试锁（`apps/ui/tests/shared-externalize.test.ts`）、产物级实证（conversation bundle 5 共享面 require 全外部化、4 内联副本特征串归零——cr-1300 时代「内联副本 = 死代码」残留一并清除）。viteCommon 死代码（es 档遗留）同批删除。验证：typecheck / webui:typecheck / check:deps / test:unit 482 文件 3640 例绿 / 双构建配对（build:channel 31 包 + webui:build）。详情 cr/logs/cr-1310.md |
 | 10 | ~~遗留疑点（宿主重启后流式帧不续）~~ | **☑ cr-1304 复测定性：疑点不成立** | 串台根修后重做 e2e：restart_host（23:33:18 新代）+ 页面不刷新（pageAge 连续实证）+ 发消息 → **全链路健康**——消息落账（正本 165→170 行）、designer 壳按需拉起（pid 42296）、回复「13。」上屏、busy 正常回落，全程 <30s。cr-1302 实验②的失败确系 contextBusy 串台单因（cr-1303），无宿主侧断链；「壳被拉起但零写入」系壳由更早拉壳事件遗留（消息本未发出，无消息即无 run，空转属预期）。附带记录：post-office 在壳 boot 窗的瞬时转投告警（ipc 并发限制/连接关闭，同秒双发后自愈）——瞬态形态，非缺陷 |
+| 11 | turn-gap-fallback 终删判定口径修正 | **☑ 已终态（cr-1321）** | 批 A 判读（cr-1318）：历史路径键贯通零缺席；rows 口径不可达归零——直播缺键行真凶 = 本地直发行（uid 随机无 turnId）。B1a 根修（cr-1319）：sendMessage 本地行出生带键（id = requestId = turnId 单源——与 fold 投影用户行 turnId = message_id 恒等，收束换身不跳变）；3 例锁 + 3648 全绿 + 双构建。B2（待立项）：message-received/steered 帧补 message 身份（B1b，回显行带键）→ 双写对拍（judges 开/关全数据根恒等）→ gapTooLong/plainAfterComplete/runCut/solo/afterSolo + MERGE_GAP_MS + keyedMiss 探针同批退役；B2 前置实证 = 下一自然对话窗 tgf 直播窗归零 |
 
 ## 九、性能基线（P0-B cr-1296 采集 · 2026-11-24）
 
@@ -216,7 +226,7 @@ P0-B → P1（当周，并行 M-A/M-B）→ M-C（idle 窗口）→ P2（按探�
 | 上翻补挂手感（≥500 条） | 已测（cr-1297 补采）：1754 行会话（designer~user）驱动上翻 15s×2 轮——**补挂窗 53.8 fps**（p50 16.7ms）但 **20 个长任务 50-220ms**（补挂批挂载 DOM +835 节点 / scrollHeight +34K px）；滚到顶后纯滚动窗 **59.1 fps**（3×~55ms 长任务，DOM 稳定不增长 = 窗口化挂载在位） | 2026-11-24 |
 | 补挂批最大长任务 | **220ms**（补挂批挂载窗；P4-3 启动判读输入——百 ms 级长任务多次出现，见 §八/3） | 2026-11-24 |
 
-探针观察窗判读（cr-1299 时间线重建，14 份采样 + 14:12 实时读数；旧单累计口径数字仅存证）：早期三空闲样本（12:17-12:20，8.6/10/12 fps）系探针注入自身 rAF 循环伪影，非管线退化；12:53 首报数字 15044/2407/18 中 +14307/+2407 暴增集中于 12:31→12:53 断链窗（宿主 restart_host ×2 期间——帧驱动高密度重扫 + 断连收口重挂），非新缺陷形态。**计数语义 = derive 重扫次数**（每次 buildTurns 重跑对存量注入行重复计数）——「归零即删」在累计口径下不可判读，cr-1299 起探针双指标（hits/rows），判读以 rows（去重行数）为准。**世代 D（14:12，refill 采样页续用，designer~user 1754 行全挂载）零 turn-gap-fallback** = 历史路径轮分组键贯通的硬实证（M-C 迁移 + P4-1 键落位联合效果，真实数据验证）；流式样本（12:30/12:31 两窗，+27/+16 hits）为桌面流节拍——**该机流式 60fps 档结论仅对桌面节拍成立，真机流式基线缺口未采**（下一轮真机采集补）。
+探针观察窗判读（cr-1299 时间线重建，14 份采样 + 14:12 实时读数；旧单累计口径数字仅存证）：**判读口径修正（cr-1308）——本表全部流式/滚动读数采集于 cr-1306 归一化前夜（同批代码但数据根形态不同），归一化只改读侧数据不改渲染链，数字仍有效**：早期三空闲样本（12:17-12:20，8.6/10/12 fps）系探针注入自身 rAF 循环伪影，非管线退化；12:53 首报数字 15044/2407/18 中 +14307/+2407 暴增集中于 12:31→12:53 断链窗（宿主 restart_host ×2 期间——帧驱动高密度重扫 + 断连收口重挂），非新缺陷形态。**计数语义 = derive 重扫次数**（每次 buildTurns 重跑对存量注入行重复计数）——「归零即删」在累计口径下不可判读，cr-1299 起探针双指标（hits/rows），判读以 rows（去重行数）为准。**世代 D（14:12，refill 采样页续用，designer~user 1754 行全挂载）零 turn-gap-fallback** = 历史路径轮分组键贯通的硬实证（M-C 迁移 + P4-1 键落位联合效果，真实数据验证）；流式样本（12:30/12:31 两窗，+27/+16 hits）为桌面流节拍——**该机流式 60fps 档结论仅对桌面节拍成立，真机流式基线缺口未采**（下一轮真机采集补）。
 
 **双指标对照实验（cr-1301，本地可见页 × 同一宿主）**：重载后 3.5s → `{hits: 10, rows: 5}`；再静置 2.5s → `{hits: 30, rows: 5}`（≈8 hits/s，无用户操作——后台 WS 帧驱动 derive 重跑）；持续观察数分钟 → `{hits: 4560, rows: 5}`（**912 倍虚增**）。**rows 全程恒定 5**（行身份稳定）而 hits 随渲染轮次线性增长——两轴语义与设计意图完全吻合，直接实证「累计 hits 不可作缺陷计数、rows 才是判读轴」。
 
