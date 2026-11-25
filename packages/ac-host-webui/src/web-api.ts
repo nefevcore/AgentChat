@@ -257,8 +257,9 @@ export function makeWebApiRow(deps: WebApiDeps): Plugin {
         const limit = typeof p.limit === 'number' && Number.isFinite(p.limit) && p.limit > 0 ? Math.floor(p.limit) : undefined;
         const offset = typeof p.offset === 'number' && Number.isFinite(p.offset) && p.offset >= 0 ? Math.floor(p.offset) : 0;
         // 视图参数化（cr-973）：chat（缺省）/ plain（无气泡——记录面与 chat
-        // 同构，无气泡是前端渲染参数）/ lite（移动端 steps 截断）
-        const viewKind = p.view === 'lite' || p.view === 'plain' || p.view === 'chat' ? p.view : undefined;
+        // 同构，无气泡是前端渲染参数）/ lite（移动端 steps 截断）/ im（cr-1326
+        // dual-view P2：投递事实流——终稿剥 steps、剔注入卡/在途步，IM 视图消费）
+        const viewKind = p.view === 'lite' || p.view === 'plain' || p.view === 'chat' || p.view === 'im' ? p.view : undefined;
         // 会话视图指纹（cr-768 起；cr-973 索引行在场 → 索引维护的文件指纹
         //（增量尾读 + 打开对账）；索引行摘除 → 全 stat 扫描回落，慢但同构）。
         // stat 恒先做——短路要它，响应携带也要它。

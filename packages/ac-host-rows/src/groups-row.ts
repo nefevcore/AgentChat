@@ -21,7 +21,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Plugin, Context } from '@agentchat/cordis';
 import { issueRequestId, makeEnvelope } from 'ac-envelope-core';
-import { normalizeAttachments, readLedger, LedgerWriter, sessionDir, type LedgerAttachment, type LedgerRow } from 'ac-ledger';
+import { normalizeAttachments, readLedger, foldSession, foldViewRecords, LedgerWriter, sessionDir, type LedgerAttachment, type LedgerRow, type ProjectedStep, type ViewRow } from 'ac-ledger';
 import { readAgentConfig } from 'ac-agents-core';
 import { SnapshotStore } from 'ac-file-snapshots/src/store.ts';
 import type { PostOffice } from 'ac-post-office';
@@ -40,7 +40,10 @@ export interface GroupsHostRowOptions {
   postOffice?: PostOffice;
 }
 
-/** 群消息记录（group/history 行——主线 GroupMessageRecord 展示面同形） */
+/** 群消息记录（group/history 行——主线 GroupMessageRecord 展示面同形）。
+ *  cr-1325 P1：成员终稿行扩 steps/reasoning/run/runMs/turnId——经 fold 单源
+ *  投影（与 1v1 session/history 的 ViewRow 同构）；前端 expandGroupRecord
+ *  按步展开（群成员思维链/工具卡刷新不丢，R2 历史面解冻）。 */
 export interface GroupMessageView {
   id: string;
   groupId: string;
@@ -49,6 +52,14 @@ export interface GroupMessageView {
   at: number;
   /** 多模态附件引用（cr-1278：群输入图片——刷新后 chips 恢复与回放旁路同源） */
   attachments?: LedgerAttachment[];
+  /** 成员终稿行 run 关联键（投影透传——前端链栏联查锚） */
+  run?: string;
+  /** run 墙钟耗时毫秒（终稿行） */
+  runMs?: number;
+  /** 轮身份键（cr-1286 同语义：run 承载行 = run）——前端键控拆轮 */
+  turnId?: string;
+  /** ReAct 步投影（成员终稿行——foldStepsOf 单源产物；步级 reasoning 在内） */
+  steps?: ProjectedStep[];
 }
 
 interface WebFace {
@@ -314,16 +325,38 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
       // 群会话账本读面：全成员流合并（入站行跨流同 requestId 去重；成员
       // 终稿只落自己流），时间升序 + 尾部 limit/offset 分页（session/history 同义）。
       //（cr-1152：cr-1146 首屏未读旁带已下线——读位权威源消费面待重设计。）
+      // cr-1325 P1：成员终稿行经 fold 单源投影扩展（steps/reasoning/run/
+      // runMs/turnId）——与 1v1 session/history 的 ViewRow 同构；前端
+      // expandGroupRecord 按步展开（群成员思维链/工具卡刷新不丢——R2
+      // 历史面解冻）。入站发言行（跨流扇出镜像）不扩——IM 消息形态恒终稿。
       web.registerRpc('group/history', (params) => {
         const p = obj(params);
         const gid = reqStr(p, 'groupId');
         const group = mustGroup(gid);
         const byKey = new Map<string, GroupMessageView>();
+        // 终稿行扩展索引：成员流 fold 投影（ViewRow）按行锚（message_id）
+        // 取 steps/turnId——run 键从合并行自身透传（与投影行同值）。
+        const memberViewOf = new Map<string, ViewRow>();
+        const foldOf = (member: string): ViewRow[] => {
+          const key = memberStreamKey(gid, member);
+          try {
+            return foldViewRecords(foldSession(dataRoot, key), dataRoot, key);
+          } catch {
+            return []; // 流目录缺席（成员退群/删群窗）——空投影，发言行照常
+          }
+        };
         for (const m of group.members) {
+          for (const v of foldOf(m)) {
+            if (v.role === 'assistant' && v.agent_id === m && v.message_id !== undefined && v.steps !== undefined) {
+              memberViewOf.set(v.message_id, v);
+            }
+          }
           const { rows } = readLedger(path.join(dataRoot, 'agents', m, 'sessions', memberStreamKey(gid, m)));
           for (const r of rows) {
             const key = r.requestId ?? m + ':' + r.message_id;
             if (byKey.has(key)) continue;
+            // 终稿行：fold 投影同锚行携带 steps（assistant 行）——挂扩展面
+            const view = r.agent_id === m ? memberViewOf.get(r.message_id) : undefined;
             byKey.set(key, {
               id: key,
               groupId: gid,
@@ -331,6 +364,10 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
               content: r.content,
               at: Date.parse(r.timestamp) || 0,
               ...(r.attachments !== undefined ? { attachments: r.attachments } : {}),
+              ...(r.run !== undefined ? { run: r.run } : {}),
+              ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
+              ...(view !== undefined ? { turnId: view.turnId } : {}),
+              ...(view !== undefined && view.steps !== undefined ? { steps: view.steps } : {}),
             });
           }
         }

@@ -268,6 +268,8 @@ watch(() => ui.revealIntentSeq, (seq) => {
       :title="title"
       :preset-chip-label="presetChipLabel"
       :owner-data="headerWidgetData"
+      :members="props.group?.participants ?? null"
+      :group-id="props.group?.group_id ?? null"
     />
 
     <div class="chat-body">

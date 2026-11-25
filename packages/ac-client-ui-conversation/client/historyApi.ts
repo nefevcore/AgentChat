@@ -321,13 +321,17 @@ export function parseToolArgs(raw: string | undefined): Record<string, unknown> 
 /** Agent 会话对（pair）只读历史（矩阵格子点击视角；conversationId = 对桶键
  *  pairKey(a,b)——M19 与后端寻址同词表）。rpc 契约面必传（webui 包装
  *  传 wireRpc / feed-core 闭传注入面） */
-export async function fetchPairHistory(from: string, to: string, limit: number, offset: number, rpc: Rpc): Promise<{ messages: PairHistoryMessage[] }> {
+export async function fetchPairHistory(from: string, to: string, limit: number, offset: number, rpc: Rpc, view?: 'im', convKey?: string): Promise<{ messages: PairHistoryMessage[] }> {
   void from; // from 仅参与对键（与 to 合成）；保留签名兼容
-  const conversationId = [from, to].sort().join('~');
+  // convKey（cr-1328 P4a）：显式会话键直传——群成员流（gid~member，member 恒
+  // 最右——键库规格）不走 sort 推导（字典序重排会指错目录）；缺省 = 对桶
+  // pairKey 语义（现状不变）
+  const conversationId = convKey ?? [from, to].sort().join('~');
   const r = await rpc.call<{ records?: PSessionRecord[] }>('session/history', {
     conversationId,
     ...(Number.isFinite(limit) ? { limit } : {}),
     ...(offset > 0 ? { offset } : {}),
+    ...(view !== undefined ? { view } : {}),
   });
   return { messages: toHistoryMessages(r.records ?? [], conversationId) as unknown as PairHistoryMessage[] };
 }
@@ -352,13 +356,17 @@ interface GroupHistoryMessage {
   attachments?: PMediaAttachment[];
 }
 
-/** group/history RPC 行（D11：本体投影——成员回复行带 steps[]/reasoning） */
+/** group/history RPC 行（D11：本体投影——成员回复行带 steps[]/reasoning；
+ *  cr-1325 P1：扩 run/turnId/runMs（服务端 fold 单源透传——与 1v1 ViewRow 同构） */
 interface PGroupRecord {
   id?: string;
   from?: string;
   content?: string;
   at?: number;
   reasoning?: string;
+  run?: string;
+  turnId?: string;
+  runMs?: number;
   attachments?: PMediaAttachment[];
   steps?: Array<{
     content?: string;
@@ -390,6 +398,10 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
     timestamp: new Date(m.at ?? Date.now()).toISOString(),
     // 行锚透传（cr-1150）：同 record 展开的多行共享该锚（读到该行即整条已读）
     ...(m.id !== undefined ? { id: m.id } : {}),
+    // cr-1325 P1：run/turnId 透传（与 1v1 展开同构——群成员行的 run 键控拆轮 /
+    // 注入卡挂靠锚）；runMs 缺席容忍（服务端 fold 透传，存量行无）
+    ...(m.run !== undefined ? { runId: m.run } : {}),
+    ...(m.turnId !== undefined ? { turnId: m.turnId } : {}),
   };
   if (!m.steps || m.steps.length === 0) {
     return [
@@ -413,6 +425,7 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
       result: tc.result ?? '',
       label: tc.name,
     }));
+    const firstStep = out.length === 0;
     out.push({
       role: 'agent',
       content: s.content || '',
@@ -427,6 +440,8 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
       ...(s.elapsedMs !== undefined && s.usage?.completion !== undefined
         ? { apiMs: s.elapsedMs, apiCompletion: s.usage.completion }
         : {}),
+      // run 墙钟耗时（cr-1325 P1 与 1v1 同款）：挂首步——历史链栏「用时」段权威锚
+      ...(m.runMs !== undefined && firstStep ? { runMs: m.runMs } : {}),
       ...(toolCalls.length > 0 ? { tool_calls: toolCalls } : {}),
       ...base,
     });

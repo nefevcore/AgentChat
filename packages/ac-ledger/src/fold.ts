@@ -32,7 +32,7 @@ export interface FoldRunningEntry {
 }
 
 export interface FoldViewOptions {
-  view?: 'chat' | 'plain' | 'lite';
+  view?: 'chat' | 'plain' | 'lite' | 'im';
   running?: FoldRunningEntry[];
   subcallsOf?: (domain: string, run: string) => JournalToolResult[] | undefined;
 }
@@ -346,7 +346,26 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
     }
     if (r.role === 'context' && r.run === undefined && r.anchor === undefined && prev !== undefined) r.anchor = prev;
   }
+  if (opts.view === 'im') return merged.flatMap(imRow);
   return opts.view === 'lite' ? merged.map(liteRow) : merged;
+}
+
+// —— 投影档 'im'（cr-1326 dual-view P2）：投递事实流 ——
+// IM 视图消费面：入站行 / 终稿行（剥 steps——轨迹归 run 块档）/ error 红条 /
+// 机制 event（系统消息）。剔除轨迹族：partial 步行、注入卡（context 行）、
+// 盲区 run 步块（partial/带 steps 的 assistant 行同判）。终稿行剥 steps 后
+// 保留（正文 = run 交付的消息事实）。run/turnId/anchor 键保留——分页与
+// 键控复用同一行族（双视图切换不改行身份）。
+function imRow(r: ViewRow): ViewRow[] {
+  if (r.partial === true) return []; // 在途 run 步行——IM 直播走帧，历史面无终态
+  if (r.role === 'context') return []; // 注入卡/直落材料——IM 不消费
+  if (r.steps !== undefined) {
+    // 带轨迹展开的行（终稿/盲区/活投影）：剥 steps 投正文行——空正文
+    // （内容全在 steps 的中断 run）无投递事实，不投
+    const { steps: _steps, ...rest } = r;
+    return rest.content.trim() !== '' ? [rest as ViewRow] : [];
+  }
+  return [r];
 }
 
 // —— 投影三：LLM 回放（historyMessagesFor 语义——轨迹展开 + injected 判重） ——

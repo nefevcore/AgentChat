@@ -35,7 +35,7 @@ import type { ToolResult } from 'ac-tools';
 import type { AgentConfig } from 'ac-agents';
 import { displayNameOf, formDeniedBy, resolveToolNames, widenToolsForGating } from 'ac-agents';
 import { GROUP_CONTRACT_TEXT } from 'ac-core-utils'; // 群聊行为契约正典（M26——cr-712 复活）
-import { pairKey, parseKey, isSubKey } from 'ac-conv-keys'; // 键词法单源（cr-1238）
+import { pairKey, parseKey, pairIncludes, isSubKey } from 'ac-conv-keys'; // 键词法单源（cr-1238）
 import { isPresetId } from 'ac-agents-core'; // 预设词形判定单源（cr-880）
 import type {} from 'ac-conversation'; // ConversationOutcome（type-only）
 
@@ -159,6 +159,25 @@ export function apply(ctx: Context) {
         ? s.contractText
         : GROUP_CONTRACT_TEXT;
       return override;
+    },
+  }, 'ac-collab-tools');
+
+  // ---- DIRECT_IM_CONTRACT 段（cr-1327 dual-view P3）：1v1 viewer 对桶的
+  //      IM 增量能力教育——send_agent(user) 主动通报（mid-run 说进度/多段
+  //      短消息）。普通回复仍走终稿直出（run 收束自动回投 user——现状语义
+  //      不动，双轨并存）；无协作工具/非 viewer 对桶不注入。
+  ctx.agentLoop.registerPromptSection({
+    name: 'DIRECT_IM_CONTRACT',
+    text: (request) => {
+      const cid = request.conversationId;
+      const agent = request.agent;
+      if (agent === undefined || cid === undefined) return '';
+      const s = parseKey(cid);
+      // 仅 1v1 viewer 对桶（一端 = user）：agent~agent 委托桶走既有协作语义
+      if (s.shape !== 'pair' || !pairIncludes(cid, 'user')) return '';
+      const names = new Set(widenToolsForGating(ctx, agent, cid, request.tools));
+      if (!names.has('send_agent')) return '';
+      return '[直答消息] 普通回复直接输出即可（收束后自动送达用户）。需要中途通报进度或发多条短消息时，可调用工具 send_agent（to 填 "user"）把消息即时送达用户——不必等整轮完成；终稿与消息不冲突：终稿是本轮总结，消息是你选择说的话。';
     },
   }, 'ac-collab-tools');
 

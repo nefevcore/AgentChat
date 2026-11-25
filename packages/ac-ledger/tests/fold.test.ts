@@ -60,6 +60,30 @@ function seedV1(): void {
   ].map((l) => JSON.stringify(l)).join('\n') + '\n', 'utf-8');
 }
 
+describe('fold im 档（cr-1326 dual-view P2——投递事实流）', () => {
+  it('im 档：终稿剥 steps、剔注入/材料/在途步；入站/error/event 保留', () => {
+    seedV1();
+    const rows = assembleSessionView(ROOT, UUID, { view: 'im' });
+    // 行族断言：无 context 行（注入卡/材料）、无 partial、无 steps
+    expect(rows.some((r) => r.role === 'context')).toBe(false);
+    expect(rows.some((r) => r.partial === true)).toBe(false);
+    expect(rows.some((r) => r.steps !== undefined)).toBe(false);
+    // 入站行 + 终稿正文 + error 红条 + 机制 event 全在场
+    const roles = rows.map((r) => r.role);
+    expect(roles).toContain('user');
+    expect(roles).toContain('assistant');
+    expect(roles).toContain('error');
+    expect(roles).toContain('event');
+    // 终稿正文行（run-1 的 a1 语义）在场且带 run/turnId 键（双视图同键切换）
+    const finalRow = rows.find((r) => r.role === 'assistant' && r.content === '答一');
+    expect(finalRow).toBeDefined();
+    expect(finalRow!.run).toBe('run-1');
+    expect(finalRow!.turnId).toBe('run-1');
+    // 空终稿 run（run-2 内容全在 steps）无投递事实——im 档不投正文，只留 error
+    expect(rows.some((r) => r.role === 'assistant' && r.run === 'run-2')).toBe(false);
+  });
+});
+
 describe('fold 单源（cr-974 §2.5 性质化）', () => {
   it('cr-1156：compaction 后 seq 空间倒挂——收束时刻后落账的行恒进回放（admin~user 现场形态）', () => {
     const uuid = 'conv-seq-inversion';

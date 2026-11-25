@@ -67,7 +67,7 @@ export interface SessionViewOptions {
   /** 视图参数化（cr-973，纯函数零存储差异）：lite = steps 超长字段截断
    *  摘要（移动端瘦身）；plain = DSH 式无气泡视图——无气泡是前端渲染
    *  参数，记录面与 chat 同构（服务端等值透传，不另立投影）。 */
-  view?: 'chat' | 'plain' | 'lite';
+  view?: 'chat' | 'plain' | 'lite' | 'im';
   /** 活壳 run 聚集（journal 活投影门控——runId 精确命中才投在途步） */
   running?: RunningEntry[];
   /** subcall 档案定向读钩子（cr-973 索引辅助）：给该域该 run 的

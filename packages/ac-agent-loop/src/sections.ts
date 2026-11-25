@@ -44,6 +44,7 @@ export const SECTION_ORDER = {
   GUIDELINES_ARTIFACTS: 340, // 指引：产出物引用
   GUIDELINES_COLLAB: 350, // 指引：多Agent协作 + 群聊协作
   GROUP_CONTRACT: 355, // 群聊行为契约（cr-944 P3：纯行为规则静态化——群身份单源 CONVERSATION）
+  DIRECT_IM_CONTRACT: 356, // 1v1 直答 IM 契约（cr-1327 dual-view P3：send_agent(user) 主动通报教育——双轨并存）
   GUIDELINES_TIMER: 360, // 指引：主动安排（远程段；cr-944 C singles 亦注入；cr-1164 哑触发层心智）
   GUIDELINES_ASK: 370, // 指引：不可逆操作前询问
   GUIDELINES_SUBAGENT: 380, // 指引：并行子任务

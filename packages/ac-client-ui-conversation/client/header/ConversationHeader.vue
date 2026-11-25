@@ -13,6 +13,7 @@ import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { useChatStore } from '../chatStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
+import { useFeedStore } from '../feedStore.ts';
 import type { HeaderWidgetOwnerData } from '../useConversationIdentity.ts';
 
 const props = defineProps<{
@@ -29,11 +30,29 @@ const props = defineProps<{
   presetChipLabel: string;
   /** 席位 owner 上下文（conversation:header-widget SlotOutlet data） */
   ownerData: HeaderWidgetOwnerData;
+  /** 群成员（cr-1328 P4a 成员轨迹下钻；非群形态 null） */
+  members?: string[] | null;
+  /** 群 id（成员轨迹下钻 = openPairView(gid, member)；非群形态 null） */
+  groupId?: string | null;
 }>();
 
 const chatStore = useChatStore();
 const ui = useUiStore();
 const roster = useRosterCore();
+const feed = useFeedStore();
+/** 群成员轨迹下钻（cr-1328 P4a）：openPairView(gid, member)——会话键 =
+ *  gid~member 原序（useConversationHistory 按 g- 词形传 convKey），渲染
+ *  复用 pair 只读面（思维链/工具卡/折叠栏全套）。 */
+const openMemberTrace = (member: string) => {
+  if (props.groupId) ui.openPairView(props.groupId, member);
+};
+/** 视图档（cr-1326 dual-view P2）：im = 投递事实流（类 IM 聊天）；
+ *  trace = 轨迹视图（run 因果——思维链/工具卡）。群分区无档（IM 即现状）。 */
+const viewModeIm = computed(() => {
+  const id = feed.activeDialogId;
+  return id !== null && feed.dialogs[id]?.viewMode === 'im';
+});
+const toggleView = () => { if (feed.activeDialogId !== null) feed.toggleViewMode(feed.activeDialogId); };
 /** 窄屏导航（cr-29）：push 会话页态——汉堡退役，按钮变返回（closeMobileMain） */
 const closeMobileMain = inject<() => void>('closeMobileMain', () => {});
 
@@ -94,6 +113,17 @@ const headerBusyFeedback = computed(() =>
           <Icon name="sparkles" :size="11" />
           {{ presetChipLabel }}
         </span>
+        <!-- 群成员轨迹下钻（cr-1328 P4a）：选中成员 → 只读视角看其成员流
+             （思维链/工具卡——R2 搁置项的轨迹面补齐） -->
+        <select
+          v-if="isGroup && members?.length"
+          class="member-trace-select"
+          aria-label="查看成员轨迹"
+          @change="openMemberTrace(($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).value = ''"
+        >
+          <option value="">成员轨迹…</option>
+          <option v-for="m in members" :key="m" :value="m">{{ roster.getAgentName(m) || m }}</option>
+        </select>
       </div>
       <div class="header-actions">
         <!-- 思维链显示开关（全局 switch）：隐藏后思考文本、工具卡片与折叠栏
@@ -109,6 +139,21 @@ const headerBusyFeedback = computed(() =>
             @click="ui.setShowThinking(!ui.showThinking)"
           >
             <span class="thinking-switch-track"><span class="thinking-switch-knob"><ThinkingIcon :size="12" class="thinking-switch-icon" /></span></span>
+          </button>
+        </Tooltip>
+
+        <!-- 视图档切换（cr-1326 dual-view）：轨迹 ⇄ IM（投递事实流）——
+             群形态隐藏（群即 IM）；pair/single 形态常驻 -->
+        <Tooltip v-if="!isGroup" :text="viewModeIm ? 'IM 视图 · 点击切换轨迹（思考与工具过程）' : '轨迹视图 · 点击切换 IM（只看消息往来）'" placement="bottom">
+          <button
+            class="thinking-switch"
+            :class="{ on: viewModeIm }"
+            role="switch"
+            :aria-checked="viewModeIm"
+            :aria-label="viewModeIm ? 'IM 视图' : '轨迹视图'"
+            @click="toggleView"
+          >
+            <span class="thinking-switch-track"><span class="thinking-switch-knob"><Icon :name="viewModeIm ? 'message-circle' : 'list'" :size="12" /></span></span>
           </button>
         </Tooltip>
 
@@ -159,6 +204,18 @@ const headerBusyFeedback = computed(() =>
 </template>
 
 <style scoped>
+/* 群成员轨迹下钻（cr-1328 P4a）：紧凑下拉——对齐 header 控件密度 */
+.member-trace-select {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #ddd);
+  background: var(--bg-secondary, #f6f6f6);
+  color: var(--text-secondary, #888);
+  max-width: 140px;
+  cursor: pointer;
+}
 .chat-header {
   display: flex; align-items: center; gap: 10px;
   height: var(--layout-header-height); padding: 0 16px;

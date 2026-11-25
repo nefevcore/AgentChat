@@ -8,6 +8,7 @@
 
 import { ref, watch, nextTick, computed, type Ref } from 'vue';
 import { groupDialog, pairDialog } from './feed.ts';
+import { isGroupKey } from 'ac-conv-keys'; // 群键词形判定单源（cr-1328 P4a 群下钻 convKey 推导）
 import { VIEWER_ID } from './viewer.ts';
 import { traceSwitch } from './switchTrace.ts';
 import { useChatStore } from './chatStore.ts';
@@ -126,7 +127,9 @@ export function useConversationHistory(opts: {
     try {
       const container = transcript.value?.container();
       const prevHeight = container ? container.scrollHeight : 0;
-      const older = await feed.loadOlderPairHistory(dialogId.value, props.a!, props.b!);
+      const a = props.a!;
+      // cr-1328 P4a：群下钻（a = gid）上翻同传原序键
+      const older = await feed.loadOlderPairHistory(dialogId.value, a, props.b!, isGroupKey(a) ? a + '~' + props.b! : undefined);
       if (older && older.length > 0) {
         nextTick(() => {
           if (container) container.scrollTop = container.scrollHeight - prevHeight;
@@ -150,13 +153,16 @@ export function useConversationHistory(opts: {
 
   // ════════════ 历史装载 watches（四形态）════════════
 
-  /** pair：切换格子（或首挂）→ 加载该会话对历史 + 滚底（自 PairDialogView 并入） */
+  /** pair：切换格子（或首挂）→ 加载该会话对历史 + 滚底（自 PairDialogView 并入）。
+   *  cr-1328 P4a：a 是 gid（g- 词形——群成员下钻）时会话键 = gid~member
+   *  原序（键库规格 member 恒最右，sort 重排指错目录）——convKey 直传。 */
   watch(() => [props.a, props.b], async ([a, b], _old, onCleanup) => {
     if (!a || !b) return;
     transcript.value?.reset(); // 清掉滚动外壳闭包残留
     const state = { cancelled: false };
     onCleanup(() => { state.cancelled = true; });
-    await feed.loadPairHistory(pairDialog(a, b), a, b);
+    const convKey = isGroupKey(a) ? a + '~' + b : undefined;
+    await feed.loadPairHistory(pairDialog(a, b), a, b, false, convKey);
     if (state.cancelled) return;
     nextTick(() => transcript.value?.scrollToBottom());
   }, { immediate: true });

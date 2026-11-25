@@ -191,6 +191,40 @@ describe('宿主群存储行（send 扇出 + history 合并）', () => {
     expect(await handlers.get('group/delete')!({ groupId: gid })).toEqual({ deleted: false });
   });
 
+  // cr-1325 P1：成员终稿行经 fold 单源投影扩展——steps/run/runMs/turnId 随
+  // history 合并行透传（群成员思维链/工具卡刷新不丢——R2 历史面）；入站
+  // 发言行（跨流镜像）不扩——IM 消息形态恒终稿。
+  it('cr-1325：成员终稿行挂 fold 投影 steps/turnId/run；入站行不扩', async () => {
+    seedAgent('alpha');
+    seedAgent('beta');
+    const { handlers } = boot();
+    const gid = ((await handlers.get('group/create')!({ name: 'g', members: ['alpha', 'beta'] })) as { group: { id: string } }).group.id;
+    // v2 形态成员流：user 入站行 + alpha 终稿行（run 键）+ run-end 收束（fold
+    // 读方配平需要——未闭合 run 不进终稿层投出）
+    writeStream('alpha', gid + '~alpha', [
+      { type: 'session-header', version: 2 },
+      { role: 'agent', agent_id: 'user', content: '大家好', message_id: 'a1', requestId: 'g-r1', timestamp: '2026-11-25T01:00:00Z' },
+      { role: 'agent', agent_id: 'alpha', content: '-alpha 终稿', message_id: 'a2', requestId: 'reply-g-r1', run: 'run-x', runMs: 1200, timestamp: '2026-11-25T01:00:05Z' },
+      { type: 'run-end', run: 'run-x', finish: 'completed', timestamp: '2026-11-25T01:00:05Z' },
+      { type: 'step/content', run: 'run-x', step: 0, stepId: 'run-x:0', text: '-alpha 终稿', ts: Date.parse('2026-11-25T01:00:03Z') },
+    ]);
+    writeStream('beta', gid + '~beta', [
+      { type: 'session-header', version: 2 },
+      { role: 'agent', agent_id: 'user', content: '大家好', message_id: 'b1', requestId: 'g-r1', timestamp: '2026-11-25T01:00:00Z' },
+    ]);
+    const hist = await handlers.get('group/history')!({ groupId: gid }) as {
+      messages: Array<{ from: string; content: string; steps?: unknown; run?: string; runMs?: number; turnId?: string }>;
+    };
+    // 入站行（user）：恒终稿形态——无 steps/run 挂载
+    expect(hist.messages[0]).toMatchObject({ from: 'user', content: '大家好' });
+    expect(hist.messages[0]!.steps).toBeUndefined();
+    // 终稿行（alpha）：fold 投影步挂载 + run 键透传 + turnId = run（cr-1286 语义）
+    expect(hist.messages[1]).toMatchObject({ from: 'alpha', content: '-alpha 终稿', run: 'run-x', runMs: 1200, turnId: 'run-x' });
+    const steps = hist.messages[1]!.steps as Array<{ content?: string }>;
+    expect(Array.isArray(steps)).toBe(true);
+    expect(steps[0]!.content).toBe('-alpha 终稿');
+  });
+
   // cr-1278：群发图片旁路——attachments 随扇出信封抵达各成员流（壳侧入站
   // 行落账即模型可见），history 合并行回带（刷新后 chips 恢复）。
   it('cr-1278：send 携带 attachments 扇出到成员信封 + history 回带', async () => {

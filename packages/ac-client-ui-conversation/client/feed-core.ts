@@ -102,6 +102,12 @@ interface DialogFeed {
    * （渲染 key / mergeHistoryPage 双键去重同源）。
    */
   slotOf: Map<string, number>;
+  /**
+   * 视图档（cr-1326 dual-view P2）：'trace' 缺省 = 轨迹视图（run 因果——
+   * 现状 UI）；'im' = IM 视图（投递事实流——fold im 档：终稿剥 steps、
+   * 剔注入卡/在途步）。切换 = 重拉历史（行键族同源，双视图行身份恒同）。
+   */
+  viewMode: 'trace' | 'im';
 }
 
 function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): DialogFeed {
@@ -111,6 +117,7 @@ function blankDialog(id: DialogId, kind: DialogKind, partner: string | null): Di
     slotOf: new Map(),
     status: 'idle', hasMore: false, offset: 0,
     lastActivity: 0, lastMessage: null, streaming: false,
+    viewMode: 'trace',
   };
 }
 
@@ -625,6 +632,10 @@ export function createFeedCore(
   function requestHistoryPage(to: string, session: string | undefined, srcOffset: number, reqId: string, force = false) {
     const base = historyPage(session, to, srcOffset);
     const conversationId = session ?? bucketKey(VIEWER_ID.value, to);
+    // 视图档（cr-1326 P2）：im 档请求投递事实流（服务端 fold im 投影——
+    // 终稿剥 steps/剔注入卡）；trace 缺省不带 view（chat 档——现状行为）
+    const fpDialogId = session ? singleDialog(session) : directDialog(to);
+    const viewKind = dialogs.value[fpDialogId]?.viewMode === 'im' ? 'im' : undefined;
     // fingerprint 短路（2026-09-19）：首屏请求带分区现有指纹——文件未变时
     // 服务端 unchanged 轻载荷，本地分区原样保留（内容仍是最新：切走期间的
     // 新消息经 WS 直播帧持续路由进分区，不依赖历史通道）。
@@ -633,12 +644,11 @@ export function createFeedCore(
     //     帧丢失的临时态（重连窗口漏扫/多端竞态），live 重入一律全量：切回
     //     时点 = 确定性收敛点，服务端真相覆盖本地（对齐合并归 mergeHistory）；
     //   · force（watchdog/悬挂探针判死后的收敛）——收敛请求必拿权威行。
-    const fpDialogId = session ? singleDialog(session) : directDialog(to);
     const fpd = srcOffset === 0 ? dialogs.value[fpDialogId] : undefined;
     const livePartition = !!fpd && (fpd.streaming
       || fpd.rawMessages.some(m => m.isStreaming || (m.role === 'tool' && !m.content)));
     const fp = fpd !== undefined && !force && !livePartition ? fpd.historyFingerprint : undefined;
-    void rpc.call<{ records?: unknown[]; hasMore?: boolean; unchanged?: boolean; fingerprint?: string }>('session/history', { ...base, conversationId, ...(fp !== undefined ? { fingerprint: fp } : {}) })
+    void rpc.call<{ records?: unknown[]; hasMore?: boolean; unchanged?: boolean; fingerprint?: string }>('session/history', { ...base, conversationId, ...(fp !== undefined ? { fingerprint: fp } : {}), ...(viewKind !== undefined ? { view: viewKind } : {}) })
       .then((r) => {
         // 指纹命中：分区已是最新（status 回 ready；保留 rawMessages/未读）
         if (r.unchanged === true) {
@@ -699,6 +709,24 @@ export function createFeedCore(
     histReqSentAt.set(reqId, performance.now());
     traceSwitch('req', `首屏 ${dialogId} reqId=${reqId.slice(-6)}${force ? '（强制）' : ''}`);
     requestHistoryPage(to, session, 0, reqId, force);
+  }
+
+  /** 视图档切换（cr-1326 dual-view P2）：trace（轨迹——run 因果，现状 UI）⇄
+   *  im（投递事实流——fold im 档）。切换 = 重拉首屏（行键族同源：im 行
+   *  与 trace 行同 turnId/run——mergeHistory 双键去重换血，直播行不动）。
+   *  仅 pair/single 分区（group 分区内容源 = post 行，IM 即现状）。 */
+  function toggleViewMode(dialogId: DialogId): void {
+    const { kind, key } = parseDialogId(dialogId);
+    if (kind === 'group') return;
+    const d = dialogs.value[dialogId];
+    if (!d) return;
+    d.viewMode = d.viewMode === 'im' ? 'trace' : 'im';
+    d.historyFingerprint = undefined; // 换档必全量——指纹是 chat 档行的指纹
+    if (kind === 'pair' && !pairHasViewer(key)) {
+      void loadPairHistory(dialogId, key.split('|')[0], key.split('|')[1], true);
+      return;
+    }
+    loadHistory(dialogId, VIEWER_ID.value, agentKeyOf(dialogId), kind === 'single' ? key : undefined, true);
   }
   function loadMoreHistory(dialogId: DialogId) {
     const d = dialogs.value[dialogId];
@@ -943,12 +971,14 @@ export function createFeedCore(
   // ── pair（Agent 会话对只读视角）：REST /api/history 分页灌入分区 ──
   const PAIR_HISTORY_PAGE_SIZE = 50;
 
-  /** 加载会话对历史（首屏：整体替换；a/b 端点任意顺序） */
-  async function loadPairHistory(dialogId: DialogId, a: string, b: string, silent = false) {
+  /** 加载会话对历史（首屏：整体替换；a/b 端点任意顺序；cr-1326 P2 im 档透传）。
+   *  cr-1328 P4a：member 流形态（对话键 = gid~member 原序——键库规格 member
+   *  恒最右，不能过 sort 重排）经 convKey 直传寻址。 */
+  async function loadPairHistory(dialogId: DialogId, a: string, b: string, silent = false, convKey?: string) {
     const d = ensureById(dialogId);
     d.status = silent ? 'converging' : 'loading';
     try {
-      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0, rpc);
+      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0, rpc, d.viewMode === 'im' ? 'im' : undefined, convKey);
       const msgs = data.messages.map(m => historyRowToChatMessage(m, { idPrefix: 'pair', fallbackAgentId: a }));
       d.rawMessages = msgs.map(freezeMsg);
       rebuildSlots(d);
@@ -961,12 +991,13 @@ export function createFeedCore(
     }
   }
 
-  /** 上翻加载更早会话对历史：前插并返回新增消息（调用方保持滚动位置） */
-  async function loadOlderPairHistory(dialogId: DialogId, a: string, b: string): Promise<ChatMessage[] | null> {
+  /** 上翻加载更早会话对历史：前插并返回新增消息（调用方保持滚动位置）；
+   *  cr-1328 P4a：convKey = 成员流原序键透传 */
+  async function loadOlderPairHistory(dialogId: DialogId, a: string, b: string, convKey?: string): Promise<ChatMessage[] | null> {
     const d = dialogs.value[dialogId];
     if (!d || d.status === 'loading' || d.status === 'converging' || !d.hasMore) return null;
     try {
-      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset, rpc);
+      const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset, rpc, d.viewMode === 'im' ? 'im' : undefined, convKey);
       const older = data.messages.map(m => historyRowToChatMessage(m, { idPrefix: 'pair', fallbackAgentId: a }));
       if (older.length > 0) {
         d.rawMessages = [...older.map(freezeMsg), ...d.rawMessages];
@@ -978,6 +1009,15 @@ export function createFeedCore(
     } catch {
       return null;
     }
+  }
+
+  /** 群成员轨迹下钻（cr-1328 P4a）：开 pair 只读视角承载成员流（gid~member
+   *  原序键——键库规格 member 恒最右，sort 重排会指错目录）。分区键 =
+   *  pairDialog(gid, member)——g- 前缀与真实 agent 对桶不撞（键库 group
+   *  词形）。渲染复用 pair 只读面（思维链/工具卡/折叠栏全套）。 */
+  async function openMemberStream(gid: string, member: string): Promise<void> {
+    const dialogId = pairDialog(gid, member);
+    await loadPairHistory(dialogId, gid, member, false, gid + '~' + member);
   }
 
   // ── 流式内部助手 ──
@@ -2736,6 +2776,10 @@ export function createFeedCore(
     // 历史
     loadHistory, loadMoreHistory, mergeHistory, convergeDialog,
     loadGroupHistory, loadOlderGroupHistory, loadPairHistory, loadOlderPairHistory,
+    // 视图档（cr-1326 dual-view P2）
+    toggleViewMode,
+    // 群成员轨迹下钻（cr-1328 P4a）
+    openMemberStream,
     // 事件
     ingestFrame, init, handleResume: onSessionResume,
     // 传输面（消费方轮询 RPC 用——cr-756 权威对账；测试独立实例 = offlineRpc）
