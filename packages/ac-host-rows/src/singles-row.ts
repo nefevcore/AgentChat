@@ -392,8 +392,9 @@ function optStr(v: unknown): string | undefined {
 }
 
 /**
- * 宿主独立会话行。写者单源 = 宿主（UserStub 写同类目录的 messages.jsonl；
- * 本行写 session.json——同目录不同文件，各自 owning）。
+ * 宿主独立会话行。元数据写者单源 = 本行（写 session.json）；消息流写者 =
+ * 壳侧 agent 域账本（cr-973 viewer 物化退役后 UserStub 不再写 messages.jsonl
+ * ——原注释「UserStub 写同类目录」是那一代的事实，cr-1329 校准）。
  */
 export function makeSinglesHostRow(options: SinglesHostRowOptions): Plugin {
   return {
