@@ -1350,4 +1350,5 @@
 - 【cr-1329 2026-11-26 dual-view P5 裁决：读口泛化收口定界——pair 已并 session/history、group 合并器保持独立（多流语义）、DialogKind 群特判保留（P4b 留观的正确事实表达，非债务）；本批不做为做而做的泛化】
 - 【cr-1330 2026-11-26 dual-view P4a 修复：群成员下钻模板 TS 断言致 member 空串（主区掉空态）+ 下拉可发现性改善 + 下钻标题不裸露 gid（pairView.label）】
 - 【cr-1331 2026-11-26 dual-view P4b-lite：IM 视图纯净化——机制 run 终稿 origin 分流（fold imRow + events-core origin 透传）+ im 档直播过程帧抑制（口述/思考/工具卡不建行，收束重拉补终稿）】
+- 【cr-1332 2026-11-26 dual-view IM 白名单方案立项（投递标记 delivered 行集）+ 交接——取代排除法过滤（用户裁决 2026-11-26：新机制类型缺省不打标不进 IM，零维护）】
 
