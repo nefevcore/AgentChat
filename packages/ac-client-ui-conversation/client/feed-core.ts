@@ -2153,6 +2153,14 @@ export function createFeedCore(
         const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender, meta?.source ?? input?.meta?.source);
         if (!keys || !isForCurrentUser(keys)) return;
         noteStreamAgent(keys);
+        // IM 视图档（cr-1331）：过程帧不建行——口述/思考/工具卡是轨迹面事实，
+        // IM 只消费投递事实（终稿——run/settled 重拉补权威行）。streaming
+        // 态照常点亮（忙信号/排队手势依赖），仅跳过内容载体。
+        if (dialogs.value[keys.dialogId]?.viewMode === 'im') {
+          const d = ensureById(keys.dialogId);
+          if (!d.streaming) { d.streaming = true; bump(keys.dialogId); }
+          return;
+        }
         const st = streamOf(streams, keys.dialogId);
         // 身份贯通：stepId/runId 提取（旧后端帧缺席 → undefined，回落启发式）
         const stepKeys = stepKeysOf({
@@ -2333,6 +2341,9 @@ export function createFeedCore(
         if (!isUserConversation(agent, call?.conversationId)) return;
         const keys = routeDialog(agent, call?.conversationId);
         if (!keys || typeof call?.toolCallId !== 'string' || !call.toolCallId) return;
+        // IM 视图档（cr-1331）：subcall 占位卡是过程面事实——不建（终值帧
+        // 亦不消费，收束重拉补权威行）
+        if (dialogs.value[keys.dialogId]?.viewMode === 'im') return;
         if (call?.runCodeSubcall === true) {
           onSubcallStart(keys.dialogId, {
             tool_call_id: call.toolCallId,

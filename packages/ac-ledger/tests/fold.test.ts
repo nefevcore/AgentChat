@@ -82,6 +82,27 @@ describe('fold im 档（cr-1326 dual-view P2——投递事实流）', () => {
     // 空终稿 run（run-2 内容全在 steps）无投递事实——im 档不投正文，只留 error
     expect(rows.some((r) => r.role === 'assistant' && r.run === 'run-2')).toBe(false);
   });
+
+  it('cr-1331：机制 run 终稿（run-end origin=机制成因）不进 IM 流；交互成因照常', () => {
+    seedV1();
+    // 补一条机制 run：终稿行 + run-end(origin: archive)
+    const dir = sessionDir(ROOT, AGENT, UUID);
+    const rows = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8');
+    const extra = [
+      { role: 'agent', content: '会话总结已提交', agent_id: AGENT, run: 'run-arch', message_id: 'ax1', timestamp: '2026-11-09T10:05:00.000Z', seq: 20 },
+      { type: 'run-end', run: 'run-arch', finish: 'completed', origin: 'archive', timestamp: '2026-11-09T10:05:01.000Z', seq: 21 },
+      { role: 'agent', content: '正常回复', agent_id: AGENT, run: 'run-norm', message_id: 'nx1', timestamp: '2026-11-09T10:06:00.000Z', seq: 22 },
+      { type: 'run-end', run: 'run-norm', finish: 'completed', origin: 'viewer', timestamp: '2026-11-09T10:06:01.000Z', seq: 23 },
+    ].map((r) => JSON.stringify(r)).join('\n');
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), rows + extra + '\n', 'utf-8');
+    const imRows = assembleSessionView(ROOT, UUID, { view: 'im' });
+    // 机制 run 终稿不投；交互成因（viewer）终稿照常投
+    expect(imRows.some((r) => r.role === 'assistant' && r.run === 'run-arch')).toBe(false);
+    expect(imRows.some((r) => r.role === 'assistant' && r.content === '正常回复' && r.run === 'run-norm')).toBe(true);
+    // chat 档（轨迹视图）不受影响——机制终稿照常在
+    const chatRows = assembleSessionView(ROOT, UUID, {});
+    expect(chatRows.some((r) => r.role === 'assistant' && r.run === 'run-arch')).toBe(true);
+  });
 });
 
 describe('fold 单源（cr-974 §2.5 性质化）', () => {

@@ -105,6 +105,8 @@ export interface RunEndEvent {
   model?: string;
   errorMessage?: string;
   runMs?: number;
+  /** run 成因（cr-1242 落盘透传；cr-1331 im 档消费——机制 run 终稿不进 IM 流） */
+  origin?: string;
   ts: number;
   seq?: number;
 }
@@ -214,7 +216,7 @@ function v2RowToEvent(row: Record<string, unknown>): SessionEvent | 'segment' | 
     case 'compaction/end':
       return { kind: 'compaction-end', run: String(row.run ?? ''), ...(row.boundarySeq !== undefined ? { boundarySeq: Number(row.boundarySeq) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'run-end':
-      return { kind: 'run-end', run: String(row.run ?? ''), finish: row.finish === 'interrupted' || row.finish === 'error' ? row.finish : 'completed', ...(row.usage !== undefined ? { usage: row.usage as RunUsage } : {}), ...(row.model !== undefined ? { model: String(row.model) } : {}), ...(row.errorMessage !== undefined ? { errorMessage: String(row.errorMessage) } : {}), ...(row.runMs !== undefined ? { runMs: Number(row.runMs) } : {}), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
+      return { kind: 'run-end', run: String(row.run ?? ''), finish: row.finish === 'interrupted' || row.finish === 'error' ? row.finish : 'completed', ...(row.usage !== undefined ? { usage: row.usage as RunUsage } : {}), ...(row.model !== undefined ? { model: String(row.model) } : {}), ...(row.errorMessage !== undefined ? { errorMessage: String(row.errorMessage) } : {}), ...(row.runMs !== undefined ? { runMs: Number(row.runMs) } : {}), ...(row.origin !== undefined ? { origin: String(row.origin) } : {}), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     default:
       return null; // 未知 type 安全忽略（compaction/* 由 fold 单独消费；段行另路）
   }
