@@ -61,19 +61,19 @@ function seedV1(): void {
 }
 
 describe('fold im 档（cr-1326 dual-view P2——投递事实流）', () => {
-  it('im 档：终稿剥 steps、剔注入/材料/在途步；入站/error/event 保留', () => {
+  it('im 档：终稿剥 steps、剔注入/材料/在途步/机制 event；入站/error 保留', () => {
     seedV1();
     const rows = assembleSessionView(ROOT, UUID, { view: 'im' });
     // 行族断言：无 context 行（注入卡/材料）、无 partial、无 steps
     expect(rows.some((r) => r.role === 'context')).toBe(false);
     expect(rows.some((r) => r.partial === true)).toBe(false);
     expect(rows.some((r) => r.steps !== undefined)).toBe(false);
-    // 入站行 + 终稿正文 + error 红条 + 机制 event 全在场
+    // 入站行 + 终稿正文 + error 红条在场；机制 event 剔除（cr-1331 用户裁决：干扰项）
     const roles = rows.map((r) => r.role);
     expect(roles).toContain('user');
     expect(roles).toContain('assistant');
     expect(roles).toContain('error');
-    expect(roles).toContain('event');
+    expect(roles).not.toContain('event');
     // 终稿正文行（run-1 的 a1 语义）在场且带 run/turnId 键（双视图同键切换）
     const finalRow = rows.find((r) => r.role === 'assistant' && r.content === '答一');
     expect(finalRow).toBeDefined();
@@ -83,7 +83,7 @@ describe('fold im 档（cr-1326 dual-view P2——投递事实流）', () => {
     expect(rows.some((r) => r.role === 'assistant' && r.run === 'run-2')).toBe(false);
   });
 
-  it('cr-1331：机制 run 终稿（run-end origin=机制成因）不进 IM 流；交互成因照常', () => {
+  it('cr-1331：机制 run 终稿不进 IM 流（origin 字段 ∪ 存量 runId 词形）；交互成因照常；chat 档完整', () => {
     seedV1();
     // 补一条机制 run：终稿行 + run-end(origin: archive)
     const dir = sessionDir(ROOT, AGENT, UUID);
@@ -102,6 +102,28 @@ describe('fold im 档（cr-1326 dual-view P2——投递事实流）', () => {
     // chat 档（轨迹视图）不受影响——机制终稿照常在
     const chatRows = assembleSessionView(ROOT, UUID, {});
     expect(chatRows.some((r) => r.role === 'assistant' && r.run === 'run-arch')).toBe(true);
+  });
+
+  it('cr-1331：存量机制 run（runId 词形兜底）与回执转发副本不进 IM 流', () => {
+    seedV1();
+    const dir = sessionDir(ROOT, AGENT, UUID);
+    const rows = fs.readFileSync(path.join(dir, 'messages.jsonl'), 'utf-8');
+    // 存量形态：run-archive-* 终稿（run-end 无 origin——旧写面）+ subagent-done-reply 转发行
+    const extra = [
+      { role: 'agent', content: '存量机制终稿', agent_id: AGENT, run: 'run-archive-run-legacy', message_id: 'lx1', timestamp: '2026-11-09T10:07:00.000Z', seq: 30 },
+      { type: 'run-end', run: 'run-archive-run-legacy', finish: 'completed', timestamp: '2026-11-09T10:07:01.000Z', seq: 31 },
+      { role: 'agent', content: '[Agent peer 回复] 转发副本', agent_id: 'peer', requestId: 'subagent-done-reply-local-x1', message_id: 'fx1', timestamp: '2026-11-09T10:08:00.000Z', seq: 32 },
+    ].map((r) => JSON.stringify(r)).join('\n');
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), rows + extra + '\n', 'utf-8');
+    const imRows = assembleSessionView(ROOT, UUID, { view: 'im' });
+    // 存量词形兜底：无 origin 的 run-archive-* 终稿不投
+    expect(imRows.some((r) => r.role === 'assistant' && r.run === 'run-archive-run-legacy')).toBe(false);
+    // 回执转发副本（requestId 前缀判据）不投
+    expect(imRows.some((r) => r.role === 'assistant' && r.content?.includes('转发副本'))).toBe(false);
+    // chat 档两都在（轨迹视图完整性）
+    const chatRows = assembleSessionView(ROOT, UUID, {});
+    expect(chatRows.some((r) => r.run === 'run-archive-run-legacy')).toBe(true);
+    expect(chatRows.some((r) => r.content?.includes('转发副本'))).toBe(true);
   });
 });
 

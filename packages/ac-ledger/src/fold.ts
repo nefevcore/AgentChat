@@ -185,6 +185,8 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       timestamp: r.timestamp,
       // cr-1132:发言行 message_id 升格携带——anchor 锚目标(注入卡挂靠)
       ...(r.messageId ? { message_id: r.messageId } : {}),
+      // cr-1331:requestId 透传（回执转发判据——im 档剔 subagent-done-reply 副本）
+      ...(r.requestId !== undefined ? { requestId: r.requestId } : {}),
       ...(r.run !== undefined ? { run: r.run } : {}),
       // cr-1286 P4-1:轮身份键——peer 行 = run(无 run 回落 message_id);user 行 =
       // message_id(用户轮独立成轮;老形态 run 键覆盖对话边界的场景 run 优先)
@@ -347,16 +349,25 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
     if (r.role === 'context' && r.run === undefined && r.anchor === undefined && prev !== undefined) r.anchor = prev;
   }
   if (opts.view === 'im') {
-    // 机制 run 终稿分流（cr-1331）：run-end 行携带 origin（cr-1242 落盘），
-    // 机制成因（archive/timer/goal/…）的 run 终稿不是对用户的投递——IM 流
-    // 不投（「会话总结已提交」类系统作业汇报是干扰项）。交互成因
-    // （viewer/interaction）与缺席（存量 run-end 无 origin）照常投。
+    // 机制 run 终稿分流（cr-1331）：判据双源——
+    //   ① run-end 行 origin 字段（cr-1242 落盘，新写面）
+    //   ② runId 词形前缀（存量兜底：写面 requestId 前缀携带 origin 词——
+    //      run-archive-* / run-timer-* / run-subagent-done-reply-* / run-local-*
+    //      等；35/35 存量 run-end 无 origin 字段时的补充判据）
+    // 机制成因的 run 终稿不是对用户的投递——IM 流不投。交互成因
+    // （viewer/interaction）与双源皆缺席照常投（保守）。
     const mechanismOrigin = new Set(['archive', 'timer', 'subagent', 'bench', 'goal', 'job', 'mechanism']);
     const runOriginOf = new Map<string, string>();
     for (const [run, rf] of fold.runs) {
       if (rf.end?.origin !== undefined) runOriginOf.set(run, rf.end.origin);
     }
-    return merged.flatMap((r) => imRow(r, runOriginOf, mechanismOrigin));
+    const mechanismRunId = new Set<string>();
+    for (const run of fold.runs.keys()) {
+      if (run.startsWith('run-archive-') || run.startsWith('run-timer-')
+        || run.startsWith('run-subagent-') || run.startsWith('run-local-')
+        || run.startsWith('run-mech-')) mechanismRunId.add(run);
+    }
+    return merged.flatMap((r) => imRow(r, runOriginOf, mechanismOrigin, mechanismRunId));
   }
   return opts.view === 'lite' ? merged.map(liteRow) : merged;
 }
@@ -367,12 +378,17 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
 // 盲区 run 步块（partial/带 steps 的 assistant 行同判）。终稿行剥 steps 后
 // 保留（正文 = run 交付的消息事实）。run/turnId/anchor 键保留——分页与
 // 键控复用同一行族（双视图切换不改行身份）。
-function imRow(r: ViewRow, runOriginOf: Map<string, string>, mechanismOrigin: Set<string>): ViewRow[] {
+function imRow(r: ViewRow, runOriginOf: Map<string, string>, mechanismOrigin: Set<string>, mechanismRunId: Set<string>): ViewRow[] {
   if (r.partial === true) return []; // 在途 run 步行——IM 直播走帧，历史面无终态
   if (r.role === 'context') return []; // 注入卡/直落材料——IM 不消费
-  // 机制 run 终稿分流（cr-1331）：同 run 的 run-end.origin 是机制成因 → 不投
+  if (r.role === 'event') return []; // 机制通知（重启等）——IM 档剔除（用户裁决：干扰项）；error 保留（失败须可见）
+  // 回执转发行剔除（cr-1331）：requestId 前缀 subagent-done-reply-（cr-711 完成回执
+  // 转投）与子 Agent 自著终稿同文双份——IM 档保终稿正本，剔转发副本
+  if (typeof r.requestId === 'string' && r.requestId.startsWith('subagent-done-reply-')) return [];
+  // 机制 run 终稿分流（cr-1331）：origin 字段（新写面）∪ runId 词形（存量兜底）
   const origin = r.run !== undefined ? runOriginOf.get(r.run) : undefined;
   if (origin !== undefined && mechanismOrigin.has(origin)) return [];
+  if (r.run !== undefined && mechanismRunId.has(r.run)) return [];
   if (r.steps !== undefined) {
     // 带轨迹展开的行（终稿/盲区/活投影）：剥 steps 投正文行——空正文
     // （内容全在 steps 的中断 run）无投递事实，不投
