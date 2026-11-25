@@ -1348,4 +1348,5 @@
 - 【cr-1327 2026-11-26 dual-view P3：1v1 IM 行为契约段（send_agent(user) 教育 + GROUP_CONTRACT 同机制）+ run 零投递兜底探针】
 - 【cr-1328 2026-11-26 dual-view P4a：群成员轨迹下钻（fetchPairHistory convKey 原序键 + openMemberStream + 群头成员轨迹下拉 → pair 只读视角）】
 - 【cr-1329 2026-11-26 dual-view P5 裁决：读口泛化收口定界——pair 已并 session/history、group 合并器保持独立（多流语义）、DialogKind 群特判保留（P4b 留观的正确事实表达，非债务）；本批不做为做而做的泛化】
+- 【cr-1330 2026-11-26 dual-view P4a 修复：群成员下钻模板 TS 断言致 member 空串（主区掉空态）+ 下拉可发现性改善 + 下钻标题不裸露 gid（pairView.label）】
 
