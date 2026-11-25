@@ -722,6 +722,10 @@ export function createFeedCore(
     if (!d) return;
     d.viewMode = d.viewMode === 'im' ? 'trace' : 'im';
     d.historyFingerprint = undefined; // 换档必全量——指纹是 chat 档行的指纹
+    // 换投影 = 换血（cr-1331）：首屏只拉 HISTORY_PAGE_SIZE 条，其余靠 mergeHistory
+    // 保留本地行——不先清场会让轨迹档的带 steps 行残留在 IM 档（「思考过程 · N 步」
+    // 折叠链照显）。resetDialog 清空后首屏重建，两档各自纯净。
+    resetDialog(dialogId);
     if (kind === 'pair' && !pairHasViewer(key)) {
       void loadPairHistory(dialogId, key.split('|')[0], key.split('|')[1], true);
       return;
