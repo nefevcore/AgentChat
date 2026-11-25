@@ -546,7 +546,19 @@ export class ConversationService extends Service {
     const requestId = 'subagent-done-' + env.requestId;
     if (this.ctx.ledger.hasInboundRow(target, requestId)) return; // 已投过（重放）
     const label = fromChild ? '子 Agent ' + env.sender + ' 完成' : 'Agent ' + env.sender + ' 回复';
-    const notice = '[' + label + ']\n' + (text.trim() === '' ? '（无文本终稿）' : text);
+    // 防自激引导（cr-1317，对等 Agent 委托回执专属）：对方是长期实体，回执
+    // 到达即本轮协作可自然收束——唤醒发起方只为呈递结果，缺「何时停」判据时
+    // LLM 有消息必回，成无终止往返（2026-11-25 admin⇄mathematician 实证）。
+    // 子 Agent 回执不加：那是父必须知道的任务完成事实，且子已退出、回信
+    // 无处可回，引导只会污染上下文。另注：下方 budget:1 硬编码每轮重置满额
+    // ——预算 TTL 对回声链不提供保护（根因 B，报告记录在案、不改），终止
+    // 判据只依赖本引导。
+    const guide = fromChild
+      ? ''
+      : '[引导 防自激] 以上是对方对你上一条消息的终稿回执，不是新任务。'
+        + '无未决事项即视为本轮完成——不要仅为「回应」而再发消息；'
+        + '确需继续时才复信，且一轮内把话说完，避免多轮往返。\n';
+    const notice = '[' + label + ']\n' + guide + (text.trim() === '' ? '（无文本终稿）' : text);
     try {
       await this.deliver(this.agentId, notice, {
         sender: env.sender,

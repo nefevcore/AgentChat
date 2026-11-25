@@ -468,6 +468,8 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       // 不计入）——注入行进轨迹，无入站行复读
       const notice = '[子 Agent kid1 完成]\nmid-run 结果正文';
       const ledgerFace = ctx.get('ledger', false) as unknown as { historyMessagesFor(u: string): Array<{ content: string }> };
+      // 防自激引导（cr-1317）不进子 Agent 回执：子已退出、回信无处可回
+      expect(ledgerFace.historyMessagesFor(INIT).some((m) => m.content.includes('[引导 防自激]'))).toBe(false);
       // cr-1101 wrapper：注入行回放统一包裹——按包裹形精确一份（不双喂）
       expect(ledgerFace.historyMessagesFor(INIT).filter((m) => m.content === '<system-reminder>' + notice + '</system-reminder>')).toHaveLength(1);
       // 重放（壳重启 inbox 重投）：注入行同键判重 → 不再唤醒、不二份
@@ -1527,6 +1529,10 @@ describe('cr-712 跨壳投递与完成回执', () => {
       const initRows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', INIT)).rows;
       expect(initRows.find((r) => r.agent_id === 'beta')?.content).toContain('[Agent beta 回复]');
       expect(initRows.find((r) => r.agent_id === 'beta')?.content).toContain('跨壳终稿正文');
+      // 防自激引导（cr-1317）：对等 Agent 回执含引导行、置标签与正文之间
+      expect(initRows.find((r) => r.agent_id === 'beta')?.content).toContain('[引导 防自激]');
+      expect(initRows.find((r) => r.agent_id === 'beta')?.content.indexOf('[引导 防自激]'))
+        .toBeGreaterThan(initRows.find((r) => r.agent_id === 'beta')?.content.indexOf('[Agent beta 回复]') ?? -1);
       expect(initRows.some((r) => r.agent_id === 'alpha' && typeof r.run === 'string')).toBe(true);
       expect(chatMessages).toHaveLength(1);
       // 重放幂等：不再二次唤醒

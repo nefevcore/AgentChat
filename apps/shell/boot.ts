@@ -1437,6 +1437,13 @@ function restartNoteSender(conversationId: string, agentId: string): string {
 // —— 进程入口（CLI 直连形态：node boot.ts --data-root … --agent-id …） ——
 
 export async function main(argv: string[]): Promise<number> {
+  // cr-1314（cr-612 挂点前移）：宿主换代接管后 stdio 管道不重建——本壳
+  // stderr 可能指向已死旧宿主的管道，而 bootShell 中段即有 stderr 诊断写；
+  // EPIPE 是异步 error 事件，不挂 handler = uncaughtException 进程即灭
+  //（接管代 spawn 的子代理四连崩 exit 1）。入口立即挂——写死管静默吞，
+  // 壳照常跑；后段重复挂载幂等无害。
+  process.stdout.on('error', () => {});
+  process.stderr.on('error', () => {});
   let args: ShellBootArgs;
   try {
     args = parseShellArgs(argv);
@@ -1489,10 +1496,8 @@ export async function main(argv: string[]): Promise<number> {
     result.ctx.on('durable-interaction/replied', noteActive);
     // D5 边 2 常态化（cr-612）：邮局在场 + 宿主入口已知 = 本壳承担宿主复活
     // 职责（探测/停机戳/仲裁锁/退避全在 host-revive——boot 只接线与收面）。
-    // 宿主死后 stdout/stderr 管道断裂——TSV 心跳/复活信号写死管必须不崩
-    //（EPIPE 是异步 error 事件，不挂 handler = uncaughtException 壳全灭）
-    process.stdout.on('error', () => {});
-    process.stderr.on('error', () => {});
+    // stdout/stderr 写死管不崩的防护在 main() 入口（cr-1314 前移——旧挂点
+    // 在 bootShell 完成后，中段 stderr 写无护）。
     const revive = args.postOffice !== undefined && args.hostBoot !== undefined
       ? startHostRevive({
           postOffice: args.postOffice,

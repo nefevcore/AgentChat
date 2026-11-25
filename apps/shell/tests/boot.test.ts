@@ -304,6 +304,41 @@ describe('进程级冒烟（真起 boot.ts）', () => {
     expect(fs.existsSync(path.join(ROOT, 'agents', 'c1', 'activation.lock'))).toBe(false);
   }, 35_000);
 
+  // cr-1314：宿主换代接管后壳 stderr 指向死管（adopt 不重建管道），boot
+  // 中段（锁后、完成前）的 stderr 诊断写在旧形态下 EPIPE → uncaughtException
+  // → exit 1——被接管壳 spawn 的子代理批量崩（boot-progress 停中拍、无
+  // messages.jsonl）。入口挂 error handler = 写死管静默吞，boot 照常走完。
+  // 触发面：shell.patch.yml 顶层非数组 → readAssemblyPatch 警告 = 锁后首个
+  // stderr 写（Windows 死管写实证：无 handler 进程 exit 1，挂 handler 存活）。
+  it('死管道 stderr 不杀壳：中段诊断写 EPIPE 被吞，boot 照常完成 + 优雅退 0（cr-1314）', async () => {
+    seedAgent('dead1');
+    fs.mkdirSync(path.join(ROOT, 'profile'), { recursive: true });
+    fs.writeFileSync(path.join(ROOT, 'profile', 'shell.patch.yml'), 'bad: true', 'utf-8'); // 顶层非数组 → 警告
+    const child = spawn(process.execPath, [
+      '--experimental-strip-types',
+      fileURLToPath(new URL('../boot.ts', import.meta.url)),
+      '--data-root', path.resolve(ROOT),
+      '--agent-id', 'dead1',
+      '--catalog', CATALOG,
+    ], { stdio: ['ignore', 'ignore', 'pipe'], windowsHide: true });
+    try {
+      // 掐死读端 = 死管（接管形态）；修复前首个中段写触发 uncaughtException
+      child.stderr!.destroy();
+      const lock = await waitForShellReady(path.join(ROOT, 'agents', 'dead1'), 25_000);
+      expect(lock.transportHint).toBe(socketPathFor(path.resolve(ROOT), 'dead1'));
+      const progress = JSON.parse(fs.readFileSync(path.join(ROOT, 'agents', 'dead1', 'boot-progress.json'), 'utf-8'));
+      expect(typeof progress.fingerprintRoot).toBe('string'); // 终拍在（旧形态死于中拍）
+      await manageRoundTrip(lock.transportHint, { ctrl: 'system', op: 'shutdown' }, 5_000);
+      const code = await new Promise<number>((resolve) => {
+        child.on('exit', (c) => resolve(c ?? -1));
+      });
+      expect(code).toBe(0); // 优雅退 0 ≠ EPIPE 崩溃退 1
+      expect(fs.existsSync(path.join(ROOT, 'agents', 'dead1', 'activation.lock'))).toBe(false);
+    } finally {
+      try { if (child.exitCode === null) child.kill('SIGKILL'); } catch { /* 已退出 */ }
+    }
+  }, 35_000);
+
   it('同 agent 双进程互斥：第二个进程退出码 1 + 拒绝消息', () => {
     seedAgent('c2');
     const bootFile = fileURLToPath(new URL('../boot.ts', import.meta.url));

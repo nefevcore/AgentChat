@@ -33,6 +33,7 @@ import { describeError } from 'ac-error-core';
 // owning，单源住纯库；其余三词汇包内无使用、不在本包导出）
 import { normalizeToolSpecs, runAddress } from 'ac-core-utils';
 import type { LlmMessage, LlmToolCall, LlmToolSpec, LlmUsage } from 'ac-llm';
+import type { ToolCall, ToolResult } from 'ac-tools';
 import type {
   FrozenPromptSection,
   LoopInterruptReason,
@@ -634,16 +635,21 @@ export class AgentLoopService extends Service {
           // 不越权替安全行执法）；run 期间动态进面（插件安装中途启用）。
           const offFace = face !== undefined && !face.has(tc.name)
             && !dynamicFace().has(tc.name);
+          // 执行身份单源（cr-1315）：拦截分支的 emit 与正常执行共用同一 call
+          // 形状——载荷面不再各写一份（改一处漏一处即身份断链）。
+          const call: ToolCall = {
+            name: tc.name,
+            args: parseArgs(tc),
+            ...(request.agent !== undefined ? { agentId: request.agent } : {}),
+            ...(request.conversationId !== undefined
+              ? { conversationId: request.conversationId }
+              : {}),
+            ...(request.runId !== undefined ? { runId: request.runId } : {}),
+            ...(tc.id ? { toolCallId: tc.id } : {}),
+          };
           if (face === undefined || !offFace) {
             return this.ctx.tools.execute({
-              name: tc.name,
-              args: parseArgs(tc),
-              ...(request.agent !== undefined ? { agentId: request.agent } : {}),
-              ...(request.conversationId !== undefined
-                ? { conversationId: request.conversationId }
-                : {}),
-              ...(request.runId !== undefined ? { runId: request.runId } : {}),
-              ...(tc.id ? { toolCallId: tc.id } : {}),
+              ...call,
               ...(request.signal ? { signal: request.signal } : {}),
               ...(request.access ? { access: request.access } : {}),
             });
@@ -655,10 +661,19 @@ export class AgentLoopService extends Service {
             tc.name,
             request.tools!.join(','),
           );
-          return Promise.resolve({
+          const denied: ToolResult = {
             ok: false,
             error: `工具 ${tc.name} 不在本 run 工具面，调用未执行。本 run 可用工具：${request.tools!.join(',')}。${face.has('run_code') ? '本会话为程序化模式：请改用 run_code 编排调用（tools.<name> 子调用形态）。' : '请改用面内工具完成任务。'}`,
-          });
+          };
+          // cr-1315 拦截结果 durable 化：被拦调用是「模型曾见过的执行事实」，
+          // 必须走与正常执行同一事件面——tool/after-execute emit 使 ledger 落
+          // result 行（回放前缀与 live 字节一致，防「live 纠错 / 回放假成功」
+          // 语义反转）、ws-bridge 投前端帧（卡片如实显示被拦而非「无输出」）。
+          // 归位：after-execute 是观察通知位；与 before-execute veto 不 emit 的
+          // 区分——veto 无模型侧调用对（无 step/tool-call 行），本拦截发生在
+          // 步内、tool-call 行已落，缺终值行才是断链。
+          this.ctx.emit('tool/after-execute', call, denied);
+          return Promise.resolve(denied);
         });
         for (let i = 0; i < step.toolCalls.length; i++) {
           step.toolResults.push(toolResults[i]);

@@ -239,6 +239,12 @@ describe('ac-agent-loop 循环', () => {
     let executed = 0;
     ctx.tools.register({ name: 'memory_grep', execute: () => { executed++; return { ok: true, output: '不应执行' }; } });
     ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }) });
+    // cr-1315：拦截结果必须走 tool/after-execute 事件面（ledger 据此落
+    // result 行——回放前缀一致、前端卡片如实「被拦」而非「无输出」）
+    const intercepted: Array<{ name: string; toolCallId: string; result: { ok: boolean; error?: string } }> = [];
+    ctx.on('tool/after-execute', (call, result) => {
+      intercepted.push({ name: call.name, toolCallId: call.toolCallId ?? '', result });
+    });
     const result = await ctx.agentLoop.run({ model: 'mock-1', messages: USER('q'), tools: ['run_code'] });
     expect(executed).toBe(0); // 面外工具绝不被执行
     const denied = result.steps[0].toolResults[0] as { ok: boolean; error: string };
@@ -246,6 +252,31 @@ describe('ac-agent-loop 循环', () => {
     expect(denied.error).toContain('不在本 run 工具面');
     expect(denied.error).toContain('run_code'); // 引导面内正确入口
     expect(result.steps[1].text).toBe('已改用 run_code'); // 模型收到纠错后续步（run 正常收束）
+    // 被拦调用 emit 恰一次：载荷携带执行身份（ledger/前端帧按键归属），结果 = 同一纠错对象
+    expect(intercepted).toHaveLength(1);
+    expect(intercepted[0]).toMatchObject({ name: 'memory_grep', toolCallId: 'c1', result: { ok: false } });
+    expect(intercepted[0].result.error).toContain('不在本 run 工具面');
+  });
+
+  it('cr-1315 跨包契约：拦截 emit 的 call 满足 ledger 落账判据（agent/conversation/run/toolCallId 四键）', async () => {
+    // ledger 的 tool/after-execute 监听按四键门控
+    // （agentId === 本壳 agent && conversationId/runId/toolCallId 非空）；
+    // 任一缺席即静默不落账——结果行缺席正是原缺陷。此处锁住拦截路径的四键完整性。
+    const { ctx } = await boot([
+      { calls: [], chunks: () => toolCallChunks('call_x', 'read', '{"file_path":"a.ts"}') },
+      { calls: [], chunks: () => textChunks('已改用 run_code') },
+    ]);
+    ctx.tools.register({ name: 'read', execute: () => ({ ok: true, output: '不应执行' }) });
+    ctx.tools.register({ name: 'run_code', execute: () => ({ ok: true }) });
+    const seen: Array<Record<string, unknown>> = [];
+    ctx.on('tool/after-execute', (call) => { seen.push(call as unknown as Record<string, unknown>); });
+    await ctx.agentLoop.run({
+      model: 'mock-1', messages: USER('q'), tools: ['run_code'],
+      agent: 'alpha', conversationId: 'alpha~user', runId: 'run-1',
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ agentId: 'alpha', conversationId: 'alpha~user', runId: 'run-1', toolCallId: 'call_x', name: 'read' });
+    expect(seen[0].args).toEqual({ file_path: 'a.ts' }); // 参数面在场（前端卡片专用视图数据源）
   });
 
   it('请求面硬闸：request.tools 未定义（全注册面语义）→ 不判定，工具照常执行', async () => {
