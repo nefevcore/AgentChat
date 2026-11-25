@@ -139,7 +139,9 @@ export const useUiStore = defineStore('ui', () => {
   // ── 主区「Agent 会话对」只读视角（pair）：矩阵格子/面板运行中行点击进入，
   //    两端点都非 viewer。注册在 talk 之前的视角，active 期间覆盖聊天视角；
   //    进入即收矩阵（openPairView 单点互斥），选中别处让位（exitOverlays）──
-  const pairView = ref<{ a: string; b: string } | null>(null);
+  //    cr-1328 P4a：label = a 端非 Agent（群成员下钻的 gid）时的展示名——
+  //    读面不裸露内部 id（pair 视角标题回落 a 原文；label 在场优先）。
+  const pairView = ref<{ a: string; b: string; label?: string } | null>(null);
   // ── 主区「子 Agent 会话」只读视角（subagent）：运行跟踪面板子Agent 行点击
   //    进入（subagent-session-view-plan R7）——与 pair 同款让位协议：选中
   //    Agent/群/独立会话即回退；与 pairView 互斥（open 时互清）。
@@ -261,10 +263,10 @@ export const useUiStore = defineStore('ui', () => {
   /** 主区「Agent 会话对」只读视角（矩阵格子/面板运行中行进入）：a/b 为
    *  两端点 id（排序与否均可）。显式导航互斥：进入会话即收起矩阵——
    *  不做「返回回矩阵」联动（返回按钮已退役）。 */
-  function openPairView(a: string, b: string) {
+  function openPairView(a: string, b: string, label?: string) {
     subagentView.value = null; // 反向互斥（subagent 视角让位给 pair）
     trackingViewVisible.value = false; // 进会话收矩阵（显式导航互斥）
-    pairView.value = { a, b };
+    pairView.value = { a, b, ...(label !== undefined ? { label } : {}) };
     pushMainIfNarrow();
   }
 

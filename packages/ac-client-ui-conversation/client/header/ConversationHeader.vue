@@ -43,8 +43,12 @@ const feed = useFeedStore();
 /** 群成员轨迹下钻（cr-1328 P4a）：openPairView(gid, member)——会话键 =
  *  gid~member 原序（useConversationHistory 按 g- 词形传 convKey），渲染
  *  复用 pair 只读面（思维链/工具卡/折叠栏全套）。 */
-const openMemberTrace = (member: string) => {
-  if (props.groupId) ui.openPairView(props.groupId, member);
+const openMemberTrace = (ev: Event) => {
+  const sel = ev.target as HTMLSelectElement;
+  const member = sel.value;
+  sel.value = ''; // 复位占位项（重选同成员可再触发）
+  // 第三参 = a 端展示名（群名）——pair 视角标题不裸露 gid
+  if (member !== '' && props.groupId) ui.openPairView(props.groupId, member, props.title);
 };
 /** 视图档（cr-1326 dual-view P2）：im = 投递事实流（类 IM 聊天）；
  *  trace = 轨迹视图（run 因果——思维链/工具卡）。群分区无档（IM 即现状）。 */
@@ -65,7 +69,13 @@ function endpointOf(id: string) {
     avatar: isSystem ? null : roster.getAgentAvatar(id),
   };
 }
-const epA = computed(() => endpointOf(props.a || ''));
+const epA = computed(() => {
+  const ep = endpointOf(props.a || '');
+  // cr-1328 P4a：群成员下钻——a 端是 gid（名册无条目），用 openPairView 随带的
+  // 展示名（群名）替代内部 id；其余形态（真实 Agent 对）无 label，原样。
+  const label = ui.pairView?.label;
+  return label !== undefined && label !== '' ? { ...ep, name: label } : ep;
+});
 const epB = computed(() => endpointOf(props.b || ''));
 
 /** cr-744：error 类反馈并入会话状态 dock 卡（RunStatusDock）——头部 chip
@@ -115,15 +125,16 @@ const headerBusyFeedback = computed(() =>
         </span>
         <!-- 群成员轨迹下钻（cr-1328 P4a）：选中成员 → 只读视角看其成员流
              （思维链/工具卡——R2 搁置项的轨迹面补齐） -->
-        <select
-          v-if="isGroup && members?.length"
-          class="member-trace-select"
-          aria-label="查看成员轨迹"
-          @change="openMemberTrace(($event.target as HTMLSelectElement).value); ($event.target as HTMLSelectElement).value = ''"
-        >
-          <option value="">成员轨迹…</option>
-          <option v-for="m in members" :key="m" :value="m">{{ roster.getAgentName(m) || m }}</option>
-        </select>
+        <Tooltip v-if="isGroup && members?.length" text="查看某位成员在这个群里的完整思考与工具轨迹" placement="bottom">
+          <select
+            class="member-trace-select"
+            aria-label="查看成员轨迹"
+            @change="openMemberTrace"
+          >
+            <option value="">成员轨迹 ▾</option>
+            <option v-for="m in members" :key="m" :value="m">{{ roster.getAgentName(m) || m }}</option>
+          </select>
+        </Tooltip>
       </div>
       <div class="header-actions">
         <!-- 思维链显示开关（全局 switch）：隐藏后思考文本、工具卡片与折叠栏
@@ -208,13 +219,18 @@ const headerBusyFeedback = computed(() =>
 .member-trace-select {
   flex-shrink: 0;
   font-size: 12px;
-  padding: 2px 6px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
   border: 1px solid var(--border-color, #ddd);
   background: var(--bg-secondary, #f6f6f6);
   color: var(--text-secondary, #888);
-  max-width: 140px;
+  max-width: 150px;
   cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.member-trace-select:hover {
+  color: var(--text-primary, #333);
+  border-color: var(--accent-color, #58a6ff);
 }
 .chat-header {
   display: flex; align-items: center; gap: 10px;

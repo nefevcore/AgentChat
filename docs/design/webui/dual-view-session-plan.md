@@ -112,7 +112,7 @@
 | 前端产物装载 | 页面 200 / 控制台零 error / 零失败请求 | ☑ 双构建产物正确 |
 | 视图切换控件 | `.thinking-switch` 两枚（思维链 + 视图档），轨迹态标签「轨迹视图」 | ☑ P2 控件上屏 |
 | 切换真实生效 | 点切换：标签 → 「IM 视图」，`.chain-icon` 6 → 2（轨迹折叠链按 im 档剥 steps 归并）；切回：标签复原、链恢复 6 | ☑ im 档投影端到端成立（含双向可逆） |
-| 群成员下钻下拉 | 仅群会话内渲染（`isGroup && members`）——走查会话为 1v1，未实地点击；键路径由 `member-trace.test.ts`（convKey 原序 vs pairKey 排序）+ 群行 141 例锁定 | ◐ 待群会话实地验观感 |
+| 群成员下钻下拉 | 群会话内实地验证（cr-1330）：选中成员 → pair 只读视角（42 条消息 + 2 条轨迹链 / `只读` 徽标 / 标题带群名）。**走查期修掉两个真缺陷**：① 模板表达式内 TS `as` 断言致 `member` 恒空串 → `openPairView(gid, '')` → 主区掉空态（改为事件签名 `@change="openMemberTrace"`，取值与占位复位归 script）；② 下钻标题裸露内部 gid（`pairView.label` 承载群名 + header `epA` 消费）。可发现性同步改善：胶囊样式 + `成员轨迹 ▾` + hover 高亮 + tooltip | ☑ |
 | 源码装载面 | `fold.ts` im 档 / `groups-row.ts` memberViewOf / `ac-collab-tools` DIRECT_IM_CONTRACT 三处均在活源码 | ☑ 装载无漂移 |
 
 **IM 视图观感观察**（供后续调优，非缺陷）：切档后「轨迹视图」档内 6 条折叠链在 im 档归并为 2 条——终稿正文与用户行保留，说明 im 档把「同 run 的多步」正确坍缩为单条消息；若产品希望 IM 档保留「一次 run 一条气泡」的严格对应，需在 P4b 一并裁决（当前按 fold 行族投影，未做 run → 单气泡的重聚合）。
