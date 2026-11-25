@@ -1,6 +1,6 @@
 {
- "scannedHead": "7a355de39befce84ad44e5dc10afa03f5cf76f3e",
- "generatedAt": "2026-11-23T01:57:16.494Z",
+ "scannedHead": "0fe649610b6c2d9fe4ad8733963bd9f08697fbf9",
+ "generatedAt": "2026-11-25T13:46:40.779Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -3285,6 +3285,11 @@
     "sha": "c669ec631faf8fc1c0df24022e01729d7aa6aed0",
     "date": "2026-10-23",
     "subject": "feat(preview): cr-612 D5 边 2 常态化——壳侧宿主复活（邮局失联探测/停机戳/O_EXCL 仲裁/退避 host-revive + 壳 boot 接线 + argv --host-boot/--host-port 透传）+ 撞活锁救援回登记；D5 修订回填档案"
+   },
+   {
+    "sha": "a96a3047bee22da3b319a54cb0e91ff28df2049c",
+    "date": "2026-11-25",
+    "subject": "fix(shell): cr-1314/1315/1317 域外三修——EPIPE 防护前移 + 越面拦截 durable 化 + 对等回执防自激引导"
    }
   ],
   "613": [
@@ -5499,6 +5504,11 @@
     "sha": "16fe34176731e5f387a939766b90fff31faaebd3",
     "date": "2026-11-19",
     "subject": "feat(net): cr-1158 网络状态监控——离线时禁止远程模型调用"
+   },
+   {
+    "sha": "ebe59b8db7205ae0c655f81865a7c623305c6ad8",
+    "date": "2026-11-23",
+    "subject": "fix(net-monitor): cr-1264 判定排除虚拟宿主网卡 + 闸门端点 DNS 预检（cr-1158 补修）"
    }
   ],
   "1159": [
@@ -6299,6 +6309,11 @@
     "sha": "b45ec38f43a2f7c40076bc3be606d11e23c9d4ec",
     "date": "2026-11-23",
     "subject": "docs(timer): 随机抖动类定时修复的六道闸验收范式（cr-1231 沉淀）"
+   },
+   {
+    "sha": "20ebbfeac2c25674556ccb1e248783596231c5a9",
+    "date": "2026-11-23",
+    "subject": "chore(cr): cr-1231 详情补档——第三重独立证据（按刻度分组计数，14:30 核验成立）：07:30/15:00 两刻度各投 1 次无重投，nextAtCache 落 22:30 窗高出旧码上界 171min；样本因 09:52/10:15 两次宿主换代从 13:23:54 换为更优的负偏样本 14:02:58（正偏样本不触发 bug、鉴别力为 0）"
    }
   ],
   "1233": [
@@ -6380,6 +6395,11 @@
     "sha": "718077a26376812a993fca0c552067e3924a9894",
     "date": "2026-11-22",
     "subject": "chore(cr): cr-commits 投影同步（本批 cr-1248~1251）"
+   },
+   {
+    "sha": "710db0f341765d46ced2fed7421b1828744241ff",
+    "date": "2026-11-23",
+    "subject": "feat(permission-gate): cr-1261 approval 四档化 + cr-1262 堵 update_agent_profile 提权口——会话键 approval 拆 allow-sandbox/allow-full（allow-full 免卡注 full-access 越沙箱生效，仅会话层合法；Agent/全局 onAsk 维持三值 cr-1248 语义；存量 allow 读侧映射 allow-sandbox 零迁移）；update_agent_profile settings 禁写授权工件键 security/permission-gate（fail-loud，运营者手编文件不受影响）；门测试 +1 四档三态用例 + host-face +1 禁写用例 + 规约登记"
    }
   ],
   "1249": [
@@ -6392,6 +6412,11 @@
     "sha": "5d334a3d7bd9b1dc208f92803b90bc67f464f0be",
     "date": "2026-11-22",
     "subject": "feat(skill): cr-1249 技能目录注入改造——<available_skills> 移出 system prompt（SKILLS 段退役，位号不回收），before-run 指纹注入（datetime/env-pulse 同构：变化才注 + .anchors 私有判重）+ catalog 七用例（src 实现随 cr-1251 注入面单写一并提交）"
+   },
+   {
+    "sha": "f5a3a77cff47644484e1b9a49bdc4d03336bc809",
+    "date": "2026-11-23",
+    "subject": "feat(conv-settings): cr-1259 approval 键选择即写（per-step 生效）——ConvSettingsKeyDef 增 immediate 字段（写时机结构化为键 def 声明，判据=只标逐调用读取的键），泛写口按 def 分流（非草稿位即写/成功基线同步/失败回滚+toast），flush 排除 immediate 键防脏值重写；门侧零改动（onAskOf 逐调用读 effective 且先于 runApproved 缓存——mid-run 改 deny 即压缓存/改 allow 即免卡 sandbox-access/改 ask 与缓存正交）；门测试 +3 per-step 用例 + 前端回归锁更新 + e2e immediate 投影断言 + 规约 §一/§五/§六 登记；pnpm-lock 为 cr-1249 ac-skill 依赖声明对账补齐（deps 挪 devDeps 的陈旧 lock 追平，非本批依赖变更）"
    }
   ],
   "1250": [
@@ -6459,6 +6484,11 @@
     "sha": "33ec2af0354135c57cebcba3ead76301e3fbc594",
     "date": "2026-11-23",
     "subject": "fix(envelope): cr-1255 activation 锁 pid 复用致永久锁死——接管权威改双证死因子（pid 死 ∨ 心跳租约超限 4×30s）+ manage probe 帧诊断定谳（不授权接管，防装配窗 split-brain）；心跳自锁获取即 touch 消装配窗空窗，接管凭据随 boot-progress 落盘（lockTakeover）；pid 复用/deadline 开关/同 pid 重入/探针四态共 8 例新回归"
+   },
+   {
+    "sha": "0e56aaf0046393fdec130d3de7d7133b8857b543",
+    "date": "2026-11-23",
+    "subject": "chore(cr): cr-1255 详情归档（activation 锁 pid 复用——他人登记，详情补档）"
    }
   ],
   "1256": [
@@ -6488,6 +6518,11 @@
     "sha": "93f56b2626783b5485bd00184019d2215a450422",
     "date": "2026-11-23",
     "subject": "fix(sandbox): cr-1257 cr-1258 沙箱引号语义两修复（ISSUE-31）"
+   },
+   {
+    "sha": "f3eddddcc21720eaf9395527aae3454e143f0a35",
+    "date": "2026-11-23",
+    "subject": "chore(cr): cr-commits.json 投影同步（cr-1257/1258 commit 引用入册）"
    }
   ],
   "1258": [
@@ -6500,6 +6535,247 @@
     "sha": "93f56b2626783b5485bd00184019d2215a450422",
     "date": "2026-11-23",
     "subject": "fix(sandbox): cr-1257 cr-1258 沙箱引号语义两修复（ISSUE-31）"
+   }
+  ],
+  "1259": [
+   {
+    "sha": "42ca36735d691ecae17122782a21e66f610f3cf0",
+    "date": "2026-11-23",
+    "subject": "chore(cr): 台账登记 cr-1259"
+   },
+   {
+    "sha": "f5a3a77cff47644484e1b9a49bdc4d03336bc809",
+    "date": "2026-11-23",
+    "subject": "feat(conv-settings): cr-1259 approval 键选择即写（per-step 生效）——ConvSettingsKeyDef 增 immediate 字段（写时机结构化为键 def 声明，判据=只标逐调用读取的键），泛写口按 def 分流（非草稿位即写/成功基线同步/失败回滚+toast），flush 排除 immediate 键防脏值重写；门侧零改动（onAskOf 逐调用读 effective 且先于 runApproved 缓存——mid-run 改 deny 即压缓存/改 allow 即免卡 sandbox-access/改 ask 与缓存正交）；门测试 +3 per-step 用例 + 前端回归锁更新 + e2e immediate 投影断言 + 规约 §一/§五/§六 登记；pnpm-lock 为 cr-1249 ac-skill 依赖声明对账补齐（deps 挪 devDeps 的陈旧 lock 追平，非本批依赖变更）"
+   }
+  ],
+  "1260": [
+   {
+    "sha": "31b9f2ee7d49d62ec88eda4edd57b1a2c3cbce31",
+    "date": "2026-11-24",
+    "subject": "chore(cr): 台账与设计档同步（cr-1260~1305）"
+   },
+   {
+    "sha": "8f180a6486beab98345f04af184eefd1283860b2",
+    "date": "2026-11-24",
+    "subject": "feat(session): cr-1260~1305 会话渲染管线归一 + v1 全量迁移 + 观察窗探针"
+   },
+   {
+    "sha": "4cee80ab0d7d712b4e5ad1ca9d4477cd781e86b5",
+    "date": "2026-11-23",
+    "subject": "chore(cr): 台账登记 cr-1260/1261/1262"
+   }
+  ],
+  "1261": [
+   {
+    "sha": "710db0f341765d46ced2fed7421b1828744241ff",
+    "date": "2026-11-23",
+    "subject": "feat(permission-gate): cr-1261 approval 四档化 + cr-1262 堵 update_agent_profile 提权口——会话键 approval 拆 allow-sandbox/allow-full（allow-full 免卡注 full-access 越沙箱生效，仅会话层合法；Agent/全局 onAsk 维持三值 cr-1248 语义；存量 allow 读侧映射 allow-sandbox 零迁移）；update_agent_profile settings 禁写授权工件键 security/permission-gate（fail-loud，运营者手编文件不受影响）；门测试 +1 四档三态用例 + host-face +1 禁写用例 + 规约登记"
+   }
+  ],
+  "1262": [
+   {
+    "sha": "710db0f341765d46ced2fed7421b1828744241ff",
+    "date": "2026-11-23",
+    "subject": "feat(permission-gate): cr-1261 approval 四档化 + cr-1262 堵 update_agent_profile 提权口——会话键 approval 拆 allow-sandbox/allow-full（allow-full 免卡注 full-access 越沙箱生效，仅会话层合法；Agent/全局 onAsk 维持三值 cr-1248 语义；存量 allow 读侧映射 allow-sandbox 零迁移）；update_agent_profile settings 禁写授权工件键 security/permission-gate（fail-loud，运营者手编文件不受影响）；门测试 +1 四档三态用例 + host-face +1 禁写用例 + 规约登记"
+   }
+  ],
+  "1263": [
+   {
+    "sha": "74db3608a3376d0db0b6808f8c26b85be2dcd864",
+    "date": "2026-11-23",
+    "subject": "chore(cr): 台账登记 cr-1263"
+   },
+   {
+    "sha": "14e64cb2a62d9508a07df0ee8ff1b479a76b8fe4",
+    "date": "2026-11-23",
+    "subject": "fix(conv-settings): cr-1263 草稿位 immediate 键两头漏写——selectExtKey 撞 onDraft 守卫不写 + dirtyConvPatch 排除不随 flush，值悬空后被物化回读重置（回落默认）；修 = 草稿位选择暂存 pendingImmediate（独立于表单/基线，免疫物化竞态）+ flush 合入落盘（成功清位失败重试）+ onDraft 回填（显示与将落盘值一致）；回归锁 +1 暂存接线断言"
+   }
+  ],
+  "1264": [
+   {
+    "sha": "ebe59b8db7205ae0c655f81865a7c623305c6ad8",
+    "date": "2026-11-23",
+    "subject": "fix(net-monitor): cr-1264 判定排除虚拟宿主网卡 + 闸门端点 DNS 预检（cr-1158 补修）"
+   }
+  ],
+  "1265": [
+   {
+    "sha": "0fe649610b6c2d9fe4ad8733963bd9f08697fbf9",
+    "date": "2026-11-25",
+    "subject": "chore(cr): cr-1322 收官批——session-render-pipeline 计划冻结归档 + 台账收官 + 文档同步"
+   }
+  ],
+  "1286": [
+   {
+    "sha": "0fe649610b6c2d9fe4ad8733963bd9f08697fbf9",
+    "date": "2026-11-25",
+    "subject": "chore(cr): cr-1322 收官批——session-render-pipeline 计划冻结归档 + 台账收官 + 文档同步"
+   }
+  ],
+  "1296": [
+   {
+    "sha": "0fe649610b6c2d9fe4ad8733963bd9f08697fbf9",
+    "date": "2026-11-25",
+    "subject": "chore(cr): cr-1322 收官批——session-render-pipeline 计划冻结归档 + 台账收官 + 文档同步"
+   }
+  ],
+  "1302": [
+   {
+    "sha": "0fe649610b6c2d9fe4ad8733963bd9f08697fbf9",
+    "date": "2026-11-25",
+    "subject": "chore(cr): cr-1322 收官批——session-render-pipeline 计划冻结归档 + 台账收官 + 文档同步"
+   }
+  ],
+  "1305": [
+   {
+    "sha": "1a9eb0757ce0d4d13af46b7b873bed6811f1ddf1",
+    "date": "2026-11-24",
+    "subject": "chore(cr): 台账与设计档同步（cr-1305/1306 aggOrder 判读与归一化）"
+   },
+   {
+    "sha": "072c189b1068be80248405e829cd83a4797c3be4",
+    "date": "2026-11-24",
+    "subject": "feat(ledger): cr-1305/1306 aggOrder 存量归一化（段行 → v2 事件行）"
+   }
+  ],
+  "1306": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   },
+   {
+    "sha": "072c189b1068be80248405e829cd83a4797c3be4",
+    "date": "2026-11-24",
+    "subject": "feat(ledger): cr-1305/1306 aggOrder 存量归一化（段行 → v2 事件行）"
+   }
+  ],
+  "1307": [
+   {
+    "sha": "c8421f6299e13fd9287132fc4de2e7099f0e7b43",
+    "date": "2026-11-25",
+    "subject": "chore(cr): cr-1307 台账与计划档同步（§八/5 收口）"
+   },
+   {
+    "sha": "4337552f23efcf2ec13a59fca6ff3dbb9c63e465",
+    "date": "2026-11-25",
+    "subject": "feat(ledger): cr-1307 aggOrder 读侧退役——迁移边直产 v2 相位行 + 顺序簿全链删除 + 对拍面升级"
+   }
+  ],
+  "1308": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1309": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1310": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1311": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1312": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1313": [
+   {
+    "sha": "0fe649610b6c2d9fe4ad8733963bd9f08697fbf9",
+    "date": "2026-11-25",
+    "subject": "chore(cr): cr-1322 收官批——session-render-pipeline 计划冻结归档 + 台账收官 + 文档同步"
+   },
+   {
+    "sha": "38763cae8417835c0f3b4c4cb27456bc8b9bb946",
+    "date": "2026-11-25",
+    "subject": "docs(timer): cr-1313 timer v3 监控源参考事实汇编——timer-source-reference.md 成文（采集/触发/授权/LLM 面/运维全域现行事实，供消费方实施文档取用；详情档 cr-1322 补记）"
+   }
+  ],
+  "1314": [
+   {
+    "sha": "a96a3047bee22da3b319a54cb0e91ff28df2049c",
+    "date": "2026-11-25",
+    "subject": "fix(shell): cr-1314/1315/1317 域外三修——EPIPE 防护前移 + 越面拦截 durable 化 + 对等回执防自激引导"
+   }
+  ],
+  "1315": [
+   {
+    "sha": "a96a3047bee22da3b319a54cb0e91ff28df2049c",
+    "date": "2026-11-25",
+    "subject": "fix(shell): cr-1314/1315/1317 域外三修——EPIPE 防护前移 + 越面拦截 durable 化 + 对等回执防自激引导"
+   }
+  ],
+  "1316": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1317": [
+   {
+    "sha": "a96a3047bee22da3b319a54cb0e91ff28df2049c",
+    "date": "2026-11-25",
+    "subject": "fix(shell): cr-1314/1315/1317 域外三修——EPIPE 防护前移 + 越面拦截 durable 化 + 对等回执防自激引导"
+   }
+  ],
+  "1318": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1319": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1320": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1321": [
+   {
+    "sha": "228c0aed429684b5f11df4ca799235e353f06ef9",
+    "date": "2026-11-25",
+    "subject": "feat(webui): cr-1308~1321 会话渲染管线收官链——judges 判据族物理删除 + aggOrder/restarted 读侧退役 + 键落位三批 + 构建面 external 根修"
+   }
+  ],
+  "1322": [
+   {
+    "sha": "0fe649610b6c2d9fe4ad8733963bd9f08697fbf9",
+    "date": "2026-11-25",
+    "subject": "chore(cr): cr-1322 收官批——session-render-pipeline 计划冻结归档 + 台账收官 + 文档同步"
+   },
+   {
+    "sha": "38763cae8417835c0f3b4c4cb27456bc8b9bb946",
+    "date": "2026-11-25",
+    "subject": "docs(timer): cr-1313 timer v3 监控源参考事实汇编——timer-source-reference.md 成文（采集/触发/授权/LLM 面/运维全域现行事实，供消费方实施文档取用；详情档 cr-1322 补记）"
    }
   ]
  }
