@@ -43,13 +43,17 @@ describe('cr-844：bump 的跨分区隔离', () => {
     expect(feed.getTurns(b).value).toHaveLength(1);
   });
 
-  it('本分区 bump 正常失效派生（流式追加可见）', () => {
+  it('本分区 bump 正常失效派生（流式追加可见——cr-1321 判据退役后以步数增长为信号）', () => {
     const feed = newFeed();
     const a = dialogOf('alpha') as never;
-    feed.append(a, { id: 'a1', role: 'agent', content: 'x', timestamp: 1, agent_id: 'alpha' } as never);
+    // 同 run 直播两步（带键——cr-1289 直播步帧形态）：并轮入链
+    feed.append(a, { id: 'a1', role: 'agent', content: 'x', timestamp: 1, agent_id: 'alpha', runId: 'r1', turnId: 'r1' } as never);
     const turnsA = feed.getTurns(a);
     expect(turnsA.value).toHaveLength(1);
-    feed.append(a, { id: 'a2', role: 'agent', content: 'y', timestamp: 2, agent_id: 'alpha' } as never);
-    expect(turnsA.value).toHaveLength(2);
+    expect(turnsA.value[0].steps).toHaveLength(1);
+    feed.append(a, { id: 'a2', role: 'agent', content: 'y', timestamp: 2, agent_id: 'alpha', runId: 'r1', turnId: 'r1' } as never);
+    // bump 失效派生：新步并进同轮链（步数 1→2——流式追加可见）
+    expect(turnsA.value).toHaveLength(1);
+    expect(turnsA.value[0].steps).toHaveLength(2);
   });
 });

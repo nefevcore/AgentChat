@@ -107,8 +107,9 @@ export interface ChatMessage {
   /**
    * 轮身份键（cr-1286 P4-1 投影分组）：前端轮分组的权威键——投影行 =
    * run（run 承载行）/ message_id（用户行）；直播步行随步帧 run 键驻留
-   * （cr-1289：= run，与投影同语义）。双方在场同值恒并轮、异值恒拆轮；
-   * 缺席回落窗口局部启发（双写过渡期，探针 turn-gap-fallback 观察归零）。
+   * （cr-1289：= run，与投影同语义）；用户本地行出生带键（cr-1319：
+   * id = requestId = 落盘 message_id）。双方在场同值恒并轮、异值恒拆轮；
+   * 缺席域收窄为 v0 旧写面存量（读侧按 sender 拆轮——cr-1321 判据退役）。
    */
   turnId?: string;
   /** 持久化消息 ID，用于后端删除操作 */

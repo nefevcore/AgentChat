@@ -71,6 +71,50 @@ describe('P3-3 键族全量透传（并轨前 pair 视角丢失面）', () => {
   });
 });
 
+describe('cr-1316 工具行三键透传（arguments/subcall/durationMs——并轨遗漏收尾）', () => {
+  it('subcall 平铺卡：参数（对象形）+ subcall 标记 + 耗时全量到场', () => {
+    const cm = historyRowToChatMessage({
+      role: 'tool', content: '{"ok":true}', agent_id: 'a', message_id: 't1', toolName: 'edit',
+      tool_call_id: 'hostCall#2', subcall: true, arguments: { file_path: 'src/a.ts' }, durationMs: 2358,
+      timestamp: '2026-01-01T00:00:04Z',
+    }, { idPrefix: 'pair', fallbackAgentId: 'a' });
+    expect(cm.arguments).toEqual({ file_path: 'src/a.ts' }); // 工具卡按参数渲染专用视图（edit diff 等）
+    expect(cm.subcall).toBe(true); // 平铺缩进样式——视觉归属 run_code 程序卡
+    expect((cm as { durationMs?: number }).durationMs).toBe(2358); // Label 尾缀耗时
+  });
+
+  it('直调 tool 行同样透传参数与耗时（参数字符串形原样保留）', () => {
+    const cm = historyRowToChatMessage({
+      role: 'tool', content: '{"ok":true}', agent_id: 'a', message_id: 't2', toolName: 'read',
+      tool_call_id: 'c1', arguments: '{"file_path":"docs/x.md"}', durationMs: 1300,
+      timestamp: '2026-01-01T00:00:05Z',
+    });
+    expect(cm.arguments).toBe('{"file_path":"docs/x.md"}');
+    expect((cm as { durationMs?: number }).durationMs).toBe(1300);
+    expect(cm.subcall).toBeUndefined(); // 非子调用不落键
+  });
+
+  it('端到端：toHistoryMessages 产 subcall 工具行 → 转换器参数不丢（刷新后参数查询可用）', () => {
+    const records = [{
+      role: 'agent', content: '', message_id: 'm1', timestamp: '2026-01-01T00:00:02Z', agent_id: 'a', run: 'run1', seq: 2,
+      steps: [{
+        content: '修', stepId: 'run1:0',
+        toolCalls: [
+          { id: 'hostCall', name: 'run_code', arguments: '{"code":"…"}', result: { ok: true } },
+          { id: 'hostCall#1', name: 'edit', arguments: '{"file_path":"a.ts"}', result: { ok: true }, subcall: true, durationMs: 500 },
+        ],
+      }],
+    }];
+    const rows = toHistoryMessages(records as never, 'a~user');
+    const subcallRow = rows.find(r => r.role === 'tool' && r.subcall === true);
+    expect(subcallRow).toBeDefined();
+    const cm = historyRowToChatMessage(subcallRow as never);
+    expect(cm.arguments).toEqual({ file_path: 'a.ts' }); // parseToolArgs 已解析 + 转换器透传
+    expect(cm.subcall).toBe(true);
+    expect((cm as { durationMs?: number }).durationMs).toBe(500);
+  });
+});
+
 describe('P3-3 三视角刷新渲染同构', () => {
   // 同一份账本记录（带步、键族、注入行）——三视角各自的完整装载链
   const records = [

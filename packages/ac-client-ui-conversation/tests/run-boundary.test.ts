@@ -29,14 +29,14 @@ describe('cr-946 ① run 切换即轮边界（已出终稿的纯正文步之后�
     const rows = toHistoryMessages([
       { role: 'user', content: '问', message_id: 'u1', timestamp: t(0) },
       {
-        role: 'agent', content: '', message_id: 'r1', run: 'run-a', timestamp: t(1), agent_id: 'a',
+        role: 'agent', content: '', message_id: 'r1', run: 'run-a', turnId: 'run-a', timestamp: t(1), agent_id: 'a',
         steps: [
           { content: '先说明一下：', reasoning: '想', reasoningMs: 3000, ts: Date.parse(t(2)), toolCalls: [{ id: 'c1', name: 'run_code', arguments: '{}', result: 'ok' }] },
           { content: '你说得对——复盘一下这个失误', ts: Date.parse(t(3)) },
         ],
       },
       {
-        role: 'agent', content: '', message_id: 'r2', run: 'run-b', timestamp: t(4), agent_id: 'a',
+        role: 'agent', content: '', message_id: 'r2', run: 'run-b', turnId: 'run-b', timestamp: t(4), agent_id: 'a',
         steps: [
           { content: '继续验证：', reasoning: '又想', reasoningMs: 4000, ts: Date.parse(t(5)), toolCalls: [{ id: 'c2', name: 'grep', arguments: '{}', result: 'ok' }] },
           { content: '验证完成', ts: Date.parse(t(6)) },

@@ -31,7 +31,7 @@ export interface SpeechEvent {
   kind: 'speech';
   role: 'agent';
   agentId: string;
-  /** 归属域（事件行投影的 agent_id 取源——cr-946 存量 restarted 行） */
+  /** 归属域（事件行投影的 agent_id 取源） */
   domain: string;
   content: string;
   /** 多模态附件引用（cr-1278：入站发言行旁挂——回放还原为 LlmMessage.attachments） */

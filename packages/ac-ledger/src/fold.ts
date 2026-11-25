@@ -276,18 +276,11 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       ...(c.seq !== undefined ? { seq: c.seq } : {}),
     });
   }
-  // 机制通知行（cr-946）：event 分隔符——现行 context+event 行与 cr-946 前
-  // 存量落形（speech 行 agent_id='user' + restarted-*）
+  // 机制通知行（cr-946）：event 分隔符——现行 context+event 行。
+  // cr-1309：cr-946 前 speech 落形（agent_id='user' + restarted-*）已全量
+  // 归一（normalize-restarted-rows.mjs），legacy 捞投分支退役——通知行统一
+  // 走 contexts 直投。
   const eventRows: ViewRow[] = [];
-  for (const r of fold.speech) {
-    if (r.agentId === 'user' && r.requestId !== undefined && r.requestId.startsWith('restarted-')) {
-      eventRows.push({
-        role: 'event', agent_id: r.domain, content: r.content, message_id: r.messageId,
-        timestamp: r.timestamp, source: 'event', requestId: r.requestId,
-        ...(r.seq !== undefined ? { seq: r.seq } : {}),
-      });
-    }
-  }
   for (const c of fold.contexts) {
     if (c.source === 'event' && c.run === undefined) {
       eventRows.push({

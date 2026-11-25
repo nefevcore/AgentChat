@@ -17,7 +17,7 @@ import type { RosterCore } from 'ac-client-ui-agents/client';
 import { logger } from 'ac-client-ui-renderer/client/logger.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { toToolDefs, chatPresence, pickAskQuestions, pickApproval, uid } from './chatOps.ts';
-import { directDialog, singleDialog, bucketKey, parseDialogId, splitAttachmentLines, pairPartnerOf, type DialogId } from './feed.ts';
+import { directDialog, singleDialog, bucketKey, pairConversationKey, parseDialogId, splitAttachmentLines, pairPartnerOf, type DialogId } from './feed.ts';
 import { isImageRef } from './media.ts';
 import { agentInFlight } from './runStatus.ts';
 import type { FeedView } from './feed-core.ts';
@@ -375,7 +375,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
         // 显式清空（SessionList.selectSingle），回落 sessionId 匹配 stats 的
         // agentId 恒 miss → 步边界空窗采样必误杀（cr-999）。
         const agent = kind === 'single' ? (singleMeta.get(key)?.agentId ?? key) : pairPartnerOf(key);
-        const conv = kind === 'single' ? key : key.split('|').join('~');
+        const conv = kind === 'single' ? key : pairConversationKey(key);
         try {
           const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }>; spawning?: string[] }>('conversation/stats');
           if (agentInFlight(stats, agent, conv)) {
@@ -520,6 +520,12 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     // 停止是停止按钮的唯一职责（发送不再隐式打断在途 run）。
     const busy = feed.getDialog(dialogId)?.streaming === true;
     const busyMode = busy ? (options?.mode === 'steer' ? 'steer' : 'queue') : undefined;
+    // requestId 先铸后用（cr-1319 B1a 本地行出生带键）：本地乐观行 id =
+    // requestId = 落盘 message_id（客户端铸造单源）；turnId = 同值——用户行
+    // 分组键与 fold 投影同语义（run 收束重拉后同值恒等，mergeHistory 双键
+    // 去重直接互认，不再依赖启发拆轮兜底）。刻意不设 persistedMsgId：本地
+    // 行无权威边界（deliver 失败不该带分支按钮等操作面——L197 语义）。
+    const rid = uid('send');
     if (busyMode === 'queue') {
       // 排队路径本地不上屏（2026-09-06 顺序反馈）：消息只住 QueueDock——
       // 此前立即 append 会造成"既在队列又在会话流"双现，插在在途回复
@@ -531,8 +537,8 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
       );
     } else {
       feed.append(dialogId, {
-        id: uid('user'), role: 'agent', content, timestamp: Date.now(),
-        files: options?.files, agent_id: 'user',
+        id: rid, role: 'agent', content, timestamp: Date.now(),
+        files: options?.files, agent_id: 'user', turnId: rid,
       });
     }
     // 发送即置当前分区流式态（step-started 到达前 contextBusy 已生效；
@@ -542,7 +548,7 @@ export function createChatCore(feed: FeedView, rpc: RpcClientFace, roster: () =>
     if (!to && ctx?.kind !== 'single') roster().bumpAgent(VIEWER_ID.value, content);
     turnInProgress.value = true;
     // 异步——失败已在 deliver 内部收敛为红条反馈，不抛
-    void deliver(to || !ctx ? null : ctx, target, content, options?.files, uid('send'), busyMode);
+    void deliver(to || !ctx ? null : ctx, target, content, options?.files, rid, busyMode);
   }
 
   /** 内部用：直接发送消息（不添加 user 气泡），用于重新推理/编辑重发。 */

@@ -6,13 +6,14 @@
 //   rawMessages（append-only 事件流） → buildTurns() 纯函数 → Turn[]
 //   视图只消费派生结果，不直接维护第二份展示数据。
 //
-// 设计文档：docs/feed-architecture.md
+// 设计文档：docs/design/webui/render-contract.md（现行渲染契约——渲染管线五段与键控口径）
 // ============================================================
 
 import type { ChatMessage, FileAttachment, InjectCard, Turn, TurnStep } from './types.ts';
 import { VIEWER_ID } from './viewer.ts';
 import { hasInjectCardView } from './injectCardViews.ts';
 import { probeHit } from './fallback-probes.ts';
+import { pairKey } from 'ac-conv-keys'; // 对桶键词法单源（cr-1238 B4——bucketKey 转发，不再本地镜像）
 
 // ── Dialog 标识 ──
 
@@ -33,10 +34,8 @@ export type DialogKind = 'pair' | 'group' | 'single';
  */
 export type DialogId = `pair:${string}` | `group:${string}` | `single:${string}`;
 
-/** 后端对桶键的镜像（pairKey(a,b)：排序 `~` 连接；与 conversationId 同词表） */
-export function bucketKey(a: string, b: string): string {
-  return [a, b].sort().join('~');
-}
+/** 后端对桶键的镜像——转发 ac-conv-keys pairKey（键词法单源 cr-1238 B4；历史导出面保留） */
+export const bucketKey = pairKey;
 
 /** 构造 pair 对话 ID（两端点排序去序，保证同对会话共享分区缓存） */
 export function pairDialog(a: string, b: string): DialogId {
@@ -67,6 +66,13 @@ export function pairPartnerOf(key: string): string {
 /** pair 分区是否含 viewer（可写直答会话判定；不含 = 矩阵只读视角） */
 export function pairHasViewer(key: string): boolean {
   return key.split('|').includes(VIEWER_ID.value);
+}
+
+/** pair 分区键（`a|b`，pairDialog 构造时已排序）→ 会话桶键（`a~b`）——
+ *  stats/探针/看门狗按会话键寻址时的单源换算（此前 feed-core/chat-core/
+ *  RunStatusDockHost 三处手写 split.join，词法走散风险随消费面增长）。 */
+export function pairConversationKey(key: string): string {
+  return key.split('|').join('~');
 }
 
 /** 构造 group 对话 ID */
@@ -194,18 +200,13 @@ interface FeedAgentMsg {
   /** 用户附件（final 渲染附件 chips 用；派生时丢失会导致附件不显示） */
   files?: any[];
   agent_id?: string;
-  /** run 身份键（cr-699：历史 steps 展开透传——buildTurns sameRun 拆轮豁免判定源） */
+  /** run 身份键（cr-699：历史 steps 展开透传——注入卡 run 键挂靠判定源） */
   runId?: string;
   /** run 墙钟耗时（cr-772 历史透传——终稿行 runMs；链栏「用时」段权威锚） */
   runMs?: number;
   /** 轮身份键（cr-1286 P4-1）：轮分组权威键——flush 时随产物写 Turn */
   turnId?: string;
 }
-
-/** 同 sender 连续消息的时间合并阈值：间隔超过该值视为不同会话轮次（如定时广播）
- * 不合并。cr-1286 P4-1 起降位为纯存量兜底——turnId 双方在场时键判据先行，
- * 本阈值仅在键缺席域（直播帧派生前/旧投影行）生效。 */
-const MERGE_GAP_MS = 10 * 60 * 1000;
 
 /** 注入型 event 行判定（2026-09-26 注入卡）：source.kind 非机制词
  *  （event/error 的 UI 决策词）= 注入材料行（skill 等）——不拆轮，
@@ -345,7 +346,8 @@ export function chainSteps(steps: TurnStep[]): TurnStep[] {
 /**
  * 由原始消息流构建 Turn[]（原 _buildAgentTurnsForHistory）。
  * - event 消息（定时/归档/继续/重启等系统事件）→ 独立 system turn（渲染为分隔符）
- * - agent/user 消息按 sender 分组为 turn 链；同 sender 但间隔过长 → 拆分为独立轮次
+ * - agent/user 消息按 sender 分组为 turn 链，轮边界 = turnId 键控（cr-1321
+ *   判据退役终态——时间/形态启发族已删，冗余性证明见 cr-1320 对拍）
  * - tool 消息匹配 tool_call_id 补 result/label
  */
 export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
@@ -354,20 +356,6 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
   // 本轮影响域末界（P3-2 cr-1282）：产出轮依赖的最后一条消息索引——flush
   // 时盖到 Turn 上作 _end 界标（deriveTurns 前缀复用的依赖边界）
   let curEnd = -1;
-
-  // 预计算（自尾向头）：各位置之后下一条 agent/user 消息的 sender——
-  // 判定"平文中段插行"（同 sender 后续还有消息 → 拆轮保位渲染）与
-  // "组尾终稿"（后续无同 sender 消息 → 并入当前轮作 final）。
-  // 背景（2026-09-02 顺序反馈）：run 中途的插行（send_agent 投递、机制
-  // 通知前后的步）按步级 ts 排序后会落在同 sender 步骤之间——不拆轮会被
-  // 吞进"思考过程"折叠链（视觉消失）；拆轮则渲染位置与落盘序一致。
-  const nextSenderOf: Array<string | null> = new Array(msgs.length).fill(null);
-  let nextSender: string | null = null;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    nextSenderOf[i] = nextSender;
-    const m = msgs[i];
-    if (m.role === 'agent' || m.role === 'user') nextSender = m.agent_id || '';
-  }
 
   // live：run 级流式态只作用于「末尾轮」——中段 flush 的轮次被后续消息
   // 关闭、按定义已完成（否则 run 中的历史轮会被误标流式）
@@ -396,8 +384,6 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
     }
   };
 
-  /** 上一条 agent/user 消息是否为"中段插行平文"（其后的同 sender 消息须另起一轮——插行才独立成轮） */
-  let afterSolo = false;
   // 暂存注入卡（cur 为空 / viewer 轮在场时挂下一 agent 轮头部；
   // 收尾仍积压 = 无 agent 轮 → 由 useTurnDisplayItems 降级独立卡）
   const pendingInjects: InjectCard[] = [];
@@ -543,46 +529,17 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
       const senderId = msg.agent_id || '';
       const ts = msg.timestamp || Date.now();
       const lastTurn = cur?.turns.at(-1);
-      // run 内连续性豁免（cr-699）：同 run 相邻步（含中断-续跑的中途收束
-      // 总结步）不因时间间隔/平文形态拆轮——run 边界才是拆轮判据。跨 run
-      // 或无 run 键（直播/旧数据）走原规则。
-      const sameRun = !!msg.runId && !!lastTurn?.runId && msg.runId === lastTurn.runId;
-      // 键控拆轮（cr-1286 P4-1 投影分组）：双方 turnId 在场 = 分组权威判据
-      // ——同值恒并轮（跨 10 分钟间隔/中途总结步/平文插行，run 事实先行）、
-      // 异值恒拆轮（run 边界）；跨 sender 键撞车视为边界（罕见——发送侧
-      // 伪造对端身份的行，见 toHistoryMessages fallbackAgentId）。键缺席
-      // 走下方启发（双写过渡，探针 turn-gap-fallback 观察归零即删）。
+      // 键控拆轮（cr-1286 P4-1 → cr-1321 判据退役终态）：双方 turnId
+      // 在场 = 分组权威判据——同值恒并轮（跨间隔/中途总结步/平文插
+      // 行，run 事实先行）、异值恒拆轮（run 边界）；跨 sender 键撞车视为
+      // 边界。启发判据族（gapTooLong/plainAfterComplete/runCut/solo/
+      // afterSolo + MERGE_GAP_MS + sameRun）已删——冗余性证明：1223 主流
+      // 域会话对拍恒等（cr-1320）+ 直播窗归零实证（B1a/B1b 出生带键）；
+      // 键缺席域收窄为 sub_* v0 旧写面存量（读侧按 sender 拆轮）。
       const keyedSameTurn = !!msg.turnId && !!lastTurn?.turnId;
       const keyedDiff = keyedSameTurn && msg.turnId !== lastTurn.turnId;
       const keyedBreak = keyedSameTurn && !!cur && cur.agent_id !== senderId;
-      const keyedJoin = keyedSameTurn && !keyedDiff && !keyedBreak;
-      // 键缺席探针（双写观察窗）：直播行/旧投影行无键——归零 = 键域全贯通
-      const keyedMiss = (msg.turnId === undefined) || (lastTurn !== undefined && lastTurn.turnId === undefined);
-      if (keyedMiss) probeHit('turn-gap-fallback', msg.id);
-      // 双写合并（cr-1286）：gapTooLong 原判式保留——!sameRun 护栏（直播
-      // 中断-续跑）+ ts 比较前置短路；键域在场时两条件不评估，MERGE_GAP_MS
-      // 降位为纯存量兜底（探针 turn-gap-fallback 观察归零即删）。
-      const gapTooLong = !keyedJoin && !!cur && !!lastTurn && !sameRun && (ts - lastTurn.ts) > MERGE_GAP_MS;
-      // 无思考无工具的纯正文消息（如 send_agent 投递）：若当前轮已有完整正文，
-      // 单独成轮 —— 否则它会把上一条正经回复吞进思维链折叠栏（正文被折叠）。
-      const isPlainBody = !!msg.content && !msg.thinking && !msg.reasoning_content && !(msg.toolCalls?.length);
-      const prevComplete = !!lastTurn && !!lastTurn.content && !lastTurn.tool_calls.length;
-      const plainAfterComplete = !keyedJoin && isPlainBody && prevComplete && !sameRun;
-      // run 切换即轮边界（cr-946）：上一轮已给出终稿（末尾是纯正文、无工具
-      // 的收束步），本步却属另一个 run → 必拆。缺此判据时（边界行缺席 /
-      // 机制通知没投成事件行），两段 run 会并入同一「轮」——前一段终稿降级
-      // 成链内中间步，被「中间口述不进链」的呈现规则整段吞掉（会话
-      // 01a1ba12 「你说得对——复盘…」整段消失的形态）。
-      const runCut = !keyedJoin && prevComplete && !sameRun
-        && !!msg.runId && !!lastTurn.runId && msg.runId !== lastTurn.runId;
-      // 平文中段插行：同 sender 后续还有消息 → 独立成轮（拆轮保位，不被
-      // 折叠链吞掉）；其后的下一条同 sender 消息另起一轮（afterSolo）——
-      // 否则后续步骤会并入插行所在轮、把插行顶回链内。组尾平文（final
-      // 文本）不拆，正常并入作终稿。同 run 步序连续（sameRun）不拆——
-      // 中断-续跑 run 的中途总结步留在链内。
-      const senderContinues = nextSenderOf[k] === senderId;
-      const solo = !keyedJoin && isPlainBody && senderContinues && !sameRun;
-      if (!cur || keyedBreak || keyedDiff || cur.agent_id !== senderId || gapTooLong || plainAfterComplete || runCut || solo || afterSolo) {
+      if (!cur || keyedBreak || keyedDiff || cur.agent_id !== senderId) {
         flush();
         cur = { agent_id: senderId, turns: [] };
         // 暂存注入卡落地：本轮即其服务对象（注入行在本轮之前落账——
@@ -597,11 +554,6 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
           }
         }
       }
-      // afterSolo 键控门（cr-1286）：带键行的 solo 不向后传播——后继同键必
-      // 并轮（keyedJoin 豁免启发）、异值 keyedDiff 自拆；启发保位语义只服务
-      // 无键域。修复形态：分页窗口头截断的中段步（solo 因 lastTurn 缺席误
-      // 触发）不再把同键后继顶开——跨窗口轮边界恒同。
-      afterSolo = solo && msg.turnId === undefined;
       // cr-1132：锚目标登记 + 延迟锚卡落位（目标轮头）——agent 发言行处。
       // 锚目标 = 该消息所在轮：afterStep = 落位时刻已积步数（目标在卡后
       // → 卡挂其轮头即 0 步处；同轮后续消息累积时此值即轮内位次）。
@@ -657,7 +609,7 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
         content: msg.content || '',
         ts,
         isStreaming: msg.isStreaming,
-        // run 身份键透传（cr-699 sameRun 判定——上法 lastTurn.runId 取源）
+        // run 身份键透传（cr-699：注入卡 run 键挂靠——runsInWindow 判定源）
         ...(msg.runId !== undefined ? { runId: msg.runId } : {}),
         // 轮身份键透传（cr-1286 P4-1 键装配判据源）
         ...(msg.turnId !== undefined ? { turnId: msg.turnId } : {}),
@@ -716,7 +668,8 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
 /**
  * keyed store 派生状态：rawMessages（不可变消息引用）→ Turn[] 的引用
  * diff 复用。前缀消息引用全部相同（且边界后首条 agent/user 行引用相同——
- * 分组判据 nextSenderOf 的外部依赖防护）⇒ 由它们产出的轮对象整体复用
+ * 分组判据的外部依赖防护——cr-1321 判据退役后仅剩 sender 维度）⇒ 由它们
+ * 产出的轮对象整体复用
  *（Turn 记非枚举 _end 界标 = 产出该轮的末条消息索引）。任何变异必经
  * reviseMsg 换身（Object.freeze 构造性强制）——引用不同即重建，不再依赖
  * 字段枚举签名（msgSig/turnContentSig 手工失效契约随本刀退役）。
@@ -754,9 +707,9 @@ export function deriveTurns(prev: TurnsState | null, msgs: ChatMessage[], stream
   //   ① 末轮恒重建——其派生含尾部兜底态（streaming 物化、pendingInjects
   //      尾挂 / cur flush 语义）；
   //   ② _end 界标须落在 common 域内（该轮消息全部引用相同）；
-  //   ③ 分组外部依赖防护：界标之后的首条 agent/user 行（nextSenderOf 的
-  //      供给者——solo/组尾判定源）也须落在 common 域内——在变化域或缺
-  //      席（尾部截断）都会改变该轮的分组判定。
+  //   ③ 分组外部依赖防护：界标之后的首条 agent/user 行（sender 判定的
+  //      下游供给者）也须落在 common 域内——在变化域或缺席（尾部截断）
+  //      都会改变该轮的分组判定。
   let reuse = 0;
   while (reuse < prev.turns.length - 1) {
     const e = (prev.turns[reuse] as any)[TURN_END];
@@ -965,10 +918,12 @@ export interface HistoryRow {
   anchor?: string;
   /** 轮身份键（cr-1286 P4-1 投影分组）：run 承载行 = run；用户行 = message_id */
   turnId?: string;
-  /** 以下三键 = toHistoryMessages 实际产词（转换器不读，词汇如实声明） */
+  /** 以下键 = toHistoryMessages 实际产词（thinking 声明词汇、其余三键 cr-1316 起消费透传） */
   thinking?: string;
   subcall?: boolean;
   arguments?: unknown;
+  /** 工具执行耗时（毫秒，cr-1316——工具卡 Label 尾缀） */
+  durationMs?: number;
 }
 
 /**
@@ -1032,6 +987,14 @@ export function historyRowToChatMessage(
     // contextContent 供展开体、payload = 问答卡 outcome 判据（cr-765 #4）、
     // anchor = 投影层派生的时间线锚、injectBytes = 载入态 meta
     ...(m.source !== undefined ? { source: m.source as ChatMessage['source'] } : {}),
+    // cr-1316 工具行三键补齐（P3-3 并轨收尾）：arguments（工具卡按参数渲染
+    // 专用视图——edit diff / write 预览 / read 路径 / subcall 参数查询）、
+    // subcall（平铺卡缩进样式——视觉归属 run_code 程序卡）、durationMs
+    //（历史工具卡耗时）。HistoryRow 声明已久（L974-977「词汇如实声明」），
+    // 此前映射体不消费 → 刷新后 subcall 平铺卡参数恒空、缩进样式失效。
+    ...(m.arguments !== undefined ? { arguments: m.arguments } : {}),
+    ...(m.subcall === true ? { subcall: true } : {}),
+    ...(m.durationMs !== undefined ? { durationMs: m.durationMs } : {}),
     ...(m.contextContent !== undefined ? { contextContent: m.contextContent as string } : {}),
     ...(m.payload !== undefined ? { payload: m.payload as ChatMessage['payload'] } : {}),
     ...(typeof m.injectBytes === 'number' ? { injectBytes: m.injectBytes } : {}),

@@ -16,7 +16,7 @@ import { Service, type Context } from '@agentchat/cordis';
 import { clientPlugin, type ClientContext } from 'ac-client-runtime';
 import { defineAsyncComponent, reactive, watch } from 'vue';
 import { createFeedCore, type FeedCore, type FeedView } from './feed-core.ts';
-import { parseDialogId } from './feed.ts';
+import { parseDialogId, bucketKey } from './feed.ts';
 import { createUnreadStore, type UnreadStore } from './unreadStore.ts';
 import type { DialogId } from './feed.ts';
 import { createChatCore, type ChatCore } from './chat-core.ts';
@@ -135,7 +135,7 @@ export class ConversationService extends Service {
       if (kind === 'group' || kind === 'single') return key;
       // pair：轴键 = bucketKey(两端)——a|b → a~b（host 计数器键词法）
       const [a, b] = key.split('|');
-      return a && b ? [a, b].sort().join('~') : undefined;
+      return a && b ? bucketKey(a, b) : undefined;
     };
     // 正在看的会话不计数（cr-1057 语义——live 已可见）
     this.unread.setActiveAxis(() => axisOf(this.feed.activeDialogId.value));

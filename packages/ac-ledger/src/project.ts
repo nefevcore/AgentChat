@@ -62,12 +62,11 @@ export function projectUserReplay(dataRoot: string, uuid: string): UserReplayRow
     const k = r.requestId ?? r.message_id;
     return typeof k === 'string' && k !== '' ? k : undefined;
   };
-  // user 发言行：入站行 agent_id='user'。restarted-* 前缀 = cr-946 前机制
-  // 通知的存量落形（viewer 时代即不投影——读面按 event 行另投）。
+  // user 发言行：入站行 agent_id='user'。
+  // cr-1309：cr-946 前的 restarted-* 通知行已全量归一 context+event——滤除分支退役。
   for (const { rows } of domainRows) {
     for (const r of rows) {
       if (r.role !== 'agent' || r.agent_id !== 'user') continue;
-      if (typeof r.requestId === 'string' && r.requestId.startsWith('restarted-')) continue;
       const key = idKeyOf(r);
       if (key !== undefined && seen.has(key)) continue;
       if (r.requestId !== undefined) seen.add(r.requestId);

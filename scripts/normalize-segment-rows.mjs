@@ -106,7 +106,11 @@ for (const s of sessionDirs(dataRoot)) {
   const file = path.join(s.dir, 'messages.jsonl');
   if (!fs.existsSync(file)) continue;
   scanned++;
-  const { rows } = readLedger(s.dir);
+  // cr-1308：头行必须随产物保真（readLedger 解构 header；staging 首行写回）——
+  // cr-1306 曾只取 rows → rename 后 218 文件 session-header 全丢（version/
+  // createdAt/participants/kind/migrated 追溯标记），对拍面（投影恒等）测不出
+  // 头行丢失——判据含头恒等即防再犯。
+  const { header, rows } = readLedger(s.dir);
   const segCount = rows.filter((r) => r.source === 'segment').length;
   if (segCount === 0) continue;
   withSeg++; totalSeg += segCount;
@@ -145,7 +149,10 @@ for (const s of sessionDirs(dataRoot)) {
   }
   // —— staging → verify（重读对拍）→ rename ——
   const staging = file + '.normalizing';
-  fs.writeFileSync(staging, finalRows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  // cr-1308：staging 首行 = 原头行原样（保真写回；无头文件如实无头——
+  // 不虚构，修头走一次性补头通道）。
+  const headerLine = header !== null ? JSON.stringify(header) + '\n' : '';
+  fs.writeFileSync(staging, headerLine + finalRows.map((r) => JSON.stringify(r)).join('\n') + '\n');
   const recheck = readLedger(s.dir); // 仍读旧文件（staging 不参与读面）
   void recheck;
   const staged = fs.readFileSync(staging, 'utf8').split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));

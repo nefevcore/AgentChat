@@ -19,6 +19,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOST_MODULE_SPECS } from './host-module-table.ts';
+import { sharedExternalizePlugin } from './shared-externalize.ts';
 
 const pkgRoot = fileURLToPath(new URL('../../../packages', import.meta.url));
 // 仓库根（脚本在 <root>/apps/ui/scripts/——CWD 无关锚点；3 级上行）
@@ -55,23 +56,12 @@ const builtModules = modules.filter((m) => !m.pureStyle);
 
 if (modules.length === 0) { console.error('[build-channel] 无匹配通道包（ac.faces.web 声明缺席）'); process.exit(1); }
 
+// cr-1310 根修：字面匹配（本函数）+ 路径归一插件（shared-externalize.ts，
+// 第二遍挂载）双保险——通道包内部相对引用链（feed-core → ./feed.ts 等）
+// 原本永不命中字面清单 → 共享面单例被内联成副本（cr-1296/1300 三例同族）；
+// 插件把命中共享面源文件的相对引用归一为表内说明符并直标 external。跨包
+// 裸深引照旧走本函数字面面。
 const isExternal = (id) => HOST_MODULE_SPECS.some((x) => id === x || id.startsWith(x + '/'));
-
-const viteCommon = (entry) => ({
-  configFile: false,
-  plugins: [vue(), Icons({ compiler: 'vue3' })],
-  resolve: {
-    alias: { '@agentchat/protocol': fileURLToPath(new URL('../src/shims/@agentchat/protocol.ts', import.meta.url)) },
-  },
-  build: {
-    // 通道模块 target = esnext（跳过 esbuild 降级路径——Windows esbuild renderChunk
-    // 临时文件删除偶发 Access denied；chrome92 降级归 8.5e 构建面统一处理）
-    target: 'esnext',
-    minify: false,
-    lib: { entry, formats: ['es'], fileName: () => 'index.js' },
-    rollupOptions: { external: isExternal },
-  },
-});
 
 // ---------------- v3 形态（缺省：factory 注册 + revision 清单） ----------------
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
@@ -184,6 +174,9 @@ for (const { dir } of builtModules) {
     plugins: [vue(), Icons({ compiler: 'vue3' })],
     resolve: { alias: { '@agentchat/protocol': fileURLToPath(new URL('../src/shims/@agentchat/protocol.ts', import.meta.url)) } },
     build: {
+      // target esnext：跳过 esbuild 降级路径（Windows renderChunk 临时文件删除
+      // 偶发 Access denied；chrome92 降级归 8.5e 构建面统一处理）——cr-1310 自
+      // viteCommon 死代码块迁注（该块全仓零调用，同批删除）
       outDir: distDir, emptyOutDir: true, target: 'esnext', minify: false,
       lib: { entry: srcEntry, formats: ['cjs'], fileName: () => 'index.js' },
       rollupOptions: { external: isExternal, output: { inlineDynamicImports: true } },
@@ -221,7 +214,9 @@ for (const { short, dir } of builtModules) {
   await build({
     configFile: false,
     publicDir: false, // cr-938 同第一遍：CWD 无关化（顶层键）
-    plugins: [vue(), Icons({ compiler: 'vue3' })],
+    // cr-1310 路径归一插件：共享面相对引用链归一为表内说明符（external +
+    // 种子①支直达）；isolated 自含档不挂——沙盒独立模块表无种子面，归一即断链。
+    plugins: [vue(), Icons({ compiler: 'vue3' }), ...(selfContained ? [] : [sharedExternalizePlugin()])],
     resolve: { alias: { '@agentchat/protocol': fileURLToPath(new URL('../src/shims/@agentchat/protocol.ts', import.meta.url)) } },
     build: {
       outDir: distDir, emptyOutDir: true, target: 'esnext', minify: false,

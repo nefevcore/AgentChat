@@ -177,7 +177,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
             reasoning_content: stepThinking || undefined,
             // 中止步标记（cr-766）：中断态渲染依据——部分正文 + 中断标识
             ...(s.aborted === true ? { aborted: true } : {}),
-            // run 身份键透传（cr-699）：buildTurns sameRun 拆轮豁免——
+            // run 身份键透传（cr-699）：注入卡 run 键挂靠判定源——
             // 中断-续跑 run 的中途总结步不独立成卡
             ...(typeof r.run === 'string' && r.run !== '' ? { runId: r.run } : {}),
             // 轮身份键透传（cr-1286 P4-1）：步行与终稿行同键恒同轮——
@@ -220,6 +220,8 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
               // run_code 子调用（session subcalls 投影）：平铺卡片带缩进标记；
               // 参数透传（工具卡按参数渲染专用视图——edit diff / write 预览）
               ...(tc.subcall === true ? { subcall: true, arguments: parseToolArgs(tc.arguments) } : {}),
+              // 耗时透传（cr-1316）：直调与 subcall 卡 Label 尾缀统一数据源
+              ...(tc.durationMs !== undefined ? { durationMs: tc.durationMs } : {}),
               message_id: tc.id || `${r.message_id}-s${i}-t`,
               // 轮身份键透传（cr-1286）：tool 行与同轮步行同键
               ...(r.turnId !== undefined ? { turnId: r.turnId } : {}),

@@ -1,5 +1,5 @@
 // ============================================================
-// host-module-table.mjs —— 宿主模块表（构建面单源，cr-905 / cr-901 v2.1
+// host-module-table.ts —— 宿主模块表（构建面单源，cr-905 / cr-901 v2.1
 // 批3 切片二，docs/design/webui/ui-plugin-form.md §三）
 //
 // 键集 = skeletonModuleHost()（boot.ts——骨架 9 键）∪ sharedModules()
@@ -26,6 +26,9 @@ export const HOST_MODULE_SPECS = Object.freeze([
   "ac-client-ui-conversation/client",
   "ac-client-ui-conversation/client/ConversationView.vue",
   "ac-client-ui-conversation/client/TranscriptList.vue",
+  // cr-1310：chatOps（chatPresence/historyCursor 模块级单例——cr-1300 审计
+  // 残留实例）入列；构建侧配套路径归一插件（shared-externalize.ts）。
+  "ac-client-ui-conversation/client/chatOps.ts",
   "ac-client-ui-conversation/client/chatStore.ts",
   "ac-client-ui-conversation/client/draftParking.ts",
   "ac-client-ui-conversation/client/composePrefs.ts",

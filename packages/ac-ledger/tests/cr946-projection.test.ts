@@ -94,17 +94,19 @@ describe('cr-946 ② 机制通知行读面投影（事件分隔符 + 轮边界�
     expect(typeof ev!.timestamp).toBe('string');
   });
 
-  it('存量形态（按入站发言行落账、requestId restarted-*）：读面同投 event 行', async () => {
+  it('cr-1309：legacy speech 落形经归一工具换写后与现行形态同投（迁移判据）', async () => {
+    // 归一工具产物词形（normalize-restarted-rows.mjs）与「新写面」用例同一投影路径
     const conv = 'mech-legacy';
     await seedRuns(conv);
     const w = new LedgerWriter(sessionDir(ROOT, 'alpha', conv), { participants: ['alpha', 'user'], kind: 'user' });
     await w.deliver({
-      role: 'agent', content: '壳已重启完成（存量形态）',
-      agent_id: 'user', requestId: 'restarted-legacy-1', uuid: conv,
+      role: 'context', source: 'event',
+      content: '壳已重启完成（归一后形态）',
+      agent_id: 'alpha', requestId: 'restarted-legacy-1', uuid: conv,
     });
     const out = assembleSessionView(ROOT, conv);
     const ev = out.find((r) => r.role === 'event');
-    expect(ev).toMatchObject({ content: '壳已重启完成（存量形态）', source: 'event' });
+    expect(ev).toMatchObject({ content: '壳已重启完成（归一后形态）', source: 'event', agent_id: 'alpha' });
   });
 
   it('负例：普通用户发言/agent 终稿不会被误投为事件行', async () => {

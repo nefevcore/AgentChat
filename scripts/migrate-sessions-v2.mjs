@@ -137,6 +137,13 @@ function processSession(s, isDry) {
   if (header === null && rows.length === 0) {
     return sidecars.length > 0 ? { status: 'journal-only' } : { status: 'empty' };
   }
+  // cr-1308：无头但行在（cr-1306 归一工具曾丢头的现场）——按 v2 行面判定：
+  // 行面是 v2 事件行 = 丢头现场 → 需经迁移边升格 v2 头（幂等键恢复），不能
+  // 落回 version ?? 1 被当 v1 会话重迁/变造（裸行判别会误吞 v2 行）。
+  if (header === null && rows.length > 0) {
+    const v2ish = rows.some((r) => typeof r.type === 'string' && r.type !== '' && r.type !== 'session-header');
+    if (v2ish) return { status: 'residue', note: '无头但行面为 v2 事件行（丢头现场）——需补头升格（cr-1308）' };
+  }
   const version = Number(header?.version ?? 1);
   if (version >= 2) {
     if (sidecars.length === 0) return { status: 'v2' };

@@ -32,7 +32,7 @@ import { notifyUser, pageHidden } from './notifyBridge.ts';
 import { traceSwitch, histReqSentAt } from './switchTrace.ts';
 import {
   type DialogId, type DialogKind, directDialog, groupDialog, singleDialog, parseDialogId, pairDialog,
-  pairPartnerOf, pairHasViewer, bucketKey, fmtElapsed,
+  pairPartnerOf, pairHasViewer, pairConversationKey, bucketKey, fmtElapsed,
   mergeHistoryPage, mergeTimeOrdered, deriveTurns, type TurnsState, lastStreaming, closeAllStreaming, closeRunningToolCalls, freezeMsg,
   historyRowToChatMessage, attachmentFilesOf, splitAttachmentLines, type HistoryRow,
 } from './feed.ts';
@@ -598,7 +598,7 @@ export function createFeedCore(
     try {
       const stats = await rpc.call<{ running?: Array<{ agentId: string; conversationId: string }>; spawning?: string[] }>('conversation/stats');
       const { kind, key } = parseDialogId(id);
-      const conv = kind === 'single' ? key : key.split('|').join('~'); // 对桶 tilde 形（pairDialog 构造时已排序）
+      const conv = kind === 'single' ? key : pairConversationKey(key); // 对桶 tilde 形
       // 定活口径单源（cr-887）：running ∪ spawning——超长拉壳窗不被探针补刀
       live = agentInFlight(stats, agentKeyOf(id), conv);
     } catch {
@@ -2001,8 +2001,19 @@ export function createFeedCore(
       return;
     }
     const d = ensureById(dialogId);
+    // 出生带键（cr-1320 B1b）：入站帧携带 message_id（= requestId 落盘锚——
+    // user-stub 私信路径已带）时行身份直采——run 收束重拉后与历史行同值互认
+    //（mergeHistoryPage 双键去重生效，不再依赖首屏整体替换的内容比对兜底）。
+    // 缺席（agent⇄agent 委托/旧后端）回落 uid 随机形——judges 兜底到换身。
+    const mid = typeof (message as { message_id?: unknown }).message_id === 'string' && (message as { message_id?: string }).message_id
+      ? (message as { message_id: string }).message_id
+      : undefined;
+    // 幂等（邮局重投/WS 重连重放同帧——cr-1157 服务端未读已幂等，前端行面
+    // 此前靠 uid 唯一性天然免疫；带 mid 后同帧重投双条，须在场即弃）
+    if (mid !== undefined && d.rawMessages.some(m => m.id === mid)) return;
     pushMsg(d, {
-      id: uid('msg'), role: 'agent', content: payload, agent_id: from, timestamp: Date.now(),
+      ...(mid !== undefined ? { id: mid, turnId: mid } : { id: uid('msg') }),
+      role: 'agent', content: payload, agent_id: from, timestamp: Date.now(),
     });
     touch(dialogId, from, payload, Date.now());
     bump(dialogId);

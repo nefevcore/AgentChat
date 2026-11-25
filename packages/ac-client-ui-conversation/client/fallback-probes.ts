@@ -2,11 +2,6 @@
 // fallback-probes.ts —— 兜底链命中计数探针（P2-C cr-1276 起）
 //
 // 在役探针：
-//   turn-gap-fallback：轮分组键缺席（turnId 不在场）走启发拆轮
-//     （feed.ts buildTurns——cr-1286 P4-1 双写过渡期）：直播步行已随步帧
-//     驻留 turnId（cr-1289——run 键与投影同语义）；剩余缺席面 = 无键域行
-//     （viewer 回显/群 post/私信入站/旧后端帧）与旧投影行。观察窗归零 =
-//     键域全贯通，即可删启发分支。
 //   inject-heuristic：isInjectEvent 未注册词兜底启发命中（feed.ts）——
 //     服务「owning 行未装载」降级（插槽-插头架构特性，渲染管线计划 §三
 //     护栏：不退役，仅存量词随迁移缩）。
@@ -28,7 +23,7 @@
 // ============================================================
 
 /** 探针键（兜底链身份） */
-export type FallbackProbeKey = 'inject-heuristic' | 'inject-run-miss' | 'turn-gap-fallback';
+export type FallbackProbeKey = 'inject-heuristic' | 'inject-run-miss';
 
 interface ProbeCount { hits: number; rowIds: Set<string>; }
 

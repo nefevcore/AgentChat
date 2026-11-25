@@ -1,7 +1,7 @@
 // ============================================================
 // shared-modules.ts —— 跨模块共享深路径注册表（8.5c）
 //
-// 域行互相深引（chatStore/uiStore/themeStore/rosterAccess…59 说明符（cr-1296 增 frameScheduler/feed-core；cr-1300 增 fallback-probes），
+// 域行互相深引（chatStore/uiStore/themeStore/rosterAccess…69 说明符（cr-1296 增 frameScheduler/feed-core；cr-1300 增 fallback-probes；cr-1310 增 chatOps；数由增项注释随批刷新），
 // 2026-10-19 扫描）——通道 bundle 外部化这些说明符后，宿主侧必须提供
 // 同一模块实例（importmap 解析目标）。它们是被跨模块共享的状态面与
 // 纯函数面 = 事实上的共享基座（ui-tree §3 单例契约的物理载体）。
@@ -19,6 +19,10 @@ import * as agentsRosterApi from 'ac-client-ui-agents/client/rosterApi.ts';
 import * as convConversationView from 'ac-client-ui-conversation/client/ConversationView.vue';
 import * as convTranscriptList from 'ac-client-ui-conversation/client/TranscriptList.vue';
 import * as convChatStore from 'ac-client-ui-conversation/client/chatStore.ts';
+// cr-1310：chatOps（chatPresence 存在集合 / historyCursor 分页游标——模块级
+// 单例，cr-1300 审计残留实例）入共享面；配合 build-channel 路径归一插件，
+// 同包相对引用链（feed-core / chat-core / ChatInput / fileApi / index）自动外部化。
+import * as convChatOps from 'ac-client-ui-conversation/client/chatOps.ts';
 import * as convDraftParking from 'ac-client-ui-conversation/client/draftParking.ts';
 import * as convIndex from 'ac-client-ui-conversation/client/index.ts';
 import * as convComposePrefs from 'ac-client-ui-conversation/client/composePrefs.ts';
@@ -84,7 +88,7 @@ import * as workspaceOpenWithButton from 'ac-client-ui-workspace/client/OpenWith
 // 垫片与 vite alias 同源；settings 等 8.5b 四包外部化依赖它）
 import * as agentchatProtocol from '@agentchat/protocol';
 
-/** 深路径共享说明符 → 宿主模块实例（58 键——完整说明符 = importmap 键；cr-1296 增 frameScheduler/feed-core） */
+/** 深路径共享说明符 → 宿主模块实例（69 键——完整说明符 = importmap 键；cr-1296 增 frameScheduler/feed-core、cr-1300 增 fallback-probes、cr-1310 增 chatOps） */
 export function sharedModules(): Record<string, unknown> {
   return {
     'ac-client-ui-agents/client': agentsClient,
@@ -95,6 +99,7 @@ export function sharedModules(): Record<string, unknown> {
     'ac-client-ui-conversation/client': convIndex,
     'ac-client-ui-conversation/client/ConversationView.vue': convConversationView,
     'ac-client-ui-conversation/client/TranscriptList.vue': convTranscriptList,
+    'ac-client-ui-conversation/client/chatOps.ts': convChatOps,
     'ac-client-ui-conversation/client/chatStore.ts': convChatStore,
   'ac-client-ui-conversation/client/draftParking.ts': convDraftParking,
     'ac-client-ui-conversation/client/index.ts': convIndex,

@@ -113,10 +113,16 @@ describe('projectUserReplay（cr-973 读时投影）', () => {
     expect(replay.map((r) => r.content)).toEqual(['终稿']);
   });
 
-  it('restarted-* 入站行不投影（cr-946 前机制通知存量落形——读面按 event 行另投）', async () => {
+  it('cr-1309：cr-946 前 restarted-* speech 落形已归一——replay 无 legacy 滤除分支也不投影通知', async () => {
     const uuid = 'p-restart';
     await userSays('alpha', uuid, '正常问', 'q-1', '2026-11-09T10:00:00.000Z');
-    await userSays('alpha', uuid, '壳已重启完成（存量形态）', 'restarted-legacy-1', '2026-11-09T10:00:01.000Z');
+    // 现行词形直接落盘（归一工具的产物形态）——user replay 天然不投 context 行
+    const file = path.join(sessionDir(ROOT, 'alpha', uuid), 'messages.jsonl');
+    fs.appendFileSync(file, JSON.stringify({
+      role: 'context', source: 'event', content: '壳已重启完成（归一后形态）',
+      agent_id: 'alpha', requestId: 'restarted-legacy-1', uuid,
+      message_id: 'restarted-legacy-1', timestamp: '2026-11-09T10:00:01.000Z', seq: 2,
+    }) + '\n', 'utf-8');
     const replay = projectUserReplay(ROOT, uuid);
     expect(replay.map((r) => r.content)).toEqual(['正常问']);
   });

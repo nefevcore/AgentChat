@@ -28,7 +28,7 @@ const UUID = 'conv-fold';
 const AGENT = 'alpha';
 
 /** v1 富形态会话（盘上直写）：两轮 settle（含 subcall/注入）+ 一轮
- *  in-flight journal + 错误收束行 + 机制通知 + 存量 restarted 行 */
+ *  in-flight journal + 错误收束行 + 机制通知（context+event——cr-1309 归一后词形） */
 function seedV1(): void {
   const dir = sessionDir(ROOT, AGENT, UUID);
   fs.mkdirSync(path.join(dir, 'journal'), { recursive: true });
@@ -46,9 +46,10 @@ function seedV1(): void {
     { role: 'agent', content: '', agent_id: AGENT, run: 'run-2', source: 'segment', steps: [{ content: '半途', ts: 5 }], message_id: 'seg-run-2-0', timestamp: '2026-11-09T10:01:10.000Z', seq: 7 },
     { role: 'agent', content: '', agent_id: AGENT, requestId: 'a2', run: 'run-2', message_id: 'a2', timestamp: '2026-11-09T10:01:11.000Z', seq: 8 },
     { role: 'context', source: 'error', content: '工具炸了', agent_id: AGENT, run: 'run-2', message_id: 'e2', timestamp: '2026-11-09T10:01:11.500Z', seq: 9 },
-    // 机制通知（context+event）+ 存量 restarted 行
+    // 机制通知（context+event ×2——cr-1309 起 legacy speech 落形已全量归一，
+    // 盘上 restart 通知恒为 context+event 词形）
     { role: 'context', source: 'event', content: '[会话设置] 已重启', agent_id: AGENT, message_id: 'ev1', timestamp: '2026-11-09T10:01:59.000Z', seq: 10 },
-    { role: 'agent', content: '已重启通知（存量形态）', agent_id: 'user', requestId: 'restarted-x1', message_id: 'rx1', timestamp: '2026-11-09T10:02:00.000Z', seq: 11 },
+    { role: 'context', source: 'event', content: '已重启通知（归一后形态）', agent_id: AGENT, requestId: 'restarted-x1', uuid: UUID, type: 'context', message_id: 'rx1', timestamp: '2026-11-09T10:02:00.000Z', seq: 11 },
   ];
   fs.writeFileSync(path.join(dir, 'messages.jsonl'), msgRows.map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
   // journal：run-3 in-flight（未收束——配平面）+ run-1/run-2 settled 留档

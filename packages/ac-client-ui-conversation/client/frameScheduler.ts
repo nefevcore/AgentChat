@@ -1,7 +1,7 @@
 // ============================================================
 // client/frameScheduler.ts —— 单 rAF 流水线调度器（cr-1287 P4-2）
 //
-// 病灶（session-render-pipeline-plan §一 1.2 末段）：五个独立节拍交错——
+// 病灶（docs/design/archive/session/session-render-pipeline-plan.md §一 1.2 末段，已归档）：五个独立节拍交错——
 // feed 同步直写 / markdown 自持 rAF + idle-commit setTimeout / 滚动 rAF /
 // refill setTimeout——闪烁节律不齐，且「每帧提交次数」无处断言。
 //

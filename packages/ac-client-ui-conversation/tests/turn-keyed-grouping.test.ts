@@ -18,6 +18,28 @@ function agentMsg(p: Partial<ChatMessage> & { content: string }): ChatMessage {
 }
 
 describe('P4-1 键控拆轮（buildTurns 键域三态）', () => {
+  it('判据退役终态（cr-1321）：键全域夹具上轮边界 = 纯键控（judges 已物理删除的行为锁）', () => {
+    // 键全夹具 = 主流域形态（M-C 迁移后存量 + B1a/B1b 直播行出生带键）：
+    // 多 run / 用户插话轮 / 大间隔（原 gapTooLong 域）/ runCut / solo 各形态，
+    // 冗余性已证（全数据根 1223 会话对拍恒等——cr-1320）后判据族删除。
+    const t0 = Date.parse('2026-11-25T12:00:00Z');
+    const msgs: ChatMessage[] = [
+      agentMsg({ content: '问 1', agent_id: 'user', timestamp: t0, turnId: 'q1' }),
+      agentMsg({ content: 'run1 步', runId: 'run-1', timestamp: t0, turnId: 'run-1' }),
+      agentMsg({ content: 'run1 终稿', runId: 'run-1', timestamp: t0 + 60_000, turnId: 'run-1' }),
+      agentMsg({ content: '问 2（间隔 30 分钟——键控下与间隔无关）', agent_id: 'user', timestamp: t0 + 30 * 60_000, turnId: 'q2' }),
+      agentMsg({ content: 'run2 终稿（原 runCut 域——键异值拆）', runId: 'run-2', timestamp: t0 + 31 * 60_000, turnId: 'run-2' }),
+      agentMsg({ content: 'run3 平文插行（原 solo 域）', runId: 'run-3', timestamp: t0 + 32 * 60_000, turnId: 'run-3' }),
+      agentMsg({ content: 'run3 续', runId: 'run-3', timestamp: t0 + 33 * 60_000, turnId: 'run-3' }),
+    ];
+    const turns = buildTurns(msgs, false);
+    // 结构语义锚：用户轮按 q 键拆、agent 链按 run 键拆（sender 与键控双判据）
+    expect(turns.filter(t => t.agent_id === 'user')).toHaveLength(2);
+    expect(turns.filter(t => t.agent_id === 'alpha')).toHaveLength(3);
+    // 键序断言：轮 turnId 序列 = q1/run-1/q2/run-2/run-3（间隔与形态不参与）
+    expect(turns.map(t => t.turnId)).toEqual(['q1', 'run-1', 'q2', 'run-2', 'run-3']);
+  });
+
   it('同值键恒并轮：跨 10 分钟间隔/中途总结步不拆——键域优先于 MERGE_GAP_MS', () => {
     const t0 = Date.parse('2026-10-25T14:00:00Z');
     const run = 'run-long';
@@ -45,14 +67,17 @@ describe('P4-1 键控拆轮（buildTurns 键域三态）', () => {
     expect(turns[2].turnId).toBe('run-2');
   });
 
-  it('键缺席走启发：探针 turn-gap-fallback 计数（双写观察窗）', () => {
+  it('键缺席（v0 旧写面存量形态）：按 sender 拆轮——无探针（cr-1321 判据退役后行为锁）', () => {
     resetFallbackProbes();
     const msgs: ChatMessage[] = [
-      agentMsg({ content: '任务', agent_id: 'user' }), // 无键
-      agentMsg({ content: '答', runId: 'run-1' }), // 无键（直播行形态）
+      agentMsg({ content: '任务', agent_id: 'user' }), // 无键（sub_* v0 存量形态）
+      agentMsg({ content: '答', runId: 'run-1' }), // 无键
+      agentMsg({ content: '追问', agent_id: 'user' }), // 无键——sender 切换拆轮
     ];
-    buildTurns(msgs, false);
-    expect(readFallbackProbes()['turn-gap-fallback']).toEqual({ hits: 2, rows: 2 }); // 两行均无键——每行各记一次（cr-1299 双指标）
+    const turns = buildTurns(msgs, false);
+    // sender 维度拆轮仍在（keyedBreak/cur.agent_id 判据）；键缺席不触发任何探针
+    expect(turns.map(t => t.agent_id)).toEqual(['user', 'alpha', 'user']);
+    expect(Object.keys(readFallbackProbes())).toEqual([]); // tgf 键已退役——探针面无任何计数
     resetFallbackProbes();
   });
 
@@ -114,36 +139,28 @@ describe('P4-1 双拍同构（§四验证目标：刷新 vs 直播轮边界恒�
   });
 });
 
-describe('P4-1 键/启发对拍（双写合并——键修正面即行为提升面）', () => {
-  it('键同值并轮 ⊇ 启发并轮域（等值输入下键恒不新增拆轮）', () => {
-    // 同 run 40 分钟间隔：启发（sameRun 豁免）= 键（同值并轮）——等价；
-    // 无 run 键长间隔：启发 gapTooLong 拆轮，键同值并轮——键修正（窗口
-    // 局部假边界消除——P4-1 验证目标「跨窗口恒同」的直接体现）。
+describe('P4-1 键控终态（cr-1321 判据退役——键域行为锁）', () => {
+  it('键同值恒并轮：无键域退化同 sender 并轮——键域显式跨窗口恒同', () => {
+    // 同 run 40 分钟间隔（原 sameRun/gapTooLong 域）：键同值并轮。
     const t0 = Date.parse('2026-10-25T14:00:00Z');
     const noKey: ChatMessage[] = [
       agentMsg({ content: '', thinking: '步一', toolCalls: [{ id: 'c1', arguments: '{}', result: '' } as never], timestamp: t0 }),
       agentMsg({ content: '', thinking: '步二', toolCalls: [{ id: 'c2', arguments: '{}', result: '' } as never], timestamp: t0 + 40 * 60_000 }),
     ];
-    const heuristic = buildTurns(noKey, false);
-    expect(heuristic).toHaveLength(2); // gapTooLong 拆轮（存量兜底语义保持）
+    const unkeyed = buildTurns(noKey, false);
+    expect(unkeyed).toHaveLength(1); // 键缺席域退化：同 sender 并轮（间隔判据已删）
     const keyed = buildTurns(noKey.map((m) => ({ ...m, turnId: 'run-x' })), false);
     expect(keyed).toHaveLength(1); // 键同值恒并轮——同一事实流跨窗口不再假拆
   });
 
-  it('键异值拆轮 ⊇ 启发拆轮域（边界行缺席场景键修正：runCut 需双方 runId，键恒拆）', () => {
-    // 启发域：run1 终稿（纯正文、无 run 键）+ run2 步——runCut 须双方
-    // runId 在场才拆，此输入下启发并轮（终稿被吞——01a1ba12 形态）。
-    // 键域异值恒拆。键修正 = 投影分组的行为提升面（§一 1.2 #1/#2）。
-    const heuristicIn: ChatMessage[] = [
-      agentMsg({ content: 'run1 终稿', runId: 'run-1' }),
-      agentMsg({ content: 'run2 插行平文', runId: 'run-2' }), // 异 run 平文——启发 plainAfterComplete 拆（既有）
+  it('键异值恒拆轮（原 runCut 域）：终稿行后异 run 步必拆——键域不削弱 run 边界', () => {
+    const keyedIn: ChatMessage[] = [
+      agentMsg({ content: 'run1 终稿', runId: 'run-1', turnId: 'run-1' }),
+      agentMsg({ content: 'run2 插行平文', runId: 'run-2', turnId: 'run-2' }),
     ];
-    const heuristic = buildTurns(heuristicIn, false);
-    expect(heuristic).toHaveLength(2); // 启发拆轮（双方 runId 在场 runCut 触发）
-    const keyed = buildTurns(heuristicIn.map((m) => ({ ...m, turnId: m.runId })), false);
-    expect(keyed).toHaveLength(2); // 键异值同判拆轮——键域不削弱既有拆轮
-    // 键修正面（01a1ba12）：终稿行无 run 键（投影 turnId 仍可到场——投影侧
-    // run 承载行恒有键）——键域异值恒拆 vs 启发并轮（终稿被吞形态）：
+    const keyed = buildTurns(keyedIn, false);
+    expect(keyed).toHaveLength(2); // 键异值拆轮——run 边界（原 runCut 语义由键承接）
+    // 键修正面（01a1ba12 历史形态）：终稿行带键 + 异 run 步带键——恒拆不吞：
     const swallowed: ChatMessage[] = [
       agentMsg({ content: 'run1 终稿', turnId: 'run-1' }),
       agentMsg({ content: '', thinking: 'run2 步', toolCalls: [{ id: 'c3', arguments: '{}', result: '' } as never], turnId: 'run-2' }),

@@ -224,7 +224,8 @@ export function foldUserReplay(fold: SessionFold): UserReplayRow[] {
   const runsWithFinal = new Set<string>();
   for (const r of fold.speech) {
     if (r.agentId !== 'user') continue;
-    if (r.requestId !== undefined && r.requestId.startsWith('restarted-')) continue;
+    // cr-1309：cr-946 前 speech 落形的 restarted-* 通知行已全量归一 context+event
+    //（normalize-restarted-rows.mjs）——读侧滤除分支退役。
     // cr-1132:去重键缺席(手写夹具/极端存量的 undefined/空串)不互吞——
     // 此前 seen.add(缺值) 会把后续全部无 id 行互吞
     if (r.messageId && seen.has(r.requestId ?? r.messageId)) continue;
@@ -235,7 +236,7 @@ export function foldUserReplay(fold: SessionFold): UserReplayRow[] {
     out.push({ role: 'user', agentId: 'user', content: r.content, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ord: out.length });
   }
   for (const r of fold.speech) {
-    if (r.agentId === 'user') continue; // user 行与机制通知行（restarted-* 已滤）
+    if (r.agentId === 'user') continue; // user 行（通知行已归一 context——fold.speech 内不再混入）
     if (r.content.trim() === '') continue;
     if (r.messageId && seen.has(r.requestId ?? r.messageId)) continue;
     const run = r.run ?? r.sourceRun;

@@ -14,7 +14,7 @@ import { isPairKey } from 'ac-conv-keys'; // 键词法单源（cr-1238 B4）
 import RunStatusDock from './RunStatusDock.vue';
 import { useChatStore } from './chatStore.ts';
 import { useFeedStore } from './feedStore.ts';
-import { directDialog, singleDialog, type DialogId } from './feed.ts';
+import { directDialog, singleDialog, pairConversationKey, parseDialogId, type DialogId } from './feed.ts';
 import { agentInFlight, deriveRunStatus } from './runStatus.ts';
 
 const props = defineProps<{
@@ -47,8 +47,8 @@ async function pollAuthoritative() {
   lastPoll.value = Date.now();
   try {
     const stats = await feed.rpc.call<{ running?: Array<{ agentId: string; conversationId: string }>; spawning?: string[] }>('conversation/stats');
-    const { kind, key } = parseId(id);
-    const conv = kind === 'single' ? key : key.split('|').join('~');
+    const { kind, key } = parseDialogId(id);
+    const conv = kind === 'single' ? key : pairConversationKey(key);
     const agent = props.data.agentId ?? '';
     // 定活口径单源（cr-887）：running 命中 ∪ spawning 命中——只认 running 会
     // 把拉壳窗判成权威 miss，切走再切回被静默判死误杀（本 CR 根因）
@@ -62,11 +62,6 @@ async function pollAuthoritative() {
   } catch {
     // RPC 失败不定罪（后端不可达与死行不可区分——悬挂探针同口径）
   }
-}
-
-function parseId(id: DialogId): { kind: string; key: string } {
-  const sep = id.indexOf(':');
-  return { kind: id.slice(0, sep), key: id.slice(sep + 1) };
 }
 
 // ── wire 连接态（cr-840 connecting 相位）：AppFrame 同款三件套（初值取
