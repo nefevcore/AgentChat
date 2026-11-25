@@ -1,6 +1,6 @@
 {
- "scannedHead": "4e108d9ecd25a5c805b95c412056043a25dcdd8c",
- "generatedAt": "2026-11-25T16:16:06.307Z",
+ "scannedHead": "d31d47e5752d8e0bf6b116476c77cfbf2235dccd",
+ "generatedAt": "2026-11-25T23:14:28.031Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -6795,6 +6795,30 @@
     "sha": "af039ec232c78898c7c8dc16910388b597aadf83",
     "date": "2026-11-26",
     "subject": "feat(webui): cr-1325~1329 dual-view 多 Agent 会话双视图——P1 群读面 fold 扩投影 / P2 view:im 档 / P3 直答 IM 契约 / P4a 成员轨迹下钻 / P5 定界"
+   }
+  ],
+  "1329": [
+   {
+    "sha": "d6c19de1025553170bc254f188df5ea79cce1c76",
+    "date": "2026-11-26",
+    "subject": "docs+chore: cr-1329 dual-view 运行时验证记录成文 + singles-row 陈旧注释校准"
+   },
+   {
+    "sha": "2043aa0a430a34a51781d7f06c2c4e128bedfd7a",
+    "date": "2026-11-26",
+    "subject": "chore(cr): cr-1329 sync 投影"
+   }
+  ],
+  "1330": [
+   {
+    "sha": "d31d47e5752d8e0bf6b116476c77cfbf2235dccd",
+    "date": "2026-11-26",
+    "subject": "chore(cr): cr-1330 台账登记"
+   },
+   {
+    "sha": "306789179ee385f0529b52e27a6e64468979fea8",
+    "date": "2026-11-26",
+    "subject": "fix(webui): cr-1330 群成员下钻链路修复——模板 TS 断言致 member 空串 + 标题展示名 + 可发现性"
    }
   ]
  }
