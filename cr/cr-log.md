@@ -1341,4 +1341,11 @@
 - 【cr-1320 2026-11-25 直播键落位收口 B2：message-received/steered 帧补 message 身份（B1b 回显行带键）+ 双写对拍全数据根恒等验证 + judges 五判据/MERGE_GAP_MS/keyedMiss 探针同批退役】
 - 【cr-1321 2026-11-25 judges 物理删除批：buildTurns 五判据（gapTooLong/plainAfterComplete/runCut/solo/afterSolo）+ MERGE_GAP_MS + sameRun + heuristic 开关 + keyedMiss/tgf 探针同批退役（前置全证：1223 会话对拍恒等 + 直播窗归零实证）；sub_* 旧存量豁免成文（v0 无键写面残留，读侧走 sender 拆轮）】
 - 【cr-1322 2026-11-25 session-render-pipeline 计划收官批：sandbox 临时物清理 + cr-1308~1321 存量分域提交 + 计划档冻结归档（§六判据全达）+ 状态漂移校准 + cr-1313 详情补缺】
+- 【cr-1323 2026-11-25 后台 job 完成通知附带输出尾部（免 Agent 二跳查日志）——wakeup 通知正文带 tail 预览】
+- 【cr-1324 2026-11-25 多 Agent 会话双视图设计（IM 投递事实投影 × 轨迹 run 因果投影）——设计提案落档】
+- 【cr-1325 2026-11-25 dual-view P1：group/history 经 fold 单源扩投影（steps/reasoning/run/turnId 透传）】
+- 【cr-1326 2026-11-26 dual-view P2：session/history 增 view:im（fold 投影档——投递事实流：入站+终稿+error+event，去轨迹/注入卡/steps）】
+- 【cr-1327 2026-11-26 dual-view P3：1v1 IM 行为契约段（send_agent(user) 教育 + GROUP_CONTRACT 同机制）+ run 零投递兜底探针】
+- 【cr-1328 2026-11-26 dual-view P4a：群成员轨迹下钻（fetchPairHistory convKey 原序键 + openMemberStream + 群头成员轨迹下拉 → pair 只读视角）】
+- 【cr-1329 2026-11-26 dual-view P5 裁决：读口泛化收口定界——pair 已并 session/history、group 合并器保持独立（多流语义）、DialogKind 群特判保留（P4b 留观的正确事实表达，非债务）；本批不做为做而做的泛化】
 
