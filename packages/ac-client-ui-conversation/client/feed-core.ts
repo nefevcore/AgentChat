@@ -513,8 +513,22 @@ export function createFeedCore(
   // ── 历史分页 ──
   /** 每个 history 目标（session ?? agentId）最新发出的 requestId：响应回显后
    *  与之比对，不匹配即在途旧请求的迟到响应（快速切换/大历史量时响应到达序
-   *  ≠ 发送序）——直接丢弃，防止旧分页被当作首屏合并进刚重置的分区。 */
+   *  ≠ 发送序）——直接丢弃，防止旧分页被当作首屏合并进刚重置的分区。
+   *  cr-1336：键并入视图档（slotKey）——两档行集不同，单槽会让切档前在途的
+   *  异档响应顶掉新档 reqId，新档响应反被 stale 守卫丢弃（分区卡 loading /
+   *  异档行集合并进本档）。 */
   const _historyReq: Record<string, string> = {};
+  /** reqId → 请求时的视图档（cr-1336）：响应按档位与分区现档比对，不符即弃。
+   *  只靠 slotKey 分槽仍不够——同档旧请求迟到（切走再切回）也要拦。 */
+  const histReqView = new Map<string, 'trace' | 'im'>();
+  /** 历史请求槽键：视图档是行集维度，参与请求身份 */
+  function slotKey(to: string, view: 'trace' | 'im'): string {
+    return view === 'im' ? to + '#im' : to;
+  }
+  /** 分区当前视图档（无分区 = trace 缺省） */
+  function viewOf(dialogId: DialogId): 'trace' | 'im' {
+    return dialogs.value[dialogId]?.viewMode === 'im' ? 'im' : 'trace';
+  }
   /** run 收束 → 重拉首屏。两驱动（cr-94 D1 收敛协议）：
    *  · session/run-settled 事件（settlement durable 落盘后端确证）→ delay=0
    *    即时重拉——构造保证下无赌窗；
@@ -635,7 +649,9 @@ export function createFeedCore(
     // 视图档（cr-1326 P2）：im 档请求投递事实流（服务端 fold im 投影——
     // 终稿剥 steps/剔注入卡）；trace 缺省不带 view（chat 档——现状行为）
     const fpDialogId = session ? singleDialog(session) : directDialog(to);
-    const viewKind = dialogs.value[fpDialogId]?.viewMode === 'im' ? 'im' : undefined;
+    const viewKind = viewOf(fpDialogId) === 'im' ? 'im' : undefined;
+    // cr-1336：档位随 reqId 登记（响应侧校验；调用方已登记则同值幂等）
+    histReqView.set(reqId, viewKind ?? 'trace');
     // fingerprint 短路（2026-09-19）：首屏请求带分区现有指纹——文件未变时
     // 服务端 unchanged 轻载荷，本地分区原样保留（内容仍是最新：切走期间的
     // 新消息经 WS 直播帧持续路由进分区，不依赖历史通道）。
@@ -650,6 +666,16 @@ export function createFeedCore(
     const fp = fpd !== undefined && !force && !livePartition ? fpd.historyFingerprint : undefined;
     void rpc.call<{ records?: unknown[]; hasMore?: boolean; unchanged?: boolean; fingerprint?: string }>('session/history', { ...base, conversationId, ...(fp !== undefined ? { fingerprint: fp } : {}), ...(viewKind !== undefined ? { view: viewKind } : {}) })
       .then((r) => {
+        // cr-1336 档位校验：响应档位 ≠ 分区现档（切档前发出 / 切走后迟到）→
+        // 整响应弃用。同档行集不同档互不兼容——错档合并会把轨迹行写进 IM
+        // 分区（双视图切换的脏数据根因）；分区状态由新档请求自身收口。
+        const reqView = histReqView.get(reqId) ?? 'trace';
+        histReqView.delete(reqId);
+        if (reqView !== viewOf(fpDialogId)) {
+          histReqSentAt.delete(reqId);
+          traceSwitch('resp-drop', `${fpDialogId} 档位不符（${reqView} ≠ ${viewOf(fpDialogId)}）reqId=${reqId.slice(-6)}`);
+          return;
+        }
         // 指纹命中：分区已是最新（status 回 ready；保留 rawMessages/未读）
         if (r.unchanged === true) {
           histReqSentAt.delete(reqId);
@@ -681,6 +707,7 @@ export function createFeedCore(
       })
       .catch((err: unknown) => {
         logger.warn('[FeedStore] 历史加载失败', err);
+        histReqView.delete(reqId); // cr-1336：失败路径同清档位表
         const dialogId = session ? singleDialog(session) : directDialog(to);
         const d = dialogs.value[dialogId];
         if (d && (d.status === 'loading' || d.status === 'converging')) d.status = 'ready';
@@ -705,7 +732,10 @@ export function createFeedCore(
     const key = session ?? to;
     _historyOffset[key] = 0;
     const reqId = uid('histreq');
-    _historyReq[key] = reqId;
+    // cr-1336：请求身份含视图档（slotKey）——异档在途请求不互踩
+    const vk = viewOf(dialogId);
+    _historyReq[slotKey(key, vk)] = reqId;
+    histReqView.set(reqId, vk);
     histReqSentAt.set(reqId, performance.now());
     traceSwitch('req', `首屏 ${dialogId} reqId=${reqId.slice(-6)}${force ? '（强制）' : ''}`);
     requestHistoryPage(to, session, 0, reqId, force);
@@ -747,7 +777,9 @@ export function createFeedCore(
     d.status = 'loading';
     _historyOffset[to] = (_historyOffset[to] || 0) + HISTORY_PAGE_SIZE;
     const reqId = uid('histreq');
-    _historyReq[to] = reqId;
+    const vk = viewOf(dialogId);
+    _historyReq[slotKey(to, vk)] = reqId;
+    histReqView.set(reqId, vk);
     histReqSentAt.set(reqId, performance.now());
     traceSwitch('req-more', `offset=${_historyOffset[to]} ${dialogId} reqId=${reqId.slice(-6)}`);
     requestHistoryPage(to, session, _historyOffset[to], reqId);
@@ -981,8 +1013,12 @@ export function createFeedCore(
   async function loadPairHistory(dialogId: DialogId, a: string, b: string, silent = false, convKey?: string) {
     const d = ensureById(dialogId);
     d.status = silent ? 'converging' : 'loading';
+    // cr-1337：请求时档位快照——响应落地前再比对（首屏是整体替换，异档
+    // 响应会整段覆盖本档行集；pair 面与 single/direct 面同款竞态）
+    const reqView = d.viewMode;
     try {
       const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, 0, rpc, d.viewMode === 'im' ? 'im' : undefined, convKey);
+      if (viewOf(dialogId) !== reqView) return; // 档位已变：整响应弃用
       const msgs = data.messages.map(m => historyRowToChatMessage(m, { idPrefix: 'pair', fallbackAgentId: a }));
       d.rawMessages = msgs.map(freezeMsg);
       rebuildSlots(d);
@@ -1000,8 +1036,10 @@ export function createFeedCore(
   async function loadOlderPairHistory(dialogId: DialogId, a: string, b: string, convKey?: string): Promise<ChatMessage[] | null> {
     const d = dialogs.value[dialogId];
     if (!d || d.status === 'loading' || d.status === 'converging' || !d.hasMore) return null;
+    const reqView = d.viewMode; // cr-1337：档位快照（同 loadPairHistory）
     try {
       const data = await fetchPairHistory(a, b, PAIR_HISTORY_PAGE_SIZE, d.offset, rpc, d.viewMode === 'im' ? 'im' : undefined, convKey);
+      if (viewOf(dialogId) !== reqView) return null;
       const older = data.messages.map(m => historyRowToChatMessage(m, { idPrefix: 'pair', fallbackAgentId: a }));
       if (older.length > 0) {
         d.rawMessages = [...older.map(freezeMsg), ...d.rawMessages];
@@ -1605,7 +1643,10 @@ export function createFeedCore(
 
     // 兜底：chat.message.* 增量事件丢失时，用 chat.end 携带的最终内容补出回复，
     // 避免「发送后无流式回复、刷新后才能看到」。
-    if (content) {
+    // cr-1334：IM 视图档不建内容载体（与 llm/delta / subcall 直播帧同口径）
+    // ——IM 只投影服务端 delivered:true 行，终稿归轨迹档；权威行由收束重拉
+    // 补（下方 scheduleSettlementReload）。
+    if (content && d.viewMode !== 'im') {
       const msgs = d.rawMessages;
       const streaming = lastStreaming(msgs, 'agent');
       const alreadyHas = msgs.some((m) => m.role === 'agent' && m.content === content && !m.isStreaming);
@@ -1831,8 +1872,14 @@ export function createFeedCore(
    *  丢弃后分区状态可能停留在 loading，由更新请求自己的响应负责回落。 */
   function isStaleHistoryResponse(key: string, data: any): boolean {
     if (!data?.requestId) return false;
-    const latest = _historyReq[key];
-    return !!latest && data.requestId !== latest;
+    // cr-1336：槽键含视图档后缀，按 requestId 反查其所属槽——仍是最新即放行
+    // （异档响应由 requestHistoryPage 的档位校验拦截，不在此处误伤）；
+    // 已不在表中 = 被同槽新请求顶掉 → stale。槽数极少（每会话 ≤2），线性扫无成本。
+    const rid = String(data.requestId);
+    for (const k of Object.keys(_historyReq)) {
+      if (_historyReq[k] === rid) return false;
+    }
+    return Object.keys(_historyReq).some(k => k === key || k.startsWith(key + '#'));
   }
 
   function onHistory(data: any) {
@@ -2160,7 +2207,7 @@ export function createFeedCore(
         // IM 视图档（cr-1331）：过程帧不建行——口述/思考/工具卡是轨迹面事实，
         // IM 只消费投递事实（终稿——run/settled 重拉补权威行）。streaming
         // 态照常点亮（忙信号/排队手势依赖），仅跳过内容载体。
-        if (dialogs.value[keys.dialogId]?.viewMode === 'im') {
+        if (viewOf(keys.dialogId) === 'im') {
           const d = ensureById(keys.dialogId);
           if (!d.streaming) { d.streaming = true; bump(keys.dialogId); }
           return;
@@ -2307,6 +2354,8 @@ export function createFeedCore(
         const keys = routeDialog(agent, conv, meta?.sender ?? input?.meta?.sender, meta?.source ?? input?.meta?.source);
         if (!keys) return;
         noteStreamAgent(keys);
+        // cr-1336：IM 档不建工具卡（本帧经 onToolStart 升级占位——过程面事实）
+        if (viewOf(keys.dialogId) === 'im') return;
         const st = streamOf(streams, keys.dialogId);
         // 身份贯通寿命修正：StreamState 不再随 delta-end 丢弃——carrier 索引
         // 要活到步收束（after-step 按 stepId 定位载体收束 + 摘除索引）与
@@ -2332,6 +2381,8 @@ export function createFeedCore(
         if (!isUserConversation(agent, call?.conversationId)) return;
         const keys = routeDialog(agent, call?.conversationId);
         if (!keys || typeof call?.toolCallId !== 'string' || !isForCurrentUser(keys)) return;
+        // cr-1336：IM 档无工具载体——进度增量无处落，跳过
+        if (viewOf(keys.dialogId) === 'im') return;
         onToolUpdate(keys.dialogId, { tool_call_id: call.toolCallId, delta: String(chunk) });
         return;
       }
@@ -2347,7 +2398,7 @@ export function createFeedCore(
         if (!keys || typeof call?.toolCallId !== 'string' || !call.toolCallId) return;
         // IM 视图档（cr-1331）：subcall 占位卡是过程面事实——不建（终值帧
         // 亦不消费，收束重拉补权威行）
-        if (dialogs.value[keys.dialogId]?.viewMode === 'im') return;
+        if (viewOf(keys.dialogId) === 'im') return;
         if (call?.runCodeSubcall === true) {
           onSubcallStart(keys.dialogId, {
             tool_call_id: call.toolCallId,
@@ -2370,6 +2421,9 @@ export function createFeedCore(
         // toolCallId 须非空：空 id 是聚合层的幻影调用（unknown tool 错误），
         // 放行会经位置回退把错误结果写进别的工具占位
         if (!keys || typeof p?.toolCallId !== 'string' || !p.toolCallId || !isForCurrentUser(keys)) return;
+        // cr-1336：IM 档工具终值是过程面事实——IM 只消费投递事实（历史面由
+        // 收束重拉补权威行）；trace 档维持既有行为
+        if (viewOf(keys.dialogId) === 'im') return;
         if (p.subcall === true) {
           onSubcallEnd(keys.dialogId, {
             tool_call_id: p.toolCallId,
@@ -2390,6 +2444,9 @@ export function createFeedCore(
         if (!isUserConversation(agent, conv)) return;
         const keys = routeDialog(agent, conv, input?.meta?.sender, input?.meta?.source);
         if (!keys) return;
+        // cr-1336：IM 档 error 红条不建——与 cr-1334 终稿/error 行同门控口径
+        //（服务端 im 投影已不投该行，直播建行会在收束重拉后闪没）
+        if (viewOf(keys.dialogId) === 'im') return;
         onMessageError(keys.dialogId, { content: errText(error) }, isForActiveAgent(keys));
         return;
       }
@@ -2404,6 +2461,10 @@ export function createFeedCore(
         const keys = routeDialog(agent, p?.conversationId);
         if (!keys) return;
         noteStreamAgent(keys);
+        // cr-1336：IM 档不消费步相位帧（思考/正文/工具卡都是轨迹面事实）。
+        // 此前缺门：活跃 run 期间 IM 视图仍建步行（「思考过程 · N 步」链栏），
+        // 收束重拉才消失——直播与历史两套口径不一致（闪变）。
+        if (viewOf(keys.dialogId) === 'im') return;
         const rows = Array.isArray(p?.rows) ? p.rows : [];
         if (rows.length === 0) return;
         const stepId = typeof p?.stepId === 'string' && p.stepId ? p.stepId : undefined;
@@ -2598,7 +2659,10 @@ export function createFeedCore(
         // 注入型行（source 非机制词）带 source 挂直播行（2026-09-26 注入卡）：
         // 挂轮判定读 source.kind；正文仍不广播（瘦身纪律——延迟重拉补：cr-767
         // 修复前 run 存续期间直播卡恒裸 label 无从展开，收束重拉对长 run 迟到）。
-        showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined, injectBytes, payload, injectRun);
+        // cr-1336：IM 档不建注入卡（服务端 im 投影剔 context 行——直播建行
+        // 会在收束重拉后闪没）；「正在整理」态照常点亮（下方逻辑不受此门影响）。
+        const imView = viewOf((routeDialog(frameAgentId(agentId), conversationId) ?? { dialogId: '' as DialogId }).dialogId);
+        if (imView !== 'im') showEventNotice(frameAgentId(agentId), conversationId, text, anchor, source || undefined, injectBytes, payload, injectRun);
         // 注入落账即调度延迟重拉（500ms，cr-767）：权威行带 contextContent，与
         // 直播行同锚合并（吸收语义）后卡片即可展开。与 settlement 重拉共用同一
         // 函数（指纹短路 + requestId 守卫天然幂等，不产生风暴）。

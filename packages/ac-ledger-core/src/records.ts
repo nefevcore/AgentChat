@@ -105,6 +105,14 @@ export interface LedgerRow {
   attachments?: LedgerAttachment[];
   /** 单调序号（writer 按文件分配——崩溃检测 + 去重锚） */
   seq?: number;
+  /**
+   * 投递标记（cr-1332 白名单词汇——IM 视图行集判据，落盘词）：
+   *  通道投递入站/出站行 = true；终稿行 = 'final'（origin 门控——用户裁决
+   *  独特值便于观察打标/不打标效果）；机制行/notice 转投/第三方写面缺省
+   *  不打标（opt-in，宁漏不误）。读侧 im 档：会话内任一行有标 → 白名单
+   *  模式（值直取）；零标存量会话 → 回退排除法。
+   */
+  delivered?: boolean | 'final';
 }
 
 /**

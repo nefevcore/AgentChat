@@ -484,7 +484,12 @@ export class ConversationService extends Service {
           ...(options.notice === true ? { notice: true } : {}),
           ...(options.replyConversation !== undefined ? { replyConversation: options.replyConversation } : {}),
           ...(options.meta !== undefined ? { meta: options.meta } : {}),
-          ...(options.mechanism === true ? { mechanism: true } : {}),
+          // cr-1335：source='event' = 机制成因信（goal 轮/job 回投/迟到通知）
+          // 归机制语义词（对端按 context+event 行落账——事件分隔符 + 不进 IM
+          // 白名单），与壳自身 restart 通知（payload.mechanism）同形。notice
+          // （回执转投）除外——它有既定发言行形态（归属 sender 的 UI 展示），
+          // 打标门由 notice 语义自理。
+          ...((options.mechanism === true || (options.source === 'event' && options.notice !== true)) ? { mechanism: true } : {}),
         },
         ...(options.replyTo !== undefined ? { replyTo: options.replyTo } : {}),
       };
@@ -495,6 +500,12 @@ export class ConversationService extends Service {
         agent_id: sender,
         requestId: out.requestId,
         uuid,
+        // cr-1332：出站投递行打标（agent→user IM 从发送方账本读；机制/
+        // notice 同入站口径不打标——opt-in 封闭集合）。cr-1335：source='event'
+        // 的机制成因信（goal 轮唤醒 / job 完成回投 / collab 迟到通知——
+        // deliver 侧统一机制语义词）并入不打标集合：机制信非「对用户的
+        // 投递」，误标会让 IM 白名单收进机制通知（现场：goal_round 行）。
+        ...(options.mechanism === true || options.notice === true || options.source === 'event' ? {} : { delivered: true as const }),
       });
       return { kind: 'sent', handle };
     }
@@ -510,7 +521,9 @@ export class ConversationService extends Service {
         ...(options.notice === true ? { notice: true } : {}),
         ...(options.replyConversation !== undefined ? { replyConversation: options.replyConversation } : {}),
         ...(options.meta !== undefined ? { meta: options.meta } : {}),
-        ...(options.mechanism === true ? { mechanism: true } : {}),
+        // cr-1335：source='event' 归机制语义词（同出站分支注——对端按
+        // context+event 行落账，不进 IM 白名单；notice 除外——见出站分支注）
+        ...((options.mechanism === true || (options.source === 'event' && options.notice !== true)) ? { mechanism: true } : {}),
       },
       ...(options.replyTo !== undefined ? { replyTo: options.replyTo } : {}),
     };
@@ -774,6 +787,11 @@ export class ConversationService extends Service {
           run: runId,
           // run 墙钟耗时（cr-772）：终稿行持久锚——历史链栏「用时」段取源
           ...(result.wallMs !== undefined ? { runMs: result.wallMs } : {}),
+          // cr-1332：终稿行打标（delivered:'final' 独特值——用户裁决便于观察）。
+          // origin 门控：交互成因（viewer 直答/interaction）打标——终稿 = run
+          // 对触发者的正式回信（IM 语义含 agent 回复）；机制成因不打（宁漏
+          // 不误，缺标会话回退排除法兜底）。缺席视为 viewer（上方计算缺省）。
+          ...(origin === 'viewer' || origin === 'interaction' ? { delivered: 'final' as const } : {}),
         }, runId, finish, finish === 'error' ? result.error : undefined, origin);
         // 在途标记收束即清（cr-639）：run 已 settle = 消息已消费。此后任何
         // 失败（postReply 断链等）不重跑整轮——run 锚缺口归 cr-628
@@ -1270,13 +1288,16 @@ export class ConversationService extends Service {
   private inboundRowOf(
     env: Envelope,
     text: string,
-  ): { role: 'agent' | 'context'; content: string; agent_id: string; requestId: string; uuid: string; source?: string; attachments?: LedgerAttachment[] } {
+  ): { role: 'agent' | 'context'; content: string; agent_id: string; requestId: string; uuid: string; source?: string; attachments?: LedgerAttachment[]; delivered?: true } {
     const mechanism = (env.payload as { mechanism?: unknown } | null)?.mechanism === true;
     // cr-1278：入站附件旁路（白名单窄化单源）——发言行随行落账，回放还原
     const attachments = this.attachmentsOf(env);
+    // cr-1332：notice 转投通知（回执合成文本——非用户消息本体）不打标，
+    // 白名单对齐 cr-1331「剔转发副本」语义；机制行天然走 context 分支漏过
+    const notice = (env.payload as { notice?: unknown } | null)?.notice === true;
     return mechanism
       ? { role: 'context', source: 'event', content: text, agent_id: this.agentId, requestId: env.requestId, uuid: env.uuid }
-      : { role: 'agent', content: text, agent_id: env.sender, requestId: env.requestId, uuid: env.uuid, ...(attachments !== undefined ? { attachments } : {}) };
+      : { role: 'agent', content: text, agent_id: env.sender, requestId: env.requestId, uuid: env.uuid, ...(attachments !== undefined ? { attachments } : {}), ...(notice ? {} : { delivered: true as const }) };
   }
 
   /** 信封附件（cr-1278）：payload.attachments 白名单窄化（kind/ref 校验 + 50 上限） */

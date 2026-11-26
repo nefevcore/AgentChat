@@ -1,8 +1,8 @@
 # IM 白名单方案交接（im-delivered-flag-handoff）
 
 > 性质：交接——排除法 IM 过滤改白名单（投递标记行集）的方案裁决、事实清单与实施入口。
-> 状态：已立项未实施 · cr-1332 2026-11-26（方案裁决；实施在新会话进行——本档即接力上下文）。
-> 读者：实施本方案的开发者/Agent 会话（先 `load_skill agentchat-dev` + `load_skill cr`，读本档后按 §五入口动手）。
+> 状态：已实施并真机验证 · cr-1332 2026-11-26 done（§2.3 终稿裁决：打标、值 = delivered:'final' 独特标记；验证记录见 dual-view-session-plan.md §六）。
+> 读者：后续维护 IM 白名单词汇的开发者（回退判据与风险清单索引）。
 
 ## 一、背景与裁决
 
@@ -43,17 +43,16 @@ dual-view P2 的 IM 视图（`view:'im'`）现行实现是**排除法**：`foldV
 
 机制行（`payload.mechanism === true`）**不打标**（它走 context+event 分支，天然漏过——白名单的封闭性由此成立）。
 
-### 2.3 终稿行要不要打标？（方案的一个开放裁决点）
+### 2.3 终稿行要不要打标？（裁决已落定——cr-1332 实施）
 
-IM 视图的语义含「run 终稿回信」（现状 imRow 投终稿正文）。终稿经 postReply 投递后在对端是入站行（打标 ✓）；
-但 **user 直答会话**里终稿不走通道（壳内直落 settle 终稿行，`source='run:<id>'`）——若只按打标取行，
-user 直答的 IM 视图将**只剩用户消息、无 agent 回复**。两个选项：
+<!-- cr-1333 扩围注记：用户参与注入行（steer 插话/ask 作答）另行打标进 IM——见 §三风险 1 翻转记录 -->
 
-- **选项 1（推荐）**：终稿行（settle 写面 `ac-ledger` service settleRun 调用方，壳 service.ts L777）也打标 `delivered: true`
-  ——语义：终稿 = run 对触发者的正式回信（它与 postReply 回信同文本，双投时 IM 档按 message_id/requestId 去重已有机制承接）。代价：机制 run 终稿也会被打标（settle 不知道 origin？——**知道**：L777 已带 origin 参数，机制成因不打标即可）。
-- 选项 2：IM 视图「用户消息 = 打标行集 ∪ agent 回复 = 终稿行」两个来源并集——回到混合判定，复杂度回来一部分。
+**裁决（用户 2026-11-26）：打标，但值用独特标记 `delivered: 'final'`**（区别于通道投递行的
+`delivered: true`）——便于观察打标/不打标的效果。
 
-倾向选项 1：单一判据 `delivered` 字段，settle 写面按 origin 门控打标。
+实施语义：终稿 = run 对触发者的正式回信——settle 写面按 origin 门控（`viewer`/`interaction`
+交互成因打标；机制成因缺省不打，宁漏不误）；前端终稿气泡带「已投递 · 终稿」徽标（观察面）。
+当初的选项 1/2 之争由独特值 + origin 门控收口——单一判据 `delivered` 字段。
 
 ### 2.4 存量数据（关键约束）
 
@@ -85,7 +84,7 @@ im 档直播抑制（llm/delta / tool/started 早退——feed-core cr-1331）�
 
 | # | 风险 | 缓解 |
 |---|---|---|
-| 1 | steer 注入行（busy 用户的插话）也是通道投递但走 inject 行（cr-713：busy-steer 不落入站行） | steer 的消息内容对收方模型可见且是真实用户消息——IM 应显示。判据补充：`inject` 行且 `requestId` 与某 deliver 信封对应（或注入行打标——需另核 `ac-ledger` 注入行写面） |
+| 1 | ~~steer 注入行（busy 用户的插话）也是通道投递但走 inject 行~~ **已翻转（cr-1333，用户裁决 2026-11-26）：steer 插话与 ask 作答（用户参与消息）并入 IM 档**——`loop/inject-consumed` 落账点按 `injectSource ∈ {steer, durable-interaction[answered]}` 词表打 `delivered:true`；材料类注入（skill/memory/datetime）与超时通知（outcome=timeout）不打标。词表开放规约住 `ac-ledger/src/service.ts` USER_PARTICIPATION_INJECT。 |
 | 2 | 机制 run 终稿在选项 1 下 settle 按 origin 门控——origin 缺席的存量壳（第三方写面不知道约定）误打标 | 写面缺省**不打标**（opt-in 语义）：settle 仅在 origin ∈ 交互成因或缺席且 replyTo 为 user 时打标；宁可漏（回退排除法兜底）不可误 |
 | 3 | 群成员流的入站行打标后，group/history 合并读面（P1 已带 steps）也要透传 | `GroupMessageView` 增词——小改 |
 | 4 | `deliver` 出站行（agent→agent）在发送方账本也打标 → 发送方 IM 视图显示自己发的话（合理——IM 语义应有自己发出的消息） | 语义正确，非风险，记录即可 |

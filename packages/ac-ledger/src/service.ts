@@ -53,6 +53,29 @@ export interface ToolResultLike {
   output?: unknown;
   error?: string;
 }
+
+/**
+ * 用户参与注入判据（cr-1333 IM 白名单扩围——用户裁决 2026-11-26：中途
+ * steer 插话与 ask 作答也是用户参与的消息，并入 IM 档）。词表开放规约：
+ * 新的用户参与型注入面在此登记（与 im 白名单同语义——材料类注入
+ * （skill/memory/datetime）缺省不打标）。
+ * · steer = busy 用户插话（壳 driveRun steer 分支——injectSource 缺省词）。
+ *   cr-1335 收紧：机制通知（restart 唤醒 / job 完成回投等）busy 时同样
+ *   走 steer 通道注入——message.role 恒 'user' 无从判别，sender 才是
+ *   唯一可靠门（用户插话 sender='user'，机制信 sender=对端/系统端点）。
+ *   steer 仅在 sender='user'（或缺席——旧 emit 无 sender，保守放行）时
+ *   判用户参与，否则不打标。
+ * · durable-interaction = ask 作答注入——仅 outcome='answered'（timeout
+ *   是系统通知，非用户消息；payload.outcome 在场判别）
+ */
+const USER_PARTICIPATION_INJECT = new Set(['steer', 'durable-interaction']);
+
+function isUserParticipationInject(meta: { injectSource: string; sender?: unknown; payload?: unknown }): boolean {
+  if (meta.injectSource === 'steer') return meta.sender === undefined || meta.sender === 'user';
+  if (meta.injectSource !== 'durable-interaction') return false;
+  const outcome = (meta.payload as { outcome?: unknown } | null | undefined)?.outcome;
+  return outcome === 'answered';
+}
 import type { LlmMessage } from 'ac-llm';
 
 /** 行配置（boot 装配参数） */
@@ -138,16 +161,22 @@ export class LedgerService extends Service {
     // cr-971 原则全通道兑现）。cr-707 事件先于落盘语义在 subscribe 序内自然
     // 成立（emit 同步扇出，落账 await 在其后）。宿主直调 run（agent 缺席）
     // 无落账面，跳过。
+    // cr-1333 用户参与注入打标：injectSource ∈ {steer（busy 用户插话）,
+    // durable-interaction（ask 作答——outcome=answered 才算，timeout 是系统
+    // 通知）} 的注入行 = 用户参与消息——打 delivered:true 进 IM 白名单。
+    // 开放规约：新的用户参与型注入面在 USER_PARTICIPATION_INJECT 登记。
     ctx.on('loop/inject-consumed', (
       agent: string | undefined,
       conversationId: string | undefined,
       runId: string | undefined,
-      consumed: Array<{ message: { content?: unknown; attachments?: unknown }; meta: { injectSource: string; injectionId?: string; label?: string; payload?: unknown; requestId?: string; replay?: string } }>,
+      consumed: Array<{ message: { content?: unknown; attachments?: unknown }; meta: { injectSource: string; injectionId?: string; label?: string; payload?: unknown; requestId?: string; replay?: string }; sender?: unknown }>,
     ) => {
       if (agent !== this.agentId || conversationId === undefined || runId === undefined) return;
       for (const c of consumed) {
         const content = String(c.message.content ?? '');
         const injectionId = c.meta.injectionId ?? 'inj-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+        // cr-1335：sender 门（steer 通道的机制信防误判——见 isUserParticipationInject 注）
+        const userParticipation = isUserParticipationInject({ injectSource: c.meta.injectSource, sender: c.sender, payload: c.meta.payload });
         // 直播帧事件（cr-625 语义归位——落账方发射）：壳侧 ws 旁带转发前端注入卡。
         this.ctx.emit('session/context-injected', conversationId, agent, {
           source: c.meta.injectSource,
@@ -164,6 +193,7 @@ export class LedgerService extends Service {
           ...(attachments !== undefined ? { attachments } : {}),
           ...(c.meta.label !== undefined ? { label: c.meta.label } : {}),
           ...(c.meta.payload !== undefined ? { payload: c.meta.payload as JournalInject['payload'] } : {}),
+          ...(userParticipation ? { delivered: true as const } : {}),
         }).catch(() => { /* 落账失败不阻断（直播帧已发）——fail-soft 与既有 recordContext 口径一致 */ });
       }
     });
@@ -294,13 +324,14 @@ export class LedgerService extends Service {
   /** steer 注入事件（cr-974 v2 type:'inject'——按消费点真序落）。
    * extra（cr-707）：注入身份/来源/文案随行落盘——injectionId（直播行
    * 同锚）、injectSource（UI 卡片 kind）与 label（流式与刷新两路径同
-   * 文案）；ts 由调用方给同一时刻。 */
+   * 文案）；ts 由调用方给同一时刻。delivered（cr-1333）：用户参与注入
+   * （steer 插话/ask 作答）打标——IM 白名单词。 */
   async journalInject(
     uuid: string,
     run: string,
     content: string,
     requestId?: string,
-    extra?: { injectionId?: string; injectSource?: string; label?: string; payload?: JournalInject['payload']; attachments?: LedgerAttachment[]; ts?: number },
+    extra?: { injectionId?: string; injectSource?: string; label?: string; payload?: JournalInject['payload']; attachments?: LedgerAttachment[]; delivered?: true; ts?: number },
   ): Promise<void> {
     if (run === '') return;
     await this.writerFor(uuid, [this.agentId], 'user').appendEvents([{
@@ -313,6 +344,7 @@ export class LedgerService extends Service {
       ...(extra?.injectSource !== undefined ? { injectSource: extra.injectSource } : {}),
       ...(extra?.label !== undefined ? { label: extra.label } : {}),
       ...(extra?.payload !== undefined ? { payload: extra.payload } : {}),
+      ...(extra?.delivered === true ? { delivered: true } : {}),
       ts: extra?.ts ?? Date.now(),
     }]);
   }

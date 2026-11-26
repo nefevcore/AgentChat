@@ -117,6 +117,78 @@ function msg(uuid: string, requestId: string, text: string, sender = 'user', lan
 
 const UUID = 'u-conv-1';
 
+// cr-1332 IM 白名单写面打标：入站/出站/终稿三点 + origin 门控。
+// delivered:true = 通道投递行；'final' = 终稿行（独特值——用户裁决便于观察）；
+// 机制/notice 不打标（opt-in 封闭集合）。
+describe('IM 白名单打标（cr-1332 写面三点）', () => {
+  it('入站行/终稿行打标：viewer 成因终稿 = final；消息经 mechanism 不打标', async () => {
+    seedAgent('alpha');
+    const { ctx, fibers, conv } = await bootTree('alpha');
+    try {
+      await conv.receiveEnvelope(msg(UUID, 'm1', '白名单消息'), { fresh: true });
+      const rows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID)).rows;
+      const inb = rows.find((r) => r.requestId === 'm1');
+      expect(inb?.delivered).toBe(true); // 入站投递行
+      const final = rows.find((r) => r.requestId === 'reply-m1');
+      expect(final?.delivered).toBe('final'); // viewer 成因终稿（origin 缺省 = viewer）
+      // 机制信封：mechanism:true → 入站行不打标（context+event 词形天然漏过）
+      await conv.receiveEnvelope(makeEnvelope({
+        uuid: UUID, requestId: 'm2', sender: 'user', to: 'alpha',
+        payload: { text: '机制通知', mechanism: true },
+      }), { fresh: true });
+      const rows2 = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID)).rows;
+      expect(rows2.find((r) => r.requestId === 'm2')?.delivered).toBeUndefined();
+      void ctx;
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  it('cr-1335：机制成因 deliver（source:event）出站不打标 + 归 context+event 行——goal 轮/迟到通知形态', async () => {
+    seedAgent('alpha');
+    const { fibers, conv } = await bootTree('alpha');
+    try {
+      const UUID3 = 'u-conv-cr1335';
+      // goal 轮唤醒信形态（ac-goal：sender=桶对端、source='event'、无 mechanism/notice）
+      await conv.deliver('alpha', '机制轮唤醒正文', { sender: 'alpha', source: 'event', conversationId: UUID3 });
+      const rows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID3)).rows;
+      // 机制语义词贯通：入站按 context+event 行落账（非发言行）——事件分隔符形态
+      const mech = rows.find((r) => String(r.content ?? '').includes('机制轮唤醒正文'));
+      expect(mech?.role).toBe('context');
+      expect(mech?.source).toBe('event');
+      expect(mech?.delivered).toBeUndefined(); // 不打标——IM 白名单不收机制通知
+      // notice（回执转投）维持发言行形态（归属 sender）——不折进 mechanism
+      const UUID4 = 'u-conv-cr1335n';
+      await conv.deliver('alpha', '[Agent beta 回复]\n正文', { sender: 'beta', source: 'event', conversationId: UUID4, notice: true, requestId: 'subagent-done-x' });
+      const rows2 = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID4)).rows;
+      const noticeRow = rows2.find((r) => String(r.content ?? '').includes('[Agent beta 回复]'));
+      expect(noticeRow?.role).toBe('agent'); // 发言行（归属 sender）——notice 不折机制行
+      expect(noticeRow?.agent_id).toBe('beta');
+      expect(noticeRow?.delivered).toBeUndefined(); // notice 不打标（既有口径）
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+
+  it('origin 门控：机制成因终稿（meta.origin=timer）不打标', async () => {
+    seedAgent('alpha');
+    const { fibers, conv } = await bootTree('alpha');
+    try {
+      const UUID2 = 'u-conv-mech';
+      await conv.deliver('alpha', '定时触发轮', {
+        sender: 'user', conversationId: UUID2, meta: { origin: 'timer' },
+      });
+      const rows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID2)).rows;
+      const inb = rows.find((r) => r.requestId !== undefined && !r.requestId.startsWith('reply-') && r.agent_id === 'user');
+      expect(inb?.delivered).toBe(true); // 入站行照常打标（通道投递事实）
+      const final = rows.find((r) => r.requestId === 'reply-' + (inb?.requestId ?? ''));
+      expect(final?.delivered).toBeUndefined(); // 机制成因终稿不打标（宁漏不误）
+    } finally {
+      await dispose(fibers);
+    }
+  }, 15_000);
+});
+
 // cr-1050：deliver options.meta → 信封 payload → LoopRunRequest.meta 贯通
 //（goal-round 轮次记账消费此键——壳侧断链即 Round 恒 1 根因）。
 describe('机制标记透明通道（cr-1050 meta 贯通）', () => {
@@ -507,6 +579,34 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       await dispose(fibers);
     }
   }, 15_000);
+
+  it('cr-1333：busy-steer 插话注入行打标 delivered（用户参与消息进 IM 白名单）', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { fibers, conv } = await bootTree('alpha', undefined, gate);
+    try {
+      const first = conv.receiveEnvelope(msg(UUID, 'm1', '慢问题'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 80)); // 占门 + runStarted 补登
+      // busy 窗口插话：machine.plan = steer → loop 注入 → inject-consumed 落账
+      const second = conv.receiveEnvelope(msg(UUID, 's1', '中途插话内容'), { fresh: true });
+      await second;
+      release();
+      await first;
+      const rows = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID)).rows;
+      // busy-steer 插话落注入行（type=inject + injectSource=steer）——用户参与消息打标
+      const inj = rows.find((r) => (r as unknown as Record<string, unknown>).type === 'inject'
+        && (r as unknown as Record<string, unknown>).injectSource === 'steer');
+      expect(inj).toBeDefined();
+      expect((inj as unknown as Record<string, unknown>).delivered).toBe(true);
+      // 对照：终稿行照常 'final'（同 run origin=viewer）
+      const final = rows.find((r) => r.requestId === 'reply-m1');
+      expect(final?.delivered).toBe('final');
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 20_000);
 
   it('busy 时入站 = steer 注入活跃 run（串行化门 + 主线 loop steer）', async () => {
     seedAgent('alpha');

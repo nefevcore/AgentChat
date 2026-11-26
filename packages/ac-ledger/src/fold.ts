@@ -141,6 +141,8 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       run: c.run,
       ...(c.requestId !== undefined ? { requestId: c.requestId } : {}),
       ...(c.seq !== undefined ? { seq: c.seq } : {}),
+      // cr-1333：用户参与注入（steer/ask 作答）标记透传——im 白名单行集判据
+      ...(c.delivered !== undefined ? { delivered: c.delivered } : {}),
     });
   }
   for (const rf of fold.runs.values()) {
@@ -159,6 +161,8 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
         run: ev.run,
         ...(ev.requestId !== undefined ? { requestId: ev.requestId } : {}),
         ...(ev.seq !== undefined ? { seq: ev.seq } : {}),
+        // cr-1333：用户参与注入（steer/ask 作答）标记透传——im 白名单行集判据
+        ...(ev.delivered !== undefined ? { delivered: ev.delivered } : {}),
       });
     }
   }
@@ -193,6 +197,8 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       ...(r.run ?? r.messageId ? { turnId: r.run ?? r.messageId } : {}),
       ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
       ...(r.seq !== undefined ? { seq: r.seq } : {}),
+      // cr-1332:投递标记透传（落盘词——im 档白名单判据）
+      ...(r.delivered !== undefined ? { delivered: r.delivered } : {}),
       ...(projected !== null ? { steps: projected.steps, ...(projected.partial ? { partial: true } : {}) } : {}),
     });
   }
@@ -260,6 +266,8 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
       errRows.push({
         role: 'error', agent_id: c.agentId, content: c.content, message_id: c.messageId,
         timestamp: c.timestamp, run: c.run, ...(c.seq !== undefined ? { seq: c.seq } : {}),
+        // cr-1332：error 红条随终稿同门控打标透传（白名单模式失败须可见）
+        ...(c.delivered !== undefined ? { delivered: c.delivered } : {}),
       });
     }
   }
@@ -349,6 +357,24 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
     if (r.role === 'context' && r.run === undefined && r.anchor === undefined && prev !== undefined) r.anchor = prev;
   }
   if (opts.view === 'im') {
+    // 白名单模式（cr-1332）：会话内任一行带 delivered 标（写面落账打标——
+    // 通道投递行 + origin 门控终稿行）→ 值在场直取（cr-1334 起仅取
+    // delivered:true；'final' 值不投影）。封闭集合：新机制类型缺省不打标、
+    // 天然不进 IM。值缺席但会话有标（第三方写面不知道约定）漏投不误投
+    // ——宁漏（chat 档无恙）不误（IM 污染）。
+    // 存量会话（零 delivered 行）→ 回退排除法（imRow——cr-1331 行为分毫
+    // 不变）；按会话级切换：新会话天然纯白名单，老会话维持现状，零迁移。
+    const hasDelivered = merged.some((r) => r.delivered !== undefined);
+    if (hasDelivered) {
+      // cr-1334：白名单仅取 delivered:true（通道投递行/用户参与注入）——
+      // delivered:'final'（settle 终稿行）不再投影：终稿是 run 收束产物、
+      // 轨迹面事实，非投递事实。值缺席但会话有标照旧漏投不误投。
+      // cr-1335：入站 user 发言行恒放行——用户消息进会话即投递事实，
+      // delivered 打标是新写面词汇（cr-1332 起），存量行缺标非「非投递」，
+      // 全剔除会让 IM 视图丢掉打标上线前的全部用户消息（可用性缺陷）；
+      // user 角色行天然非机制/非轨迹族（机制信恒 context 形），零误投增量。
+      return merged.flatMap((r) => (r.delivered === true || r.role === 'user' ? imStripSteps(r) : []));
+    }
     // 机制 run 终稿分流（cr-1331）：判据双源——
     //   ① run-end 行 origin 字段（cr-1242 落盘，新写面）
     //   ② runId 词形前缀（存量兜底：写面 requestId 前缀携带 origin 词——
@@ -373,11 +399,22 @@ export function foldViewRecords(fold: SessionFold, dataRoot: string, conversatio
 }
 
 // —— 投影档 'im'（cr-1326 dual-view P2）：投递事实流 ——
-// IM 视图消费面：入站行 / 终稿行（剥 steps——轨迹归 run 块档）/ error 红条 /
-// 机制 event（系统消息）。剔除轨迹族：partial 步行、注入卡（context 行）、
-// 盲区 run 步块（partial/带 steps 的 assistant 行同判）。终稿行剥 steps 后
-// 保留（正文 = run 交付的消息事实）。run/turnId/anchor 键保留——分页与
-// 键控复用同一行族（双视图切换不改行身份）。
+// IM 视图消费面（cr-1334 白名单口径）：入站行 / 用户参与注入行（皆
+// delivered:true）。终稿行（delivered:'final'）与轨迹族（partial 步行、
+// 注入卡 context 行、盲区 run 步块）不投影——终稿 = run 收束产物，归
+// 轨迹档。存量无标会话走 imRow 回退（cr-1331 排除法——会话级切换，
+// 行为零迁移）。run/turnId/anchor 键保留——分页与键控复用同一行族
+// （双视图切换不改行身份）。
+/** 白名单模式剥 steps（cr-1332）：打标行值直取后的正文投递——与 imRow 的
+ *  剥离口径单源（带 steps 行剥后投、空正文不投）。 */
+function imStripSteps(r: ViewRow): ViewRow[] {
+  if (r.steps !== undefined) {
+    const { steps: _steps, ...rest } = r;
+    return rest.content.trim() !== '' ? [rest as ViewRow] : [];
+  }
+  return [r];
+}
+
 function imRow(r: ViewRow, runOriginOf: Map<string, string>, mechanismOrigin: Set<string>, mechanismRunId: Set<string>): ViewRow[] {
   if (r.partial === true) return []; // 在途 run 步行——IM 直播走帧，历史面无终态
   if (r.role === 'context') return []; // 注入卡/直落材料——IM 不消费
@@ -389,13 +426,7 @@ function imRow(r: ViewRow, runOriginOf: Map<string, string>, mechanismOrigin: Se
   const origin = r.run !== undefined ? runOriginOf.get(r.run) : undefined;
   if (origin !== undefined && mechanismOrigin.has(origin)) return [];
   if (r.run !== undefined && mechanismRunId.has(r.run)) return [];
-  if (r.steps !== undefined) {
-    // 带轨迹展开的行（终稿/盲区/活投影）：剥 steps 投正文行——空正文
-    // （内容全在 steps 的中断 run）无投递事实，不投
-    const { steps: _steps, ...rest } = r;
-    return rest.content.trim() !== '' ? [rest as ViewRow] : [];
-  }
-  return [r];
+  return imStripSteps(r);
 }
 
 // —— 投影三：LLM 回放（historyMessagesFor 语义——轨迹展开 + injected 判重） ——

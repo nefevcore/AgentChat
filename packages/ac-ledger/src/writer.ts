@@ -293,6 +293,8 @@ export class LedgerWriter {
     // v2 收束（cr-974）：终稿 message 行 +（error 时 context/error 行）+
     // run-end 标记行——单队列切片内原子追加；无物化、无 journal 写、无
     // prune（步级事实已在事件流，run-end 即唯一收束信号）
+    // cr-1332：finalRow.delivered（settle 写面 origin 门控产物）经 spread
+    // 落盘——白名单词汇透传单点。
     await this.enqueue(() => {
       this.ensureHeader();
       const appended: Array<Record<string, unknown>> = [];
@@ -305,7 +307,8 @@ export class LedgerWriter {
       };
       this.appendLine(path.join(this.dir, MESSAGES), finalLine);
       appended.push(finalLine as unknown as Record<string, unknown>);
-      // cr-807：error 收束错误行（context+source:error——UI 红条）
+      // cr-807：error 收束错误行（context+source:error——UI 红条）；
+      // cr-1332：终稿行带 delivered 标时同值随行（error 失败须可见——IM 白名单含红条）
       if (finish === 'error') {
         const errLine = {
           type: 'context',
@@ -314,6 +317,7 @@ export class LedgerWriter {
           content: errorMessage ?? 'run 以 error 收束',
           agent_id: finalRow.agent_id,
           ...(finalRow.uuid !== undefined ? { uuid: finalRow.uuid } : {}),
+          ...(finalRow.delivered !== undefined ? { delivered: finalRow.delivered } : {}),
           run: runId,
           message_id: cryptoRandomId(),
           timestamp: new Date().toISOString(),

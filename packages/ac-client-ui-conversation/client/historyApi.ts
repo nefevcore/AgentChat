@@ -55,6 +55,9 @@ export interface PSessionRecord {
   anchor?: string;
   /** 轮身份键（cr-1286 P4-1 投影分组）：run 承载行 = run；用户行 = message_id；机制行缺席 */
   turnId?: string;
+  /** 投递标记（cr-1332 白名单词汇）：入站 = true / 终稿 = 'final'（服务端
+   *  fold 透传——白名单模式会话的行身份观察面；存量行缺席） */
+  delivered?: boolean | 'final';
 }
 
 interface PSessionStep {
@@ -135,7 +138,7 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
       out.push(r.seq !== undefined ? { ...row, seq: r.seq } : row);
     };
     if (r.role === 'user') {
-      pushRow({ role: 'agent', content: r.content, agent_id: r.agent_id ?? 'user', message_id: r.message_id, timestamp: r.timestamp, ...(r.turnId !== undefined ? { turnId: r.turnId } : {}), ...(r.attachments?.length ? { attachments: r.attachments } : {}) });
+      pushRow({ role: 'agent', content: r.content, agent_id: r.agent_id ?? 'user', message_id: r.message_id, timestamp: r.timestamp, ...(r.turnId !== undefined ? { turnId: r.turnId } : {}), ...(r.delivered !== undefined ? { delivered: r.delivered } : {}), ...(r.attachments?.length ? { attachments: r.attachments } : {}) });
       continue;
     }
     if (r.role === 'agent' || r.role === 'assistant') {
@@ -240,6 +243,8 @@ export function toHistoryMessages(records: PSessionRecord[], conversationId: str
         ...(typeof r.run === 'string' && r.run !== '' ? { runId: r.run } : {}),
         // 轮身份键透传（cr-1286 P4-1）——无步终稿行/用户直通行
         ...(r.turnId !== undefined ? { turnId: r.turnId } : {}),
+        // 投递标记透传（cr-1332 终稿观察面）
+        ...(r.delivered !== undefined ? { delivered: r.delivered } : {}),
         // reasoning 单份存储读侧投影：行级缺场（新数据）从 steps[].reasoning
         // 拼整轮（replayTrajectory 关闭用户的折叠栏）；存量行级原样透传
         ...(r.reasoning_content !== undefined
@@ -367,6 +372,8 @@ interface PGroupRecord {
   run?: string;
   turnId?: string;
   runMs?: number;
+  /** 投递标记（cr-1332 白名单词汇——群行透传，存量行缺席） */
+  delivered?: boolean | 'final';
   attachments?: PMediaAttachment[];
   steps?: Array<{
     content?: string;
@@ -402,6 +409,8 @@ function expandGroupRecord(m: PGroupRecord): GroupHistoryMessage[] {
     // 注入卡挂靠锚）；runMs 缺席容忍（服务端 fold 透传，存量行无）
     ...(m.run !== undefined ? { runId: m.run } : {}),
     ...(m.turnId !== undefined ? { turnId: m.turnId } : {}),
+    // 投递标记透传（cr-1332——群行终稿观察面，存量行缺席）
+    ...(m.delivered !== undefined ? { delivered: m.delivered } : {}),
   };
   if (!m.steps || m.steps.length === 0) {
     return [

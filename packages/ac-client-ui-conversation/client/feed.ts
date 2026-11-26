@@ -206,6 +206,8 @@ interface FeedAgentMsg {
   runMs?: number;
   /** 轮身份键（cr-1286 P4-1）：轮分组权威键——flush 时随产物写 Turn */
   turnId?: string;
+  /** 投递标记（cr-1332 历史行透传——final 物化随行携带，徽标显示面） */
+  delivered?: boolean | 'final';
 }
 
 /** 注入型 event 行判定（2026-09-26 注入卡）：source.kind 非机制词
@@ -318,6 +320,8 @@ function buildTurnFromAgentMsgs(msgs: FeedAgentMsg[], streaming: boolean, agentI
     reasoning_content: '', thinking: '',
     files: src.files, agent_id: src.agent_id,
     ...(src.persistedMsgId !== undefined ? { persistedMsgId: src.persistedMsgId } : {}),
+    // cr-1332：终稿投递标记随 final 物化透传（徽标显示面——delivered:'final'）
+    ...(src.delivered !== undefined ? { delivered: src.delivered } : {}),
     isStreaming: false,
     timestamp: src.ts || Date.now(),
   } as ChatMessage;
@@ -615,6 +619,8 @@ export function buildTurns(msgs: ChatMessage[], streaming = false): Turn[] {
         ...(msg.turnId !== undefined ? { turnId: msg.turnId } : {}),
         // run 墙钟耗时透传（cr-772 历史首步在场——链栏「用时」段权威锚）
         ...(typeof (msg as any).runMs === 'number' ? { runMs: (msg as any).runMs } : {}),
+        // 投递标记透传（cr-1332：终稿行 final 物化随行——徽标显示面）
+        ...(msg.delivered !== undefined ? { delivered: msg.delivered } : {}),
         // 透传原始 id/附件/身份/锚点：final 沿用（edit/regenerate/delete 按 id 命中、
         // 附件渲染、分支按钮按 persistedMsgId 门控）
         id: msg.id,
@@ -918,6 +924,8 @@ export interface HistoryRow {
   anchor?: string;
   /** 轮身份键（cr-1286 P4-1 投影分组）：run 承载行 = run；用户行 = message_id */
   turnId?: string;
+  /** 投递标记（cr-1332 白名单词汇）：入站 = true / 终稿 = 'final'（运行时未知键 tolerated——投影扩字段零改动即透传，此处声明词汇） */
+  delivered?: boolean | 'final';
   /** 以下键 = toHistoryMessages 实际产词（thinking 声明词汇、其余三键 cr-1316 起消费透传） */
   thinking?: string;
   subcall?: boolean;
@@ -1001,6 +1009,8 @@ export function historyRowToChatMessage(
     ...(typeof m.anchor === 'string' && m.anchor ? { anchor: m.anchor } : {}),
     // 轮身份键透传（cr-1286 P4-1）：buildTurns 键装配 + 渲染 key 源
     ...(typeof m.turnId === 'string' && m.turnId ? { turnId: m.turnId } : {}),
+    // 投递标记透传（cr-1332）：白名单模式会话的行集判据/终稿标记显示面
+    ...(m.delivered !== undefined ? { delivered: m.delivered as ChatMessage['delivered'] } : {}),
     ...(split.files ? { files: split.files } : {}),
     timestamp: new Date(m.timestamp ?? Date.now()).getTime(),
   };

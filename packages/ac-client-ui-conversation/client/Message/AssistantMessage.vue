@@ -96,6 +96,10 @@ const hasContent = computed(() => {
     return !!(props.message.content && props.message.content.trim().length > 0);
 });
 
+// cr-1332 终稿投递标记（delivered:'final'）：IM 白名单模式的终稿行徽标——
+// 观察打标/不打标效果的用户裁决显示面（chat 档同样可见——字段透明透传）。
+const deliveredFinal = computed(() => props.message.delivered === 'final');
+
 // ── 思考消息折叠态与 label ──
 // 折叠不受流式过程控制（整链显隐由全局思维链开关承担）：默认折叠（与
 // 链内工具卡一致——链栏流式默认展开时，折叠态 label 以预览文本实时反映
@@ -377,6 +381,9 @@ onBeforeUnmount(() => {
                     <span v-if="contentPendingText" class="streaming-pending">{{ contentPendingText }}</span>
                 </div>
 
+                <!-- cr-1332 终稿投递标记：delivered:'final' 徽标（观察打标效果的用户裁决显示面——chat/im 双档可见） -->
+                <div v-if="deliveredFinal" class="delivered-final-tag" title="终稿投递标记（delivered:'final'——cr-1332 白名单词汇）">已投递 · 终稿</div>
+
                 <div v-if="showCopy !== false && hasContent" class="copy-btn-row">
                     <Tooltip :text="copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败' : '复制全文'" placement="top">
                         <button
@@ -465,6 +472,16 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     gap: 6px;
+}
+
+/* cr-1332 终稿投递标记徽标：轻量小字标签（与文本次要色同档——观察面非装饰） */
+.delivered-final-tag {
+    font-size: 11px;
+    line-height: 1;
+    color: var(--text-3);
+    user-select: none;
+    align-self: flex-start;
+    padding: 0 2px;
 }
 
 

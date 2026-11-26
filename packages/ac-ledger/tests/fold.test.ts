@@ -61,6 +61,84 @@ function seedV1(): void {
 }
 
 describe('fold im 档（cr-1326 dual-view P2——投递事实流）', () => {
+  it('cr-1332/1334/1335：白名单模式——delivered:true ∪ user 入站行入流（final 值不投影）；agent 缺标行漏投（宁漏不误）', () => {
+    // 独立白名单会话（v2 词形——writer.settle 真实产物同构）：入站/终稿/
+    // error（随终稿同门控）+ 一条缺标旧写面 user 行 + 一条缺标 agent 自著行
+    // + 机制 event 缺标
+    const WUUID = 'conv-delivered-wl';
+    const dir = sessionDir(ROOT, AGENT, WUUID);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 1, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { role: 'agent', content: '问一', agent_id: 'user', requestId: 'q1', message_id: 'q1', timestamp: '2026-11-09T10:00:01.000Z', seq: 1, delivered: true },
+      // 缺标 user 入站行（cr-1332 打标上线前的存量形态）：cr-1335 恒放行
+      { role: 'agent', content: '旧用户消息', agent_id: 'user', requestId: 'q0', message_id: 'q0', timestamp: '2026-11-09T10:00:00.000Z', seq: 0 },
+      { role: 'agent', content: '答一', agent_id: AGENT, requestId: 'a1', run: 'run-1', runMs: 1500, message_id: 'a1', timestamp: '2026-11-09T10:00:13.000Z', seq: 5, delivered: 'final' },
+      { role: 'context', source: 'error', content: '工具炸了', agent_id: AGENT, run: 'run-2', message_id: 'e2', timestamp: '2026-11-09T10:01:11.500Z', seq: 9, delivered: 'final' },
+      // 机制 event（context+event——重启通知）缺标：白名单天然剔除
+      { role: 'context', source: 'event', content: '[会话设置] 已重启', agent_id: AGENT, message_id: 'ev1', timestamp: '2026-11-09T10:01:59.000Z', seq: 10 },
+      // 第三方写面行（agent 域自著——缺标，opt-in 语义——宁漏不误）
+      { role: 'agent', content: '第三方行', agent_id: AGENT, requestId: 'q3', message_id: 'q3', timestamp: '2026-11-09T10:05:00.000Z', seq: 20 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const rows = assembleSessionView(ROOT, WUUID, { view: 'im' });
+    // cr-1334：白名单仅取 delivered:true（入站行）——终稿/error 行（final 值）不投
+    expect(rows.some((r) => r.role === 'user' && r.content === '问一' && r.delivered === true)).toBe(true);
+    // cr-1335：缺标 user 入站行恒放行（打标是 cr-1332 起的新写面词汇，存量行缺标非「非投递」）
+    expect(rows.some((r) => r.role === 'user' && r.content === '旧用户消息')).toBe(true);
+    expect(rows.some((r) => r.role === 'assistant' && r.content === '答一')).toBe(false);
+    expect(rows.some((r) => r.role === 'error')).toBe(false);
+    // 缺标 agent 自著行/机制 event 不投（白名单封闭性——宁漏不误）
+    expect(rows.some((r) => r.content === '第三方行')).toBe(false);
+    expect(rows.some((r) => r.content?.includes('已重启'))).toBe(false);
+    // chat 档不受影响（delivered 对非 im 投影透明——全文在场）
+    const chatRows = assembleSessionView(ROOT, WUUID, {});
+    expect(chatRows.some((r) => r.content === '第三方行')).toBe(true);
+    expect(chatRows.some((r) => r.content?.includes('已重启'))).toBe(true);
+  });
+
+  it('cr-1333：用户参与注入（steer 插话/ask 作答）带标进白名单；材料注入/超时通知不投', () => {
+    const WUUID = 'conv-inject-wl';
+    const dir = sessionDir(ROOT, AGENT, WUUID);
+    fs.mkdirSync(path.join(dir, 'journal'), { recursive: true });
+    // v2 形态：入站行 + 终稿行 + run 事件流内三条注入行（steer 带标 / 材料缺标 /
+    // durable-interaction answered 带标 / timeout 缺标）
+    fs.writeFileSync(path.join(dir, 'messages.jsonl'), [
+      { type: 'session-header', version: 2, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { type: 'message', role: 'agent', content: '问一', agent_id: 'user', requestId: 'q1', message_id: 'q1', timestamp: '2026-11-09T10:00:01.000Z', seq: 1, delivered: true },
+      { type: 'inject', run: 'run-1', content: '中途插话正文', requestId: 'steer-1', injectSource: 'steer', ts: Date.parse('2026-11-09T10:00:05.000Z'), seq: 2, delivered: true },
+      { type: 'inject', run: 'run-1', content: '技能材料', injectSource: 'skill', ts: Date.parse('2026-11-09T10:00:06.000Z'), seq: 3 },
+      { type: 'inject', run: 'run-1', content: '已收到用户回答正文', injectSource: 'durable-interaction', payload: { outcome: 'answered' }, ts: Date.parse('2026-11-09T10:00:07.000Z'), seq: 4, delivered: true },
+      { type: 'inject', run: 'run-1', content: '提问未获响应', injectSource: 'durable-interaction', payload: { outcome: 'timeout' }, ts: Date.parse('2026-11-09T10:00:08.000Z'), seq: 5 },
+      { type: 'message', role: 'agent', content: '答一', agent_id: AGENT, requestId: 'a1', run: 'run-1', message_id: 'a1', timestamp: '2026-11-09T10:00:13.000Z', seq: 6, delivered: 'final' },
+      { type: 'run-end', run: 'run-1', finish: 'completed', origin: 'viewer', ts: Date.parse('2026-11-09T10:00:14.000Z'), seq: 7 },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const rows = assembleSessionView(ROOT, WUUID, { view: 'im' });
+    // 用户参与注入带标直取：steer 插话 + ask 作答（answered）
+    expect(rows.some((r) => r.role === 'context' && r.content === '中途插话正文' && r.delivered === true)).toBe(true);
+    expect(rows.some((r) => r.role === 'context' && r.content === '已收到用户回答正文' && r.delivered === true)).toBe(true);
+    // 材料注入与超时通知缺标不投（白名单封闭性）
+    expect(rows.some((r) => r.content === '技能材料')).toBe(false);
+    expect(rows.some((r) => r.content === '提问未获响应')).toBe(false);
+    // chat 档不受影响（四条注入行全在）
+    const chat = assembleSessionView(ROOT, WUUID, {});
+    for (const t of ['中途插话正文', '技能材料', '已收到用户回答正文', '提问未获响应']) {
+      expect(chat.some((r) => r.content === t)).toBe(true);
+    }
+  });
+
+  it('cr-1332：会话级回退——存量无标会话维持排除法（分毫不变）', () => {
+    seedV1();
+    const before = assembleSessionView(ROOT, UUID, { view: 'im' });
+    const roles = before.map((r) => r.role);
+    expect(roles).toContain('user');
+    expect(roles).toContain('assistant');
+    expect(roles).toContain('error');
+    expect(roles).not.toContain('event');
+    expect(before.some((r) => r.delivered !== undefined)).toBe(false);
+    // cr-1333：存量注入行（steer-1 插话——缺标）回退模式照旧剔除（imRow 剔 context）
+    expect(before.some((r) => r.content === '插一句')).toBe(false);
+  });
+
   it('im 档：终稿剥 steps、剔注入/材料/在途步/机制 event；入站/error 保留', () => {
     seedV1();
     const rows = assembleSessionView(ROOT, UUID, { view: 'im' });

@@ -44,6 +44,10 @@ export interface SpeechEvent {
   seq?: number;
   /** v1 viewer 存量行的 run 键落形（source=run:<id>） */
   sourceRun?: string;
+  /** 投递标记（cr-1332 白名单词汇——IM 视图行集判据）：通道投递入站/出站
+   *  行 = true；终稿行 = 'final'（origin 门控——用户裁决独特值便于观察）；
+   *  机制行/存量行/第三方写面缺省不打标（opt-in，宁漏不误）。 */
+  delivered?: boolean | 'final';
 }
 
 /** 上下文行（v2 type='context'；v1 role='context' 行——source 词表沿用） */
@@ -62,6 +66,8 @@ export interface ContextEvent {
   messageId: string;
   timestamp: string;
   seq?: number;
+  /** 投递标记（cr-1332）：error 红条行随终稿同门控打标（失败须可见——IM 白名单含红条） */
+  delivered?: boolean | 'final';
 }
 
 /** 步内相位事件族（v2 step/*；ts = epoch ms；步末计量随步内末相位行
@@ -92,6 +98,8 @@ export interface InjectEvent {
   payload?: unknown;
   /** 多模态附件引用（cr-1278：busy-steer 插话携带的图——消费点落账、回放还原） */
   attachments?: LedgerAttachment[];
+  /** 用户参与注入标记（cr-1333）：steer 插话/ask 作答（answered）——IM 白名单词 */
+  delivered?: boolean | 'final';
   ts?: number;
   seq?: number;
 }
@@ -195,9 +203,9 @@ function runOf(facts: Map<string, RunFactsV2>, run: string): RunFactsV2 {
 function v2RowToEvent(row: Record<string, unknown>): SessionEvent | 'segment' | null {
   switch (row.type) {
     case 'message':
-      return { kind: 'speech', role: 'agent', agentId: String(row.agent_id ?? ''), domain: '', content: String(row.content ?? ''), messageId: String(row.message_id ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.run !== undefined && row.run !== '' ? { run: String(row.run) } : {}), ...(row.runMs !== undefined ? { runMs: Number(row.runMs) } : {}), ...attachOf(row.attachments), timestamp: String(row.timestamp ?? ''), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}), ...(typeof row.source === 'string' && row.source.startsWith('run:') ? { sourceRun: row.source.slice(4) } : {}) };
+      return { kind: 'speech', role: 'agent', agentId: String(row.agent_id ?? ''), domain: '', content: String(row.content ?? ''), messageId: String(row.message_id ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.run !== undefined && row.run !== '' ? { run: String(row.run) } : {}), ...(row.runMs !== undefined ? { runMs: Number(row.runMs) } : {}), ...attachOf(row.attachments), timestamp: String(row.timestamp ?? ''), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}), ...(typeof row.source === 'string' && row.source.startsWith('run:') ? { sourceRun: row.source.slice(4) } : {}), ...(row.delivered !== undefined ? { delivered: row.delivered as boolean | 'final' } : {}) };
     case 'context':
-      return { kind: 'context', agentId: String(row.agent_id ?? ''), source: String(row.source ?? ''), content: String(row.content ?? ''), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ...(row.run !== undefined && row.run !== '' ? { run: String(row.run) } : {}), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), messageId: String(row.message_id ?? ''), timestamp: String(row.timestamp ?? ''), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
+      return { kind: 'context', agentId: String(row.agent_id ?? ''), source: String(row.source ?? ''), content: String(row.content ?? ''), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ...(row.run !== undefined && row.run !== '' ? { run: String(row.run) } : {}), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), messageId: String(row.message_id ?? ''), timestamp: String(row.timestamp ?? ''), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}), ...(row.delivered !== undefined ? { delivered: row.delivered as boolean | 'final' } : {}) };
     case 'step/reasoning':
     case 'step/content':
       return { kind: row.type === 'step/reasoning' ? 'reasoning' : 'content', run: String(row.run ?? ''), step: Number(row.step ?? 0), ...(row.stepId !== undefined ? { stepId: String(row.stepId) } : {}), text: String(row.text ?? ''), ...(row.reasoningMs !== undefined ? { reasoningMs: Number(row.reasoningMs) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}), ...(row.usage !== undefined ? { usage: row.usage as StepMeter['usage'] } : {}), ...(row.elapsedMs !== undefined ? { elapsedMs: Number(row.elapsedMs) } : {}), ...(row.aborted === true ? { aborted: true } : {}), ...(row.textMs !== undefined ? { textMs: Number(row.textMs) } : {}) };
@@ -206,7 +214,7 @@ function v2RowToEvent(row: Record<string, unknown>): SessionEvent | 'segment' | 
     case 'step/tool-call-result':
       return { kind: 'tool-call-result', run: String(row.run ?? ''), toolCallId: String(row.toolCallId ?? ''), result: (row.result ?? { ok: false }) as { ok: boolean; output?: unknown; error?: string }, ...(row.durationMs !== undefined ? { durationMs: Number(row.durationMs) } : {}), ...(row.subcall === true ? { subcall: true, ...(row.name !== undefined ? { name: String(row.name) } : {}), ...(row.arguments !== undefined ? { arguments: String(row.arguments) } : {}) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'inject':
-      return { kind: 'inject', run: String(row.run ?? ''), content: String(row.content ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectionId !== undefined ? { injectionId: String(row.injectionId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ...attachOf(row.attachments), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
+      return { kind: 'inject', run: String(row.run ?? ''), content: String(row.content ?? ''), ...(row.requestId !== undefined ? { requestId: String(row.requestId) } : {}), ...(row.injectionId !== undefined ? { injectionId: String(row.injectionId) } : {}), ...(row.injectSource !== undefined ? { injectSource: String(row.injectSource) } : {}), ...(row.label !== undefined ? { label: String(row.label) } : {}), ...(row.payload !== undefined ? { payload: row.payload } : {}), ...attachOf(row.attachments), ...(row.delivered !== undefined ? { delivered: row.delivered as boolean | 'final' } : {}), ts: Number(row.ts ?? Date.now()), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'compaction':
       return { kind: 'compaction', run: String(row.run ?? ''), ...(row.boundarySeq !== undefined ? { boundarySeq: Number(row.boundarySeq) } : {}), endTs: Number(row.ts ?? 0), ...(row.summary !== undefined ? { summary: String(row.summary ?? '') } : {}), ...(row.stats !== undefined ? { stats: row.stats as { shadowedRows?: number; estimatedTokens?: number } } : {}), ...(row.model !== undefined ? { model: String(row.model) } : {}), ...(row.generation !== undefined ? { generation: Number(row.generation) } : {}), ts: Number(row.ts ?? 0), ...(row.seq !== undefined ? { seq: Number(row.seq) } : {}) };
     case 'compaction/start':
@@ -279,7 +287,7 @@ export function domainFactsOf(
     }
     // v1 role 判别行
     if (r.role === 'context') {
-      out.contexts.push({ kind: 'context', agentId: r.agent_id, domain, source: r.source ?? '', content: r.content, ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ...(r.run !== undefined ? { run: r.run } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), messageId: r.message_id, timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}) });
+      out.contexts.push({ kind: 'context', agentId: r.agent_id, domain, source: r.source ?? '', content: r.content, ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ...(r.run !== undefined ? { run: r.run } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), messageId: r.message_id, timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.delivered !== undefined ? { delivered: r.delivered } : {}) });
       continue;
     }
     // v1 发言行（role 判别仅 agent/context 两值——context 已分流）
@@ -294,13 +302,13 @@ export function domainFactsOf(
     if (r.source === 'inject') {
       if (r.run === undefined) continue;
       const ts0 = Date.parse(r.timestamp);
-      const ev: InjectEvent = { kind: 'inject', run: r.run, content: r.content, ...attachOf(r.attachments), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), injectionId: r.message_id, ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ts: Number.isFinite(ts0) ? ts0 : 0, ...(r.seq !== undefined ? { seq: r.seq } : {}) };
+      const ev: InjectEvent = { kind: 'inject', run: r.run, content: r.content, ...attachOf(r.attachments), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), injectionId: r.message_id, ...(r.injectSource !== undefined ? { injectSource: r.injectSource } : {}), ...(r.label !== undefined ? { label: r.label } : {}), ...(r.payload !== undefined ? { payload: r.payload } : {}), ...(r.delivered !== undefined ? { delivered: r.delivered } : {}), ts: Number.isFinite(ts0) ? ts0 : 0, ...(r.seq !== undefined ? { seq: r.seq } : {}) };
       const f = runOf(out.runs, r.run);
       f.events.push(ev);
       continue;
     }
     if (String(r.message_id).startsWith('seg-')) continue; // cr-640 存量文本段行（无 source 标记）——过滤防双计；String 容忍异常缺 id 行（手写夹具/极端存量）
-    out.speech.push({ kind: 'speech', role: 'agent', agentId: r.agent_id, domain, content: r.content, ...attachOf(r.attachments), messageId: r.message_id, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(typeof r.source === 'string' && r.source.startsWith('run:') ? { sourceRun: r.source.slice(4) } : {}) });
+    out.speech.push({ kind: 'speech', role: 'agent', agentId: r.agent_id, domain, content: r.content, ...attachOf(r.attachments), messageId: r.message_id, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), ...(r.run !== undefined && r.run !== '' ? { run: r.run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(typeof r.source === 'string' && r.source.startsWith('run:') ? { sourceRun: r.source.slice(4) } : {}), ...(r.delivered !== undefined ? { delivered: r.delivered } : {}) });
   }
   // v1 journal 行（v2 会话恒空）
   for (const line of journal) {

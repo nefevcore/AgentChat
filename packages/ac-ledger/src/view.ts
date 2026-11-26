@@ -49,6 +49,10 @@ export interface ViewRow {
    *  自身 message_id；无键机制行（event/error/直落 context）缺席——前端
    *  回落窗口局部启发。词汇增量，读侧派生，不落盘。 */
   turnId?: string;
+  /** 投递标记（cr-1332 白名单词汇——落盘词）：入站/出站行 = true、
+   *  终稿行 = 'final'（独特值——用户裁决便于观察打标效果）；缺省缺席
+   *  （存量/机制/第三方写面——im 档回退排除法或按值漏投）。 */
+  delivered?: boolean | 'final';
 }
 import * as fs from 'node:fs';
 import * as path from 'node:path';

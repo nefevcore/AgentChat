@@ -233,7 +233,7 @@ export function foldUserReplay(fold: SessionFold): UserReplayRow[] {
     if (r.messageId) seen.add(r.messageId);
     // cr-1286 P4-1：messageId 透出（user 行同款升格——主投影 turnId 打点源；
     // 亦使 ViewRow.message_id 与 peer 行对齐，anchor 派生受益同源）
-    out.push({ role: 'user', agentId: 'user', content: r.content, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ord: out.length });
+    out.push({ role: 'user', agentId: 'user', content: r.content, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ...(r.delivered !== undefined ? { delivered: r.delivered } : {}), ord: out.length });
   }
   for (const r of fold.speech) {
     if (r.agentId === 'user') continue; // user 行（通知行已归一 context——fold.speech 内不再混入）
@@ -246,7 +246,7 @@ export function foldUserReplay(fold: SessionFold): UserReplayRow[] {
     if (run !== undefined) runsWithFinal.add(run);
     // cr-1132:messageId 透出——主投影发言行升格携带 message_id(anchor 派生
     // 的锚目标;前端按 persistedMsgId 对锚,分支/删除按钮随锚亮起为正向收编)
-    out.push({ role: 'peer', agentId: r.agentId, content: r.content, ...(run !== undefined ? { run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ord: out.length });
+    out.push({ role: 'peer', agentId: r.agentId, content: r.content, ...(run !== undefined ? { run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ...(r.delivered !== undefined ? { delivered: r.delivered } : {}), ord: out.length });
   }
   // 排序事实键 = 时间戳（cr-716；稳定：同刻 user 先于 peer——收集序）
   return out

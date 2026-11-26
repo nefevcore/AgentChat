@@ -112,6 +112,12 @@ export interface ChatMessage {
    * 缺席域收窄为 v0 旧写面存量（读侧按 sender 拆轮——cr-1321 判据退役）。
    */
   turnId?: string;
+  /**
+   * 投递标记（cr-1332 白名单词汇——历史行透传/直播行缺省）：入站 = true /
+   *  终稿 = 'final'。白名单模式会话的行集判据（终稿独特值——用户裁决便于
+   *  观察打标/不打标效果）；渲染层 IM 档终稿标记显示面。
+   */
+  delivered?: boolean | 'final';
   /** 持久化消息 ID，用于后端删除操作 */
   persistedMsgId?: string;
   /**

@@ -68,4 +68,6 @@ export interface UserReplayRow {
   timestamp: string;
   /** 行级单调序号（B1 行级 seq 持久化——透传 session/history 行；存量行缺席） */
   seq?: number;
+  /** 投递标记（cr-1332 白名单词汇）：入站行 = true / 终稿行 = 'final' */
+  delivered?: boolean | 'final';
 }
