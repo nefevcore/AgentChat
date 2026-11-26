@@ -27,6 +27,12 @@ import type { JobSnapshot } from './contract.ts';
 /** 通知正文里的 detail 截断（全文走 job read） */
 const DETAIL_MAX = 400;
 
+/**
+ * 通知正文里的输出尾部预览截断（cr-1323）：meta.output 在通知侧只作预览，
+ * 完整输出走 job logs（独立预算，不受此值影响）。
+ */
+const TAIL_MAX = 1_000;
+
 /** digest 合并窗口：同 owner+会话的第二条起暂存，窗口收束补投 */
 const DIGEST_WINDOW_MS = 5_000;
 
@@ -35,6 +41,7 @@ interface PendingNotice {
   kind: string;
   status: string;
   detail: string;
+  tail: string;
 }
 
 interface DigestWindow {
@@ -52,16 +59,28 @@ type SubagentsLookup = { get(id: string): unknown };
 
 const STATUS_TEXT: Record<string, string> = { completed: '完成', killed: '已终止', failed: '失败' };
 
-/** 主通知文本（首条/单条投递） */
+/** 主通知文本（首条/单条投递；cr-1323 附输出尾部——收束即足额判定，免二跳查日志） */
 function noticeText(job: JobSnapshot, status: string): string {
   const detail = job.detail ? '：' + job.detail.slice(0, DETAIL_MAX) : '';
-  return '[系统通知] 后台任务 ' + job.id + '（' + job.kind + '）' + status + detail + '。需要时可用 job 工具读取完整输出。';
+  const tail = tailText(job.meta?.output, TAIL_MAX);
+  const tailPart = tail ? '\n输出尾部：\n' + tail : '';
+  return '[系统通知] 后台任务 ' + job.id + '（' + job.kind + '）' + status + detail + '。' + (tail ? '完整输出（如需）用 job logs 查看。' : '需要时可用 job 工具读取完整输出。') + tailPart;
 }
 
-/** digest 文本（窗口内后续条目的合并通知） */
+/** digest 文本（窗口内后续条目的合并通知；cr-1323 同附尾部） */
 function digestText(pending: PendingNotice[]): string {
-  const lines = pending.map((p) => '- 任务 ' + p.jobId + '（' + p.kind + '）' + p.status + (p.detail ? '：' + p.detail.slice(0, 120) : '')).join('\n');
-  return '[系统通知] 窗口内另有 ' + pending.length + ' 个后台任务收束：\n' + lines + '\n需要详情可用 job 工具读取。';
+  const lines = pending.map((p) => '- 任务 ' + p.jobId + '（' + p.kind + '）' + p.status + (p.detail ? '：' + p.detail.slice(0, 120) : '') + (p.tail ? '\n  输出尾部：' + p.tail : '')).join('\n');
+  return '[系统通知] 窗口内另有 ' + pending.length + ' 个后台任务收束：\n' + lines + '\n需要更多细节可用 job 工具读取。';
+}
+
+/**
+ * meta.output → 预览文本（截 TAIL_MAX 字；非串/空 = ''）。
+ * 超出时保留**末段**（前导省略号）：这是尾部预览，结论/报错在最后几行——
+ * 从头截会把最该看的部分裁掉。
+ */
+function tailText(src: unknown, max: number): string {
+  if (typeof src !== 'string' || src.trim() === '') return '';
+  return src.length > max ? '…' + src.slice(-(max - 1)) : src;
 }
 
 /**
@@ -120,7 +139,7 @@ export function applyJobWakeup(ctx: Context): void {
     const key = owner + String.fromCharCode(0) + conversationId;
     const existing = windows.get(key);
     if (existing !== undefined) {
-      existing.pending.push({ jobId: job.id, kind: job.kind, status, detail: job.detail ?? '' });
+      existing.pending.push({ jobId: job.id, kind: job.kind, status, detail: job.detail ?? '', tail: tailText(job.meta?.output, TAIL_MAX) });
       return;
     }
     const timer = setTimeout(() => flushWindow(key, owner, conversationId), DIGEST_WINDOW_MS);

@@ -188,7 +188,7 @@ export function apply(ctx: Context, options: ShellToolsRowOptions = {}) {
     text: (request) => {
       const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
       if (!names.has('job') && !names.has('bash') && !names.has('pwsh')) return '';
-      return '后台任务：后台命令会返回 job_id，记住 id 即可——任务完成时通知会自动送达，不要用轮询命令或睡眠等待（sleep / Start-Sleep / ping -n 等都是等待，一样浪费）；确需等待完成时，用前台命令工具配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。后台任务在跑时继续推进不依赖它的独立步骤，不要重复执行正在运行任务的工作。';
+      return '后台任务：后台命令会返回 job_id，记住 id 即可——任务完成时通知会自动送达（自带输出尾部预览，多数情况无需再查日志；需要完整/更早输出时才用 job logs），不要用轮询命令或睡眠等待（sleep / Start-Sleep / ping -n 等都是等待，一样浪费）；确需等待完成时，用前台命令工具配合较长 timeout 更直接。给出最终回答前，先收集仍在运行的相关任务的结果；不再重要的任务用 job kill 及时清理，避免占用并发额度。后台任务在跑时继续推进不依赖它的独立步骤，不要重复执行正在运行任务的工作。';
     },
   }, 'ac-shell-tools');
 

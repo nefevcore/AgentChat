@@ -58,8 +58,13 @@ afterEach(async () => {
   }
 });
 
-/** 立即完成任务 */
-function settleNow(ctx: Context, ownerAgentId?: string, conversationId?: string): void {
+/** 立即完成任务（cr-1323：output → meta.output——通知尾部预览数据源） */
+function settleNow(
+  ctx: Context,
+  ownerAgentId?: string,
+  conversationId?: string,
+  output?: string,
+): void {
   ctx.jobs.start({
     kind: 'bash',
     label: 'echo hi',
@@ -67,7 +72,11 @@ function settleNow(ctx: Context, ownerAgentId?: string, conversationId?: string)
     ...(conversationId ? { conversationId } : {}),
     run: () => ({
       cancel: () => {},
-      done: Promise.resolve({ status: 'completed' as const, detail: 'exit code: 0' }),
+      done: Promise.resolve({
+        status: 'completed' as const,
+        detail: 'exit code: 0',
+        ...(output !== undefined ? { output } : {}),
+      }),
     }),
   });
 }
@@ -172,6 +181,44 @@ describe('ac-jobs 完成通知回投（wakeup）', () => {
     } as any)).not.toThrow();
     await new Promise((r) => setTimeout(r, 20));
     expect(delivered).toHaveLength(0);
+  });
+
+  it('cr-1323 通知附输出尾部：单条带「输出尾部」预览 + 截断省略号；digest 逐条附带；无 output 保留兜底文案', async () => {
+    vi.useFakeTimers();
+    try {
+      const { ctx } = await boot();
+      settleNow(ctx, 'a', undefined, 'line1\nline2\nline3');
+      await vi.advanceTimersByTimeAsync(10);
+      expect(delivered[0].message).toContain('输出尾部');
+      expect(delivered[0].message).toContain('line3');
+      expect(delivered[0].message).toContain('job logs');
+      // 截断：超 TAIL_MAX(1000) 保留末段（前导 '…'，输出部 ≤ 1000 字）
+      settleNow(ctx, 'b', undefined, 'HEAD-MARK' + 'y'.repeat(1_050) + 'TAIL-MARK');
+      await vi.advanceTimersByTimeAsync(10);
+      const tailPart = delivered[1].message.split('输出尾部：')[1] ?? '';
+      expect(tailPart.trimStart()).toContain('…');
+      expect(tailPart).toContain('TAIL-MARK'); // 末段保留：结论所在
+      expect(tailPart).not.toContain('HEAD-MARK');
+      expect(tailPart.trim().length).toBeLessThanOrEqual(1_001);
+      // digest：暂存条目逐条附带尾部（窗口首条即时投、后续暂存，5s 窗口收束补 digest）
+      settleNow(ctx, 'c', undefined, 'tail-c');
+      settleNow(ctx, 'c', undefined, 'tail-c2');
+      await vi.advanceTimersByTimeAsync(5_100);
+      const digest = delivered.find((d) => d.message.includes('窗口内另有'))!;
+      expect(digest).toBeDefined();
+      expect(digest.message).toContain('tail-c');
+      expect(digest.message).toContain('tail-c2');
+
+      // 无 output：兜底文案不变（等 digest 窗口错峰后新窗口首条即时投）
+      await vi.advanceTimersByTimeAsync(10);
+      settleNow(ctx, 'd');
+      await vi.advanceTimersByTimeAsync(10);
+      const noOut = delivered.at(-1)!;
+      expect(noOut.message).toContain('需要时可用 job 工具读取完整输出');
+      expect(noOut.message).not.toContain('输出尾部');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('合并窗口：同 owner+会话第二条起暂存，窗口收束补投 digest', async () => {

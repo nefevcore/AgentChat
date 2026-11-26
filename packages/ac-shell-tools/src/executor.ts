@@ -61,6 +61,39 @@ function bashTempLogPath(logDir: string): string {
   return path.join(logDir, `${BASH_TEMP_PREFIX}${randomBytes(8).toString('hex')}.log`);
 }
 
+/** 终态尾部输出预算（cr-1323）：meta.output 同时是 wakeup 通知与 webui jobs 预览的数据源 */
+const OUTCOME_TAIL_LINES = 30;
+const OUTCOME_TAIL_CHARS = 2_000;
+
+/**
+ * 终态尾部输出（cr-1323）：close 触发 = 子进程退出且写端已关，日志文件
+ * 内容完整——同步尾读 + ANSI 清理 + 字符 clamp，作为 JobOutcome.output
+ * 随 settle 回写 meta.output。全文恒在日志文件（job logs 走 tailLogFile
+ * 独立预算，不经此值）。
+ */
+function outcomeTail(logFile: string): string {
+  const text = tailLogFile(logFile, OUTCOME_TAIL_LINES);
+  if (!text) return '';
+  return text.length > OUTCOME_TAIL_CHARS ? '…' + text.slice(-(OUTCOME_TAIL_CHARS - 1)) : text;
+}
+
+/**
+ * done promise 工厂（background/handoff 共用，cr-1323）：close → 终态
+ * （completed/killed + detail）+ 尾部输出。first-wins 归 JobsService.settle。
+ */
+function doneFromClose(child: ChildProcess, logFile: string): Promise<import('ac-jobs').JobOutcome> {
+  return new Promise<import('ac-jobs').JobOutcome>((resolve) => {
+    child.on('close', (code, signal) => {
+      const tail = outcomeTail(logFile);
+      resolve(
+        signal !== null
+          ? { status: 'killed', detail: `signal: ${signal}`, ...(tail ? { output: tail } : {}) }
+          : { status: 'completed', detail: `exit code: ${code ?? 0}`, ...(tail ? { output: tail } : {}) },
+      );
+    });
+  });
+}
+
 /** 清理超过 1 小时的旧临时日志（非阻塞） */
 function cleanupOldLogs(logDir: string): void {
   try {
@@ -279,18 +312,7 @@ export function executeShellCommand(
         ...(call.agentId !== undefined ? { ownerAgentId: call.agentId } : {}),
         ...(call.conversationId ? { conversationId: call.conversationId } : {}),
         meta: { pid: child.pid, command, cwd: dir, logFile },
-        run: () => {
-          const done = new Promise<import('ac-jobs').JobOutcome>((resolve) => {
-            child.on('close', (code, signal) => {
-              resolve(
-                signal !== null
-                  ? { status: 'killed', detail: `signal: ${signal}` }
-                  : { status: 'completed', detail: `exit code: ${code ?? 0}` },
-              );
-            });
-          });
-          return { cancel: () => killProcessTree(child.pid!), done };
-        },
+        run: () => ({ cancel: () => killProcessTree(child.pid!), done: doneFromClose(child, logFile) }),
       });
       return Promise.resolve({
         ok: true,
@@ -462,18 +484,7 @@ export function executeShellCommand(
           ...(call.agentId !== undefined ? { ownerAgentId: call.agentId } : {}),
           ...(call.conversationId ? { conversationId: call.conversationId } : {}),
           meta: { pid: child.pid, command, cwd: dir, logFile },
-          run: () => {
-            const done = new Promise<import('ac-jobs').JobOutcome>((resolve) => {
-              child.on('close', (code, signal) => {
-                resolve(
-                  signal !== null
-                    ? { status: 'killed', detail: `signal: ${signal}` }
-                    : { status: 'completed', detail: `exit code: ${code ?? 0}` },
-                );
-              });
-            });
-            return { cancel: () => killProcessTree(child.pid!), done };
-          },
+          run: () => ({ cancel: () => killProcessTree(child.pid!), done: doneFromClose(child, logFile) }),
         });
         handoff = { jobId, logFile, pid: child.pid! };
         // 立即收束前台（timedOut 分支读 handoff 组装结果）；子进程后续

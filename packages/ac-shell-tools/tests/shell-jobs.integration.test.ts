@@ -45,7 +45,7 @@ describe(`ac-shell-tools ${CMD_TOOL} 后台 job`, () => {
   it('job/settled 事件在后台任务终态时发射（携带发起会话键 conversationId——完成通知回投源）', async () => {
     const root = tmpRoot();
     const { ctx } = await boot(root);
-    const settled: unknown[] = [];
+    const settled: import('ac-jobs').JobSnapshot[] = [];
     ctx.on('job/settled', (job) => settled.push(job));
     // 轮询等待（全量并行下的负载容忍——固定 sleep 在重载下漏拍）
     const waitFor = async (cond: () => boolean, ms = 8000): Promise<void> => {
@@ -67,6 +67,8 @@ describe(`ac-shell-tools ${CMD_TOOL} 后台 job`, () => {
     expect(ctx.jobs.get(jobId, 'a1').status).toBe('completed');
     expect(settled).toHaveLength(1);
     expect(settled[0]).toMatchObject({ id: jobId, status: 'completed', conversationId: 'a1~user' });
+    // cr-1323：settle 回写 meta.output = 日志尾部（wakeup 通知/ webui 预览数据源）
+    expect(settled[0].meta?.output).toContain('quick');
     // 无执行身份会话（宿主直调）→ conversationId 缺省（唤醒行回退 owner 自会话桶）
     const r2 = await exec(ctx, {
       name: CMD_TOOL,
