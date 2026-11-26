@@ -229,6 +229,55 @@ describe('独立私信直播帧（cr-1144：onStandalone——send_agent(to:user
 
 // cr-1278：多模态附件旁路——UserStub 是 deliver → 壳侧入站行的唯一信道，
 // 此前 UserSendOptions 无 attachments（V3 重写丢账），图片只剩 [附件] 文本行。
+describe('user 域落账（cr-1344 user 域对称化：桩 = user 域唯一写者）', () => {
+  it('收信落 agents/user/sessions/<uuid>/：入站行 agent_id=sender + delivered；回信信封 run/runMs 透传；机制信 context+event；requestId 幂等', async () => {
+    seedConfig('alpha');
+    const po = new PostOffice({ dataRoot: ROOT });
+    await po.listen();
+    const user = new UserStub(po, ROOT);
+    user.start();
+    try {
+      const conv = 'alpha~user';
+      // ① 独立私信（send_agent(to:'user') 跨壳信封形态）
+      await po.dispatch(makeEnvelope({
+        uuid: conv, requestId: 'sa-1', sender: 'alpha', to: 'user',
+        payload: { text: '中途通报' },
+      }));
+      // ② 终稿回信（postReply 形态：run + runMs 随信）
+      await po.dispatch(makeEnvelope({
+        uuid: conv, requestId: 'reply-q1', sender: 'alpha', to: 'user',
+        payload: { text: '终稿正文', run: 'run-q1', runMs: 4200 },
+      }));
+      // ③ 机制信（restart 通知形态）→ context+event 行，不打标
+      await po.dispatch(makeEnvelope({
+        uuid: conv, requestId: 'mech-1', sender: 'alpha', to: 'user',
+        payload: { text: '[会话设置] 已重启', mechanism: true },
+      }));
+      // ④ 同键重投 → 幂等（requestId 准入）
+      await po.dispatch(makeEnvelope({
+        uuid: conv, requestId: 'sa-1', sender: 'alpha', to: 'user',
+        payload: { text: '中途通报（重投）' },
+      }));
+      const rows = readLedger(path.join(ROOT, 'agents', 'user', 'sessions', conv)).rows;
+      const speech = rows.filter((r) => r.role === 'agent');
+      expect(speech).toHaveLength(2); // sa-1 / reply-q1（sa-1 重投去重）
+      const sa = speech.find((r) => r.requestId === 'sa-1')!;
+      expect(sa).toMatchObject({ agent_id: 'alpha', content: '中途通报', uuid: conv, delivered: true });
+      expect(sa.run).toBeUndefined();
+      const reply = speech.find((r) => r.requestId === 'reply-q1')!;
+      expect(reply).toMatchObject({ agent_id: 'alpha', content: '终稿正文', run: 'run-q1', runMs: 4200, delivered: true });
+      const mech = rows.find((r) => r.requestId === 'mech-1')!;
+      expect(mech).toMatchObject({ role: 'context', source: 'event', content: '[会话设置] 已重启' });
+      expect(mech.delivered).toBeUndefined();
+      // v2 词形判别（头行经 reader 剥离——判 message 行 type 键）
+      expect(speech.every((r) => (r as { type?: string }).type === 'message')).toBe(true);
+    } finally {
+      user.stop();
+      await po.close();
+    }
+  });
+});
+
 describe('附件旁路（cr-1278：send 携带 attachments 随信封透传）', () => {
   it('UserSendOptions.attachments → 信封 payload；无附件形态零键', async () => {
     const po = new PostOffice({ dataRoot: ROOT });

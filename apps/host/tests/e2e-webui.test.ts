@@ -97,10 +97,12 @@ describe('M7.5 webui 三拆 + 通道 端到端', () => {
     await bw.deliver({ role: 'agent', content: '流式终稿', agent_id: 'beta', uuid: 'u-e2e-b', run: 'st-1', requestId: 'rr-b1' });
     const replay = projectUserReplay(ROOT, 'u-e2e-b');
     // toEqual 全等：timestamp（cr-716）/ requestId（cr-739）/ seq（B1 行级
-    // seq 持久化）是 replay 行合法字段，期望补齐
+    // seq 持久化）是 replay 行合法字段，期望补齐；messageId（cr-1286 升格
+    // 透出）经 cr-1344 并源 foldUserReplay 后随行（两实现走散面收口）
     expect(replay[0]).toEqual({
       role: 'peer', agentId: 'beta', content: '流式终稿', run: 'st-1',
       requestId: 'rr-b1',
+      messageId: 'rr-b1',
       seq: replay[0].seq,
       timestamp: replay[0].timestamp,
     });

@@ -4,13 +4,16 @@
 // user 端点无进程 → 必须有壳：webui 形态 = 宿主进程内极薄 user 壳
 //（R-2）。send = 签发（R-1：发送方签发 UUIDv7）+ 邮局投递——发言行由
 // 壳侧落 agent 域入站行（deliverRow）；收信面 = 邮局 local 通道（进程内
-// 直调），agent 终稿信到达即通知宿主缓存面失效。cr-973（cr-972 第一刀）
-// 起 viewer 物化账本退役：本桩不再写任何消息文件（写权归壳侧 agent
-// 域账本），回放走读时投影 projectUserReplay。
+// 直调）。
+// cr-1344（cr-1343 user 域对称化）：本桩成为 user 域唯一写者——agent→user
+// 投递落 agents/user/sessions/<uuid>/messages.jsonl（入站行同构：role:agent、
+// agent_id=sender、requestId 幂等锚；机制信 context+event 同 inboundRowOf 口径）。
+// sender 侧出站行退役（deliver 跨壳分支）；回放读面全域并读（conversationDirs
+// 自动带上 user 域）。直播帧顺序对齐壳侧入站语义：先 durable 后广播。
 // ============================================================
 import type { Envelope } from 'ac-envelope-core';
 import { issueConversationId, issueRequestId, makeEnvelope } from 'ac-envelope-core';
-import { projectUserReplay, type LedgerAttachment, type UserReplayRow } from 'ac-ledger';
+import { projectUserReplay, LedgerWriter, sessionDir, type LedgerAttachment, type LedgerRow, type UserReplayRow } from 'ac-ledger';
 import type { PostOffice, DispatchResult } from 'ac-post-office';
 
 export interface UserSendOptions {
@@ -31,11 +34,13 @@ export interface UserSendOptions {
 
 /**
  * user 壳桩（宿主内极薄——非 cordis 行：user 端点无行集无 run，
- * 只是投递原语的 user 侧执行体）。
+ * 只是投递原语的 user 侧执行体 + user 域收信账本唯一写者〔cr-1344〕）。
  */
 export class UserStub {
   private readonly po: PostOffice;
   private readonly dataRoot: string;
+  /** user 域 writer 注册表（per-uuid 惰性——cr-1344 收信落账面） */
+  private readonly writers = new Map<string, LedgerWriter>();
   /** 会话新行通知（cr-870/973：宿主装配点连 ctx.emit——语义 = 该会话
    *  agent 域有新事实，singles 注册表条目宜标 stale） */
   private readonly onAppend?: (uuid: string) => void;
@@ -54,6 +59,17 @@ export class UserStub {
     this.dataRoot = dataRoot;
     this.onAppend = onAppend;
     this.onStandalone = onStandalone;
+  }
+
+  /** user 域 writer（agents/user/sessions/<uuid>/——cr-1344 收信落账面） */
+  private writerFor(uuid: string): LedgerWriter {
+    let w = this.writers.get(uuid);
+    if (w === undefined) {
+      // participants 首建生效（对桶键双端 / single 桶 uuid——写者域恒 user）
+      w = new LedgerWriter(sessionDir(this.dataRoot, 'user', uuid), { participants: ['user'], kind: 'user' });
+      this.writers.set(uuid, w);
+    }
+    return w;
   }
 
   /** 起桩：user 端点注册进邮局 local 通道 */
@@ -91,21 +107,43 @@ export class UserStub {
     return projectUserReplay(this.dataRoot, uuid);
   }
 
-  /** 收信面（agent 终稿/通知到达 user 端点）：cr-973 起纯通知——agent 域
-   *  行已 durable（壳落账先于回信），viewer 派生器退役，通知缓存面失效。
-   *  独立私信直播（cr-1144）：非回信信封（send_agent(to:'user')——定时
-   *  自会话 run 等场景产物）此前零前端帧，刷新前不可见且不计未读——
-   *  分流发 router/message-received 帧（前端既有 case 直消费，message_id
-   *  = requestId 幂等锚）。回信信封（payload.run 在场）跳过：run/settled
+  /** 收信面（agent 终稿/通知/私信到达 user 端点）：cr-1344 起本桩是 user
+   *  域唯一写者——收信先 durable 落 agents/user/sessions/<uuid>/（A2 落账
+   *  即确认，requestId 幂等在 writer 内；机制信 context+event 同
+   *  inboundRowOf 口径不打标），再走通知/直播（先 durable 后广播——与壳
+   *  侧入站语义对齐）。回信信封的 run/runMs 随行透传（读面 steps 联查锚）。
+   *  独立私信直播（cr-1144）：非回信信封（send_agent(to:'user')）发
+   *  router/message-received 帧（前端既有 case 直消费，message_id =
+   *  requestId 幂等锚）。回信信封（payload.run 在场）跳过帧：run/settled
    *  已计，再发即双计。 */
   private async receive(env: Envelope): Promise<{ ack: string; fresh: boolean }> {
+    const payload = env.payload as { text?: unknown; run?: unknown; runMs?: unknown; mechanism?: unknown } | null;
+    const text = env.kind === 'message' && payload !== null && typeof payload === 'object' && typeof payload.text === 'string'
+      ? payload.text
+      : '';
+    // durable 落账（cr-1344）：一切 message 信封入账（机制信转 context 行——
+    // 壳侧 inboundRowOf 同构；receipt/grant 等 kind 非消息体不落）。
+    // timestamp = 落行时刻（无快照语义需求——与壳侧 deliverRow 同口径）。
+    if (env.kind === 'message') {
+      const mechanism = payload?.mechanism === true;
+      const row: Omit<LedgerRow, 'message_id' | 'timestamp' | 'seq'> = mechanism
+        ? { role: 'context', source: 'event', content: text, agent_id: env.sender, requestId: env.requestId, uuid: env.uuid }
+        : {
+          role: 'agent',
+          content: text,
+          agent_id: env.sender,
+          requestId: env.requestId,
+          uuid: env.uuid,
+          ...(typeof payload?.run === 'string' && payload.run !== '' ? { run: payload.run } : {}),
+          ...(typeof payload?.runMs === 'number' ? { runMs: payload.runMs } : {}),
+          delivered: true as const,
+        };
+      await this.writerFor(env.uuid).deliver(row);
+    }
     this.onAppend?.(env.uuid);
     if (this.onStandalone !== undefined && env.kind === 'message') {
-      const payload = env.payload as { text?: unknown; run?: unknown } | null;
-      if (payload !== null && typeof payload === 'object'
-        && typeof payload.text === 'string' && payload.text !== ''
-        && payload.run === undefined) {
-        this.onStandalone(env.sender, payload.text, env.requestId, env.uuid);
+      if (text !== '' && payload?.run === undefined) {
+        this.onStandalone(env.sender, text, env.requestId, env.uuid);
       }
     }
     return { ack: env.requestId, fresh: true };

@@ -794,10 +794,12 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     let agents: fs.Dirent[] = [];
     try { agents = fs.readdirSync(path.join(deps.dataRoot, 'agents'), { withFileTypes: true }); } catch { return undefined; }
     for (const a of agents) {
-      if (a.isDirectory()
-        && fs.existsSync(path.join(deps.dataRoot, 'agents', a.name, 'sessions', conversationId))) {
-        return a.name;
+      // cr-1344：user 域是收信镜像账本（非承载 Agent）——恒非 owning
+      if (a.name === 'user' || !a.isDirectory()
+        || !fs.existsSync(path.join(deps.dataRoot, 'agents', a.name, 'sessions', conversationId))) {
+        continue;
       }
+      return a.name;
     }
     return undefined;
   };
@@ -811,9 +813,12 @@ function registerRunsFace(web: WebFace, ctx: Context, deps: FaceOpsDeps): void {
     let total = 0;
     let agentRows = 0;
     for (const dir of conversationDirs(deps.dataRoot, conversationId, { includeJournalOnly: true })) {
+      const domain = path.basename(path.dirname(path.dirname(dir)));
+      // cr-1344：user 域（收信账本）不进 LLM 回放计量——foldLlmReplay 单域
+      // 读语义对齐（回放占用 = agent 域事实；user 域行是投递镜像，计入即双计）
+      if (domain === 'user') continue;
       const { rows } = readLedger(dir);
       agentRows += rows.length;
-      const domain = path.basename(path.dirname(path.dirname(dir)));
       const facts = readDomainFacts(dir, domain);
       // cr-1245 B2 投影单源：shadow 过滤 + 伪行合成（版本判据 = 行面，
       // cr-1214——此前本面只判 facts.version 漏混合会话伪行）全在

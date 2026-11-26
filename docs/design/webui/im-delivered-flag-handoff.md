@@ -29,7 +29,7 @@ dual-view P2 的 IM 视图（`view:'im'`）现行实现是**排除法**：`foldV
 | user 直答 deliver | agent 账本入站行（`agent_id='user'`） | `ac-shell-conversation/src/service.ts` `inboundRowOf`（L1270-1280） |
 | user 群发 send_group | 各成员流入站行（`agent_id=from`） | 同上（groups-row 扇出信封 → 成员壳 receiveEnvelope） |
 | agent→agent send_agent | 对端账本入站行（`agent_id=sender`） | 同上 |
-| agent→user send_agent | user 收信面纯通知**零落账**（cr-973 viewer 停写）——user 侧 IM 消费走**发送方 agent 账本的出站行** | `service.ts` deliver 跨壳分支 L491-498（出站行 `agent_id=sender`） |
+| agent→user send_agent | **user 域入站行**（cr-1344 起由 user 桩落账 `agents/user/sessions/<uuid>/`——`agent_id=sender`、`delivered:true`；出站行已退役，存量经 `scripts/migrate-outbound-user-rows.mjs` 一次性迁入） | `apps/host/user-stub.ts` receive（宿主进程——user 域唯一写者） |
 | run 终稿回信 postReply | 对端账本入站行（回信信封） | postReply L1676+ → 对端 receiveEnvelope |
 
 ### 2.2 打标方案（推荐落点）
@@ -38,7 +38,7 @@ dual-view P2 的 IM 视图（`view:'im'`）现行实现是**排除法**：`foldV
 
 - 位置 A（入站行）：`ac-shell-conversation/src/service.ts` `inboundRowOf` 的非机制分支（L1279）——
   覆盖 deliver / send_group 扇出 / send_agent 入站 / postReply 回信入站四路（它们全走 `receiveEnvelope`）；
-- 位置 B（出站行）：同文件 deliver 跨壳分支 L492-498（`agent_id=sender` 出站行）——覆盖 agent→user 投递（user 无账本，IM 从 agent 账本读）；
+- 位置 B（出站行）：同文件 deliver 跨壳分支 L492-498（`agent_id=sender` 出站行）——**已随 cr-1344 退役**（agent→user 方向出站行退役：user 桩是 user 域唯一写者，IM 从 user 域入站行读；agent→agent 委托出站行维持打标——「IM 语义应有自己发出的消息」风险 #4 注记对其仍成立）；
 - 位置 C（群 send_group 本地回显）：`ac-host-rows/src/groups-row.ts` group/send 的 post 行——group/history 已是该流，标记主要服务前端直播行识别；
 
 机制行（`payload.mechanism === true`）**不打标**（它走 context+event 分支，天然漏过——白名单的封闭性由此成立）。

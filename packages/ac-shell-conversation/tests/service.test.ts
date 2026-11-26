@@ -552,7 +552,7 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       await dispose(fibers);
     }
   }, 30_000);
-  it('deliver 方言叶（collab-tools 消费面）：outcome run 形状 + isBusy', async () => {
+  it('deliver 方言叶（messaging-tools 消费面）：outcome run 形状 + isBusy', async () => {
     seedAgent('alpha');
     const { fibers, conv } = await bootTree('alpha');
     try {
@@ -1606,6 +1606,35 @@ describe('cr-712 跨壳投递与完成回执', () => {
       await expect(conv.deliver('beta', 'x', { sender: 'alpha' })).rejects.toThrow('邮局未装配');
     } finally {
       await dispose(fibers);
+    }
+  }, 15_000);
+
+  // cr-1344（user 域对称化）：agent→user 方向出站行退役——本壳只外发信封，
+  // 不落 sender 域行（user 桩是 user 域唯一写者）；agent→agent 维持出站行。
+  it('deliver 目标 user：信封外发 + sender 域零落账（出站行退役）', async () => {
+    seedAgent('alpha');
+    const address = socketPathFor(path.resolve(ROOT), 'po-c1344a');
+    const frames: Envelope[] = [];
+    const server = await listenIpc(address, (frame) => {
+      frames.push(frame as Envelope);
+      return { dispatched: true };
+    });
+    const { fibers, conv } = await bootTree('alpha', undefined, undefined, undefined, undefined, [], address);
+    try {
+      const out = await conv.deliver('user', '中途通报', {
+        sender: 'alpha',
+        conversationId: 'alpha~user',
+      });
+      expect(out).toMatchObject({ kind: 'sent' });
+      expect(frames).toHaveLength(1);
+      expect(frames[0]).toMatchObject({ to: 'user', sender: 'alpha', uuid: 'alpha~user', kind: 'message', payload: { text: '中途通报' } });
+      // 出站行退役：sender 域零新增行（目录可缺省——首建也无）
+      const dir = path.join(ROOT, 'agents', 'alpha', 'sessions', 'alpha~user');
+      const rows = fs.existsSync(dir) ? readLedger(dir).rows.filter((r) => r.role !== undefined) : [];
+      expect(rows).toHaveLength(0);
+    } finally {
+      await dispose(fibers);
+      await server.close();
     }
   }, 15_000);
 

@@ -235,18 +235,32 @@ export function foldUserReplay(fold: SessionFold): UserReplayRow[] {
     // 亦使 ViewRow.message_id 与 peer 行对齐，anchor 派生受益同源）
     out.push({ role: 'user', agentId: 'user', content: r.content, ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ...(r.delivered !== undefined ? { delivered: r.delivered } : {}), ord: out.length });
   }
-  for (const r of fold.speech) {
-    if (r.agentId === 'user') continue; // user 行（通知行已归一 context——fold.speech 内不再混入）
-    if (r.content.trim() === '') continue;
-    if (r.messageId && seen.has(r.requestId ?? r.messageId)) continue;
+  // cr-1344（user 域对称化）第二循环两遍：先 user 域 agent 行（入站行
+  // agent_id=sender——user 收到的投递事实，同键去重优先于 sender 域的
+  // 出站/settle 行——出站行已退役，此处兜存量迁移窗与 settle 同键并发），
+  // 再 agent 域自著行（原谓词 agent_id=domain——终稿/通知）。user 域行
+  // 不剔空文本（run 键行语义——错误收束空回信是 user 的既得事实，cr-628；
+  // IM 档空正文由 imStripSteps 自然滤）。
+  const pushPeer = (r: SpeechEvent): void => {
+    if (r.agentId === 'user') return; // user 行（通知行已归一 context——fold.speech 内不再混入）
+    if (r.messageId && seen.has(r.requestId ?? r.messageId)) return;
     const run = r.run ?? r.sourceRun;
-    if (run !== undefined && runsWithFinal.has(run)) continue;
+    if (run !== undefined && runsWithFinal.has(run)) return;
     if (r.requestId !== undefined) seen.add(r.requestId);
     if (r.messageId) seen.add(r.messageId);
     if (run !== undefined) runsWithFinal.add(run);
     // cr-1132:messageId 透出——主投影发言行升格携带 message_id(anchor 派生
     // 的锚目标;前端按 persistedMsgId 对锚,分支/删除按钮随锚亮起为正向收编)
     out.push({ role: 'peer', agentId: r.agentId, content: r.content, ...(run !== undefined ? { run } : {}), ...(r.runMs !== undefined ? { runMs: r.runMs } : {}), ...(r.requestId !== undefined ? { requestId: r.requestId } : {}), timestamp: r.timestamp, ...(r.seq !== undefined ? { seq: r.seq } : {}), ...(r.messageId ? { messageId: r.messageId } : {}), ...(r.delivered !== undefined ? { delivered: r.delivered } : {}), ord: out.length });
+  };
+  for (const r of fold.speech) {
+    if (r.domain !== 'user') continue;
+    pushPeer(r);
+  }
+  for (const r of fold.speech) {
+    if (r.domain === 'user') continue;
+    if (r.content.trim() === '') continue;
+    pushPeer(r);
   }
   // 排序事实键 = 时间戳（cr-716；稳定：同刻 user 先于 peer——收集序）
   return out

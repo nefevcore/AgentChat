@@ -126,6 +126,36 @@ describe('fold im 档（cr-1326 dual-view P2——投递事实流）', () => {
     }
   });
 
+  it('cr-1344：user 域对称化——user 域入站行优先于同键 agent 域行；im 白名单 agent 回复从 user 域行取（chat 档同理）', () => {
+    // 1v1 对桶会话终态：agent 域（settle 终稿行 delivered:'final' + 入站 user 行）
+    // + user 域（桩落回信入站行 delivered:true，requestId 同键 reply-q1）
+    const WUUID = 'conv-user-domain';
+    const pair = sessionDir(ROOT, AGENT, WUUID);
+    const udir = sessionDir(ROOT, 'user', WUUID);
+    fs.mkdirSync(pair, { recursive: true });
+    fs.mkdirSync(udir, { recursive: true });
+    fs.writeFileSync(path.join(pair, 'messages.jsonl'), [
+      { type: 'session-header', version: 2, createdAt: 't', participants: [AGENT, 'user'], kind: 'user' },
+      { type: 'message', role: 'agent', content: '问一', agent_id: 'user', requestId: 'q1', message_id: 'q1', timestamp: '2026-11-26T10:00:01.000Z', seq: 1, delivered: true },
+      { type: 'message', role: 'agent', content: '答一', agent_id: AGENT, requestId: 'reply-q1', run: 'run-1', runMs: 4200, message_id: 'reply-q1', timestamp: '2026-11-26T10:00:13.000Z', seq: 5, delivered: 'final' },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    fs.writeFileSync(path.join(udir, 'messages.jsonl'), [
+      { type: 'session-header', version: 2, createdAt: 't', participants: ['user'], kind: 'user' },
+      { type: 'message', role: 'agent', content: '答一', agent_id: AGENT, requestId: 'reply-q1', run: 'run-1', runMs: 4200, uuid: WUUID, message_id: 'reply-q1', timestamp: '2026-11-26T10:00:13.050Z', seq: 1, delivered: true },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    const rows = assembleSessionView(ROOT, WUUID, { view: 'im' });
+    // chat 档：同键去重——user 域行胜（agent 域 'final' 行被 seen 吞），run 键携带（steps 联查）
+    const chatRows = assembleSessionView(ROOT, WUUID, {});
+    const replyRows = chatRows.filter((r) => r.content === '答一');
+    expect(replyRows).toHaveLength(1);
+    expect(replyRows[0]).toMatchObject({ run: 'run-1', runMs: 4200, delivered: true });
+    // im 档白名单：agent 回复在场（delivered:true 的 user 域行）——不再因 'final' 不投而丢回复
+    expect(rows.some((r) => r.role === 'assistant' && r.content === '答一' && r.delivered === true)).toBe(true);
+    expect(rows.some((r) => r.role === 'user' && r.content === '问一')).toBe(true);
+    // 会话只有两条 IM 行（问 + 答）
+    expect(rows).toHaveLength(2);
+  });
+
   it('cr-1332：会话级回退——存量无标会话维持排除法（分毫不变）', () => {
     seedV1();
     const before = assembleSessionView(ROOT, UUID, { view: 'im' });

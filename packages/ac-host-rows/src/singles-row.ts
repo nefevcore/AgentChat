@@ -7,9 +7,10 @@
 // + meta/sessions/.singles-registry.json
 //（清单注册表，cr-869：整表视图驻留内存，写点同步维护，list 零读——
 // cr-845 摘要索引的延伸；cr-973 自 viewer 树迁出——viewer 整树可删）。
-// 消息流 = agent 域账本（cr-973 viewer 停写——终稿层经 ac-ledger
-// projectUserReplay 读时投影，本行不再触碰 viewer 消息文件；模型覆盖
-// 归 conv-settings（D12 单源，不落 session.json）。
+// 消息流 = agent 域账本 + user 域收信账本（cr-973 viewer 停写、cr-1344
+// user 域对称化——终稿层经 ac-ledger projectUserReplay 读时投影全域并读，
+// 本行不触碰消息文件；模型覆盖归 conv-settings（D12 单源，不落
+// session.json）。
 //
 // RPC 面与主线 ac-web-api 同形（前端零改动）：
 //   singles/list | create | update | fork | archive | delete

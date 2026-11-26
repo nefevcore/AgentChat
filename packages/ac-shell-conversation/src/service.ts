@@ -428,7 +428,7 @@ export class ConversationService extends Service {
 
 
 
-  // —— 主线消费方言叶（collab-tools 等 inject 'conversation' 的行——方法面
+  // —— 主线消费方言叶（messaging-tools 等 inject 'conversation' 的行——方法面
   // 子集适配：deliver 组装主线 ConversationOutcome 形状；目标非本壳 agent =
   // 跨壳经邮局。preview 壳内目标恒 self（本 agent），跨壳投递走 postReply 面。）
 
@@ -438,7 +438,7 @@ export class ConversationService extends Service {
   }
 
   /**
-   * 主线 deliver 方言叶（collab-tools send_agent 消费面）：
+   * 主线 deliver 方言叶（messaging-tools send_agent 消费面）：
    * 目标 = 本壳 agent（壳内只有 self）→ 构造信封走 receiveEnvelope 全链；
    * outcome 映射：settled→run（LoopRunResult 近似——终稿从账本回放取）、
    * steered→steered、queue→queued、deduped→deduped。
@@ -494,19 +494,26 @@ export class ConversationService extends Service {
         ...(options.replyTo !== undefined ? { replyTo: options.replyTo } : {}),
       };
       await this.sendEnvelope(out);
-      await this.ctx.ledger.deliverRow(uuid, [this.agentId, sender], this.ledgerKindOf(out), {
-        role: 'agent',
-        content,
-        agent_id: sender,
-        requestId: out.requestId,
-        uuid,
-        // cr-1332：出站投递行打标（agent→user IM 从发送方账本读；机制/
-        // notice 同入站口径不打标——opt-in 封闭集合）。cr-1335：source='event'
-        // 的机制成因信（goal 轮唤醒 / job 完成回投 / collab 迟到通知——
-        // deliver 侧统一机制语义词）并入不打标集合：机制信非「对用户的
-        // 投递」，误标会让 IM 白名单收进机制通知（现场：goal_round 行）。
-        ...(options.mechanism === true || options.notice === true || options.source === 'event' ? {} : { delivered: true as const }),
-      });
+      // cr-1344（cr-1343 user 域对称化）：agent→user 方向出站行退役——
+      // user 桩是 user 域唯一写者（sendEnvelope 已投邮局，user 桩收信落
+      //  agents/user/sessions/<uuid>/）。sender 工作记忆由 tool 对承载
+      //（回执 JSON + arguments 全文——比出站行更结构化）。agent→agent
+      // 委托维持出站行（双方域各持投影——另一语义，本批不动）：
+      if (agentId !== 'user') {
+        await this.ctx.ledger.deliverRow(uuid, [this.agentId, sender], this.ledgerKindOf(out), {
+          role: 'agent',
+          content,
+          agent_id: sender,
+          requestId: out.requestId,
+          uuid,
+          // cr-1332：出站投递行打标（agent→agent IM 从发送方账本读；机制/
+          // notice 同入站口径不打标——opt-in 封闭集合）。cr-1335：source='event'
+          // 的机制成因信（goal 轮唤醒 / job 完成回投 / collab 迟到通知——
+          // deliver 侧统一机制语义词）并入不打标集合：机制信非投递，
+          // 误标会让 IM 白名单收进机制通知（现场：goal_round 行）。
+          ...(options.mechanism === true || options.notice === true || options.source === 'event' ? {} : { delivered: true as const }),
+        });
+      }
       return { kind: 'sent', handle };
     }
     const env: Envelope = {
@@ -822,7 +829,7 @@ export class ConversationService extends Service {
         //（hostless/CLI 直连）也回执，断「无邮局形态回执整体跳过」缺口。
         const childReply = replyTo === this.parentId;
         if (replyTo !== null && (childReply || this.postOfficeAddress !== undefined) && (replyText !== '' || replyTo === 'user')) {
-          await this.postReply(replyTo, uuid, replyText, env, runId);
+          await this.postReply(replyTo, uuid, replyText, env, runId, result.wallMs);
         }
         // 安全重启收口（cr-629/658 自然收束语义）：restart_shell 只挂起
         // 标记、不中断 run——本轮已自然 settle（终稿/回信/清行恰好一次），
@@ -1694,7 +1701,7 @@ export class ConversationService extends Service {
   }
 
   /** 跨壳回复（邮局投递——sender 端点可达性由邮局路由判定） */
-  private async postReply(to: string, uuid: string, text: string, orig: Envelope, runId: string): Promise<void> {
+  private async postReply(to: string, uuid: string, text: string, orig: Envelope, runId: string, wallMs?: number): Promise<void> {
     // 自回环防线（cr-638）：目标 = 本壳 agent 即自己回自己，投递会再拉一轮
     // run（预算耗尽前反复自答、用户侧却收不到终稿）。fail-open 到日志——
     // 正常路径（user / 跨壳 agent）永不命中。
@@ -1726,6 +1733,9 @@ export class ConversationService extends Service {
       payload: {
         text,
         run: runId,
+        // cr-1344：终稿墙钟随信透传——user 桩落 user 域入站行携带（读面
+        // 「用时」段与 steps 联查同 settle 行口径；跨壳 agent 收信方无消费）
+        ...(wallMs !== undefined ? { runMs: wallMs } : {}),
         ...(replyConversation !== undefined ? { replyConversation, completion: true } : {}),
       },
     };
