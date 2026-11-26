@@ -109,7 +109,7 @@ patch 内的定义副本会随出厂定义演进而过时。裁决：**行定义
 | packages/ac-rowset-core/src/base-docs.ts | 双区解析（骨架区/能力区）+ 分区校验 |
 | apps/catalog/profile/shell.yml | v5 单区骨架 13 行（cr-1033：能力定义归各包 ac.rows，构建期聚合进 row-catalog.json 投影——指纹校准的来源 + 编辑面可选项随投影走）；行内 tools / packs / bundle 字段全数删除 |
 | agent.patch.yml（ac-agents-core/patch-doc.ts） | 条目 = 行定义 + src-fingerprint + config；顶层数组形态沿用 |
-| 预设模板 templates/*/config.json | rows 点名清单 → 能力定义物化（从出厂能力区拷贝 + 指纹） |
+| 预设模板 templates/*/config.json | rows 点名清单 → 能力定义物化（从出厂能力区拷贝 + 指纹）。collab-tools 于 cr-1342 改名 messaging-tools（包目录同步 ac-messaging-tools） |
 | row-catalog.json / tool-catalog.json 投影 | 角色降级：从求值先决条件 → 骨架装载投影 + 编辑面目录；工具目录选面反转为 dump 驱动（boot 真装配注册面即选面），parity 对账锁随真值单一化退役；gen 链保留 |
 | subagent（inherit.ts / service.ts） | spawn 物化 = 拷父合并菜单子集（定义形态）；词过滤 = 父壳活注册面解析（工具名 → 归属行 → ⊆ 父行集），不再查静态目录 |
 | apps/shell/boot.ts 主体指纹足迹 | 行包足迹从 catalog path/packs 数组 → 条目包根 × package.json workspace 依赖闭包（顺带闭合纯库链接不入指纹的盲区） |

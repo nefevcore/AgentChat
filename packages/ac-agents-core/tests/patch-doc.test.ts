@@ -25,7 +25,7 @@ const CATALOG = { rows: [
   { id: 'sap-adt', tree: 'shell' },
   { id: 'math', tree: 'shell' },
   { id: 'browser', tree: 'shell' },
-  { id: 'collab-tools', tree: 'shell' },
+  { id: 'messaging-tools', tree: 'shell' },
 ] };
 /** v3 组合读期望（rows 差量换正清单：include = 定义清单，exclude 语义消亡；
  * access 随 cr-1082 轴退役——tier 不再落盘，读回缺席） */
@@ -133,7 +133,7 @@ describe('插件配置拆分（cr-906 批4 切片二）', () => {
 
 describe('levels 档位（cr-1004 批2b / cr-1022 批2：归位菜单定义 config——不进即不装）', () => {
   it('写侧：levels → def.config.level（browser/collab 行锚定——行不在菜单则跳过；dev-tools 键退役）；读侧投影回 levels', () => {
-    // rows 未点名 browser/collab-tools：levels 合并只对在场 def 生效（跳过，不静默长行）
+    // rows 未点名 browser/messaging-tools：levels 合并只对在场 def 生效（跳过，不静默长行）
     const withLevels: AgentConfig = {
       ...cfg,
       levels: { browser: 'inject', collab: 'admin', 'dev-tools': true },
@@ -143,14 +143,14 @@ describe('levels 档位（cr-1004 批2b / cr-1022 批2：归位菜单定义 conf
     const v3Miss = readAgentPatchV3At(dir)!;
     expect(v3Miss.defs.map((d) => d.id)).toEqual(['fs', 'web-tools']); // 不因档位长行
     expect(readAgentConfig(ROOT, ID)!.levels).toBeUndefined(); // 无锚定行 = 档位不落
-    // rows 点名 browser/collab-tools：config.level 随定义落盘
+    // rows 点名 browser/messaging-tools：config.level 随定义落盘
     writeAgentConfig(ROOT, {
       ...withLevels,
-      rows: { include: ['fs', 'web-tools', 'browser', 'collab-tools'] },
+      rows: { include: ['fs', 'web-tools', 'browser', 'messaging-tools'] },
     });
     const v3 = readAgentPatchV3At(dir)!;
     expect(v3.defs).toContainEqual({ id: 'browser', config: { level: 'inject' } });
-    expect(v3.defs).toContainEqual({ id: 'collab-tools', config: { level: 'admin' } });
+    expect(v3.defs).toContainEqual({ id: 'messaging-tools', config: { level: 'admin' } });
     expect(v3.defs.some((d) => d.id === 'dev-tools')).toBe(false); // 退役键不落
     expect(readAgentProfileAt(dir)?.levels).toBeUndefined(); // 档案不再携带
     const back = readAgentConfig(ROOT, ID)!;

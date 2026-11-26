@@ -3,10 +3,10 @@
 //
 // cr-886 时执行面住 ac-host-face/tools.ts（写死清单）；cr-1121 真动态化
 // 拆出：本行向 hostFaceRegistry 自报 update_agent_profile 工具 spec +
-// 执行器（自 ac-collab-tools 搬家语义原样——注册表写口收敛宿主，
+// 执行器（自 ac-messaging-tools 搬家语义原样——注册表写口收敛宿主，
 // agents-core 纯库读改写盘，与宿主编辑面同源）。TERMINOLOGY /
 // GUIDELINES_COLLAB 段与 collab 工具面语义耦合（壳内本地 owner =
-// ac-collab-tools），宿主贡献行不搬——壳内对账补位语义退役（本地
+// ac-messaging-tools），宿主贡献行不搬——壳内对账补位语义退役（本地
 // owner 在场时由本地行供给，见 host-shell-decisions）。
 // 双闸：壳闸 = 代理注册面 requiredTags 门禁；宿主闸 = 执行器内 admin 复查。
 // ============================================================

@@ -1,5 +1,5 @@
 // ============================================================
-// ac-collab-tools —— Agent 协作工具行（M14）
+// ac-messaging-tools —— Agent 协作工具行（原 ac-collab-tools，cr-1342 改名）（M14）
 //
 // src 轨道映射（agent-tools 七件，地图 §3.2）：
 //   send_agent      → ctx.conversation.deliver(sender:'agent')——
@@ -43,7 +43,7 @@ function err(message: string): ToolResult {
   return { ok: false, error: message };
 }
 
-export const name = 'ac-collab-tools';
+export const name = 'ac-messaging-tools';
 
 export const inject = ['tools', 'agents', 'conversation', 'agentLoop'];
 
@@ -108,7 +108,7 @@ function notifyLateReply(
     source: 'event',
     ...(convKey !== undefined ? { conversationId: convKey } : {}),
   }).catch((err: unknown) => {
-    ctx.logger.warn(`[collab-tools] 迟到回复通知 ${owner}（${convKey ?? owner + ' 自会话桶'}）失败: ${String(err)}`);
+    ctx.logger.warn(`[messaging-tools] 迟到回复通知 ${owner}（${convKey ?? owner + ' 自会话桶'}）失败: ${String(err)}`);
   });
 }
 
@@ -122,7 +122,7 @@ export function apply(ctx: Context) {
       const names = new Set(widenToolsForGating(ctx, request.agent, request.conversationId, request.tools));
       return names.has('list_agents') && names.has('send_agent') ? AGENT_MENTION_GUIDE : '';
     },
-  }, 'ac-collab-tools');
+  }, 'ac-messaging-tools');
 
   // ---- GROUP_CONTRACT 段：群聊行为契约（M26 主线验证有效——cr-712 壳侧接通） ----
   // 群会话 run（成员流键 gid~member / 本体键 gid）+ send_group 在场时
@@ -160,7 +160,7 @@ export function apply(ctx: Context) {
         : GROUP_CONTRACT_TEXT;
       return override;
     },
-  }, 'ac-collab-tools');
+  }, 'ac-messaging-tools');
 
   // ---- DIRECT_IM_CONTRACT 段（cr-1327 dual-view P3）：1v1 viewer 对桶的
   //      IM 增量能力教育——send_agent(user) 主动通报（mid-run 说进度/多段
@@ -173,13 +173,16 @@ export function apply(ctx: Context) {
       const agent = request.agent;
       if (agent === undefined || cid === undefined) return '';
       const s = parseKey(cid);
-      // 仅 1v1 viewer 对桶（一端 = user）：agent~agent 委托桶走既有协作语义
-      if (s.shape !== 'pair' || !pairIncludes(cid, 'user')) return '';
+      // cr-1339：1v1 viewer 对桶（一端 = user）+ single 独立会话（uuid 键）
+      // ——两个「用户面前」的会话形态。agent~agent 委托桶走既有协作语义
+      // （send_agent(user) fail-loud 拒绝），群走 GROUP_CONTRACT（send_group）。
+      const isUserFacing = (s.shape === 'pair' && pairIncludes(cid, 'user')) || s.shape === 'uuid';
+      if (!isUserFacing) return '';
       const names = new Set(widenToolsForGating(ctx, agent, cid, request.tools));
       if (!names.has('send_agent')) return '';
-      return '[直答消息] 普通回复直接输出即可（收束后自动送达用户）。需要中途通报进度或发多条短消息时，可调用工具 send_agent（to 填 "user"）把消息即时送达用户——不必等整轮完成；终稿与消息不冲突：终稿是本轮总结，消息是你选择说的话。';
+      return '[直答消息] 普通回复直接输出即可（收束后自动送达用户）。需要中途通报进度或发多条短消息时，可调用工具 send_agent（to 填 "user"）把消息即时送达当前会话——不必等整轮完成；终稿与消息不冲突：终稿是本轮总结，消息是你选择说的话。';
     },
-  }, 'ac-collab-tools');
+  }, 'ac-messaging-tools');
 
   // ---- TERMINOLOGY 段：术语约定（协作工具在场 + 非独立会话才注入——多
   //      Agent 会话知识对专注对话是噪音；协作工具面不裁剪，仅不教）----
@@ -192,7 +195,7 @@ export function apply(ctx: Context) {
       if (isSingleConversation(ctx, request.conversationId)) return '';
       return '术语约定：Agent — 本系统中所有对话参与者的统称，包括普通 Agent（AI 实体）和虚拟 Agent（用户）。send_agent、list_agents、read_agent_info 均可操作任意 Agent；update_agent_profile 默认更新自己，具备 admin 能力可更新其他 Agent。';
     },
-  }, 'ac-collab-tools');
+  }, 'ac-messaging-tools');
 
   // ---- GUIDELINES_COLLAB 段：多Agent协作 + 群聊协作指引（同门控）----
   ctx.agentLoop.registerPromptSection({
@@ -209,14 +212,14 @@ export function apply(ctx: Context) {
       }
       return parts.join('\n');
     },
-  }, 'ac-collab-tools');
+  }, 'ac-messaging-tools');
 
   // ---- send_agent：投递消息给另一 Agent（经会话状态机） ----
   // collab 标签（2026-09-16 全量标签化）：多 Agent 协作族门禁
   ctx.tools.register({
     name: 'send_agent',
     description:
-      '给另一个 Agent（或自己）发消息。默认异步发出即返回（对方回复会作为新消息送达）；wait=true 是异步发送的语法糖——发起后最多等 timeout_ms 拿回复，超时不影响对方的处理（对方继续跑完，回复迟到时以系统通知注入会话）。虚拟 Agent（如 user）也可投递：消息直达用户本人，无自动回复。已 spawn 的子 Agent id（sub_ 前缀）也可作为目标：消息作为任务消息进入该子 Agent 的会话（限其父投递）。',
+      '给另一个 Agent（或自己）发消息。默认异步发出即返回（对方回复会作为新消息送达）；wait=true 是异步发送的语法糖——发起后最多等 timeout_ms 拿回复，超时不影响对方的处理（对方继续跑完，回复迟到时以系统通知注入会话）。虚拟 Agent（如 user）也可投递：消息直达用户本人（落当前用户会话），无自动回复；群会话内不可用（对用户说话请用 send_group），Agent 间委托会话内会被拒绝。已 spawn 的子 Agent id（sub_ 前缀）也可作为目标：消息作为任务消息进入该子 Agent 的会话（限其父投递）。',
     parameters: {
       type: 'object',
       properties: {
@@ -295,15 +298,59 @@ export function apply(ctx: Context) {
 
         const target = ctx.agents.get(to);
         // 虚拟端点（viewer 等会话端点）：允许投递（M18 前端反馈 #9——
-        // 随机选目标掷到 viewer 不应整单失败）。M19 统一 pairKey(from, to)：
-        // to 是虚拟端点时天然落 viewer 对桶（与用户直答同桶），仅剩
-        // "无回复"提示语按 target.virtual 生成。虚拟端点无 LLM——不
-        // 回复是正常态。
+        // 随机选目标掷到 viewer 不应整单失败）。cr-1339 语境路由完成体：
+        // to=user 的落桶按 call.conversationId 键形归一（pairKey 双写已退役——
+        // 对桶语义退位给「当前会话即用户面前的桶」）：
+        //   · viewer 对桶 / 无会话键（直连 run）→ pairKey(fromForPair, user)
+        //     对桶（M19 语义，1v1 与用户直答同桶）；
+        //   · single 桶（uuid 键）→ 直投当前 single 桶——IM 视图即时可见
+        //     （此前 pairKey 落 1v1 对桶 = mid-run 通报静默丢失，错桶）；
+        //   · 群成员流（gid~self，GROUP_CONTRACT 同款群登记判定）/ 群本体
+        //     键 → fail-loud 引导 send_group（群内对用户说 = 群发言，用户
+        //     是隐式成员；落群外桶 = 群聊冒话）；
+        //   · agent~agent 委托桶 → fail-loud 拒绝（用户裁决 cr-1339：委托
+        //     中途对用户冒话语义未定义，静默错桶不如显式报错）。
+        // 虚拟端点无 LLM——不回复是正常态。
         if (target?.virtual) {
+          const cidShape = call.conversationId !== undefined ? parseKey(call.conversationId) : undefined;
+          // 群语境判定：群本体键（g- 形）或群成员流键（gid~self 形——键面
+          // 不可辨公理：靠群登记表消歧，GROUP_CONTRACT 同款判据）
+          const group = ctx.get('group', false) as
+            | { get(id: string): { id: string; name: string } | undefined }
+            | undefined;
+          let convKey: string | undefined;
+          let reject: string | undefined;
+          // 群语境引导文案（群本体键 / 成员流键共用——cid 填群 id）
+          const groupGuide = (gid: string): string => {
+            const name = group?.get(gid)?.name;
+            return `群会话内对用户说话 = 群发言：请改用 send_group（group_id 填 "${gid}"${name !== undefined ? '（' + name + '）' : ''}）——send_agent(user) 不投群桶，消息会脱离群聊上下文`;
+          };
+          // 群本体键（g- 形）：群 id = 全键（parseKey 剥前缀仅为判形）
+          if (cidShape !== undefined && cidShape.shape === 'group' && group?.get(call.conversationId!) !== undefined) {
+            reject = groupGuide(call.conversationId!);
+          } else if (
+            cidShape !== undefined && cidShape.shape === 'pair'
+            && cidShape.right === fromForPair && group?.get(cidShape.left) !== undefined
+          ) {
+            reject = groupGuide(cidShape.left);
+          } else if (
+            cidShape !== undefined && cidShape.shape === 'pair'
+            && !pairIncludes(call.conversationId!, 'user') && call.conversationId !== pairKey(fromForPair, fromForPair)
+          ) {
+            // agent~agent 委托桶（两端都无 user；本壳自会话键除外——自会话
+            // run 中途通报用户 = 语境路由缺省面，落 user 对桶是正解）
+            reject = `当前是与其他 Agent 的委托会话（${call.conversationId}）——中途向用户冒话语义未定义（用户在与你的对话里等结果，不在本会话里）。完成本轮后你的终稿会正常送达发起方；确需中途通报用户，请在用户所在的会话或你的直答对桶里调用`;
+          } else if (cidShape !== undefined && cidShape.shape === 'uuid') {
+            convKey = call.conversationId!; // single 桶直投（当前会话即用户面前的桶）
+          } else {
+            // viewer 对桶 / 无会话键 / 本壳自会话 / plain 形兜底 → user 对桶（M19 语义）
+            convKey = pairKey(fromForPair, to);
+          }
+          if (reject !== undefined || convKey === undefined) return err(reject ?? '投递目标会话键缺失——send_agent(user) 无法归一落桶');
           await ctx.conversation.deliver(to, message, {
             sender: from,
             source: 'agent',
-            conversationId: pairKey(fromForPair, to),
+            conversationId: convKey,
           });
           return {
             ok: true,
@@ -311,8 +358,11 @@ export function apply(ctx: Context) {
               to,
               virtual: true,
               message:
-                `已投递给 "${to}"（虚拟端点 = 用户本人）：消息会出现在用户与${fromSub !== undefined ? `"${fromSub.parentId}"（你代表的团队/发起方）` : '你'}的对话中，` +
-                '用户会看到但不会有自动回复——不要等待或重试，可在后续回复中继续说明。',
+                `已投递给 "${to}"（虚拟端点 = 用户本人）：消息会出现在` +
+                (cidShape?.shape === 'uuid'
+                  ? '当前会话'
+                  : `用户与${fromSub !== undefined ? `"${fromSub.parentId}"（你代表的团队/发起方）` : '你'}的对话中`) +
+                '，用户会看到但不会有自动回复——不要等待或重试，可在后续回复中继续说明。',
             },
           };
         }
@@ -453,14 +503,14 @@ export function apply(ctx: Context) {
   // ---- send_group：群内发言（可选 ctx.group） ----
   ctx.tools.register({
     name: 'send_group',
-    description: '在群组里发消息，群内其他成员会自主决定是否回应。',
+    description: '在群组里发消息，群内其他成员会自主决定是否回应。group_id 可省略——群会话内缺省发到当前群。',
     parameters: {
       type: 'object',
       properties: {
-        group_id: { type: 'string', description: '群组 ID' },
+        group_id: { type: 'string', description: '群组 ID（可省略——省略时发到当前群会话所在群）' },
         message: { type: 'string', description: '消息内容' },
       },
-      required: ['group_id', 'message'],
+      required: ['message'],
     },
     async execute(args, call): Promise<ToolResult> {
       try {
@@ -468,9 +518,24 @@ export function apply(ctx: Context) {
         if (!group) return err('群服务（ac-group 行）未装载——send_group 不可用');
         const from = call.agentId;
         if (from === undefined) return err('缺少执行身份（agentId）——send_group 需在 Agent run 内调用');
-        const gid = String(args.group_id ?? '').trim();
+        // cr-1339 group_id 缺省化：群语境（本体键 g- / 成员流键 gid~self——
+        // 键面不可辨，靠群登记消歧，同 DIRECT_IM_CONTRACT 语境判定）缺省取
+        // 当前群；非群语境缺省 = 报错引导（先 list_groups 找群，多群语境不猜）
+        let gid = String(args.group_id ?? '').trim();
+        if (!gid) {
+          const cidShape = call.conversationId !== undefined ? parseKey(call.conversationId) : undefined;
+          // 群本体键（g- 形）群 id = 全键（parseKey 剥前缀仅为判形，查册用原键）
+          const current =
+            cidShape?.shape === 'group' && group.get(call.conversationId!) !== undefined ? call.conversationId!
+              : cidShape?.shape === 'pair' && cidShape.right === from && group.get(cidShape.left) !== undefined
+                ? cidShape.left
+                : undefined;
+          if (current === undefined) {
+            return err('缺少 group_id 参数（当前不在群会话内——先用 list_groups 查看所在群组，再带 group_id 发言）');
+          }
+          gid = current;
+        }
         const message = String(args.message ?? '');
-        if (!gid) return err('缺少 group_id 参数');
         if (!message.trim()) return err('缺少 message 参数');
         if (!group.isMember(gid, from)) return err(`你不是群 "${gid}" 的成员（先确认 group_id）`);
         const result = await group.send(gid, from, message);

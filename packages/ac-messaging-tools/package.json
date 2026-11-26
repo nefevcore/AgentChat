@@ -1,9 +1,9 @@
 {
-  "name": "ac-collab-tools",
+  "name": "ac-messaging-tools",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "协作工具行：send_agent/send_group/list_agents/list_groups/list_tools/read_agent_info/update_agent_profile——投递经 conversation（busy=steer）、群经可选 ctx.group、档案经 agentStore 落盘；执行身份（M11）取代 src 身份烘焙",
+  "description": "消息与协作工具行（原 collab-tools，cr-1342 改名）：send_agent/send_group/list_agents/list_groups/list_tools/read_agent_info/update_agent_profile——投递经 conversation（busy=steer）、群经可选 ctx.group、档案经 agentStore 落盘；执行身份（M11）取代 src 身份烘焙",
   "exports": {
     ".": "./src/index.ts",
     "./src/*": "./src/*"
@@ -11,7 +11,7 @@
   "ac": {
     "rows": [
       {
-        "id": "collab-tools",
+        "id": "messaging-tools",
         "description": "协作工具",
         "requires": [
           "tools",

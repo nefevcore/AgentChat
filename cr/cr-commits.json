@@ -1,6 +1,6 @@
 {
- "scannedHead": "d31d47e5752d8e0bf6b116476c77cfbf2235dccd",
- "generatedAt": "2026-11-25T23:14:28.031Z",
+ "scannedHead": "ba383ad6c36c0869dc97332a7e0a1c3693def7d8",
+ "generatedAt": "2026-11-26T16:31:08.439Z",
  "_comment": "生成物：node cr/cr-git.mjs sync——禁手改（cr-984）",
  "entries": {
   "1": [
@@ -4163,6 +4163,13 @@
     "subject": "feat(session): cr-973 事件日志统一 Phase 1 第一刀——viewer 物化退役 + ac-session-index 指针索引行"
    }
   ],
+  "971": [
+   {
+    "sha": "2de36632c61a638338fab70c5d2f415671a82e75",
+    "date": "2026-11-27",
+    "subject": "feat(conversation): cr-1345 busy 用户排队信消费点落账——排队期不落账、消费点单源写入（三轨闭合 cr-971/cr-1119）+ 用户参与注入原文回放"
+   }
+  ],
   "972": [
    {
     "sha": "eb01d70ee4e49d8e4a4731a4a19631dcd912925a",
@@ -5156,6 +5163,11 @@
     "sha": "429a18f1e026972609315694319ba7519dbd201c",
     "date": "2026-11-16",
     "subject": "fix(session): cr-1119 机制通知 busy 排队行改消费点落账——context 行不再抢跑原 run 收束（restart_host 通知 seq 错位）"
+   },
+   {
+    "sha": "2de36632c61a638338fab70c5d2f415671a82e75",
+    "date": "2026-11-27",
+    "subject": "feat(conversation): cr-1345 busy 用户排队信消费点落账——排队期不落账、消费点单源写入（三轨闭合 cr-971/cr-1119）+ 用户参与注入原文回放"
    }
   ],
   "1120": [
@@ -6783,6 +6795,13 @@
     "subject": "chore(cr): cr-1322 sync——cr↔commit 投影更新（675 号 / 1085 条引用）"
    }
   ],
+  "1323": [
+   {
+    "sha": "422d2d98614d2ac209e483a132b756eaa50fe0de",
+    "date": "2026-11-27",
+    "subject": "feat(jobs): cr-1323 后台 job 完成通知附带输出尾部——executor doneFromClose 收敛 + meta.output 尾读 + wakeup 单条/digest 逐条预览"
+   }
+  ],
   "1324": [
    {
     "sha": "4e108d9ecd25a5c805b95c412056043a25dcdd8c",
@@ -6819,6 +6838,104 @@
     "sha": "306789179ee385f0529b52e27a6e64468979fea8",
     "date": "2026-11-26",
     "subject": "fix(webui): cr-1330 群成员下钻链路修复——模板 TS 断言致 member 空串 + 标题展示名 + 可发现性"
+   },
+   {
+    "sha": "f74e702dc43b1a972861762e0a3a3e04220af75b",
+    "date": "2026-11-26",
+    "subject": "chore(cr): cr-1330 sync 投影"
+   }
+  ],
+  "1331": [
+   {
+    "sha": "ca9549e6a852f06415472bcb03d053d16f5f7b25",
+    "date": "2026-11-26",
+    "subject": "fix(webui): cr-1331 IM 档干扰项根修——存量机制 run 词形兜底 + event 剔除 + 回执转发副本剔除（requestId 透传补齐）"
+   },
+   {
+    "sha": "1b116a3d8954efc6286aba21c7bf80ce6aabbd98",
+    "date": "2026-11-26",
+    "subject": "fix(webui): cr-1331 切档清场——IM 档不残留轨迹行（resetDialog before reload）"
+   },
+   {
+    "sha": "1f6aa3f73b5f3c65872ac5198ab104ceeeb8a006",
+    "date": "2026-11-26",
+    "subject": "chore(cr): cr-1331 台账"
+   },
+   {
+    "sha": "c5c9bfd30aee996a78a1e3e0d4846a45045194b8",
+    "date": "2026-11-26",
+    "subject": "docs: cr-1331 状态板留观记录更新"
+   },
+   {
+    "sha": "a1f632d9f9a5ead2c2247fa2659a1c3d3220a010",
+    "date": "2026-11-26",
+    "subject": "feat(webui): cr-1331 IM 视图纯净化——机制 run 终稿 origin 分流 + im 档直播过程帧抑制"
+   }
+  ],
+  "1332": [
+   {
+    "sha": "07ce5fa22648ee6ea02bd9222886184d76c6bc42",
+    "date": "2026-11-26",
+    "subject": "chore(cr): cr-1332 立项台账"
+   },
+   {
+    "sha": "d21bd5b5117e3476e744b1920ae4b496b4bd0264",
+    "date": "2026-11-26",
+    "subject": "docs(webui): cr-1332 IM 白名单方案立项 + 交接档（排除法根因分析 + 打标写面/读侧裁决 + 实施入口）"
+   }
+  ],
+  "1334": [
+   {
+    "sha": "ac755fa308dc365a2de2d318511733c9cb59b588",
+    "date": "2026-11-26",
+    "subject": "chore(cr): cr-1334~1337 台账"
+   },
+   {
+    "sha": "7db34a60c9d5c4313961987b709ec54e17159835",
+    "date": "2026-11-26",
+    "subject": "feat(webui): cr-1334/1335/1336/1337 IM 视图仅投影投递事实——白名单收紧 + 打标误判根修 + 双面装载重启 + 前端竞态与直播门控"
+   }
+  ],
+  "1338": [
+   {
+    "sha": "505599ecba27a8b480a0e3cc8b225ba2eac88289",
+    "date": "2026-11-27",
+    "subject": "refactor(webui): cr-1338 前端思维链显示/隐藏开关退役——IM 视图档取代（uiStore showThinking + 头部开关 + 渲染门控 + kit 独立导出面全链删除）"
+   }
+  ],
+  "1339": [
+   {
+    "sha": "1a5133dd982d9426f0d88941cb026568684efc10",
+    "date": "2026-11-27",
+    "subject": "fix(webui): cr-1339 语境路由前端/直播未读轴归一——message-received 帧带会话键 + single 桶未读不再误记对桶轴"
+   }
+  ],
+  "1341": [
+   {
+    "sha": "ba383ad6c36c0869dc97332a7e0a1c3693def7d8",
+    "date": "2026-11-27",
+    "subject": "refactor(rows): cr-1341+1342 collab-tools 列入预设模板基础行集并改名 messaging-tools（包目录 + ac.rows id + catalog 再生成 + 模板/测试/文档全链同步 + 语境路由工具面随包）"
+   }
+  ],
+  "1342": [
+   {
+    "sha": "6612711754803b57dd7b75efe05f72bea9aaef6d",
+    "date": "2026-11-27",
+    "subject": "feat(ledger): cr-1344 user 域账本对称化——user 桩成 user 域唯一写者、agent→user 出站行退役"
+   }
+  ],
+  "1344": [
+   {
+    "sha": "6612711754803b57dd7b75efe05f72bea9aaef6d",
+    "date": "2026-11-27",
+    "subject": "feat(ledger): cr-1344 user 域账本对称化——user 桩成 user 域唯一写者、agent→user 出站行退役"
+   }
+  ],
+  "1345": [
+   {
+    "sha": "2de36632c61a638338fab70c5d2f415671a82e75",
+    "date": "2026-11-27",
+    "subject": "feat(conversation): cr-1345 busy 用户排队信消费点落账——排队期不落账、消费点单源写入（三轨闭合 cr-971/cr-1119）+ 用户参与注入原文回放"
    }
   ]
  }

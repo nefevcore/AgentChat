@@ -16,7 +16,7 @@ import * as path from 'node:path';
  * before-run 注入群会话 run 的决策点：成员被群消息唤起后，回复走
  * send_group 主动发言（直接输出文本不送达群聊）；回声由本契约调控
  * （无话可说保持沉默、不刷屏）。per-Agent 覆盖：settings['group']
- * .contractText（消费方 collab-tools contractFor 同主线语义）。
+ * .contractText（消费方 messaging-tools contractFor 同主线语义）。
  */
 export const GROUP_CONTRACT_TEXT =
   '收到群聊消息：若值得回应，请调用工具 send_group 把回复发回群聊——直接输出文本不会发送到群聊、其他成员看不到；若无话可说则保持沉默，请注意不要刷屏。若是工作任务，请先在群内讨论、定下分工再动手——未经协调各自为战会造成重复劳动。';

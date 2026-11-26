@@ -70,7 +70,7 @@ export const name = 'ac-sap-adt';
 
 /**
  * ADT 工具使用规约（生效工具集含 adt_* 时注入 system prompt；对齐
- * ac-fs-tools FILE_MENTION_GUIDE / ac-collab-tools AGENT_MENTION_GUIDE
+ * ac-fs-tools FILE_MENTION_GUIDE / ac-messaging-tools AGENT_MENTION_GUIDE
  * 的 owner 行条件注入形态）。追加语义（规约块追加到 system 末尾）——
  * 与 persona 前置块 / 记忆块任意注册顺序都收敛到同一结构（顺序无关
  * 收敛规约）。**静态常量**：KV Cache 前缀稳定（输入不变则输出不变）。
@@ -193,7 +193,7 @@ export async function apply(ctx: Context, options: SapAdtRowOptions = {}) {
   // ---- 使用规约段（cr-944 §2.3：before-run 尾部 append hack 退役 → 段注册制。
   // 原 hack 落在 DATETIME 之后破「日期行绝对收尾」；且判据 request.tools ?? 全目录
   // 在 tc-programmatic 下（面收窄为 ['run_code']）静默漏注入——改用
-  // widenToolsForGating 展开面判定（与 collab-tools/fs-tools 各段同源单例：程序化
+  // widenToolsForGating 展开面判定（与 messaging-tools/fs-tools 各段同源单例：程序化
   // run 按能力面展开，模型经 run_code SDK 能调 adt_* 即教）。
   // 判据只认 `adt_` 前缀：engine 代际换名不影响成立；文案不引用具体工具名。----
   ctx.agentLoop.registerPromptSection({

@@ -45,6 +45,19 @@ describe('DIRECT_IM_CONTRACT 段判定（cr-1327 P3）', () => {
     expect(sections.get('DIRECT_IM_CONTRACT')!(req('alpha', 'alpha~beta', ['send_agent']) as never)).toBe('');
   });
 
+  it('cr-1339：uuid 形（single 独立会话）→ 注入（用户面前的会话形态）', () => {
+    const sections = bootCollab(['send_agent']);
+    const text = sections.get('DIRECT_IM_CONTRACT')!(req('alpha', '018f1e23-4567-7890-abcd-ef0123456789', ['send_agent']) as never);
+    expect(text).toContain('send_agent');
+    expect(text).toContain('当前会话');
+  });
+
+  it('cr-1339：群成员流键（gid~self，群在册）→ 不注入（归 GROUP_CONTRACT）', () => {
+    const sections = bootCollab(['send_agent']);
+    // 群服务缺席（ctx.get 恒 undefined）：gid~self 形落 pair——不含 user 端即不注入
+    expect(sections.get('DIRECT_IM_CONTRACT')!(req('alpha', 'g-test01~alpha', ['send_agent']) as never)).toBe('');
+  });
+
   it('send_agent 不在场（PTC 收窄）→ 不注入；无会话键 → 不注入', () => {
     const sections = bootCollab(['run_code']);
     expect(sections.get('DIRECT_IM_CONTRACT')!(req('alpha', 'alpha~user', ['run_code']) as never)).toBe('');

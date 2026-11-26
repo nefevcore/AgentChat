@@ -29,7 +29,7 @@ export const BUILTIN_TOOL_NAMES: readonly string[] = [
   'bash', 'pwsh', 'job', 'web_search', 'browser',
   // ac-math
   'math',
-  // ac-collab-tools
+  // ac-messaging-tools
   'send_agent', 'send_group', 'list_agents', 'list_groups', 'list_tools',
   'read_agent_info', 'update_agent_profile',
   // ac-dev-tools / ac-restart

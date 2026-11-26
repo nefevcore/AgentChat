@@ -345,12 +345,12 @@ describe('M8.3 run 内 spawn 工具面（subagent 行 + 影子嵌套账本）', 
   });
 });
 
-describe('M8.2 全量 loop 接线（conversation 域 + collab-tools）', () => {
-  it('collab-tools 真装配：send_agent 工具在册 + deliver 方言叶闭环（注入会话真身）', async () => {
-    seedAgent('iota', { rows: { include: ['collab-tools'] } });
+describe('M8.2 全量 loop 接线（conversation 域 + messaging-tools）', () => {
+  it('messaging-tools 真装配：send_agent 工具在册 + deliver 方言叶闭环（注入会话真身）', async () => {
+    seedAgent('iota', { rows: { include: ['messaging-tools'] } });
     const boot = await bootShell({ dataRoot: ROOT, agentId: 'iota', catalogFile: CATALOG });
     try {
-      // 闭包并入：collab-tools requires tools + conversation（agent-loop/llm 经链）
+      // 闭包并入：messaging-tools requires tools + conversation（agent-loop/llm 经链）
       for (const id of ['tools', 'conversation', 'ledger', 'agent-loop', 'llm']) {
         expect(boot.rowset.rowIds, id + ' 应经闭包/点名在集').toContain(id);
       }

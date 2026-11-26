@@ -19,7 +19,7 @@
 // 第四批形态（cr-522）：durable-interaction / ask-questions / bench 导入
 //   ——三行硬依赖（tools / durableInteraction / agentLoop）均已就位，
 //   conversation / session 均为组合可选（行未装 = 降级不阻断——主线
-//   组合可选惯例），零改动导入。余 collab-tools（inject conversation）/
+//   组合可选惯例），零改动导入。余 messaging-tools（inject conversation）/
 //   subagent（inject session+注册表面）随 8.2/8.3 落地后续批。
 // ============================================================
 import * as path from 'node:path';
@@ -65,7 +65,7 @@ import * as askQuestionsRow from 'ac-ask-questions';
 import * as benchRow from 'ac-bench';
 // 8.2 批：协作工具（inject conversation——preview 壳会话行 M8.2 落地，
 // deliver 方言叶就位后零改动导入）
-import * as collabToolsRow from 'ac-collab-tools';
+import * as collabToolsRow from 'ac-messaging-tools';
 import { makeToolsGateRow } from './gate.ts';
 import { makeShimsRow } from './shims.ts';
 
@@ -110,7 +110,7 @@ export const IMPORTED_ROWS: Record<string, Plugin> = {
   'ask-questions': askQuestionsRow as unknown as Plugin,
   'bench': benchRow as unknown as Plugin,
   // 8.2 批：协作工具
-  'collab-tools': collabToolsRow as unknown as Plugin,
+  'messaging-tools': collabToolsRow as unknown as Plugin,
 };
 
 /**

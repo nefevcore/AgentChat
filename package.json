@@ -108,7 +108,7 @@
     "ac-client-ui-usage": "workspace:*",
     "ac-client-ui-web": "workspace:*",
     "ac-client-ui-workspace": "workspace:*",
-    "ac-collab-tools": "workspace:*",
+    "ac-messaging-tools": "workspace:*",
     "ac-config": "workspace:*",
     "ac-config-merge": "workspace:*",
     "ac-conv-settings": "workspace:*",

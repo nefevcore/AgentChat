@@ -43,7 +43,7 @@ const TAG_TO_ROWS = new Map<string, readonly string[]>([
   ['fs', ['fs-tools', 'fs-search']],
   ['memory', ['memory']],
   ['history', ['session-query']],
-  ['collab', ['collab-tools']],
+  ['collab', ['messaging-tools']],
   ['infra', ['math', 'skill', 'todo', 'goal', 'datetime', 'ask-questions']],
   ['web', ['web-tools']],
   ['fs_minimal', ['str-replace-editor']],

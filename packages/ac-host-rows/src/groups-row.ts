@@ -58,6 +58,8 @@ export interface GroupMessageView {
   runMs?: number;
   /** 轮身份键（cr-1286 同语义：run 承载行 = run）——前端键控拆轮 */
   turnId?: string;
+  /** 投递标记（cr-1332 白名单词汇）：入站发言 = true / 成员终稿 = 'final' */
+  delivered?: boolean | 'final';
   /** ReAct 步投影（成员终稿行——foldStepsOf 单源产物；步级 reasoning 在内） */
   steps?: ProjectedStep[];
 }
@@ -366,6 +368,7 @@ export function makeGroupsHostRow(options: GroupsHostRowOptions): Plugin {
               ...(r.attachments !== undefined ? { attachments: r.attachments } : {}),
               ...(r.run !== undefined ? { run: r.run } : {}),
               ...(r.runMs !== undefined ? { runMs: r.runMs } : {}),
+              ...(r.delivered !== undefined ? { delivered: r.delivered } : {}),
               ...(view !== undefined ? { turnId: view.turnId } : {}),
               ...(view !== undefined && view.steps !== undefined ? { steps: view.steps } : {}),
             });

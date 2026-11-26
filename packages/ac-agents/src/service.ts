@@ -304,7 +304,7 @@ export function narrowToolsByMode(
  * 注入的既有口径，2026-09-21 单源化；cr-1049 载荷从 injection 标记换
  * discover 入口集）：request.tools 与入口集互为子集且非空。系统提示各
  * 门控行（system-prompt 指引块 / fs-tools @引用 / session-query #引用 /
- * collab-tools @名称）在程序化模式下请求面已被收窄成 ['run_code']，
+ * messaging-tools @名称）在程序化模式下请求面已被收窄成 ['run_code']，
  * 若按请求面判「工具在场」会误伤全部基线段——本函数是「这是模式合成
  * run 吗」的判别入口。
  */

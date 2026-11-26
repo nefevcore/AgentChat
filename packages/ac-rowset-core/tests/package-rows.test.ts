@@ -19,9 +19,9 @@ describe('cr-1033 包自述能力行聚合', () => {
     const aggregated = byId(aggregatePackageRows(REPO_ROOT));
     expect(aggregated).toHaveLength(25);
     expect(aggregated.map((r) => r.id)).toEqual([
-      'artifacts', 'ask-questions', 'auto-title', 'bench', 'browser', 'collab-tools',
+      'artifacts', 'ask-questions', 'auto-title', 'bench', 'browser',
       'fs-search', 'fs-tools', 'goal', 'harness-tools', 'issue-tools', 'math', 'mcp',
-      'memory', 'plugin-dev', 'restart', 'run-code', 'sap-adt', 'session-query', 'shell-tools',
+      'memory', 'messaging-tools', 'plugin-dev', 'restart', 'run-code', 'sap-adt', 'session-query', 'shell-tools',
       'skill', 'str-replace-editor', 'subagent', 'todo', 'web-tools',
     ]);
   });

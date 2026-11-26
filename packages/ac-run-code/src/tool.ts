@@ -519,7 +519,7 @@ export async function executeRunCode(
   // toolCallId 的既有约定，挂起工具的 open 均按它落盘）。
   // 2026-09-23 收敛：冻结唯一豁免源 = 人（durable）。等待他方 Agent
   //（send_agent wait 等）不再冻结——墙钟 720s 直罩（被杀不丢数据：迟到
-  // 回复经薄通知注入回投，见 collab-tools）；compute 轴整体退役。
+  // 回复经薄通知注入回投，见 messaging-tools）；compute 轴整体退役。
   const pauseSpans: Array<{ from: number; to: number }> = [];
   let pauseFrom = 0;
   const frozen = (): boolean => pauseFrom !== 0;

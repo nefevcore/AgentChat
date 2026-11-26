@@ -237,11 +237,11 @@ export function makeHostFaceClientRow(options: HostFaceClientRowOptions): Plugin
       if (cached !== null) {
         for (const spec of cached.tools) registerTool(spec);
         // 段静态面只收 promise 段（恒真静态文本——宿主贡献行自报标记）；
-        // 本地 owner 段（TERMINOLOGY/GUIDELINES_COLLAB——collab-tools）不进
+        // 本地 owner 段（TERMINOLOGY/GUIDELINES_COLLAB——messaging-tools）不进
         // boot 面：骨架行先装先占位会饿死本地 owner 的 fail-loud 注册
-        // （实测事故：collab-tools 装配抛段名已注册 → 整壳 boot 失败）。
+        // （实测事故：messaging-tools 装配抛段名已注册 → 整壳 boot 失败）。
         // 非 promise 段的对账补位在 applyReconcile 承载（行集不含
-        // collab-tools 时 catch 静默跳过 = 兜底语义保持）。
+        // messaging-tools 时 catch 静默跳过 = 兜底语义保持）。
         for (const spec of cached.sections) {
           if (spec.promise === true) registerSection(spec);
         }

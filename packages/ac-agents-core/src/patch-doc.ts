@@ -318,7 +318,7 @@ export function writeAgentProfileAt(dir: string, profile: AgentProfile): void {
  * config.level；dev-tools 行已退役〔cr-520〕且 'dev' 能力词无消费面——键退役） */
 export const LEVELS_ROW_OF: Record<string, string | undefined> = {
   browser: 'browser',
-  collab: 'collab-tools',
+  collab: 'messaging-tools',
 };
 /** 反向映射（组合读面：条目 config.level → AgentConfig.levels） */
 export const LEVELS_UNIT_OF: Record<string, string | undefined> = Object.fromEntries(

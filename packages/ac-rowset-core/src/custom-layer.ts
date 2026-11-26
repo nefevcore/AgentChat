@@ -6,8 +6,10 @@
 //
 // 词形（cr-1004 §四——全层共用一套，cordis 方言邻接；层权限表在
 // assembly-governance.md §一）：
-//   - { id }                              加法（行 id / 工具名 / 捆绑词）
 //   - { id, config: {...} }               行内配置（levels 归位——cordis 原生）
+// 注意：cr-1022 批2 起本层**不再支持加法**（{ id } 裸条目只对已在菜单内的行
+// 有意义，用于配置/停用；点名新行会被静默忽略——定义入口禁入，防第二定义
+// 入口）。加行请改 agent.patch.yml（实例菜单片段）或预设模板（物化）。
 //   - { id, disabled: true }              停用基座行（全局减法）
 //   - { id, disabled: true, except: [agentId…] }
 //                                         停用豁免——「全局关、单个

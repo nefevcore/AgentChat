@@ -342,9 +342,6 @@ importers:
       ac-client-ui-workspace:
         specifier: workspace:*
         version: link:packages/ac-client-ui-workspace
-      ac-collab-tools:
-        specifier: workspace:*
-        version: link:packages/ac-collab-tools
       ac-config:
         specifier: workspace:*
         version: link:packages/ac-config
@@ -420,6 +417,9 @@ importers:
       ac-memory-core:
         specifier: workspace:*
         version: link:packages/ac-memory-core
+      ac-messaging-tools:
+        specifier: workspace:*
+        version: link:packages/ac-messaging-tools
       ac-noise-core:
         specifier: workspace:*
         version: link:packages/ac-noise-core
@@ -2147,37 +2147,6 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
-  packages/ac-collab-tools:
-    dependencies:
-      '@agentchat/cordis':
-        specifier: workspace:*
-        version: link:../vendor/cordis
-      ac-agent-loop:
-        specifier: workspace:*
-        version: link:../ac-agent-loop
-      ac-agents:
-        specifier: workspace:*
-        version: link:../ac-agents
-      ac-agents-core:
-        specifier: workspace:*
-        version: link:../ac-agents-core
-      ac-conv-keys:
-        specifier: workspace:*
-        version: link:../ac-conv-keys
-      ac-core-utils:
-        specifier: workspace:*
-        version: link:../ac-core-utils
-    devDependencies:
-      ac-conversation:
-        specifier: workspace:*
-        version: link:../ac-conversation
-      ac-tools:
-        specifier: workspace:*
-        version: link:../ac-tools
-      vitest:
-        specifier: ^4.1.10
-        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
-
   packages/ac-conduct:
     dependencies:
       '@agentchat/cordis':
@@ -3124,6 +3093,37 @@ importers:
         specifier: ^4.1.10
         version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
 
+  packages/ac-messaging-tools:
+    dependencies:
+      '@agentchat/cordis':
+        specifier: workspace:*
+        version: link:../vendor/cordis
+      ac-agent-loop:
+        specifier: workspace:*
+        version: link:../ac-agent-loop
+      ac-agents:
+        specifier: workspace:*
+        version: link:../ac-agents
+      ac-agents-core:
+        specifier: workspace:*
+        version: link:../ac-agents-core
+      ac-conv-keys:
+        specifier: workspace:*
+        version: link:../ac-conv-keys
+      ac-core-utils:
+        specifier: workspace:*
+        version: link:../ac-core-utils
+    devDependencies:
+      ac-conversation:
+        specifier: workspace:*
+        version: link:../ac-conversation
+      ac-tools:
+        specifier: workspace:*
+        version: link:../ac-tools
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@20.19.43)(jsdom@30.0.1(@noble/hashes@2.4.0)(canvas@3.2.3))(vite@8.2.1(@types/node@20.19.43)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.12)(yaml@2.9.0))
+
   packages/ac-migration-core:
     devDependencies:
       vitest:
@@ -3516,9 +3516,6 @@ importers:
       ac-bench:
         specifier: workspace:*
         version: link:../ac-bench
-      ac-collab-tools:
-        specifier: workspace:*
-        version: link:../ac-collab-tools
       ac-conduct:
         specifier: workspace:*
         version: link:../ac-conduct
@@ -3588,6 +3585,9 @@ importers:
       ac-memory:
         specifier: workspace:*
         version: link:../ac-memory
+      ac-messaging-tools:
+        specifier: workspace:*
+        version: link:../ac-messaging-tools
       ac-net-monitor:
         specifier: workspace:*
         version: link:../ac-net-monitor

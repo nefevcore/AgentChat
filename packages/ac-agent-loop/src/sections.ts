@@ -31,7 +31,7 @@ export const SECTION_ORDER = {
   PERSONA: 10, // <persona> 人设块
   MEMORY: 20, // 记忆静态指引
   REFERENCE_FS: 110, // [引用约定] @路径（ac-fs-tools）
-  REFERENCE_AGENT: 114, // @名称引用（ac-collab-tools）——组内 4 间隔留插入位
+  REFERENCE_AGENT: 114, // @名称引用（ac-messaging-tools）——组内 4 间隔留插入位
   REFERENCE_SESSION: 118, // #会话引用（位保留——read_history/grep_history 工具描述自带）
   TERMINOLOGY: 122, // 术语约定（cr-944 聚簇：词汇层连续成链，原 250 环境区归位）
   ENV_WORKDIR: 200, // [工作目录] + [路径穿透白名单]

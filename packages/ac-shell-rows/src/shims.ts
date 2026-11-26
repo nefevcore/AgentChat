@@ -126,7 +126,7 @@ export class AgentsShim extends Service {
     }
   }
 
-  /** 主线 AgentsService.list 面（collab-tools list_agents 消费——全量配置数组） */
+  /** 主线 AgentsService.list 面（messaging-tools list_agents 消费——全量配置数组） */
   list(): unknown[] {
     return this.ids().map((id) => this.get(id)).filter((c) => c !== undefined);
   }

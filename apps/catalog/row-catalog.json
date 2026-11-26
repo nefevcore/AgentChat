@@ -360,17 +360,6 @@
       "path": "packages/ac-web-tools"
     },
     {
-      "id": "collab-tools",
-      "tree": "shell",
-      "zone": "capability",
-      "description": "协作工具",
-      "requires": [
-        "tools",
-        "conversation"
-      ],
-      "path": "packages/ac-collab-tools"
-    },
-    {
       "id": "fs-search",
       "tree": "shell",
       "zone": "capability",
@@ -449,6 +438,17 @@
         "tools"
       ],
       "path": "packages/ac-memory"
+    },
+    {
+      "id": "messaging-tools",
+      "tree": "shell",
+      "zone": "capability",
+      "description": "协作工具",
+      "requires": [
+        "tools",
+        "conversation"
+      ],
+      "path": "packages/ac-messaging-tools"
     },
     {
       "id": "plugin-dev",

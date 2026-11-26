@@ -2,7 +2,7 @@
 // ac-retired-types —— 旧树退役类型墓碑（cr-696）
 //
 // ◐c 退役批删除了 A 类行包（ac-singles/ac-group/ac-session 等 24 包），
-// 但 B 类保留包（goal/todo/workspace/collab-tools 等）源码仍以可选能力
+// 但 B 类保留包（goal/todo/workspace/messaging-tools 等）源码仍以可选能力
 // 形态消费这些服务的类型面（运行时由 preview 壳 shims 提供同名实现，
 // 主线侧行已不存在）。本文件把被删包的 Context/Events 类型增强声明
 // 集中承载——方法面按 B 类源码实际消费面收敛（签名从 git HEAD 原包
