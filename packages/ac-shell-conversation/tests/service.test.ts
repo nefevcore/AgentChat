@@ -666,11 +666,12 @@ describe('M8.2 conversation 服务面（信封 → 全量 loop → settle）', (
       release();
       await first;
       expect(conv.isBusy()).toBe(false);
-      // 账本：入站两行（慢问题 + 排队消息A）+ 终稿一行；steer 注入物化行
-      // 携带 requestId（cr-713——queue→steered 双记录，读侧去重防双喂）
+      // 账本：入站一行（慢问题）+ 终稿一行；q2 排队→steer 注入物化行
+      // 携带 requestId（cr-1345：busy 排队信收信不落账，消费点单源 =
+      // inject 事件行——入站 message 行退役，回放经注入轨迹归并无双喂）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', UUID));
       // cr-974 v2：注入事件行（type='inject'）不再用 source 判别
-      expect(rows.filter((r) => r.requestId === 'q2').map((r) => (r as unknown as Record<string, unknown>).type ?? '')).toEqual(['message', 'inject']);
+      expect(rows.filter((r) => r.requestId === 'q2').map((r) => (r as unknown as Record<string, unknown>).type ?? '')).toEqual(['inject']);
       const ledgerFace = ctx.get('ledger', false) as unknown as { historyMessagesFor(u: string): Array<{ content: string }> };
       expect(ledgerFace.historyMessagesFor(UUID).filter((m) => m.content === '排队消息A')).toHaveLength(1);
       // cr-974 v2：注入事件行内联 messages.jsonl；journal 停写（零行）
@@ -1012,8 +1013,9 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       await first;
       expect(conv.isBusy()).toBe(false);
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-a'));
-      // 行序：a2 入站行在 a1 收束前已落（到达序），a1 终稿在收束时
-      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['第一问', '第二问', '[回复 第一问]', '[回复 第二问]']);
+      // 行序（cr-1345 消费点落账）：a2 入站行在 a1 终稿后落（消费点真序），
+      // a1 终稿在收束时——文件序 = 真实轮序
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['第一问', '[回复 第一问]', '第二问', '[回复 第二问]']);
     } finally {
       gates[0]!.resolve();
       gates[1]!.resolve();
@@ -1042,9 +1044,10 @@ describe('工具面（cr-582：tools/list 目录 owner + agents/tool-defs 估算
       expect(conv.isBusy()).toBe(false);
       // b1 死信被跳过（无 run 轨迹）；b2 照跑——修复前 b1 miss 即 break +
       // finally 再移位丢 b2，两 turn 全蒸发（creator 实锤现场）。
-      // 行序：排队信入站行在占门 run 收束前已落（到达序），占门终稿在收束时
+      // 行序（cr-1345 消费点落账）：b2 入站行在占门终稿后落（消费点真序）；
+      // b1 死信无消费点 = 无行（收信未落 + inbox 无信封）
       const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-b'));
-      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['占门问', '第一封', '第二封', '[回复 占门问]', '[回复 第二封]']);
+      expect(rows.filter((r) => r.role !== undefined && r.source !== 'segment' && r.source !== 'inject').map((x) => x.content)).toEqual(['占门问', '[回复 占门问]', '第二封', '[回复 第二封]']);
       expect(rows.find((r) => (r as unknown as Record<string, unknown>).type === 'message' && r.run === 'run-b2')).toMatchObject({ run: 'run-b2' });
       expect(conv.queue('conv-b')).toHaveLength(0);
     } finally {
@@ -1994,6 +1997,49 @@ describe('cr-946 机制通知信封（壳重启「已重启」续跑通知）', 
       expect(noteIdx).toBeGreaterThan(replyIdx);
       // 链跑续跑轮终稿照常
       expect(rows.some((r) => r.run === 'run-notify-1' && r.role === 'agent')).toBe(true);
+    } finally {
+      release();
+      await dispose(fibers);
+    }
+  }, 20_000);
+
+  // cr-1345：busy 用户排队信同并入消费点落账（三轨闭合 cr-971/cr-1119）——
+  // 收信不落（旧到达序落账把用户行插进占门 run 步块中间），链跑消费点落账
+  // 且文件序晚于占门 run 终稿；消费点先落再 driveRun（回放含当前消息）。
+  it('cr-1345：busy 排队的用户信不抢跑——消费点落账晚于占门 run 终稿（发言行形态）', async () => {
+    seedAgent('alpha');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const { ctx, fibers, conv } = await bootTree('alpha', undefined, gate);
+    try {
+      const first = conv.receiveEnvelope(msg('conv-u', 'u1', '占门问'), { fresh: true });
+      await new Promise((r) => setTimeout(r, 80));
+      expect(conv.isBusy()).toBe(true);
+      // busy + next-turn 用户信 → 排队，不落账（修复点：修复前收信即落——
+      // 行插在占门 run 步块中间，账本时序 ≠ 真实轮序）
+      const q = await conv.receiveEnvelope(makeEnvelope({ uuid: 'conv-u', requestId: 'u2', sender: 'user', to: 'alpha', payload: { text: '排队消息乙', lane: 'next-turn' } }), { fresh: true });
+      expect(q).toBe('queued');
+      expect(readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-u')).rows
+        .filter((r) => r.requestId === 'u2')).toHaveLength(0);
+      // 放行 → 占门 run 收束 → 链跑消费用户信（独立续跑轮）
+      release();
+      await first;
+      for (let i = 0; i < 100 && conv.isBusy(); i++) await new Promise((r) => setTimeout(r, 50));
+      expect(conv.isBusy()).toBe(false);
+      const { rows } = readLedger(path.join(ROOT, 'agents', 'alpha', 'sessions', 'conv-u'));
+      // 用户行在场、形态 = 发言行（role=agent + agent_id=user + delivered 打标），
+      // 且文件序晚于占门 run 终稿（消费点真序）
+      const userRow = rows.find((r) => r.requestId === 'u2');
+      expect(userRow).toMatchObject({ role: 'agent', agent_id: 'user', content: '排队消息乙' });
+      const uIdx = rows.indexOf(userRow!);
+      const replyIdx = rows.findIndex((r) => r.role === 'agent' && r.run === 'run-u1');
+      expect(replyIdx).toBeGreaterThan(-1);
+      expect(uIdx).toBeGreaterThan(replyIdx);
+      // 消费点先落再 driveRun：链跑轮模型上下文复读含当前消息（上下文单源不变）
+      const ledgerFace = ctx.get('ledger', false) as unknown as { historyMessagesFor(u: string): Array<{ content: string }> };
+      expect(ledgerFace.historyMessagesFor('conv-u').filter((m) => m.content === '排队消息乙')).toHaveLength(1);
+      // 链跑续跑轮终稿照常
+      expect(rows.some((r) => r.run === 'run-u2' && r.role === 'agent')).toBe(true);
     } finally {
       release();
       await dispose(fibers);

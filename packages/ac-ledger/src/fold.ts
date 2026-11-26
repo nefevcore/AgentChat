@@ -530,8 +530,11 @@ export function foldLlmReplay(
     if (slot.notice !== undefined) {
       // cr-888/1101/1106：context 行按 user 回放（事件通知/错误/注入材料
       // 全量准入）；cr-1104 分档：声明词按注册档（none = 不进回放），缺省 wrapper
+      // cr-1345：用户参与注入（delivered——steer 插话/ask 作答）原文回放
+      //（注入行是该消息唯一落账时，wrapper 包壳 = 模型失明用户发言原文）
       if (kindOf(slot.notice.source) === 'none') continue;
-      out.push({ role: 'user', content: wrapForReplay(slot.notice.content, kindOf(slot.notice.source)) });
+      const userSaid = slot.notice.delivered === true;
+      out.push({ role: 'user', content: wrapForReplay(slot.notice.content, userSaid ? 'original' : kindOf(slot.notice.source)) });
       continue;
     }
     if (slot.orphan !== undefined) {
@@ -617,9 +620,9 @@ export function trajectoryOfFacts(
   // 事件行序 → 步/注入交错（步号按首见序对应 foldStepsOf 的 acc 序）
   const stepOrder: number[] = [];
   const seenStep = new Set<number>();
-  const slots: Array<{ kind: 'step'; step: number } | { kind: 'inject'; content: string; injectSource?: string; attachments?: LedgerAttachment[] }> = [];
+  const slots: Array<{ kind: 'step'; step: number } | { kind: 'inject'; content: string; injectSource?: string; delivered?: boolean | 'final'; attachments?: LedgerAttachment[] }> = [];
   for (const ev of rf.events) {
-    if (ev.kind === 'inject') { slots.push({ kind: 'inject', content: ev.content, ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}), ...(ev.attachments !== undefined ? { attachments: ev.attachments } : {}) }); continue; }
+    if (ev.kind === 'inject') { slots.push({ kind: 'inject', content: ev.content, ...(ev.injectSource !== undefined ? { injectSource: ev.injectSource } : {}), ...(ev.delivered !== undefined ? { delivered: ev.delivered } : {}), ...(ev.attachments !== undefined ? { attachments: ev.attachments } : {}) }); continue; }
     if (ev.kind === 'tool-call-result') continue;
     if (!seenStep.has(ev.step)) { seenStep.add(ev.step); stepOrder.push(ev.step); slots.push({ kind: 'step', step: ev.step }); }
   }
@@ -629,9 +632,11 @@ export function trajectoryOfFacts(
   for (const slot of slots) {
     if (slot.kind === 'inject') {
       if (kindOfT(slot.injectSource) === 'none') continue;
+      // cr-1345：用户参与注入（delivered——steer 插话/ask 作答）原文回放
+      const userSaid = slot.delivered === true;
       out.push({
         role: 'user',
-        content: wrapForReplay(slot.content, kindOfT(slot.injectSource)),
+        content: wrapForReplay(slot.content, userSaid ? 'original' : kindOfT(slot.injectSource)),
         ...(slot.attachments !== undefined ? { attachments: slot.attachments } : {}),
       });
       continue;

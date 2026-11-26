@@ -41,6 +41,10 @@ export function useQueuedMessages(
   conversationId: Ref<string | null | undefined>,
   /** rpc 契约面（缺省取 clientRuntime 单例——app 内恒在场；测试可注入桩） */
   rpc: RpcClientFace | null = clientRuntime()?.rpc ?? null,
+  /** busy 信号源（可选）：run 收束翻转（busy→false）时对账一次——
+   *  堵 WS 断连窗口丢 queue-changed 帧后的陈旧面（cr-1345：帧是唯一增量
+   *  推送面，丢帧后 refresh 只在会话切换触发——dock 恒陈旧直到切走再切回） */
+  busySource?: WatchSource<boolean>,
 ): QueuedMessages {
   const items = ref<QueuedMessage[]>([]);
 
@@ -91,6 +95,11 @@ export function useQueuedMessages(
   }
 
   watch([agentId, conversationId], () => void refresh(), { immediate: true });
+  // busy→false（run 收束）= 对账点：消费/清队的 queue-changed 帧若在断连窗口
+  // 丢失，此处拉权威快照补齐（busy 期间不触发——轮内快照本就活跃）
+  if (busySource !== undefined) {
+    watch(busySource, (now, prev) => { if (prev === true && now === false) void refresh(); });
+  }
 
   const off = rpc?.onEvent((type, args) => {
     if (type !== 'conversation/queue-changed') return;

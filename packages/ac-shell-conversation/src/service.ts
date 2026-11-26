@@ -346,14 +346,18 @@ export class ConversationService extends Service {
     // inbox durable 形态）行缺席 = 上下文单源断链（run 拿不到当前消息）。
     // 盘面按 requestId 查重（inject 行/注入台账同键——cr-713 steer 记录），
     // 缺席才补写（在场 = 幂等短路，同旧语义）。
-    // cr-1119：机制行 busy 排队同样不收信落账——机制行 = 轮边界（cr-946），
+    // cr-1119：机制行 busy 排队不收信落账——机制行 = 轮边界（cr-946），
     // 收信即落会把行插进原 run 收束前的步块（restart_host 通知实测：context
     // 行抢跑原 run 终稿 9s，链跑开的续跑轮排在后）。排队信改消费点落账
-    //（链跑/drainQueuedTurn → deliverQueuedMechRow），文件序 = 真实轮序；
+    //（链跑/drainQueuedTurn → deliverQueuedRow），文件序 = 真实轮序；
     // 壳死于排队窗口 → 恢复面 recovered 重投走 run 路径，由上方补行门收敛。
-    // 用户排队行维持到达序落账（链跑交接测试锚定：historyFor 复读当前消息）。
-    const mechQueued = plan.action === 'queue' && (env.payload as { mechanism?: unknown } | null)?.mechanism === true;
-    if (plan.action !== 'steer' && !mechQueued
+    // cr-1345：busy 用户排队信对称并入消费点落账（第三轨闭合 cr-971/cr-1119
+    // 三轨不对称——旧到达序落账把用户行插进在途 run 步流中间，账本时序 ≠
+    // 真实轮序，双视图/回放按文件序渲染即交错）。消费点先落再 driveRun，
+    // historyFor 复读语义不变；崩溃安全链不变（inbox durable + 恢复面 run
+    // 路径补行门）；queue-remove 删除不再需要回滚入站行（行从未落过）。
+    const queued = plan.action === 'queue';
+    if (plan.action !== 'steer' && !queued
       && (opts.recovered !== true || !ledger.hasInboundRow(uuid, env.requestId))) {
       await ledger.deliverRow(uuid, [this.agentId, env.sender], this.ledgerKindOf(env), this.inboundRowOf(env, text));
     }
@@ -862,8 +866,8 @@ export class ConversationService extends Service {
             nextEnv = candidate;
             env = nextEnv;
             runId = 'run-' + env.requestId;
-            // cr-1119：机制排队行消费点落账（排队期未落——receiveEnvelope）
-            await this.deliverQueuedMechRow(uuid, env);
+            // cr-1119/cr-1345：排队行消费点落账（排队期未落——receiveEnvelope）
+            await this.deliverQueuedRow(uuid, env);
           }
         }
         if (nextEnv === null) break;
@@ -902,8 +906,8 @@ export class ConversationService extends Service {
     const env = this.takeFromInbox(uuid, next.requestId);
     this.emitQueueChanged(uuid); // 队列缩减点（唤醒消费 / 死信出队）
     if (env === null) return;
-    // cr-1119：机制排队行消费点落账（同链跑消费点）
-    await this.deliverQueuedMechRow(uuid, env);
+    // cr-1119/cr-1345：排队行消费点落账（同链跑消费点）
+    await this.deliverQueuedRow(uuid, env);
     await this.driveRun(uuid, env, { action: 'run', budgetAfter: 0 });
   }
 
@@ -1312,11 +1316,11 @@ export class ConversationService extends Service {
     return normalizeAttachments((env.payload as { attachments?: unknown } | null)?.attachments);
   }
 
-  /** 机制排队行消费点落账（cr-1119）：busy 排队的机制信在 receiveEnvelope
-   *  不落账（防 context 行抢跑原 run 步块），消费点（链跑/drainQueuedTurn）
-   *  按 requestId 判重补落——文件序 = 真实轮序；非机制信零动作。 */
-  private async deliverQueuedMechRow(uuid: string, env: Envelope): Promise<void> {
-    if ((env.payload as { mechanism?: unknown } | null)?.mechanism !== true) return;
+  /** 排队信消费点落账（cr-1119 机制信 + cr-1345 用户信单源）：busy 排队信在
+   *  receiveEnvelope 不落账（防行抢跑原 run 步块——收信时刻 ≠ 消费时刻），
+   *  消费点（链跑/drainQueuedTurn）按 requestId 判重补落——文件序 = 真实轮序。
+   *  行形态 = inboundRowOf（机制信 context / 用户信发言行 delivered）。 */
+  private async deliverQueuedRow(uuid: string, env: Envelope): Promise<void> {
     if (this.ctx.ledger.hasInboundRow(uuid, env.requestId)) return;
     await this.ctx.ledger.deliverRow(uuid, [this.agentId, env.sender], this.ledgerKindOf(env), this.inboundRowOf(env, this.textOf(env)));
   }
