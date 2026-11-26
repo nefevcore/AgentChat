@@ -4,7 +4,6 @@
 <script setup lang="ts">
 import { ref, computed, onBeforeUnmount } from 'vue';
 import { useRosterCore } from 'ac-client-ui-agents/client/rosterAccess.ts';
-import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { VIEWER_ID } from '../viewer.ts';
 import AssistantMessage from './AssistantMessage.vue';
 import ToolMessage from './ToolMessage.vue';
@@ -13,7 +12,7 @@ import InjectCardHost from './InjectCardHost.vue';
 import { resolveMessageView, resolveMessageViewRenderer } from '../messageViews.ts';
 import { noteChainExpanded, chainExpandInit } from '../viewParking.ts';
 import { chainSteps, fmtElapsed } from '../feed.ts';
-import { Avatar, Icon, ThinkingIcon } from '@agentchat/webui-kit';
+import { Avatar, Icon } from '@agentchat/webui-kit';
 import type { InjectCard, Turn, ChatMessage } from '../types.ts';
 
 const props = defineProps<{
@@ -43,7 +42,6 @@ const emit = defineEmits<{
 }>();
 
 const roster = useRosterCore();
-const ui = useUiStore();
 
 const isSelf = computed(() => props.turn.agent_id === props.settingsAgentId);
 const finalMsg = computed<ChatMessage | null>(() => props.turn.final);
@@ -72,12 +70,7 @@ const finalRenderer = computed(() => {
 // 被整段吞掉）。纯正文轮返回空 → 维持 final 气泡路径。
 const meaningfulSteps = computed(() => chainSteps(props.turn.steps));
 
-// ── 思维链全局可见性（会话头部 switch）：关闭时链体（思考文本/工具卡）不
-//    渲染，但保留 chain-header 摘要（步数/耗时）+ 行首旋转环——隐藏模式下
-//    header 是唯一的活动指示（Agent 正在思考/工作）。 ──
-const visibleSteps = computed(() => (ui.showThinking ? meaningfulSteps.value : []));
-
-const hasChain = computed(() => visibleSteps.value.length > 0);
+const hasChain = computed(() => meaningfulSteps.value.length > 0);
 
 const stepCount = computed(() => meaningfulSteps.value.length);
 
@@ -118,8 +111,6 @@ const liveElapsedMs = computed<number | null>(() => {
 onBeforeUnmount(stopLiveTimer);
 
 const chainLabel = computed(() => {
-  // 摘要按真实步骤口径（meaningfulSteps）：隐藏模式链体不渲染，但 header
-  // 摘要仍须呈现真实步数/耗时（visibleSteps 在隐藏模式下为空）
   const steps = meaningfulSteps.value;
   const cnt = steps.length;
   const first = steps.at(0);
@@ -192,17 +183,13 @@ const senderName = computed(() => {
 
 const isStreaming = computed(() => props.turn.steps.some(s => s.isStreaming));
 
-/** 思维链隐藏模式：轮内确有链活动（思考/工具步被隐藏）→ 保留 chain-header
- *  摘要 + 流式 dots（活动指示），正文只呈现 final（中间口述不渲染） */
-const hiddenChainMode = computed(() => !ui.showThinking && meaningfulSteps.value.length > 0);
-
 /** 纯文本轮 loop 中的尾步流式态（分块渲染路径 + typing indicator）。
  *  final 强生命周期下收束物化时恒非流式——链轮/隐藏轮的流式渲染由
  *  步级 AssistantMessage 的 is-streaming 承担（见模板） */
 const finalIsStreaming = computed(() => !hasChain.value && isStreaming.value && !finalMsg.value);
-// 折叠不受流式过程控制（整链显隐由全局思维链开关承担）：流式中创建的
-// 轮默认展开（实时阅读思考过程——链内工具卡/思考消息各自默认折叠），
-// 历史轮默认折叠；此后仅用户手动切换，收束时不再自动折叠。
+// 折叠不受流式过程控制：流式中创建的轮默认展开（实时阅读思考过程——
+// 链内工具卡/思考消息各自默认折叠），历史轮默认折叠；此后仅用户手动
+// 切换，收束时不再自动折叠。
 // A1 停靠：初始折叠态先取停靠位（用户手动切换过的值），缺席回落默认
 // （流式轮展开/历史轮折叠）。
 const isExpanded = ref(chainExpandInit(props.itemKey ?? '', isStreaming.value));
@@ -217,11 +204,11 @@ const rowIcon = computed(() => {
 
 
 function isThinkingStreamingNow(sIdx: number) {
-  if (!isStreaming.value || sIdx !== visibleSteps.value.length - 1) return false;
+  if (!isStreaming.value || sIdx !== meaningfulSteps.value.length - 1) return false;
   // 思考相位 = 仅思考文本在流入：正文或工具调用任一到场即思考收束
   // （思考消息 label 转「已思考 · XmYs」、思考计时定格——工具执行窗口
   // 不再被误标为思考中）
-  const a = visibleSteps.value[sIdx].assistant;
+  const a = meaningfulSteps.value[sIdx].assistant;
   return !a.content.trim() && !a.toolCalls?.length;
 }
 function toggleExpand() {
@@ -235,7 +222,7 @@ function toggleExpand() {
 const injectsByStep = computed(() => {
   const groups = new Map<number, InjectCard[]>();
   for (const c of props.turn.injects ?? []) {
-    const at = Math.min(c.afterStep ?? 0, visibleSteps.value.length);
+    const at = Math.min(c.afterStep ?? 0, meaningfulSteps.value.length);
     const list = groups.get(at) ?? [];
     list.push(c);
     groups.set(at, list);
@@ -265,9 +252,9 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 <template>
   <div class="turn-item" :class="isSelf ? 'turn-right' : 'turn-left'">
 
-    <!-- ═══ 纯文本（思维链隐藏模式除外——另有专属分支）。final 强生命周期：
-         loop 中悬置 → 渲染流式尾步（与收束后 final 同位）；收束后 → final ═══ -->
-    <template v-if="!hasChain && !hiddenChainMode && plainMsg">
+    <!-- ═══ 纯文本。final 强生命周期：loop 中悬置 → 渲染流式尾步（与收束后
+         final 同位）；收束后 → final ═══ -->
+    <template v-if="!hasChain && plainMsg">
       <!-- 插件 message-view 渲染器优先（仅收束后；内置 user/assistant 无 renderer） -->
       <div v-if="finalRenderer && finalMsg" class="turn-bubble" :class="[isSelf ? 'turn-bubble-right' : 'turn-bubble-left', { 'is-cont': continuation }]">
         <component :is="finalRenderer" :turn="turn" :final="finalMsg" />
@@ -330,7 +317,7 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
         <!-- 挂靠注入卡（afterStep=0 组）：链体展开才构建（与步链同款付费策略）——
              宿主按 kind 查 inject-card:view 席位（cr-765 #4 问答卡） -->
         <InjectCardHost v-for="c in injectsByStep.get(0)" :key="c.key" :card="c" />
-        <template v-for="(step, sIdx) in visibleSteps" :key="stepKey(step, sIdx)">
+        <template v-for="(step, sIdx) in meaningfulSteps" :key="stepKey(step, sIdx)">
           <AssistantMessage
             :message="{ ...step.assistant, content: '', toolCalls: [] }"
             :is-streaming="isThinkingStreamingNow(sIdx)" :show-copy="false" compact
@@ -388,37 +375,6 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
         </div>
       </div>
     </template>
-
-    <!-- ═══ 思维链隐藏：链体（思考/工具/中间口述）一律不渲染，仅保留
-         chain-header 摘要（步数/耗时）+ 行首旋转环作活动指示，正文只呈现
-         final（loop 中悬置 → 只有 header + 环；收束物化 → final 气泡）═══ -->
-    <div v-if="hiddenChainMode" class="turn-chain-row" :class="{ 'is-cont': continuation }">
-      <div v-if="!isSelf && !continuation" class="turn-avatar">
-        <Avatar :src="senderAvatar" :name="senderName" :size="32" fallback-icon="bot" plain-fallback />
-      </div>
-      <div class="turn-chain-col">
-        <div v-if="!isSelf && senderName && !continuation" class="turn-sender-name">{{ senderName }}</div>
-        <div class="chain-header is-static" :class="{ 'chain-streaming': isStreaming }">
-          <!-- 图标位：链活动中 → 琥珀旋转环（静态 header 无折叠语义，无 hover 箭头） -->
-          <span v-if="isStreaming" class="chain-spin-ring" aria-hidden="true"></span>
-          <ThinkingIcon v-else :size="14" class="chain-icon" />
-          <span class="chain-label">{{ chainLabel }}</span>
-        </div>
-        <div v-if="finalMsg && (finalRenderer || finalMsg.content?.trim())" :class="isSelf ? 'turn-bubble turn-bubble-right' : 'turn-bubble turn-bubble-left'">
-          <component v-if="finalRenderer" :is="finalRenderer" :turn="turn" :final="finalMsg" />
-          <AssistantMessage
-            v-else
-            :message="finalMsg" :is-streaming="finalIsStreaming"
-            :show-actions="showActions"
-            :show-fork="showFork"
-            @preview-file="(fp: string) => emit('previewFile', { filePath: fp, agentId: props.turn.agent_id, conversationId: props.conversationId })"
-            @regenerate="canRegenerate && showActions ? emit('regenerate', finalMsg.id) : undefined"
-            @delete-message="canRegenerate && showActions ? emit('deleteMessage', finalMsg.id) : undefined"
-            @fork="finalMsg?.persistedMsgId ? emit('forkFromMessage', finalMsg.persistedMsgId) : undefined"
-          />
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
@@ -560,8 +516,4 @@ function stepKey(step: { assistant: { id: string; timestamp: number } }, sIdx: n
 .chain-step-content {
   display: flex; flex-direction: column; gap: 10px;
 }
-
-/* 思维链隐藏模式的静态链栏头部：无折叠目标——指针/悬停反馈不适用 */
-.chain-header.is-static { cursor: default; }
-.chain-header.is-static:hover { background: transparent; color: var(--text-2); }
 </style>

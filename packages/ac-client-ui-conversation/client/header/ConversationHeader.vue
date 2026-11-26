@@ -2,13 +2,14 @@
 // ============================================================
 // client/header/ConversationHeader.vue —— 会话头部（conversation-view-split-plan ②
 // 自 ConversationView template+style 平迁：pair 双端点头 / 标题+预设徽标 /
-// 思维链开关 / conversation:header-widget 席位 / 归档·忙碌反馈 chip 悬挂锚 /
+// 视图档切换（cr-1338 思维链开关退役后头部唯一 switch）/
+// conversation:header-widget 席位 / 归档·忙碌反馈 chip 悬挂锚 /
 // 窄屏 hamburger。store 与 inject 就地取（全局单例 / 跨层级注入成立——
 // 祖先 shell → 后代 header 方向不变）；头部派生事实（title / presetChipLabel /
 // ownerData）经 props 由视图的 identity 层喂入。
 // ============================================================
 import { computed, inject } from 'vue';
-import { Avatar, Icon, FeedbackNotice, ThinkingIcon, Tooltip } from '@agentchat/webui-kit';
+import { Avatar, Icon, FeedbackNotice, Tooltip } from '@agentchat/webui-kit';
 import SlotOutlet from 'ac-client-ui-renderer/client/SlotOutlet.vue';
 import { useChatStore } from '../chatStore.ts';
 import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
@@ -137,34 +138,19 @@ const headerBusyFeedback = computed(() =>
         </Tooltip>
       </div>
       <div class="header-actions">
-        <!-- 思维链显示开关（全局 switch）：隐藏后思考文本、工具卡片与折叠栏
-             整体不渲染，消息区仅显示正文回复。图标内嵌滑块（随开合滑动，
-             关 = 灰/开 = 主色）——图标不再外置，压缩按钮整体宽度 -->
-        <Tooltip :text="ui.showThinking ? '思维链：显示中 · 点击隐藏（思考与工具轨迹）' : '思维链：已隐藏 · 点击显示'" placement="bottom">
-          <button
-            class="thinking-switch"
-            :class="{ on: ui.showThinking }"
-            role="switch"
-            :aria-checked="ui.showThinking"
-            :aria-label="ui.showThinking ? '思维链：显示中 · 点击隐藏（思考与工具轨迹）' : '思维链：已隐藏 · 点击显示'"
-            @click="ui.setShowThinking(!ui.showThinking)"
-          >
-            <span class="thinking-switch-track"><span class="thinking-switch-knob"><ThinkingIcon :size="12" class="thinking-switch-icon" /></span></span>
-          </button>
-        </Tooltip>
-
         <!-- 视图档切换（cr-1326 dual-view）：轨迹 ⇄ IM（投递事实流）——
-             群形态隐藏（群即 IM）；pair/single 形态常驻 -->
+             群形态隐藏（群即 IM）；pair/single 形态常驻。cr-1338 思维链全局
+             开关退役（IM 档取代其职责）后，头部唯一 switch -->
         <Tooltip v-if="!isGroup" :text="viewModeIm ? 'IM 视图 · 点击切换轨迹（思考与工具过程）' : '轨迹视图 · 点击切换 IM（只看消息往来）'" placement="bottom">
           <button
-            class="thinking-switch"
+            class="view-switch"
             :class="{ on: viewModeIm }"
             role="switch"
             :aria-checked="viewModeIm"
             :aria-label="viewModeIm ? 'IM 视图' : '轨迹视图'"
             @click="toggleView"
           >
-            <span class="thinking-switch-track"><span class="thinking-switch-knob"><Icon :name="viewModeIm ? 'message-circle' : 'list'" :size="12" /></span></span>
+            <span class="view-switch-track"><span class="view-switch-knob"><Icon :name="viewModeIm ? 'message-circle' : 'list'" :size="12" /></span></span>
           </button>
         </Tooltip>
 
@@ -259,21 +245,22 @@ const headerBusyFeedback = computed(() =>
 
 .header-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; align-self: stretch; }
 
-/* ── 思维链显示开关（图标内嵌滑块的 pill switch；全局生效，localStorage 持久化）── */
-.thinking-switch {
+/* ── 视图档切换开关（图标内嵌滑块的 pill switch；per-会话生效）——
+   cr-1338 思维链全局开关退役，类名由其让位（原 .thinking-switch）── */
+.view-switch {
   display: flex; align-items: center;
   background: none; border: none; cursor: pointer; flex-shrink: 0;
   color: var(--text-2); padding: 6px 8px; border-radius: var(--radius-sm);
   transition: color 0.15s;
 }
-.thinking-switch:hover { background: var(--bg-surface); color: var(--text-1); }
-.thinking-switch-track {
+.view-switch:hover { background: var(--bg-surface); color: var(--text-1); }
+.view-switch-track {
   position: relative; width: 32px; height: 18px; flex-shrink: 0;
   border-radius: var(--r-full, 999px);
   background: var(--line-strong);
   transition: background 0.2s ease;
 }
-.thinking-switch-knob {
+.view-switch-knob {
   position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 50%; background: var(--switch-knob);
@@ -281,11 +268,10 @@ const headerBusyFeedback = computed(() =>
   color: var(--text-3);
   transition: transform 0.2s ease, color 0.2s ease;
 }
-/* 内嵌图标：关 = 灰（未显示思维链）/ 开 = 主色白底反色（图标以主色呈现在白滑块上） */
-.thinking-switch-icon { display: block; line-height: 0; }
-.thinking-switch.on { color: var(--primary); }
-.thinking-switch.on .thinking-switch-track { background: var(--primary); }
-.thinking-switch.on .thinking-switch-knob { transform: translateX(14px); color: var(--primary); }
+/* 内嵌图标：关 = 灰（轨迹档）/ 开 = 主色白底反色（图标以主色呈现在白滑块上） */
+.view-switch.on { color: var(--primary); }
+.view-switch.on .view-switch-track { background: var(--primary); }
+.view-switch.on .view-switch-knob { transform: translateX(14px); color: var(--primary); }
 
 /* 会话头预设徽标＝ui-badge tag + tt-base 色相（形状/配色归 kit 徽章族，此处只留专属修饰） */
 .preset-chip { margin-left: 8px; }

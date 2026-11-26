@@ -90,6 +90,7 @@
 | P3 IM 行为契约 | ☑ cr-1327 2026-11-26 | DIRECT_IM_CONTRACT 段（1v1 viewer 对桶 + send_agent 在场时注入——mid-run 主动通报教育，双轨并存：普通回复仍走终稿直出）；段位 356 登记 SECTION_ORDER；缺席探针裁决不加（契约效果属产品观测非正确性，兜底 = 现状 postReply 机制天然在场） | 契约段判定 3 例 + 全量 3756 例 | 零 send_agent 的 run 终稿仍达 user（postReply 现状保证）；契约教育增量能力不破坏现状回复 |
 | P4 群轨迹读口（R2 解冻） | ☑ cr-1328 2026-11-26（P4a）；P4b 群直播过程流留观 | P4a：fetchPairHistory convKey 原序键 + openMemberStream + 群头「成员轨迹…」下拉 → openPairView(gid, member) 只读视角（思维链/工具卡/折叠栏全套复用）；P1 已解历史面（steps 随 group/history 刷新不丢） | member-trace 2 例 + 411 例 + 双构建 | 群成员思维链/工具卡下钻可见（历史面 + 下钻面）；P4b（群内直播过程流）按裁决留观——串台史风险 + P1 历史面已解主诉求 |
 | P5 读口泛化收口 | ☑ cr-1329 2026-11-26（定界裁决：本批不做） | 核对结论：pair 读口已并 session/history（fetchPairHistory = 薄包装）；group 合并器保持独立（多流合并语义——不是待并债务）；DialogKind 群特判保留 = P4b 留观的正确事实表达（群无 run 临时态，早退仍正确） | 定界裁决记录 | 群特判退役的前置条件 = P4b；为做而做的泛化违反体量克制（写完即精简原则） |
+| P6 语境路由完成体 | ☑ cr-1339 2026-11-26 | send_agent(user) 按 call.conversationId 键形归一落桶：uuid 形 → single 桶直投（修错桶 bug——此前 pairKey 落 1v1 对桶，mid-run 通报静默丢失）；群语境 → fail-loud 引导 send_group；agent~agent 委托桶 → fail-loud 拒绝（用户裁决：中途向用户冒话语义未定义）。send_group group_id 缺省化（群语境缺省当前群）。DIRECT_IM_CONTRACT 判据扩 uuid 形。直播/未读轴同批归一（host-web + 前端 unreadStore——single 桶未读不再误记对桶轴）。**send_user 新工具方案否决**（双通道歧义 + 静态 schema × 多态行为错配）。cr-1342：collab-tools 行升基础行集（预设模板 + 存量 patch）并改名 **messaging-tools** | context-routing 11 例 + direct-im 扩 2 例 + 全仓 unit + 双构建 | single 会话 IM 视图即时可见 mid-run 通报；群内/委托误用显式报错自愈 |
 
 顺序依赖：P1 → P4 可并行；P2 → P3 顺序；P5 最后（P1-P4 稳定后收口）。
 
@@ -102,8 +103,9 @@
 | 3 | 双轨终稿/消息内容漂移 | 定义为特性（终稿=内部结论，消息=选择说的话）+ UI 互跳；不是对账问题 |
 | 4 | 同触发兄弟视觉归因 | 线性轴上「谁在回应哪句话」的线索（回应标记/聚拢提示）留给交互设计裁决 |
 | 5 | ~~注释矛盾校准~~ | ☑ cr-1329 已校准（singles-row 头注改述 cr-973 后的事实：元数据写者 = 本行，消息流写者 = 壳侧 agent 域账本） |
-| 6 | **im 档排除法 → 白名单（用户裁决 2026-11-26）** | ☑ cr-1332 已实施（2026-11-26）：写面打标（入站/出站 `delivered:true`、终稿 origin 门控 `delivered:'final'` 独特值——用户裁决便于观察；机制/notice 缺省不打标）+ 读侧 im 档会话级白名单/排除法回退双模（存量零迁移）。裁决与实施详情见 `im-delivered-flag-handoff.md` §2.3 |
+| 6 | **im 档排除法 → 白名单（用户裁决 2026-11-26）** | ☑ cr-1332 已实施（2026-11-26）：写面打标（入站/出站 `delivered:true`、终稿 origin 门控 `delivered:'final'` 独特值——用户裁决便于观察；机制/notice 缺省不打标）+ 读侧 im 档会话级白名单/排除法回退双模（存量零迁移）。**cr-1344 增量**：agent→user 出站行退役（user 桩落 user 域入站行 `delivered:true`——IM 的 agent 消息从 user 域取；谓词单源 foldUserReplay 并源 projectUserReplay）。裁决与实施详情见 `im-delivered-flag-handoff.md` §2.3 |
 | 7 | **用户参与注入行并入 IM（用户裁决 2026-11-26——cr-1333）** | ☑ 已实施：steer 插话/ask 作答（outcome=answered）在 `loop/inject-consumed` 落账点打 `delivered:true`（词表 `USER_PARTICIPATION_INJECT`——材料注入/超时通知不打）；白名单模式注入行随值直取进 IM 档 |
+| 8 | **工具面形态裁决（用户 2026-11-26——cr-1339）** | ☑ 已实施：send_user 新工具否决（双通道歧义——send_agent(user) 不收窄则选择面变大、收窄则净复杂度不降反升；工具卡静态 schema × 会话漂移行为错配；群分支无独立语义）；采纳**语境路由完成体**（to=user 落桶随会话键形归一 + send_group 缺省化 captured 群分支收益）。观察触发线不设——行为数据由 admin 定期收集分析（非 agent 自观测）。agent~agent 委托桶 fail-loud（用户裁决）。 |
 
 ## 六、运行时验证记录（2026-11-26 走查）
 
@@ -112,7 +114,7 @@
 | 项 | 观测 | 判定 |
 |---|---|---|
 | 前端产物装载 | 页面 200 / 控制台零 error / 零失败请求 | ☑ 双构建产物正确 |
-| 视图切换控件 | `.thinking-switch` 两枚（思维链 + 视图档），轨迹态标签「轨迹视图」 | ☑ P2 控件上屏 |
+| 视图切换控件 | `.thinking-switch` 两枚（思维链 + 视图档），轨迹态标签「轨迹视图」——**cr-1338 思维链开关退役后仅余视图档一枚**（`.view-switch`） | ☑ P2 控件上屏 |
 | 切换真实生效 | 点切换：标签 → 「IM 视图」，`.chain-icon` 6 → 2（轨迹折叠链按 im 档剥 steps 归并）；切回：标签复原、链恢复 6 | ☑ im 档投影端到端成立（含双向可逆） |
 | 群成员下钻下拉 | 群会话内实地验证（cr-1330）：选中成员 → pair 只读视角（42 条消息 + 2 条轨迹链 / `只读` 徽标 / 标题带群名）。**走查期修掉两个真缺陷**：① 模板表达式内 TS `as` 断言致 `member` 恒空串 → `openPairView(gid, '')` → 主区掉空态（改为事件签名 `@change="openMemberTrace"`，取值与占位复位归 script）；② 下钻标题裸露内部 gid（`pairView.label` 承载群名 + header `epA` 消费）。可发现性同步改善：胶囊样式 + `成员轨迹 ▾` + hover 高亮 + tooltip | ☑ |
 | 源码装载面 | `fold.ts` im 档 / `groups-row.ts` memberViewOf / `ac-collab-tools` DIRECT_IM_CONTRACT 三处均在活源码 | ☑ 装载无漂移 |

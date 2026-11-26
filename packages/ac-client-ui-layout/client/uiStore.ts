@@ -73,9 +73,6 @@ const AUX_PANEL_KEY = 'agentchat.auxPanel';
 /** aux 宽度持久化键（用户拖调/铺开过的宽度；刷新保持分屏比例） */
 const AUX_WIDTH_KEY = 'agentchat.auxWidth';
 
-/** 思维链显示开关持久化键（'1' 显示 / '0' 隐藏；默认显示） */
-const SHOW_THINKING_KEY = 'agentchat.showThinking';
-
 /** 列表槽位页面：agents = Agent/群组列表，sessions = 会话列表，tracking = 运行跟踪（清单面板） */
 type ListPanelId = 'agents' | 'sessions' | 'tracking';
 
@@ -88,12 +85,6 @@ function loadPrimaryPanel(): ListPanelId {
     const v = localStorage.getItem(PRIMARY_PANEL_KEY);
     return v === 'sessions' || v === 'tracking' ? v : v === 'agents' ? v : DEFAULT_PRIMARY_PANEL;
   } catch { return DEFAULT_PRIMARY_PANEL; }
-}
-
-function loadShowThinking(): boolean {
-  try {
-    return localStorage.getItem(SHOW_THINKING_KEY) !== '0';
-  } catch { return true; }
 }
 
 /** 持久化 aux 选区（null 清除——回落谓词选举也记下，刷新一致） */
@@ -131,9 +122,6 @@ export const useUiStore = defineStore('ui', () => {
    *  tracking = 运行跟踪清单面板；初始化自 localStorage（刷新保持），切换时写回。
    *  标准模型：活动栏只换侧边栏面板，不直接决定主区 */
   const primaryPanel = ref<ListPanelId>(loadPrimaryPanel());
-  // ── 思维链可见性（全局开关）：关闭后整条思维链不渲染（思考文本、工具
-  //    卡片与折叠栏一并隐藏，仅显示正文回复），刷新保持；由会话头部 switch 切换 ──
-  const showThinking = ref(loadShowThinking());
   // ── 主区「运行矩阵」视图（大画布）：由清单面板入口打开；选中 Agent/群/会话时让位回聊天 ──
   const trackingViewVisible = ref(false);
   // ── 主区「Agent 会话对」只读视角（pair）：矩阵格子/面板运行中行点击进入，
@@ -377,12 +365,6 @@ export const useUiStore = defineStore('ui', () => {
     sendAuxIntent('usage');
   }
 
-  /** 设置思维链可见性（全局；写回 localStorage 刷新保持） */
-  function setShowThinking(v: boolean) {
-    showThinking.value = v;
-    try { localStorage.setItem(SHOW_THINKING_KEY, v ? '1' : '0'); } catch { /* ignore */ }
-  }
-
   function openVersion() { versionVisible.value = true; }
   function closeVersion() { versionVisible.value = false; }
 
@@ -464,7 +446,6 @@ export const useUiStore = defineStore('ui', () => {
     // 面板
     primaryVisible, primaryWidth, primaryPanel,
     narrow: narrowRef, mobileMainOpen, pushMainIfNarrow, closeMobileMain,
-    showThinking, setShowThinking,
     trackingViewVisible, pairView, subagentView,
     auxVisible, auxWidth, auxPanel, auxPaneStyle, openAuxPanel, closeAux,
     globalSettingsVisible, settingsAgentTarget, settingsSectionTarget, agentEditorDirty,

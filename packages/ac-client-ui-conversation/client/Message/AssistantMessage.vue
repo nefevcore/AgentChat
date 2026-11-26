@@ -3,7 +3,6 @@
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { useMarkdown } from 'ac-client-ui-renderer/client/useMarkdown.ts';
 import { useChunkedMarkdown } from '../useChunkedMarkdown.ts';
-import { useUiStore } from 'ac-client-ui-layout/client/uiStore.ts';
 import { Avatar, Icon, IconAction, Tooltip } from '@agentchat/webui-kit';
 import { fmtElapsed } from '../feed.ts';
 import type { ChatMessage } from '../types.ts';
@@ -84,10 +83,6 @@ const hasThinking = computed(() => {
     return rc.trim().length > 0;
 });
 
-// ── 思维链全局可见性（会话头部 switch）：关闭时思考区整体不渲染 ──
-const ui = useUiStore();
-const thinkingVisible = computed(() => ui.showThinking);
-
 const hasOnlyThinking = computed(() => {
     return hasThinking.value && (!props.message.content || props.message.content.trim() === '');
 });
@@ -101,9 +96,8 @@ const hasContent = computed(() => {
 const deliveredFinal = computed(() => props.message.delivered === 'final');
 
 // ── 思考消息折叠态与 label ──
-// 折叠不受流式过程控制（整链显隐由全局思维链开关承担）：默认折叠（与
-// 链内工具卡一致——链栏流式默认展开时，折叠态 label 以预览文本实时反映
-// 思考进展），仅用户点击切换。
+// 折叠不受流式过程控制：默认折叠（与链内工具卡一致——链栏流式默认展开
+// 时，折叠态 label 以预览文本实时反映思考进展），仅用户点击切换。
 const showThinking = ref(false);
 
 // 行首图标位：hover 换折叠方向箭头，平时保持思考涟漪图标（与
@@ -307,7 +301,7 @@ watch(messageRoot, (el, oldEl) => {
 // 在思维链 flex gap 中产生多余空隙（微妙错位）→ 整个节点不渲染。
 // （流式活动指示统一由链栏 header 的 dots 承担，本组件不再渲染
 //  typing dots/typing indicator）
-const shouldRender = computed(() => (hasThinking.value && thinkingVisible.value) || hasContent.value);
+const shouldRender = computed(() => hasThinking.value || hasContent.value);
 
 // 判断是否为错误消息
 const isError = computed(() => props.message.isError === true);
@@ -352,8 +346,8 @@ onBeforeUnmount(() => {
                 <!-- ① 名称 -->
                 <div v-if="senderName" class="sender-name">{{ senderName }}</div>
 
-                <!-- ② 思考过程（受全局思维链开关控制）：图标位 hover 切换折叠箭头 -->
-                <div v-if="hasThinking && thinkingVisible" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
+                <!-- ② 思考过程：图标位 hover 切换折叠箭头 -->
+                <div v-if="hasThinking" class="think-content-section" :class="{ 'in-group': compact, 'no-content-below': hasOnlyThinking && !isStreaming }">
                     <div
                         class="think-content-label"
                         @click="toggleThinking()"

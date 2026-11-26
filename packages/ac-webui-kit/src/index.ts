@@ -7,7 +7,9 @@
 //             无 Dropdown/Label/PickTag——配方在 css，容器件零消费不设）
 //   feedback/ 语义反馈 FeedbackNotice + 全局 Toast（toast.ts 单例 + ToastHost 渲染半件）
 //   star/     L2 组合件 StarAvatar（StarCard/PulseTrace cr-116 判零消费、cr-327 补执行）
-//   icons/    思维链图标族 ThinkingIcon + icons.ts 注册表（后者不进本入口，见尾注）
+//   icons/    图标族 ThoughtIcon（涟漪）+ icons.ts 注册表（ThinkingIcon 住注册表
+//             chain 名内部消费——cr-1338 头部开关退役后无独立导出面；注册表
+//             不进本入口，见尾注）
 //   根级      纯函数 format.ts / starColor.ts
 //
 // 风格规范与逐组件对照表：.dsh/skills/agentchat-dev/references/webui-style.md
@@ -58,8 +60,8 @@ export {
 } from './feedback/toast.ts';
 
 export { default as StarAvatar } from './star/StarAvatar.vue';
-export { default as ThinkingIcon } from './icons/ThinkingIcon.vue';
-// ThoughtIcon（涟漪）：思考行图标位专用——与 ThinkingIcon 分工见该文件头注
+// ThoughtIcon（涟漪）：思考行图标位专用——与 ThinkingIcon（chain 名经
+// icons.ts 注册表消费，cr-1338 起不独立导出）分工见该文件头注
 //（cr-327 曾误判重复归并，cr-333 恢复）
 export { default as ThoughtIcon } from './icons/ThoughtIcon.vue';
 

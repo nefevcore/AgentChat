@@ -28,7 +28,8 @@
 | 控件 | 消费面 | 判定（已执行） |
 |---|---|---|
 | Icon | 46 文件 | 保留（底座） |
-| Modal / Button / Avatar / StarAvatar / starColor / Sheet / PullToRefresh / ThinkingIcon / formatDurationMs / formatFileSize / formatRelativeTime / StatusDot / Tooltip / FeedbackNotice / ToastHost+toast() / RingProgress | 各 1-39 文件 | 保留 |
+| Modal / Button / Avatar / StarAvatar / starColor / Sheet / PullToRefresh / formatDurationMs / formatFileSize / formatRelativeTime / StatusDot / Tooltip / FeedbackNotice / ToastHost+toast() / RingProgress | 各 1-39 文件 | 保留 |
+| ThinkingIcon | 2026-11-26 起零直接消费（cr-1338 头部思维链开关退役） | 组件文件保留（icons.ts `chain` 名内部消费）；独立导出已撤 |
 | StarCard / PulseTrace | **0** | **已删除**（零消费预留原语） |
 
 ### 2.2 删减清单（已全部执行）

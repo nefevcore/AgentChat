@@ -6,6 +6,10 @@ All notable changes to AgentChat are documented in this file.
 
 ## [Unreleased]
 
+### Removed（前端思维链显示/隐藏全局开关退役——IM 视图档取代，cr-1338）
+- 「思维链：显示中/已隐藏」全局 switch（头部 ThinkingIcon 按钮 + `uiStore.showThinking` + localStorage `agentchat.showThinking`）整链删除：IM 视图档（cr-1326 dual-view）已覆盖同需求（投递事实流视角），第二套控制源退役。渲染消费点同步简化：TurnDisplayItem 删 `hiddenChainMode` 专属分支与 `visibleSteps` 门控（链体恒按 meaningfulSteps 渲染）；AssistantMessage 删 `thinkingVisible` 门控（思考区恒按内容在场渲染）；头部类名 `thinking-switch` 让位 `view-switch`（视图档开关独占样式族）。ThinkingIcon 组件文件保留（icons.ts `chain` 名内部消费），kit 独立导出面撤销。
+- 测试：ui-store.test.ts 删 showThinking 持久化用例（键已废）。文档：dual-view-session-plan.md §六、webui-standard-controls.md §2.1、webui-style.md icons 节同步。
+
 ### Fixed（邮局 dispatch 失败静默吞 + ipc 无超时：done-reply 回信永挂、三壳 busy 泄漏「假运行中」，cr-1046）
 - 现场：「运行跟踪」三个会话（designer~news / neko~neko / news~news）运行中十余小时——run 早已 settle（同 run 同时在 runs 与 recentSettled），news 积压 20 封轮巡信无人消费。三层根因叠加：① 子 Agent 完成回执唤醒的 run，终稿 `postReply(to=user)` 信封 uuid 沿用原会话键，邮局 registry 参与者校验判 conflict（[designer,news] 已登记 vs [news,user] 换集）→ dispatch throw；② `listenIpc` 的 onFrame reject 静默吞错不回帧（注释自称「发送方超时重发兜底」但该超时从未实现）；③ `IpcClient.request` 无超时。三层叠加 = postReply 永挂 → `driveRun` finally 永不执行 → `activeRuns` 泄漏、busy 永真、链跑队列死寂。
 - 修法断根三处：① `ipc.ts` onFrame 失败（含同步 throw——原裸调直接炸 data handler）回 `__ipcReject` 错误帧 + request 识别转 reject + 缺省 15s 超时（`timeoutMs` 覆盖；orchestrator manageCall 显式传管理帧拍长，防长帧误杀）；② `postReply` 投 user 的通知 uuid 改 `pairKey(agentId,'user')` 对桶键（user⇄agent 通道语义正确；1v1 会话两键同值行为不变，registry 防线语义不动）；③ 回归锚 ipc-cr1046（错误帧/超时/谓词穿透 4 例）+ registry-cr1046（conflict 防线不放宽 3 例）+ service cr-1046（对桶键 e2e）。

@@ -50,7 +50,7 @@ const toggle = () => { if (canExpand()) isExpanded.value = !isExpanded.value; };
 const isLoading = () => !props.card.content && !!props.card.bytes;
 const fmtKB = (n: number) => (n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
 
-// 原文态会话持久化（showThinking 键式同款）：一次选择对全部注入卡生效
+// 原文态会话持久化（localStorage 键式）：一次选择对全部注入卡生效
 const RAW_KEY = 'agentchat.injectRaw';
 const showRaw = ref((() => { try { return localStorage.getItem(RAW_KEY) === '1'; } catch { return false; } })());
 function onToggleRaw(raw: boolean) {

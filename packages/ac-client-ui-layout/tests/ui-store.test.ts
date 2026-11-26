@@ -6,7 +6,7 @@
 //   · 主区导航互斥（openTrackingView/openPairView/openSubagentView/
 //     exitOverlays 单点互斥 + 窄屏 push）
 //   · aux 宽度形态解析（applyAuxPanelWidth：half/number/缺省三态）
-//   · localStorage 持久化往返（primaryPanel/auxPanel/auxWidth/showThinking）
+//   · localStorage 持久化往返（primaryPanel/auxPanel/auxWidth）
 //   · resize 数学边界（MIN/maxAux 钳制 + 让位阈 + 双击还原 = 导出常量）
 // node 环境（jsdom 的 URL 垫片与 node:url 不兼容——同包内既有测试）。
 // ============================================================
@@ -191,16 +191,6 @@ describe('持久化往返（localStorage 刷新保持）', () => {
     expect(ui2.primaryPanel).toBe('tracking');
   });
 
-  it('showThinking 默认显示；关闭写回且重载保持', () => {
-    const ui = useUiStore();
-    expect(ui.showThinking).toBe(true); // 默认
-    ui.setShowThinking(false);
-    expect(store.get('agentchat.showThinking')).toBe('0');
-    setActivePinia(createPinia());
-    const ui2 = useUiStore();
-    expect(ui2.showThinking).toBe(false);
-  });
-
   it('auxWidth 超界回落 DEFAULT_AUX（脏值防御）', () => {
     store.set('agentchat.auxWidth', '99999');
     setActivePinia(createPinia());
@@ -209,7 +199,7 @@ describe('持久化往返（localStorage 刷新保持）', () => {
   });
 });
 
-describe('杂项 · 全局面板与思维链', () => {
+describe('杂项 · 全局面板', () => {
   it('openGlobalSettings 定位页签（/timer 快捷命令入口）；openAgentSettings 定位 Agent', () => {
     const ui = useUiStore();
     ui.openGlobalSettings('sys.timer');
