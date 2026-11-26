@@ -1356,4 +1356,12 @@
 - 【cr-1335 2026-11-26 cr-1335 修 IM 视图两反馈：steer 误打标加 sender 门 + 白名单放行 user 入站行 + 存量 4 条误标迁移清洗】
 - 【cr-1336 2026-11-26 cr-1335 补：host 侧 session/history 投影走宿主进程 ac-ledger——改 fold 后需 restart_host（壳重启不覆盖）+ 再清洗新落误标 1 条】
 - 【cr-1337 2026-11-26 IM 视图前端面：切档请求竞态（reqId 并入视图档 + 档位校验）+ 直播过程帧 IM 门控（step/journaled·工具卡·注入卡·error 红条）】
+- 【cr-1338 2026-11-26 前端思维链显示/隐藏开关退役删除（IM 视图取代）：uiStore showThinking + 头部开关 + 渲染门控 + kit 导出面】
+- 【cr-1339 2026-11-26 send_agent(user) 语境路由：single 桶直投 + 群/委托桶 fail-loud 引导 + send_group group_id 缺省化（语境路由完成体方案）】
+- 【cr-1340 2026-11-26 collab-tools 装配为用户基础行集：shell.patch.yml 增补 collab-tools 行（ctx 修复「顶层非数组」存量形态——纯注释文件转合法数组文档）】
+- 【cr-1341 2026-11-26 collab-tools 列入预设模板基础行集（standard/creator/abap-dev 三模板 + 存量预设 patch 同步；dsh-minimal 保持极简不加）】
+- 【cr-1342 2026-11-26 collab-tools 行改名 messaging-tools：包目录 + ac.rows id + row/tool-catalog 重生成 + 17 存量 patch id/指纹迁移 + 模板/测试/文档同步（dsh-minimal 不涉）】
+- 【cr-1343 2026-11-26 user 域账本对称化立项：agent→user 投递改落 user 域（user 桩唯一写者 + 读时投影并读），sender 出站行退役、tool 对承载 sender 工作记忆——设计档 user-domain-ledger-plan.md】
+- 【cr-1344 2026-11-26 user 域账本对称化：user 桩成 user 域唯一写者、agent→user 出站行退役（cr-1343 计划实施）】
+- 【cr-1345 2026-11-27 busy 用户排队信消费点落账（对称补全 cr-971/cr-1119 第三轨：消除到达序落账插进在途 run 步流的交错）】
 
