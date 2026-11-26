@@ -30,9 +30,14 @@ function axisKeyOfFrame(type: string, args: unknown[]): string | undefined {
     return typeof gid === 'string' && gid ? gid : undefined;
   }
   if (type === 'router/message-received') {
-    const agentId = args[0];
+    const [agentId, , conversationId] = args as [string?, unknown?, string?];
     if (typeof agentId !== 'string' || !agentId) return undefined;
-    // 私信轴 = viewer⇄agent 对桶（判据单源 ac-wire-format）
+    // 私信轴：cr-1339 语境路由后帧带会话键（single 桶原键 / viewer 对桶）
+    // ——uuid 直用（single 会话轴）、pair 直用；键缺席（旧帧）回落
+    // viewer⇄agent 对桶（判据单源 ac-wire-format 的 unreadAxisKeyOf）。
+    if (typeof conversationId === 'string' && conversationId) {
+      return unreadAxisKeyOf(agentId, conversationId, VIEWER);
+    }
     return userPairAxisKey(agentId, VIEWER);
   }
   if (type === 'run/settled') {

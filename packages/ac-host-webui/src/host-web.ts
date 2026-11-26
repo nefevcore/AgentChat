@@ -171,11 +171,15 @@ export async function attachWebSurface(ctx: Context, options: WebRingOptions): P
     ctx.emit('ledger/viewer-appended', uuid);
   }, (agentId, text, requestId, uuid) => {
     ctx.webServer.broadcast('router/message-received', {
-      args: [agentId, { role: 'user', content: text, message_id: requestId }, uuid, agentId, 'agent'],
+      // cr-1332：投递直播帧透传 delivered（入站直播行判据——与重拉读面同词；
+      // cr-1344：重拉读面同词的落盘行 = user 桩的 user 域入站行，非出站行）
+      args: [agentId, { role: 'user', content: text, message_id: requestId, delivered: true }, uuid, agentId, 'agent'],
     });
     // cr-1157 独立私信未读计数：幂等键 = requestId（邮局重投不双计）。
-    // 会话键 = viewer⇄agent 对桶轴（与前端 feed 分区键同构，判据单源）。
-    bumpUnread(options.dataRoot, userPairAxisKey(agentId), requestId);
+    // cr-1339 语境路由后 uuid = 投递目标会话键（single 桶原键或 viewer 对桶）：
+    // 轴键 = uuid 键直用（single 会话轴，unreadAxisKeyOf 同词法）/ pair 键
+    // 直用（对桶轴），不再硬归对桶轴——single 桶投递记错轴即徽章亮在别处。
+    bumpUnread(options.dataRoot, unreadAxisKeyOf(agentId, uuid) ?? userPairAxisKey(agentId), requestId);
     // cr-1185：独立私信入站行落账即入账（uuid = 独立会话键）
     scheduleIndexRefresh(uuid);
   });

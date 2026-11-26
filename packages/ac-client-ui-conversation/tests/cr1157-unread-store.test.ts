@@ -39,9 +39,13 @@ describe('unreadStore（cr-1157 前端面）', () => {
     // live 帧：settled（single uuid 轴直用）
     s.emit('run/settled', [{ agent: 'alpha', conversationId: '11111111-2222-3333-4444-555555555555', run: 'r1' }]);
     expect(store.counts.value['11111111-2222-3333-4444-555555555555']).toBe(1);
-    // 私信轴 = pairKey(agent,user)
-    s.emit('router/message-received', ['alpha', { role: 'user', content: 'hi', message_id: 'm1' }, 'conv', 'alpha']);
+    // 私信轴：帧带真实会话键（cr-1339 语境路由——pair 直用对桶轴 / uuid 直用 single 轴）
+    s.emit('router/message-received', ['alpha', { role: 'user', content: 'hi', message_id: 'm1' }, 'alpha~user', 'alpha']);
     expect(store.counts.value['alpha~user']).toBe(3);
+    // single 桶私信（uuid 键）→ single 轴（此前硬编码对桶轴 = 记错轴，cr-1339 修）
+    s.emit('router/message-received', ['alpha', { role: 'user', content: 'hi2', message_id: 'm3' }, '22222222-3333-4444-5555-666666666666', 'alpha']);
+    expect(store.counts.value['22222222-3333-4444-5555-666666666666']).toBe(1);
+    expect(store.counts.value['alpha~user']).toBe(3); // single 桶帧不误记对桶轴
     // 群轴 = gid
     s.emit('group/message-posted', ['g-1', { id: 'm2', from: 'beta' }]);
     expect(store.counts.value['g-1']).toBe(2);
