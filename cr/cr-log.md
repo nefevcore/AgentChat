@@ -1351,4 +1351,9 @@
 - 【cr-1330 2026-11-26 dual-view P4a 修复：群成员下钻模板 TS 断言致 member 空串（主区掉空态）+ 下拉可发现性改善 + 下钻标题不裸露 gid（pairView.label）】
 - 【cr-1331 2026-11-26 dual-view P4b-lite：IM 视图纯净化——机制 run 终稿 origin 分流（fold imRow + events-core origin 透传）+ im 档直播过程帧抑制（口述/思考/工具卡不建行，收束重拉补终稿）】
 - 【cr-1332 2026-11-26 dual-view IM 白名单方案立项（投递标记 delivered 行集）+ 交接——取代排除法过滤（用户裁决 2026-11-26：新机制类型缺省不打标不进 IM，零维护）】
+- 【cr-1333 2026-11-26 IM 白名单扩围：steer 插话与 ask 作答（用户参与消息）注入行打标进 IM 档——用户裁决 2026-11-26】
+- 【cr-1334 2026-11-26 调整前端 IM 视图：仅投影 delivered:true 行，终稿行(delivered:final)不再投影】
+- 【cr-1335 2026-11-26 cr-1335 修 IM 视图两反馈：steer 误打标加 sender 门 + 白名单放行 user 入站行 + 存量 4 条误标迁移清洗】
+- 【cr-1336 2026-11-26 cr-1335 补：host 侧 session/history 投影走宿主进程 ac-ledger——改 fold 后需 restart_host（壳重启不覆盖）+ 再清洗新落误标 1 条】
+- 【cr-1337 2026-11-26 IM 视图前端面：切档请求竞态（reqId 并入视图档 + 档位校验）+ 直播过程帧 IM 门控（step/journaled·工具卡·注入卡·error 红条）】
 
